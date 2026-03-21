@@ -18,6 +18,19 @@ jobs:
       - name: Run tests
         run: make CC=${{ matrix.cc }} test
 
+  test-sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run tests (ASan + UBSan)
+        run: |
+          make CC=clang test \
+            CFLAGS="-Wall -Wextra -std=c11 -g \
+              -fsanitize=address,undefined \
+              -fno-omit-frame-pointer \
+              -Wno-initializer-overrides"
+
   build-raylib:
     runs-on: ubuntu-latest
     steps:
