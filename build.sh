@@ -3,6 +3,19 @@
 set -xe
 
 DEMO_DIR=./demos
+CC=${CC:-clang}
+
+case "$(basename "$CC")" in
+    *gcc*)
+        WARN_SUPPRESS=-Wno-override-init
+        ;;
+    *)
+        WARN_SUPPRESS=-Wno-initializer-overrides
+        ;;
+esac
+
+COMMON_CFLAGS="-Wall -Wextra -std=c11 -ggdb $WARN_SUPPRESS"
+
 RAYLIB_INCLUDES="-I. -I$HOME/opt/raylib/include"
 RAYLIB_LIBS="-L$HOME/opt/raylib/lib -lraylib -lGL -lm -ldl -lpthread -lrt -lX11"
 SDL3_INCLUDES="-I. -I$HOME/opt/sdl3/include"
@@ -32,14 +45,14 @@ for demo_name in \
     font_demo \
     opacity_demo
 do
-    clang -Wall -Wextra -std=c11 -ggdb -Wno-initializer-overrides \
+    "$CC" $COMMON_CFLAGS \
         $RAYLIB_INCLUDES \
         -o "$DEMO_DIR/$demo_name" "$DEMO_DIR/$demo_name.c" \
         $RAYLIB_LIBS
 done
 
 # LD_LIBRARY_PATH=$HOME/opt/sdl3/lib:$LD_LIBRARY_PATH ./demos/sdl3_demo
-clang -Wall -Wextra -std=c11 -ggdb -Wno-initializer-overrides \
+"$CC" $COMMON_CFLAGS \
     $SDL3_INCLUDES \
     -o "$DEMO_DIR/sdl3_demo" "$DEMO_DIR/sdl3_demo.c" \
     $SDL3_LIBS

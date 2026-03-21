@@ -1,6 +1,12 @@
+# dev
 .vscode
 .zed
 .cache
+.clangd
+compile_commands.json
+docs/dev
+
+# build
 panel
 demos/layout
 demos/text
@@ -24,3 +30,4 @@ demos/theme_demo
 demos/font_demo
 demos/opacity_demo
 tests/test_runner
+

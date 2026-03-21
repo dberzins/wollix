@@ -1,9 +1,17 @@
 CC = clang
-CFLAGS = -Wall -Wextra -std=c11 -ggdb -Wno-initializer-overrides
-INCLUDES = -I. -I$(HOME)/opt/raylib/include -I$(HOME)/code/ext/raylib/src/external -I$(HOME)/code/ext/raylib/src
+BASE_CFLAGS = -Wall -Wextra -std=c11 -ggdb
+
+ifeq ($(findstring gcc,$(notdir $(CC))),gcc)
+BASE_CFLAGS += -Wno-override-init
+else
+BASE_CFLAGS += -Wno-initializer-overrides
+endif
+
+CFLAGS = $(BASE_CFLAGS)
+INCLUDES = -I. -I$(HOME)/opt/raylib/include
 LIBS = -L$(HOME)/opt/raylib/lib -lraylib -lGL -lm -ldl -lpthread -lrt -lX11
 
-SDL3_CFLAGS = -Wall -Wextra -std=c11 -ggdb -Wno-initializer-overrides
+SDL3_CFLAGS = $(BASE_CFLAGS)
 SDL3_INCLUDES = -I. -I$(HOME)/opt/sdl3/include
 SDL3_LDFLAGS = -L$(HOME)/opt/sdl3/lib -Wl,-rpath,$(HOME)/opt/sdl3/lib
 SDL3_LIBS = -lSDL3 -lm
@@ -44,7 +52,7 @@ test: $(TEST_BIN)
 	./$(TEST_BIN)
 
 $(TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) wollix.h
-	$(CC) -Wall -Wextra -Wno-initializer-overrides -std=c11 -ggdb -I. -o $@ $(TEST_DIR)/test_main.c -lm
+	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
 
 test-demos: $(DEFAULT_TARGETS)
 	@echo "All demos built successfully."
