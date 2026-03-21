@@ -481,18 +481,21 @@ typedef struct {
     float  saved_auto_scroll_total_height;
 } WLX_Scroll_Panel_State;
 
-// Generic persistent state pool
-typedef struct {
-    size_t id;
-    void *data;
-    size_t data_size;
-} WLX_State_Pool_Entry;
+// Generic persistent state map (open-addressing hashmap, power-of-2 sized)
+#define WLX_STATE_MAP_INIT_CAP  64
+#define WLX_STATE_MAP_MAX_LOAD  0.7f
 
 typedef struct {
-    WLX_State_Pool_Entry *items;
-    size_t count;
-    size_t capacity;
-} WLX_State_Pool;
+    size_t id;        // 0 = empty slot
+    void *data;
+    size_t data_size;
+} WLX_State_Map_Slot;
+
+typedef struct {
+    WLX_State_Map_Slot *slots;
+    size_t count;     // number of occupied slots
+    size_t capacity;  // always power of 2 (slot array length)
+} WLX_State_Map;
 
 // ID stack for loop disambiguation — use wlx_push_id()/wlx_pop_id()
 typedef struct {
@@ -589,7 +592,7 @@ typedef struct {
     } interaction;
 
     WLX_Layout_Stack layouts;
-    WLX_State_Pool states;
+    WLX_State_Map states;
     WLX_Id_Stack id_stack;
 
     // Auto scroll panel content height tracking
@@ -1918,13 +1921,15 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
 }
 
 WLXDEF void wlx_context_destroy(WLX_Context *ctx) {
-    // Free state pool data entries
-    for (size_t i = 0; i < ctx->states.count; i++) {
-        wlx_free(ctx->states.items[i].data);
+    // Free state map data entries
+    for (size_t i = 0; i < ctx->states.capacity; i++) {
+        if (ctx->states.slots[i].id != 0) {
+            wlx_free(ctx->states.slots[i].data);
+        }
     }
     // Free dynamic array backing buffers
     wlx_free(ctx->layouts.items);
-    wlx_free(ctx->states.items);
+    wlx_free(ctx->states.slots);
     wlx_free(ctx->id_stack.items);
     wlx_free(ctx->scroll_panels.items);
     wlx_free(ctx->slot_size_offsets.items);
@@ -2299,6 +2304,57 @@ WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint
 }
 
 // ---------------------------------------------------------------------------
+// State map helpers (open-addressing hashmap)
+// ---------------------------------------------------------------------------
+
+// Find slot for `id` — returns pointer to the slot (empty or matching)
+static WLX_State_Map_Slot *wlx_state_map_find(WLX_State_Map *map, size_t id) {
+    size_t mask = map->capacity - 1;
+    size_t idx = id & mask;
+    for (;;) {
+        WLX_State_Map_Slot *slot = &map->slots[idx];
+        if (slot->id == 0 || slot->id == id) return slot;
+        idx = (idx + 1) & mask;
+    }
+}
+
+// Grow and rehash when load factor exceeded
+static void wlx_state_map_grow(WLX_State_Map *map) {
+    size_t old_cap = map->capacity;
+    WLX_State_Map_Slot *old_slots = map->slots;
+
+    map->capacity = (old_cap == 0) ? WLX_STATE_MAP_INIT_CAP : old_cap * 2;
+    map->slots = (WLX_State_Map_Slot *)wlx_calloc(map->capacity, sizeof(WLX_State_Map_Slot));
+    assert(map->slots != NULL && "Unable to allocate more RAM");
+    // count stays the same
+
+    for (size_t i = 0; i < old_cap; i++) {
+        if (old_slots[i].id != 0) {
+            WLX_State_Map_Slot *dst = wlx_state_map_find(map, old_slots[i].id);
+            *dst = old_slots[i];
+        }
+    }
+    wlx_free(old_slots);
+}
+
+// Insert-or-find: returns pointer to the slot
+static WLX_State_Map_Slot *wlx_state_map_get(WLX_State_Map *map, size_t id, size_t data_size) {
+    if (map->capacity == 0 || (float)(map->count + 1) > (float)map->capacity * WLX_STATE_MAP_MAX_LOAD) {
+        wlx_state_map_grow(map);
+    }
+    WLX_State_Map_Slot *slot = wlx_state_map_find(map, id);
+    if (slot->id == 0) {
+        // New entry
+        slot->id = id;
+        slot->data = wlx_calloc(1, data_size);
+        assert(slot->data != NULL && "Unable to allocate more RAM");
+        slot->data_size = data_size;
+        map->count++;
+    }
+    return slot;
+}
+
+// ---------------------------------------------------------------------------
 // Generic persistent state
 // ---------------------------------------------------------------------------
 // Uses wlx_hash_id(file, line) combined with the ID stack — no sequential counter.
@@ -2311,20 +2367,9 @@ WLXDEF WLX_State wlx_get_state_impl(WLX_Context *ctx, size_t state_size, const c
     size_t id = wlx_hash_id(file, line) ^ wlx_id_stack_hash(ctx);
     if (id == 0) id = 1;
 
-    // Look for existing entry
-    for (size_t i = 0; i < ctx->states.count; i++) {
-        if (ctx->states.items[i].id == id) {
-            assert(ctx->states.items[i].data_size == state_size);
-            return (WLX_State){ .id = id, .data = ctx->states.items[i].data };
-        }
-    }
-
-    // Create new zero-initialized entry
-    void *data = wlx_calloc(1, state_size);
-    assert(data != NULL && "Buy more RAM lol");
-    WLX_State_Pool_Entry entry = { .id = id, .data = data, .data_size = state_size };
-    wlx_da_append(&ctx->states, entry);
-    return (WLX_State){ .id = id, .data = data };
+    WLX_State_Map_Slot *slot = wlx_state_map_get(&ctx->states, id, state_size);
+    assert(slot->data_size == state_size);
+    return (WLX_State){ .id = id, .data = slot->data };
 }
 
 WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget w, WLX_Color c, const char *file, int line)
@@ -3307,15 +3352,13 @@ WLXDEF void wlx_scroll_panel_end(WLX_Context *ctx) {
     // deltas are clamped to the stale (previous-frame) content_height, then
     // the content_height changes, and next frame's clamp snaps the offset
     // to a different value — producing visible flicker.
-    if (state_sp->auto_height && ctx->auto_scroll.panel_id != 0) {
-        for (size_t i = 0; i < ctx->states.count; i++) {
-            if (ctx->states.items[i].id == ctx->auto_scroll.panel_id) {
-                WLX_Scroll_Panel_State *state = (WLX_Scroll_Panel_State *)ctx->states.items[i].data;
-                float measured = ctx->auto_scroll.total_height;
-                if (measured > 0) {
-                    state->content_height = measured;
-                }
-                break;
+    if (state_sp->auto_height && ctx->auto_scroll.panel_id != 0 && ctx->states.capacity > 0) {
+        WLX_State_Map_Slot *slot = wlx_state_map_find(&ctx->states, ctx->auto_scroll.panel_id);
+        if (slot->id != 0) {
+            WLX_Scroll_Panel_State *state = (WLX_Scroll_Panel_State *)slot->data;
+            float measured = ctx->auto_scroll.total_height;
+            if (measured > 0) {
+                state->content_height = measured;
             }
         }
     }
