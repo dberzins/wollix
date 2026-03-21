@@ -32,7 +32,7 @@ jobs:
 
       - name: Cache Raylib
         id: cache-raylib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/opt/raylib
           key: raylib-5.5-linux-x64
@@ -50,3 +50,29 @@ jobs:
 
       - name: Build all Raylib demos
         run: make all
+
+  build-sdl3:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache SDL3
+        id: cache-sdl3
+        uses: actions/cache@v5
+        with:
+          path: ~/opt/sdl3
+          key: sdl3-release-3.2.8-linux-x64
+
+      - name: Build & install SDL3
+        if: steps.cache-sdl3.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch release-3.2.8 \
+            https://github.com/libsdl-org/SDL.git /tmp/SDL
+          cmake -S /tmp/SDL -B /tmp/SDL/build \
+            -DCMAKE_INSTALL_PREFIX=$HOME/opt/sdl3 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/SDL/build -j$(nproc)
+          cmake --install /tmp/SDL/build
+
+      - name: Build SDL3 demo
+        run: make sdl3_demo
