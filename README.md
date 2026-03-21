@@ -1,5 +1,7 @@
 # Wollix
 
+[![CI](https://github.com/dberzins/wollix/actions/workflows/ci.yml/badge.svg)](https://github.com/dberzins/wollix/actions/workflows/ci.yml)
+
 **Woven layouts for C.**
 
 Wollix is a lightweight, header-only C library for building immediate-mode UI

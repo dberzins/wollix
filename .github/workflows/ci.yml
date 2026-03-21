@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  TERM: dumb
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -97,3 +100,11 @@ jobs:
 
       - name: Build SDL3 demo
         run: make sdl3_demo
+
+  test-werror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run tests (warnings-as-errors)
+        run: make CC=clang test CFLAGS="-Wall -Wextra -Werror -std=c11 -Wno-initializer-overrides"
