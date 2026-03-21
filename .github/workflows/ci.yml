@@ -13,7 +13,40 @@ jobs:
       matrix:
         cc: [gcc, clang]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Run tests
         run: make CC=${{ matrix.cc }} test
+
+  build-raylib:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install X11/GL dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libgl-dev
+
+      - name: Cache Raylib
+        id: cache-raylib
+        uses: actions/cache@v4
+        with:
+          path: ~/opt/raylib
+          key: raylib-5.5-linux-x64
+
+      - name: Build & install Raylib
+        if: steps.cache-raylib.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 5.5 \
+            https://github.com/raysan5/raylib.git /tmp/raylib
+          cd /tmp/raylib/src
+          make PLATFORM=PLATFORM_DESKTOP -j$(nproc)
+          mkdir -p $HOME/opt/raylib/include $HOME/opt/raylib/lib
+          cp raylib.h raymath.h rlgl.h rcamera.h $HOME/opt/raylib/include/
+          cp libraylib.a $HOME/opt/raylib/lib/
+
+      - name: Build all Raylib demos
+        run: make all
