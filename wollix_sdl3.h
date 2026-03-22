@@ -209,12 +209,28 @@ static inline void wlx_sdl3_draw_line(float x1, float y1, float x2, float y2, fl
 }
 
 static inline void wlx_sdl3_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
-    (void)style.font;
-
     assert(wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
+    if (text == NULL || text[0] == '\0') return;
 
-    if (text == NULL) return;
+#ifdef SDL_TTF_VERSION
+    if (style.font != WLX_FONT_DEFAULT) {
+        TTF_Font *font = (TTF_Font *)(uintptr_t)style.font;
+        SDL_Color fg = wlx_sdl3_to_color(style.color);
+        SDL_Surface *surf = TTF_RenderText_Blended(font, text, 0, fg);
+        if (surf) {
+            SDL_Texture *tex = SDL_CreateTextureFromSurface(wlx_sdl3_renderer, surf);
+            if (tex) {
+                SDL_FRect dst = { x, y, (float)surf->w, (float)surf->h };
+                SDL_RenderTexture(wlx_sdl3_renderer, tex, NULL, &dst);
+                SDL_DestroyTexture(tex);
+            }
+            SDL_DestroySurface(surf);
+        }
+        return;
+    }
+#endif
 
+    // Fallback: debug font
     SDL_Color sc = wlx_sdl3_to_color(style.color);
     SDL_SetRenderDrawBlendMode(wlx_sdl3_renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(wlx_sdl3_renderer, sc.r, sc.g, sc.b, sc.a);
@@ -223,9 +239,20 @@ static inline void wlx_sdl3_draw_text(const char *text, float x, float y, WLX_Te
 
 static inline void wlx_sdl3_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
     if (out_w == NULL || out_h == NULL) return;
-
     if (text == NULL) text = "";
 
+#ifdef SDL_TTF_VERSION
+    if (style.font != WLX_FONT_DEFAULT) {
+        TTF_Font *font = (TTF_Font *)(uintptr_t)style.font;
+        int w = 0, h = 0;
+        TTF_GetStringSize(font, text, 0, &w, &h);
+        *out_w = (float)w;
+        *out_h = (float)h;
+        return;
+    }
+#endif
+
+    // Fallback: debug font estimation
     size_t len = wlx_utf8_strlen(text);
     float glyph_w = (style.font_size > 0) ? (style.font_size * 0.5f) : 8.0f;
     float glyph_h = (style.font_size > 0) ? (float)style.font_size : 8.0f;
@@ -288,6 +315,12 @@ static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer) {
         .get_frame_time = wlx_sdl3_get_frame_time,
     };
 }
+
+#ifdef SDL_TTF_VERSION
+static inline WLX_Font wlx_font_from_sdl3(TTF_Font *font) {
+    return (WLX_Font)(uintptr_t)font;
+}
+#endif
 
 static inline void wlx_context_init_sdl3(WLX_Context *ctx, SDL_Window *window, SDL_Renderer *renderer) {
     assert(ctx != NULL);

@@ -98,6 +98,25 @@ jobs:
           cmake --build /tmp/SDL/build -j$(nproc)
           cmake --install /tmp/SDL/build
 
+      - name: Cache SDL3_ttf
+        id: cache-sdl3-ttf
+        uses: actions/cache@v5
+        with:
+          path: ~/opt/sdl3_ttf
+          key: sdl3-ttf-release-3.2.2-linux-x64
+
+      - name: Build & install SDL3_ttf
+        if: steps.cache-sdl3-ttf.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch release-3.2.2 \
+            https://github.com/libsdl-org/SDL_ttf.git /tmp/SDL_ttf
+          cmake -S /tmp/SDL_ttf -B /tmp/SDL_ttf/build \
+            -DCMAKE_INSTALL_PREFIX=$HOME/opt/sdl3_ttf \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSDL3_DIR=$HOME/opt/sdl3/lib/cmake/SDL3
+          cmake --build /tmp/SDL_ttf/build -j$(nproc)
+          cmake --install /tmp/SDL_ttf/build
+
       - name: Build SDL3 demo
         run: make sdl3_demo
 

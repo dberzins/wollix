@@ -96,6 +96,7 @@ wollix/
 │   ├── LAYOUT_MODEL.md        # Layout model and sizing behavior
 │   └── WIDGETS.md             # Widget usage guide
 ├── demos/                     # Demo sources and built demo executables
+│   ├── assets/                # Bundled fonts and their licenses
     ├── demo.c                 # General demo
     ├── button.c               # Button demo
     ├── checkbox.c             # Checkbox demo
@@ -124,10 +125,28 @@ wollix/
 
 - **Raylib**: Graphics library installed in `~/opt/raylib/`
 - **SDL3** (optional): Needed only for `sdl3_demo` target
+- **SDL3_ttf** (optional): Needed for TTF font rendering in the SDL3 backend
 
-> **Note:** The build files assume Raylib is installed in `~/opt/raylib/`.
-> If your Raylib installation is in a different location, update the paths in
-> `Makefile` and `build.sh` accordingly.
+> **Note:** The build files assume Raylib is installed in `~/opt/raylib/`,
+> SDL3 in `~/opt/sdl3/`, and SDL3_ttf in `~/opt/sdl3_ttf/`.
+> If your installations are in different locations, update the paths in
+> `Makefile` accordingly.
+
+## Text Rendering
+
+Both backends support real TTF font rendering:
+
+- **Raylib**: pass a `Font*` via `wlx_font_from_raylib()`
+- **SDL3**: pass a `TTF_Font*` via `wlx_font_from_sdl3()` (requires SDL3_ttf)
+
+When no font is set (`WLX_FONT_DEFAULT`), the SDL3 backend falls back to the
+built-in 8×8 debug font. The Raylib backend uses its default font.
+
+**Limitations:** Wollix provides real TTF font rendering, not a full typography
+engine. Basic Latin and UTF-8 text renders correctly with proper sizing, but
+advanced features like kerning, ligatures, complex script shaping, and
+bidirectional text are not supported. Text layout is codepoint-by-codepoint,
+not shaped-run based.
 
 ## Available Widgets
 

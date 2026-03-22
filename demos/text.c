@@ -12,7 +12,8 @@
 #define WINDOW_HEIGHT 600
 #define TARGET_FPS 60
 
-#define FONT_PATH_SANS  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+// #define FONT_PATH_SANS  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+#define FONT_PATH_SANS  "demos/assets/LiberationSans-Regular.ttf"
 
 // Build a codepoint array covering ASCII + Latin Extended (Latvian, etc.)
 static int *get_font_codepoints(int *out_count) {

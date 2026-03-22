@@ -12,9 +12,9 @@ INCLUDES = -I. -I$(HOME)/opt/raylib/include
 LIBS = -L$(HOME)/opt/raylib/lib -lraylib -lGL -lm -ldl -lpthread -lrt -lX11
 
 SDL3_CFLAGS = $(BASE_CFLAGS)
-SDL3_INCLUDES = -I. -I$(HOME)/opt/sdl3/include
-SDL3_LDFLAGS = -L$(HOME)/opt/sdl3/lib -Wl,-rpath,$(HOME)/opt/sdl3/lib
-SDL3_LIBS = -lSDL3 -lm
+SDL3_INCLUDES = -I. -I$(HOME)/opt/sdl3/include -I$(HOME)/opt/sdl3_ttf/include
+SDL3_LDFLAGS = -L$(HOME)/opt/sdl3/lib -Wl,-rpath,$(HOME)/opt/sdl3/lib -L$(HOME)/opt/sdl3_ttf/lib -Wl,-rpath,$(HOME)/opt/sdl3_ttf/lib
+SDL3_LIBS = -lSDL3 -lSDL3_ttf -lm
 
 DEMO_DIR = demos
 RAYLIB_DEMOS = layout button text checkbox checkbox_tex input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo

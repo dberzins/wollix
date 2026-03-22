@@ -25,9 +25,9 @@
 #define TARGET_FPS    60
 
 // ── Font file paths — change these to fonts available on your system ─────
-#define FONT_PATH_SANS  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-#define FONT_PATH_MONO  "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
-#define FONT_PATH_BOLD  "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+#define FONT_PATH_SANS  "demos/assets/DejaVuSans.ttf"
+#define FONT_PATH_MONO  "demos/assets/DejaVuSansMono.ttf"
+#define FONT_PATH_BOLD  "demos/assets/DejaVuSans-Bold.ttf"
 
 // ── Application state ────────────────────────────────────────────────────
 typedef struct {
