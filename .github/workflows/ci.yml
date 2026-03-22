@@ -78,7 +78,8 @@ jobs:
           sudo apt-get install -y \
             libx11-dev libxrandr-dev libxinerama-dev \
             libxcursor-dev libxi-dev libxext-dev \
-            libwayland-dev libxkbcommon-dev
+            libwayland-dev libxkbcommon-dev \
+            libfreetype-dev libharfbuzz-dev
 
       - name: Cache SDL3
         id: cache-sdl3
