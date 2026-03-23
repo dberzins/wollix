@@ -62,6 +62,14 @@ Used by `textbox`, `button`, `checkbox`, `checkbox_tex`, and `inputbox`.
 | `front_color` | `WLX_Color` | `{0}` | Text/foreground color. `{0}` = use theme foreground |
 | `back_color` | `WLX_Color` | `{0}` | Background fill color. `{0}` = use theme surface |
 
+### Identity field
+
+All widget opt structs include an optional identity field:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | `const char *` | `NULL` | An explicit string ID. When non-NULL, the string is hashed and pushed onto the ID stack for the duration of the widget call, giving it a stable identity independent of call-site order. Useful for widgets created in loops or dynamic lists. See [LAYOUT_MODEL § Explicit String IDs](LAYOUT_MODEL.md) for details. |
+
 ---
 
 ## `wlx_textbox`
@@ -526,28 +534,29 @@ wlx_scroll_panel_end(ctx);
 
 ## `wlx_widget`
 
-Low-level colored rectangle. Not a macro-wrapped widget — it is a plain
-inline function. Use it for dividers, color swatches, spacers, or any
-situation where you need a simple filled rect without text.
+Low-level colored rectangle. Use it for dividers, color swatches, spacers,
+or any situation where you need a simple filled rect without text.
 
 ### Signature
 
 ```c
-void wlx_widget(WLX_Context *ctx, WLX_Widget w, WLX_Color c);
+void wlx_widget(WLX_Context *ctx, ...options);
 ```
 
-| Field in `WLX_Widget` | Type | Description |
-|----|------|-------------|
-| `align` | `WLX_Align` | Alignment inside the slot |
-| `width` | `int16_t` | Width in pixels. `-1` = fill slot width |
-| `height` | `int16_t` | Height in pixels. `-1` = fill slot height |
+### Widget-specific options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `color` | `WLX_Color` | `{0}` | Fill color of the rectangle |
+
+All shared fields (placement, sizing) also apply.
 
 ### Minimal example
 
 ```c
 wlx_widget(ctx,
-    (WLX_Widget){ .align = WLX_CENTER, .width = 100, .height = 4 },
-    (WLX_Color){ 80, 80, 80, 255 }
+    .widget_align = WLX_CENTER, .width = 100, .height = 4,
+    .color = (WLX_Color){ 80, 80, 80, 255 }
 );
 ```
 

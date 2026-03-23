@@ -204,12 +204,14 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
                             .back_color = (Color){20, 20, 24, 255}, .align = WLX_LEFT);
                     }
                     for (int i = 0; i < app.log_count; i++) {
+                        wlx_push_id(ctx, (size_t)i);
                         Color row_bg = (i % 2 == 0)
                             ? (Color){25, 25, 30, 255}
                             : (Color){30, 30, 36, 255};
                         wlx_textbox(ctx, app.log_messages[i],
                             .height = 28, .font_size = 14,
                             .back_color = row_bg, .align = WLX_LEFT);
+                        wlx_pop_id(ctx);
                     }
                 wlx_layout_end(ctx);
             wlx_scroll_panel_end(ctx);
@@ -271,8 +273,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
                         (unsigned char)(app.b * 255),
                         (unsigned char)(app.brightness * 255),
                     };
-                    WLX_Widget wid = { .align = WLX_CENTER, .width = -1, .height = S_ROW };
-                    wlx_widget(ctx, wid, preview);
+                    wlx_widget(ctx, .widget_align = WLX_CENTER, .width = -1, .height = S_ROW, .color = preview);
                 }
 
                 char color_hex[64];
@@ -540,6 +541,7 @@ int main(void) {
                         Color tab_colors[4];
                         const char *tab_labels[4] = { "Controls", "Settings", "Dynamic", "About" };
                         for (int t = 0; t < 4; t++) {
+                            wlx_push_id(ctx, (size_t)t);
                             tab_colors[t] = (t == app.active_tab)
                                 ? (Color){50, 50, 70, 255}
                                 : (Color){30, 30, 40, 255};
@@ -551,6 +553,7 @@ int main(void) {
                                     add_log("Switched to tab: %s", tab_labels[t]);
                                 }
                             }
+                            wlx_pop_id(ctx);
                         }
                     wlx_layout_end(ctx);
 

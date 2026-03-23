@@ -12,7 +12,7 @@
 #endif
 
 // Helper: call wlx_get_interaction inside a frame. Because IDs are derived from
-// file/line + ID stack + frame-local sequence, we use wrapper functions so that
+// hash(file, line) ^ id_stack_hash, we use wrapper functions so that
 // each "widget" has its own stable source location.
 
 static WLX_Interaction interact_widget_A(WLX_Context *ctx, WLX_Rect r, uint32_t flags) {
@@ -441,6 +441,216 @@ TEST(id_different_without_stack) {
     test_frame_end(&ctx);
 }
 
+TEST(id_same_site_same_id_without_push) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+
+    // Same call-site (widget_A) called twice without push_id → same ID
+    // This documents the Phase 2 contract: no counter, so duplicates are identical.
+    test_frame_begin(&ctx, 0, 0, false, false);
+    WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    ASSERT_EQ_INT((int)s1.id, (int)s2.id);
+    test_frame_end(&ctx);
+}
+
+TEST(id_same_site_different_push_id) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+
+    // Same call-site with push_id(0) vs push_id(1) → different IDs
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_push_id(&ctx, 0);
+    WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    wlx_pop_id(&ctx);
+
+    wlx_push_id(&ctx, 1);
+    WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    wlx_pop_id(&ctx);
+    ASSERT_NEQ_INT((int)s1.id, (int)s2.id);
+    test_frame_end(&ctx);
+}
+
+// ============================================================================
+// String ID tests (Phase 3: opt.id)
+// ============================================================================
+
+TEST(string_id_different_strings_different_ids) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+
+    // Same call-site, but different string IDs pushed → different interaction IDs
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_push_id(&ctx, wlx_hash_string("alpha"));
+    WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    wlx_pop_id(&ctx);
+
+    wlx_push_id(&ctx, wlx_hash_string("beta"));
+    WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    wlx_pop_id(&ctx);
+
+    ASSERT_NEQ_INT((int)s1.id, (int)s2.id);
+    test_frame_end(&ctx);
+}
+
+TEST(string_id_stable_across_frames) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+
+    // Same string ID across two frames → same interaction ID
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_push_id(&ctx, wlx_hash_string("persistent"));
+    WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    wlx_pop_id(&ctx);
+    test_frame_end(&ctx);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_push_id(&ctx, wlx_hash_string("persistent"));
+    WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    wlx_pop_id(&ctx);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT((int)s1.id, (int)s2.id);
+}
+
+TEST(string_id_hash_deterministic) {
+    // wlx_hash_string must return the same value for the same input
+    size_t h1 = wlx_hash_string("hello");
+    size_t h2 = wlx_hash_string("hello");
+    ASSERT_EQ_INT((int)h1, (int)h2);
+
+    // Different strings should (almost certainly) differ
+    size_t h3 = wlx_hash_string("world");
+    ASSERT_NEQ_INT((int)h1, (int)h3);
+
+    // NULL returns 0
+    size_t h4 = wlx_hash_string(NULL);
+    ASSERT_EQ_INT((int)h4, 0);
+}
+
+// ============================================================================
+// Debug warning tests (WLX_DEBUG)
+// ============================================================================
+
+#ifdef WLX_DEBUG
+
+// Callback state for capturing debug warnings in tests
+static int _debug_warn_count = 0;
+static const char *_debug_warn_last_file = NULL;
+static int _debug_warn_last_line = 0;
+static size_t _debug_warn_last_hits = 0;
+
+static void _test_debug_warn_cb(const char *file, int line, size_t hit_count, void *user_data) {
+    (void)user_data;
+    _debug_warn_count++;
+    _debug_warn_last_file = file;
+    _debug_warn_last_line = line;
+    _debug_warn_last_hits = hit_count;
+}
+
+static void _test_debug_warn_reset(WLX_Context *ctx) {
+    _debug_warn_count = 0;
+    _debug_warn_last_file = NULL;
+    _debug_warn_last_line = 0;
+    _debug_warn_last_hits = 0;
+    ctx->debug_warn_cb = _test_debug_warn_cb;
+    ctx->debug_warn_user_data = NULL;
+}
+
+TEST(debug_warn_same_site_no_push_id) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    _test_debug_warn_reset(&ctx);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+
+    // Two calls from widget_A (same file+line) without push_id → should warn
+    test_frame_begin(&ctx, 0, 0, false, false);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT(1, _debug_warn_count);
+}
+
+TEST(debug_warn_different_sites_no_warning) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    _test_debug_warn_reset(&ctx);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+
+    // widget_A then widget_B (different __LINE__) → no warning
+    test_frame_begin(&ctx, 0, 0, false, false);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    interact_widget_B(&ctx, r, WLX_INTERACT_HOVER);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT(0, _debug_warn_count);
+}
+
+TEST(debug_warn_push_id_suppresses) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    _test_debug_warn_reset(&ctx);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+
+    // Same call-site but with push_id → different id_stack → no warning
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_push_id(&ctx, 0);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    wlx_pop_id(&ctx);
+
+    wlx_push_id(&ctx, 1);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    wlx_pop_id(&ctx);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT(0, _debug_warn_count);
+}
+
+TEST(debug_warn_resets_each_frame) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    _test_debug_warn_reset(&ctx);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+
+    // Frame 1: duplicate → warn
+    test_frame_begin(&ctx, 0, 0, false, false);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, _debug_warn_count);
+
+    // Frame 2: single hit → no additional warning
+    _debug_warn_count = 0;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(0, _debug_warn_count);
+}
+
+TEST(debug_warn_only_once_per_site_per_frame) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    _test_debug_warn_reset(&ctx);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+
+    // Three calls from same site → should still only warn once (per site per frame)
+    test_frame_begin(&ctx, 0, 0, false, false);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT(1, _debug_warn_count);
+}
+
+#endif // WLX_DEBUG
+
 // ============================================================================
 // Suite
 // ============================================================================
@@ -479,4 +689,20 @@ SUITE(interaction) {
     RUN_TEST(id_push_pop_unique);
     RUN_TEST(id_same_stack_same_id_across_frames);
     RUN_TEST(id_different_without_stack);
+    RUN_TEST(id_same_site_same_id_without_push);
+    RUN_TEST(id_same_site_different_push_id);
+
+    // String IDs
+    RUN_TEST(string_id_different_strings_different_ids);
+    RUN_TEST(string_id_stable_across_frames);
+    RUN_TEST(string_id_hash_deterministic);
+
+#ifdef WLX_DEBUG
+    // Debug warnings
+    RUN_TEST(debug_warn_same_site_no_push_id);
+    RUN_TEST(debug_warn_different_sites_no_warning);
+    RUN_TEST(debug_warn_push_id_suppresses);
+    RUN_TEST(debug_warn_resets_each_frame);
+    RUN_TEST(debug_warn_only_once_per_site_per_frame);
+#endif
 }

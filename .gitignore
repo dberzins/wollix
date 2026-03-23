@@ -29,5 +29,6 @@ demos/minmax_demo
 demos/theme_demo
 demos/font_demo
 demos/opacity_demo
+demos/gallery
 tests/test_runner
 

@@ -392,12 +392,6 @@ typedef struct {
 
 } WLX_Input_State;
 
-typedef struct {
-    WLX_Align align;
-    int16_t width;  // -1 use parent width
-    int16_t height; // -1 use parent height
-} WLX_Widget;
-
 typedef enum {
     WLX_LAYOUT_LINEAR,
     WLX_LAYOUT_GRID,
@@ -441,7 +435,7 @@ typedef struct {
             float  row_size;            // fixed px per row
             size_t row_offsets_base;    // index in scratch buffer where row_offsets starts
             size_t col_offsets_base;    // index in scratch buffer where col_offsets starts
-            float  next_row_size;       // per-row override (Phase 2)
+            float  next_row_size;       // per-row override
         } grid;
     };
 } WLX_Layout;
@@ -588,7 +582,7 @@ typedef struct {
     struct {
         size_t hot_id;
         size_t active_id;
-        size_t next_id;   // per-frame sequential counter for unique IDs
+        bool   active_id_seen; // true if any widget matched active_id this frame
     } interaction;
 
     WLX_Layout_Stack layouts;
@@ -605,6 +599,19 @@ typedef struct {
     WLX_Scroll_Panel_Stack scroll_panels;
     // Scratch buffer for layout slot offsets (reset each frame)
     WLX_Scratch_Offsets slot_size_offsets;
+
+#ifdef WLX_DEBUG
+    // Debug: per-call-site hit tracking to detect missing wlx_push_id() in loops.
+    // Each slot tracks a unique (file/line + id_stack) combination per frame.
+    struct {
+        struct { size_t key; const char *file; int line; bool warned; } slots[512];
+        size_t used;
+    } debug_site_hits;
+    // Optional callback for debug warnings (NULL = fprintf to stderr).
+    // Signature: void callback(const char *file, int line, size_t hit_count, void *user_data)
+    void (*debug_warn_cb)(const char *, int, size_t, void *);
+    void *debug_warn_user_data;
+#endif
 
     // Theme — NULL means use &wlx_theme_dark (set automatically in wlx_begin)
     const WLX_Theme *theme;
@@ -678,26 +685,18 @@ WLXDEF void wlx_pop_id(WLX_Context *ctx);
 
 // Unified interaction handler - replaces get_widget_state/get_input_state/inline state
 // Use `WLX_Interact_Flags` to specify desired behavior. Only use ONE of CLICK/FOCUS/DRAG.
-// Interaction IDs are derived from call-site file/line plus the ID stack and a
-// frame-local sequential counter. That means they are unique within the frame,
-// even if the same source line is reached multiple times.
+// Interaction IDs are hash(file, line) ^ id_stack_hash — the same formula as
+// persistent state IDs. Use wlx_push_id()/wlx_pop_id() when the same source
+// line is reached multiple times (loops, reusable widget functions).
 WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, const char *file, int line);
 
 // Generic persistent state — returns a handle with the state's ID and a pointer
 // to zero-initialized persistent data. The data survives across frames.
-// Persistent state IDs use only call-site file/line plus the ID stack — no
-// frame-local sequential counter. That makes them stable across frames.
-// Use exactly ONE call per widget instance per frame (stable call order = stable IDs).
+// Persistent state IDs are hash(file, line) ^ id_stack_hash — the same formula
+// as interaction IDs. Use wlx_push_id()/wlx_pop_id() when the same source
+// line is reached multiple times (loops, reusable widget functions).
 WLXDEF WLX_State wlx_get_state_impl(WLX_Context *ctx, size_t state_size, const char *file, int line);
 #define wlx_get_state(ctx, type) wlx_get_state_impl((ctx), sizeof(type), __FILE__, __LINE__)
-
-WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget w, WLX_Color c, const char *file, int line);
-// Note: `wlx_widget()` is a static-inline wrapper instead of a macro because
-// compound-literal arguments like `(WLX_Widget){...}` contain commas that
-// confuse the preprocessor's argument counting.
-static inline void wlx_widget(WLX_Context *ctx, WLX_Widget w, WLX_Color c) {
-    wlx_widget_impl(ctx, w, c, __FILE__, __LINE__);
-}
 
 WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler);
 WLXDEF void wlx_end(WLX_Context *ctx);
@@ -777,7 +776,7 @@ WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, floa
 // Dynamic layout: slot count grows as children are added.
 //   slot_px > 0  — fixed pixel size for every slot (height for `WLX_VERT`, width for `WLX_HORZ`).
 //   slot_px = 0  — variable-size mode: each child must call `wlx_layout_auto_slot_px()` before it.
-// Use Option A (two-pass counting) for equal-division when count is unknown.
+// Use two-pass counting for equal-division when count is unknown.
 #define wlx_layout_begin_auto(ctx, orient, slot_px, ...) wlx_layout_begin_auto_impl((ctx), (orient), (slot_px), wlx_default_layout_opt(__VA_ARGS__))
 
 // Override the pixel size for the *next* slot in the enclosing dynamic layout.
@@ -858,12 +857,43 @@ typedef struct {
     // Sizing
     WLX_WIDGET_SIZING_FIELDS;
 
+    // Color
+    WLX_Color color;
+
+    // Explicit string ID (NULL = auto from call-site)
+    const char *id;
+} WLX_Widget_Opt;
+
+#define wlx_default_widget_opt(...) \
+    (WLX_Widget_Opt) { \
+        /* Placement */ \
+        WLX_LAYOUT_SLOT_DEFAULTS, \
+        /* Sizing */ \
+        WLX_WIDGET_SIZING_DEFAULTS, \
+        /* Color */ \
+        .color = {0}, \
+        __VA_ARGS__ \
+    }
+
+WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget_Opt opt, const char *file, int line);
+#define wlx_widget(ctx, ...) wlx_widget_impl((ctx), wlx_default_widget_opt(__VA_ARGS__), __FILE__, __LINE__)
+
+typedef struct {
+    // Placement
+    WLX_LAYOUT_SLOT_FIELDS;
+
+    // Sizing
+    WLX_WIDGET_SIZING_FIELDS;
+
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
     bool boxed;
+
+    // Explicit string ID (NULL = auto from call-site)
+    const char *id;
 } WLX_Textbox_Opt;
 
 
@@ -898,6 +928,9 @@ typedef struct {
     // Styles
     WLX_TEXT_COLOR_FIELDS;
     bool boxed;
+
+    // Explicit string ID (NULL = auto from call-site)
+    const char *id;
 } WLX_Button_Opt;
 
 #define wlx_default_button_opt(...) \
@@ -934,6 +967,9 @@ typedef struct {
     bool boxed;
     WLX_Color border_color;
     WLX_Color check_color;
+
+    // Explicit string ID (NULL = auto from call-site)
+    const char *id;
 } WLX_Checkbox_Opt;
 
 #define wlx_default_checkbox_opt(...) \
@@ -971,6 +1007,9 @@ typedef struct {
     bool boxed;
     WLX_Texture tex_checked;
     WLX_Texture tex_unchecked;
+
+    // Explicit string ID (NULL = auto from call-site)
+    const char *id;
 } WLX_Checkbox_Tex_Opt;
 
 #define wlx_default_checkbox_tex_opt(...) \
@@ -1007,6 +1046,9 @@ typedef struct {
     WLX_Color border_color;
     WLX_Color border_focus_color;
     WLX_Color cursor_color;
+
+    // Explicit string ID (NULL = auto from call-site)
+    const char *id;
 } WLX_Inputbox_Opt;
 
 #define wlx_default_inputbox_opt(...) \
@@ -1057,6 +1099,9 @@ typedef struct {
     float fill_inactive_brightness;
     float min_value;
     float max_value;
+
+    // Explicit string ID (NULL = auto from call-site)
+    const char *id;
 } WLX_Slider_Opt;
 
 
@@ -1105,6 +1150,9 @@ typedef struct {
     float scrollbar_width;
     float wheel_scroll_speed;
     bool show_scrollbar;
+
+    // Explicit string ID (NULL = auto from call-site)
+    const char *id;
 } WLX_Scroll_Panel_Opt;
 
 #define wlx_default_scroll_panel_opt(...) \
@@ -1145,7 +1193,7 @@ WLXDEF void wlx_scroll_panel_end(WLX_Context *ctx);
 #define slider(ctx, label, value, ...) wlx_slider((ctx), (label), (value), __VA_ARGS__)
 #define scroll_panel_begin(ctx, content_height, ...) wlx_scroll_panel_begin((ctx), (content_height), __VA_ARGS__)
 #define scroll_panel_end(ctx) wlx_scroll_panel_end((ctx))
-#define widget(ctx, w, c) wlx_widget((ctx), (w), (c))
+#define widget(ctx, ...) wlx_widget((ctx), __VA_ARGS__)
 #endif // WLX_SHORT_NAMES
 
 
@@ -1425,6 +1473,16 @@ static size_t wlx_hash_id(const char *file, int line) {
     }
     hash = ((hash << 5) + hash) + (size_t)line;
     return hash;
+}
+
+// djb2 hash for user-supplied string IDs.
+static inline size_t wlx_hash_string(const char *s) {
+    if (!s) return 0;
+    size_t h = 5381;
+    while (*s) {
+        h = ((h << 5) + h) + (unsigned char)(*s++);
+    }
+    return h;
 }
 
 WLXDEF WLX_Rect wlx_rect(float x, float y, float w, float h)
@@ -1909,15 +1967,25 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
     assert(input_handler != NULL && "WLX input handler must not be NULL");
     input_handler(ctx);
     ctx->interaction.hot_id = 0;
-    ctx->interaction.next_id = 1;
+    ctx->interaction.active_id_seen = false;
     ctx->id_stack.count = 0;  // reset ID stack each frame
+#ifdef WLX_DEBUG
+    ctx->debug_site_hits.used = 0;  // reset per-frame site tracking
+    for (size_t _dsi = 0; _dsi < 512; _dsi++) ctx->debug_site_hits.slots[_dsi].key = 0;
+#endif
     ctx->slot_size_offsets.count = 0;  // reset slot sizes buffer each frame
     ctx->rect = r;
     if (ctx->theme == NULL) ctx->theme = &wlx_theme_dark;
 }
 
 WLXDEF void wlx_end(WLX_Context *ctx) {
-    WLX_UNUSED(ctx);
+    // Clear stale active_id: if no widget matched active_id this frame, the
+    // active widget has disappeared (e.g. its ID shifted due to variable
+    // widget counts).  Without this cleanup, active_id stays set forever,
+    // blocking all hover and click interactions.
+    if (ctx->interaction.active_id != 0 && !ctx->interaction.active_id_seen) {
+        ctx->interaction.active_id = 0;
+    }
 }
 
 WLXDEF void wlx_context_destroy(WLX_Context *ctx) {
@@ -2173,10 +2241,9 @@ WLXDEF void wlx_pop_id(WLX_Context *ctx) {
 // WLX_INTERACT_KEYBOARD as needed.
 //
 // ID model:
-//   Interaction IDs = file/line + ID stack + frame-local sequence.
-//   Persistent state IDs = file/line + ID stack.
-// The extra sequence makes interaction IDs unique for repeated calls in one
-// frame, while persistent state IDs stay stable across frames.
+//   Both interaction IDs and persistent state IDs = hash(file, line) ^ id_stack_hash.
+//   Use wlx_push_id()/wlx_pop_id() when the same source line is reached
+//   multiple times (loops, reusable widget functions).
 //
 // Modes:
 //   CLICK - Button-like: activate on mouse click, fire "clicked" on release while hovering.
@@ -2185,9 +2252,45 @@ WLXDEF void wlx_pop_id(WLX_Context *ctx) {
 //
 static inline size_t wlx_interaction_make_id(WLX_Context *ctx, const char *file, int line) {
     size_t base = wlx_hash_id(file, line) ^ wlx_id_stack_hash(ctx);
-    size_t seq = ctx->interaction.next_id++;
-    size_t id = base ^ (seq * 2654435761u);  // Knuth multiplicative mixing
-    return (id == 0) ? 1 : id;  // reserve 0 for "no widget"
+
+#ifdef WLX_DEBUG
+    // Track per-call-site hits to detect duplicate sites without wlx_push_id.
+    // 512 slots with linear probing — sufficient for any realistic UI frame.
+    // If the table exceeds 75% load, stop tracking (degrades gracefully).
+    if (ctx->debug_site_hits.used < 384) {  // 75% of 512
+        size_t dslot = base & 511u;
+        // Linear probe
+        for (size_t _dp = 0; _dp < 512; _dp++) {
+            size_t idx = (dslot + _dp) & 511u;
+            if (ctx->debug_site_hits.slots[idx].key == 0) {
+                // Empty slot — first hit for this site
+                ctx->debug_site_hits.slots[idx].key = base;
+                ctx->debug_site_hits.slots[idx].file = file;
+                ctx->debug_site_hits.slots[idx].line = line;
+                ctx->debug_site_hits.slots[idx].warned = false;
+                ctx->debug_site_hits.used++;
+                break;
+            } else if (ctx->debug_site_hits.slots[idx].key == base
+                       && ctx->debug_site_hits.slots[idx].line == line
+                       && ctx->debug_site_hits.slots[idx].file == file) {
+                // Duplicate hit — same (file, line, id_stack) without push_id
+                if (!ctx->debug_site_hits.slots[idx].warned) {
+                    ctx->debug_site_hits.slots[idx].warned = true;
+                    if (ctx->debug_warn_cb) {
+                        ctx->debug_warn_cb(file, line, 2, ctx->debug_warn_user_data);
+                    } else {
+                        fprintf(stderr,
+                            "wollix [DEBUG]: widget at %s:%d hit multiple times "
+                            "without wlx_push_id()\n", file, line);
+                    }
+                }
+                break;
+            }
+        }
+    }
+#endif
+
+    return (base == 0) ? 1 : base;  // reserve 0 for "no widget"
 }
 
 static inline bool wlx_interaction_mouse_over(WLX_Context *ctx, WLX_Rect rect) {
@@ -2271,10 +2374,8 @@ static inline void wlx_interaction_handle_keyboard(WLX_Context *ctx, size_t id, 
 }
 
 WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, const char *file, int line) {
-    // Combine call-site hash with sequential counter and ID stack for disambiguation.
-    // The hash gives stability across frames; the counter ensures uniqueness
-    // when the same source line is hit multiple times; the ID stack handles
-    // explicit loop disambiguation via wlx_push_id()/wlx_pop_id().
+    // ID = hash(file, line) ^ id_stack_hash.
+    // Use wlx_push_id()/wlx_pop_id() for loop disambiguation.
     size_t id = wlx_interaction_make_id(ctx, file, line);
     WLX_Interaction result = { .id = id };
 
@@ -2298,6 +2399,12 @@ WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint
 
     if (flags & WLX_INTERACT_KEYBOARD) {
         wlx_interaction_handle_keyboard(ctx, id, &result);
+    }
+
+    // Track whether the currently active widget was seen this frame.
+    // Done AFTER handlers so newly-activated widgets are also tracked.
+    if (ctx->interaction.active_id != 0 && ctx->interaction.active_id == id) {
+        ctx->interaction.active_id_seen = true;
     }
 
     return result;
@@ -2372,10 +2479,13 @@ WLXDEF WLX_State wlx_get_state_impl(WLX_Context *ctx, size_t state_size, const c
     return (WLX_State){ .id = id, .data = slot->data };
 }
 
-WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget w, WLX_Color c, const char *file, int line)
+WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget_Opt opt, const char *file, int line)
 {
+    if (opt.id) wlx_push_id(ctx, wlx_hash_string(opt.id));
     const WLX_Theme *theme = ctx->theme;
-    WLX_Widget_Rect wg = wlx_widget_begin(ctx, -1, 1, 0.0f, w.width, w.height, 0, 0, 0, 0, w.align, false);
+    WLX_Widget_Rect wg = wlx_widget_begin(ctx, opt.pos, opt.span, opt.padding,
+        opt.width, opt.height, opt.min_width, opt.min_height,
+        opt.max_width, opt.max_height, opt.widget_align, opt.overflow);
     WLX_Rect wr = wg.rect;
 
     WLX_Interaction state = wlx_get_interaction(
@@ -2385,6 +2495,7 @@ WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget w, WLX_Color c, const c
         file, line
     );
 
+    WLX_Color c = opt.color;
     if (state.hover) {
         c = wlx_color_brightness(c, theme->hover_brightness);
     }
@@ -2615,6 +2726,7 @@ static void wlx_resolve_opt_textbox(const WLX_Theme *theme, WLX_Textbox_Opt *opt
 
 WLXDEF void wlx_textbox_impl(WLX_Context *ctx, const char *text, WLX_Textbox_Opt opt, const char *file, int line)
 {
+    if (opt.id) wlx_push_id(ctx, wlx_hash_string(opt.id));
     wlx_resolve_opt_textbox(ctx->theme, &opt);
 
     WLX_Widget_Rect wg = wlx_widget_begin(ctx, opt.pos, opt.span, opt.padding, opt.width, opt.height, opt.min_width, opt.min_height, opt.max_width, opt.max_height, opt.widget_align, opt.overflow);
@@ -2635,6 +2747,7 @@ WLXDEF void wlx_textbox_impl(WLX_Context *ctx, const char *text, WLX_Textbox_Opt
     }
 
     wlx_draw_text_fitted(ctx, wr, text, (WLX_Text_Style){ .font = opt.font, .font_size = opt.font_size, .spacing = opt.spacing, .color = opt.front_color }, opt.align, opt.wrap);
+    if (opt.id) wlx_pop_id(ctx);
 }
 
 static void wlx_resolve_opt_button(const WLX_Theme *theme, WLX_Button_Opt *opt) {
@@ -2652,6 +2765,7 @@ static void wlx_resolve_opt_button(const WLX_Theme *theme, WLX_Button_Opt *opt) 
 
 WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt opt, const char *file, int line)
 {
+    if (opt.id) wlx_push_id(ctx, wlx_hash_string(opt.id));
     wlx_resolve_opt_button(ctx->theme, &opt);
 
     WLX_Widget_Rect wg = wlx_widget_begin(ctx, opt.pos, opt.span, opt.padding, opt.width, opt.height, opt.min_width, opt.min_height, opt.max_width, opt.max_height, opt.widget_align, opt.overflow);
@@ -2672,6 +2786,7 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
 
     wlx_draw_text_fitted(ctx, wr, text, (WLX_Text_Style){ .font = opt.font, .font_size = opt.font_size, .spacing = opt.spacing, .color = opt.front_color }, opt.align, opt.wrap);
 
+    if (opt.id) wlx_pop_id(ctx);
     return state.clicked;
 }
 
@@ -2694,6 +2809,7 @@ static void wlx_resolve_opt_checkbox(const WLX_Theme *theme, WLX_Checkbox_Opt *o
 
 WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked, WLX_Checkbox_Opt opt, const char *file, int line)
 {
+    if (opt.id) wlx_push_id(ctx, wlx_hash_string(opt.id));
     wlx_resolve_opt_checkbox(ctx->theme, &opt);
 
     WLX_Widget_Rect wg = wlx_widget_begin(ctx, opt.pos, opt.span, opt.padding, opt.width, opt.height, opt.min_width, opt.min_height, opt.max_width, opt.max_height, opt.widget_align, opt.overflow);
@@ -2754,6 +2870,7 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
     };
     wlx_draw_text_fitted(ctx, text_rect, text, ts, WLX_ALIGN_NONE, opt.wrap);
 
+    if (opt.id) wlx_pop_id(ctx);
     return state.clicked;
 }
 
@@ -2772,6 +2889,7 @@ static void wlx_resolve_opt_checkbox_tex(const WLX_Theme *theme, WLX_Checkbox_Te
 
 WLXDEF bool wlx_checkbox_tex_impl(WLX_Context *ctx, const char *text, bool *checked, WLX_Checkbox_Tex_Opt opt, const char *file, int line)
 {
+    if (opt.id) wlx_push_id(ctx, wlx_hash_string(opt.id));
     wlx_resolve_opt_checkbox_tex(ctx->theme, &opt);
 
     WLX_Widget_Rect wg = wlx_widget_begin(ctx, opt.pos, opt.span, opt.padding, opt.width, opt.height, opt.min_width, opt.min_height, opt.max_width, opt.max_height, opt.widget_align, opt.overflow);
@@ -2824,6 +2942,7 @@ WLXDEF bool wlx_checkbox_tex_impl(WLX_Context *ctx, const char *text, bool *chec
     };
     wlx_draw_text_fitted(ctx, text_rect, text, ts, WLX_ALIGN_NONE, opt.wrap);
 
+    if (opt.id) wlx_pop_id(ctx);
     return state.clicked;
 }
 
@@ -2847,6 +2966,7 @@ static void wlx_resolve_opt_inputbox(const WLX_Theme *theme, WLX_Inputbox_Opt *o
 }
 
 WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_size, WLX_Inputbox_Opt opt, const char *file, int line) {
+    if (opt.id) wlx_push_id(ctx, wlx_hash_string(opt.id));
     assert(ctx != NULL);
     assert(buffer != NULL && "inputbox buffer must not be NULL");
     assert(buffer_size >= 2 && "buffer_size must hold at least 1 char + null terminator");
@@ -3006,6 +3126,7 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
         }
     }
 
+    if (opt.id) wlx_pop_id(ctx);
     return state.focused;
 }
 
@@ -3031,6 +3152,7 @@ static void wlx_resolve_opt_slider(const WLX_Theme *theme, WLX_Slider_Opt *opt) 
 }
 
 WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, WLX_Slider_Opt opt, const char *file, int line) {
+    if (opt.id) wlx_push_id(ctx, wlx_hash_string(opt.id));
     assert(ctx != NULL);
     assert(value != NULL && "slider value pointer must not be NULL");
     wlx_resolve_opt_slider(ctx->theme, &opt);
@@ -3151,6 +3273,7 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
         wlx_draw_text_fitted(ctx, value_rect, value_str, ts, WLX_LEFT, false);
     }
 
+    if (opt.id) wlx_pop_id(ctx);
     return changed;
 }
 
@@ -3173,6 +3296,7 @@ static void wlx_resolve_opt_scroll_panel(const WLX_Theme *theme, WLX_Scroll_Pane
 }
 
 WLXDEF void wlx_scroll_panel_begin_impl(WLX_Context *ctx, float content_height, WLX_Scroll_Panel_Opt opt, const char *file, int line) {
+    if (opt.id) wlx_push_id(ctx, wlx_hash_string(opt.id));
     wlx_resolve_opt_scroll_panel(ctx->theme, &opt);
 
     // NOTE: scroll_panel does NOT use wlx_widget_begin() because its scroll-height
@@ -3329,6 +3453,7 @@ WLXDEF void wlx_scroll_panel_begin_impl(WLX_Context *ctx, float content_height, 
 
     WLX_Layout l = wlx_create_layout(ctx, content_rect, 1, WLX_VERT);
     wlx_da_append(&ctx->layouts, l);
+    if (opt.id) wlx_pop_id(ctx);
 }
 
 WLXDEF void wlx_scroll_panel_end(WLX_Context *ctx) {

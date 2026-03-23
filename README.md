@@ -103,6 +103,7 @@ wollix/
     ├── checkbox_tex.c         # Textured checkbox demo
     ├── flex_demo.c            # Flex sizing demo
     ├── font_demo.c            # Font demo
+    ├── gallery.c              # Widgets gallery demo
     ├── grid.c                 # Fixed grid demo
     ├── grid_auto.c            # Auto-growing grid demo
     ├── input.c                # Text input demo

@@ -42,6 +42,7 @@ int main(void) {
                     );
                         wlx_layout_begin(ctx, ITEM_COUNT, WLX_VERT);
                             for (int i = 0; i < ITEM_COUNT; i++) {
+                                wlx_push_id(ctx, (size_t)i);
                                 char label[64];
                                 snprintf(label, sizeof(label), "Item %d", i + 1);
 
@@ -57,6 +58,7 @@ int main(void) {
                                 )) {
                                     printf("Clicked: %s\n", label);
                                 }
+                                wlx_pop_id(ctx);
                             }
                         wlx_layout_end(ctx);
                     wlx_scroll_panel_end(ctx);
@@ -68,6 +70,7 @@ int main(void) {
                     );
                         wlx_layout_begin(ctx, 20, WLX_VERT);
                             for (int i = 0; i < 20; i++) {
+                                wlx_push_id(ctx, (size_t)i);
                                 char label[64];
                                 snprintf(label, sizeof(label), "Text row %d - scrollable content", i + 1);
                                 wlx_textbox(ctx, label,
@@ -75,6 +78,7 @@ int main(void) {
                                     .height = 40,
                                     .align = WLX_LEFT
                                 );
+                                wlx_pop_id(ctx);
                             }
                         wlx_layout_end(ctx);
                     wlx_scroll_panel_end(ctx);

@@ -1,6 +1,7 @@
 // test_main.c — entry point for wollix.h test suite
 // Single-TU build: all test files are #included here.
 
+#define WLX_DEBUG
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
 

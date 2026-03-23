@@ -55,7 +55,7 @@ wlx_begin(&ctx, root_rect, input_handler);
 wlx_end(&ctx);
 ```
 
-**`wlx_begin`** resets per-frame state (hot widget, ID counter, scratch buffers),
+**`wlx_begin`** resets per-frame state (hot widget, debug tracking, scratch buffers),
 calls the input handler to populate `ctx.input`, and sets the root rect.
 
 **`wlx_end`** closes the frame (currently a no-op, reserved for future cleanup).
@@ -488,10 +488,10 @@ Every widget gets a unique ID derived from:
 
 1. **Call-site** — `__FILE__` and `__LINE__` of the macro expansion.
 2. **ID stack** — values pushed via `wlx_push_id()`.
-3. **Frame sequence** — a per-frame counter (interaction IDs only).
 
-This means two calls to `wlx_button()` on different source lines automatically
-get different IDs with no user effort.
+Both interaction IDs and persistent state IDs use the same formula:
+`hash(file, line) ^ id_stack_hash`. This means two calls to `wlx_button()` on
+different source lines automatically get different IDs with no user effort.
 
 ### Loop Disambiguation with `wlx_push_id`
 
@@ -522,12 +522,40 @@ MyState *state = (MyState *)handle.data;
 // state->scroll_y persists across frames
 ```
 
-Persistent state IDs use `file/line + ID stack` **without** the frame sequence
-counter, so they are stable across frames. Use `wlx_push_id` when the same state
-call is reached multiple times.
+Persistent state IDs use the same `hash(file, line) ^ id_stack_hash` formula
+as interaction IDs, so they are stable across frames. Use `wlx_push_id` when
+the same state call is reached multiple times.
 
 Built-in widgets that use persistent state: `wlx_inputbox` (cursor position),
 `wlx_scroll_panel` (scroll offset, drag state), `wlx_slider` (drag state).
+
+### Explicit String IDs
+
+Every widget opt struct has an optional `.id` field (a `const char *`,
+default `NULL`). When set, the string is hashed and pushed onto the ID stack
+for the duration of that widget call, giving it a unique, stable identity
+regardless of call-site:
+
+```c
+for (int i = 0; i < count; i++) {
+    if (wlx_button(ctx, names[i], .id = names[i]))
+        printf("clicked %s\n", names[i]);
+}
+```
+
+This is equivalent to wrapping the call in `wlx_push_id` / `wlx_pop_id` with
+`wlx_hash_string(names[i])`, but more concise. The string is hashed with
+`wlx_hash_string()` (djb2) and the resulting value is pushed/popped
+automatically inside the widget implementation.
+
+**When to use `.id`:**
+- Widgets created in loops where each iteration has a meaningful string key.
+- Dynamic widget lists whose order may change between frames.
+- Any situation where `wlx_push_id` would be needed for a single widget.
+
+**When `wlx_push_id` is still preferable:**
+- Wrapping multiple related widgets that share a group identity.
+- Using integer keys (loop indices) rather than string keys.
 
 ---
 

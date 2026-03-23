@@ -117,6 +117,7 @@ int main(void) {
                             }
                         );
                             for (int i = 0; i < record_count; i++) {
+                                wlx_push_id(ctx, (size_t)i);
                                 // Apply filter
                                 if (show_filtered && filter[0] != '\0') {
                                     bool match = false;
@@ -158,6 +159,7 @@ int main(void) {
                                     record_count--;
                                     i--;
                                 }
+                                wlx_pop_id(ctx);
                             }
                         wlx_grid_end(ctx);
                     wlx_scroll_panel_end(ctx);
@@ -176,6 +178,7 @@ int main(void) {
                         float tile_size = 80.0f;
                         wlx_grid_begin_auto_tile(ctx, tile_size, tile_size);
                             for (int i = 0; i < record_count; i++) {
+                                wlx_push_id(ctx, (size_t)i);
                                 Color tile_bg = (Color){
                                     (unsigned char)(40 + (i * 17) % 60),
                                     (unsigned char)(30 + (i * 31) % 60),
@@ -189,6 +192,7 @@ int main(void) {
                                     .back_color = tile_bg,
                                     .font_size = 18,
                                     .boxed = true);
+                                wlx_pop_id(ctx);
                             }
                         wlx_grid_end(ctx);
                     wlx_scroll_panel_end(ctx);

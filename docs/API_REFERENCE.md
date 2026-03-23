@@ -390,17 +390,18 @@ typedef struct {
 Dynamic array of `WLX_Layout` nodes. Managed by the library; stored in
 `ctx->layouts`.
 
-### `WLX_Widget`
+### `WLX_Widget_Opt`
 
 ```c
 typedef struct {
-    WLX_Align align;
-    int16_t width;   // -1 = fill parent width
-    int16_t height;  // -1 = fill parent height
-} WLX_Widget;
+    WLX_LAYOUT_SLOT_FIELDS;
+    WLX_WIDGET_SIZING_FIELDS;
+    WLX_Color color;
+} WLX_Widget_Opt;
 ```
 
-Simple colored-rectangle descriptor used by the low-level `wlx_widget()` function.
+Option struct for the `wlx_widget()` colored-rectangle macro. Follows the same
+designated-initializer pattern as all other widget option structs.
 
 ---
 
@@ -991,16 +992,19 @@ Compute the rect for slot `pos` (spanning `span` slots) in layout `l`.
 ## Widget — `wlx_widget`
 
 ```c
-static inline void wlx_widget(WLX_Context *ctx, WLX_Widget w, WLX_Color c);
+#define wlx_widget(ctx, ...options)
+// void — no return value
 ```
 
 Low-level colored rectangle. No text, no interaction beyond hover. Use for
 dividers, spacers, or color swatches.
 
+**Option struct:** `WLX_Widget_Opt`
+
 ```c
 wlx_widget(ctx,
-    (WLX_Widget){ .align = WLX_CENTER, .width = 100, .height = 4 },
-    (WLX_Color){ 80, 80, 80, 255 }
+    .widget_align = WLX_CENTER, .width = 100, .height = 4,
+    .color = (WLX_Color){ 80, 80, 80, 255 }
 );
 ```
 
