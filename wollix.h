@@ -12,7 +12,7 @@
  * WHAT IS THIS?
  * ---------------------------------------------------------------------------
  * Wollix is a lightweight, header-only, immediate-mode UI layout library
- * written in C99. It lets you compose rows, columns, grids, and nested
+ * written in C11. It lets you compose rows, columns, grids, and nested
  * panels that interlock widgets into place. The core has zero external
  * dependencies; rendering is delegated to thin backend adapters:
  *
