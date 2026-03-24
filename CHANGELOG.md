@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** Renamed `.boxed` to `.show_background` on `WLX_Label_Opt`,
+  `WLX_Checkbox_Opt`, and `WLX_Checkbox_Tex_Opt`. Removed `.boxed` from
+  `WLX_Button_Opt` entirely (it was dead code — buttons always draw their
+  background). Checkbox/checkbox_tex opts gain a new `full_slot_hit` field
+  (default `true`) that controls whether the full slot rect is used for
+  hover/click interaction, decoupling hit-testing from the visual background.
+  Migration: `.boxed = true` → `.show_background = true` on labels and
+  checkboxes; remove `.boxed` from button calls.
 - **Breaking:** Renamed `wlx_textbox` to `wlx_label` (and `WLX_Textbox_Opt`
   to `WLX_Label_Opt`). Search-replace `wlx_textbox` → `wlx_label` in your
   code to migrate.

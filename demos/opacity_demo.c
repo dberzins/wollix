@@ -100,7 +100,7 @@ int main(void) {
                             // Label (boxed)
                             wlx_label(ctx, "Boxed text",
                                 .font_size = 14, .height = 30,
-                                .boxed = true,
+                                .show_background = true,
                                 .widget_align = WLX_CENTER,
                                 .opacity = op
                             );

@@ -890,7 +890,7 @@ typedef struct {
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
-    bool boxed;
+    bool show_background;
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
@@ -908,7 +908,7 @@ typedef struct {
         .wrap = true, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
-        .boxed = false, \
+        .show_background = false, \
         __VA_ARGS__ \
     }
 
@@ -927,7 +927,6 @@ typedef struct {
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
-    bool boxed;
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
@@ -944,7 +943,6 @@ typedef struct {
         .wrap = true, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
-        .boxed = false, \
         __VA_ARGS__ \
     }
 
@@ -964,7 +962,8 @@ typedef struct {
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
-    bool boxed;
+    bool show_background;
+    bool full_slot_hit;
     WLX_Color border_color;
     WLX_Color check_color;
 
@@ -983,7 +982,8 @@ typedef struct {
         .wrap = false, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
-        .boxed = false, \
+        .show_background = false, \
+        .full_slot_hit = true, \
         .border_color = {0}, \
         .check_color = {0}, \
         __VA_ARGS__ \
@@ -1004,7 +1004,8 @@ typedef struct {
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
-    bool boxed;
+    bool show_background;
+    bool full_slot_hit;
     WLX_Texture tex_checked;
     WLX_Texture tex_unchecked;
 
@@ -1023,7 +1024,8 @@ typedef struct {
         .wrap = true, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
-        .boxed = false, \
+        .show_background = false, \
+        .full_slot_hit = true, \
         __VA_ARGS__ \
     }
 
@@ -2739,7 +2741,7 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
         file, line
     );
 
-    if (opt.boxed) {
+    if (opt.show_background) {
         WLX_Rect rect = { wr.x, wr.y, wr.w, wr.h };
 
         WLX_Color bg = (state.hover) ? wlx_color_brightness(opt.back_color, ctx->theme->hover_brightness) : opt.back_color;
@@ -2828,7 +2830,7 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
 
     WLX_Interaction state = wlx_get_interaction(
         ctx,
-        (opt.boxed) ? wr : acr,
+        (opt.full_slot_hit) ? wr : acr,
         WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD,
         file, line
     );
@@ -2909,7 +2911,7 @@ WLXDEF bool wlx_checkbox_tex_impl(WLX_Context *ctx, const char *text, bool *chec
 
     WLX_Interaction state = wlx_get_interaction(
         ctx,
-        (opt.boxed) ? wr : acr,
+        (opt.full_slot_hit) ? wr : acr,
         WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD,
         file, line
     );

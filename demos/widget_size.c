@@ -41,7 +41,7 @@ int main(void) {
 
                     wlx_label(ctx, "TEXTBOX1",
                             .widget_align = WLX_CENTER, .font_size = 20, .height = -1, .back_color = GREEN, .spacing = 5, .align = WLX_CENTER,
-                            .span = 3, .boxed = true
+                            .span = 3, .show_background = true
                         );
                     // wlx_button(ctx, "BUTTON2",
                     //         .widget_align = CENTER, .font_size = 20, .height = 100, .back_color = GREEN, .spacing = 5, .align = CENTER, .span = 2

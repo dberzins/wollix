@@ -66,34 +66,34 @@ int main(void) {
                     wlx_layout_begin(ctx, 9, WLX_VERT);
 
                         wlx_label(ctx, "CENTER - Vasaras diena Rīgā.",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = RED, .spacing = 5, .align = WLX_CENTER, .boxed = true
+                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = RED, .spacing = 5, .align = WLX_CENTER, .show_background = true
                         );
 
                         wlx_label(ctx, "LEFT - Zaļā pļavā",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = GREEN, .spacing = 5, .align = WLX_LEFT, .boxed = true
+                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = GREEN, .spacing = 5, .align = WLX_LEFT, .show_background = true
                         );
                         wlx_label(ctx, "RIGHT - Mēness gaismā",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = BLUE, .spacing = 5, .align = WLX_RIGHT, .boxed = true
+                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = BLUE, .spacing = 5, .align = WLX_RIGHT, .show_background = true
                         );
 
                         wlx_label(ctx, "TOP - Jūras vējš",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = BLUE, .spacing = 5, .align = WLX_TOP, .boxed = true
+                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = BLUE, .spacing = 5, .align = WLX_TOP, .show_background = true
                         );
 
                         wlx_label(ctx, "BOTTOM - Rudenī kļavu",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = BLUE, .spacing = 5, .align = WLX_BOTTOM, .boxed = true
+                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = BLUE, .spacing = 5, .align = WLX_BOTTOM, .show_background = true
                         );
                         wlx_label(ctx, "TOP_LEFT - Agrā rītā.",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = YELLOW, .spacing = 5, .align = WLX_TOP_LEFT, .boxed = true
+                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = YELLOW, .spacing = 5, .align = WLX_TOP_LEFT, .show_background = true
                         );
                         wlx_label(ctx, "TOP_RIGHT - Pēkšņi debesīs",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = MAGENTA, .spacing = 5, .align = WLX_TOP_RIGHT, .boxed = true
+                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = MAGENTA, .spacing = 5, .align = WLX_TOP_RIGHT, .show_background = true
                         );
                         wlx_label(ctx, "BOTTOM_LEFT - Siltā tējā",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = MAGENTA, .spacing = 5, .align = WLX_BOTTOM_LEFT, .boxed = true
+                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = MAGENTA, .spacing = 5, .align = WLX_BOTTOM_LEFT, .show_background = true
                         );
                         wlx_label(ctx, "BOTTOM_RIGHT - Brīžiem čukst",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = MAGENTA, .spacing = 5, .align = WLX_BOTTOM_RIGHT, .boxed = true
+                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = MAGENTA, .spacing = 5, .align = WLX_BOTTOM_RIGHT, .show_background = true
                         );
                     wlx_layout_end(ctx);
 

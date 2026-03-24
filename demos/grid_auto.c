@@ -146,11 +146,11 @@ int main(void) {
                                 wlx_label(ctx, records[i].name,
                                     .align = WLX_LEFT,
                                     .back_color = row_bg,
-                                    .boxed = true);
+                                    .show_background = true);
                                 wlx_label(ctx, records[i].value,
                                     .align = WLX_LEFT,
                                     .back_color = row_bg,
-                                    .boxed = true);
+                                    .show_background = true);
                                 if (wlx_button(ctx, "Del")) {
                                     // Remove by shifting
                                     for (int j = i; j < record_count - 1; j++) {
@@ -191,7 +191,7 @@ int main(void) {
                                     .align = WLX_CENTER,
                                     .back_color = tile_bg,
                                     .font_size = 18,
-                                    .boxed = true);
+                                    .show_background = true);
                                 wlx_pop_id(ctx);
                             }
                         wlx_grid_end(ctx);

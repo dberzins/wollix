@@ -61,7 +61,7 @@ int main(void) {
                     .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(260), WLX_SLOT_AUTO, WLX_SLOT_PX(180) }
                 );
                     wlx_label(ctx, "Variable Slots Demo",
-                        .boxed = true,
+                        .show_background = true,
                         .back_color = WLX_RGBA(45, 55, 80, 255),
                         .font_size = 26,
                         .align = WLX_CENTER,
@@ -69,7 +69,7 @@ int main(void) {
                     );
 
                     wlx_label(ctx, title,
-                        .boxed = true,
+                        .show_background = true,
                         .back_color = WLX_RGBA(30, 30, 38, 255),
                         .font_size = 18,
                         .align = WLX_CENTER,
@@ -95,7 +95,7 @@ int main(void) {
                 );
                     wlx_layout_begin(ctx, 5, WLX_VERT, .padding = 6);
                         wlx_label(ctx, "Sidebar — fixed 220px",
-                            .boxed = true,
+                            .show_background = true,
                             .back_color = WLX_RGBA(55, 40, 70, 255),
                             .font_size = 22,
                             .align = WLX_CENTER,
@@ -113,7 +113,7 @@ int main(void) {
                         }
 
                         wlx_label(ctx, "Useful for nav rails, tools, or a fixed-width property list.",
-                            .boxed = true,
+                            .show_background = true,
                             .back_color = WLX_RGBA(28, 22, 34, 255),
                             .font_size = 18,
                             .align = WLX_LEFT,
@@ -122,7 +122,7 @@ int main(void) {
                         );
 
                         wlx_label(ctx, "This slot stays 220 px wide even while the window resizes.",
-                            .boxed = true,
+                            .show_background = true,
                             .back_color = WLX_RGBA(28, 22, 34, 255),
                             .font_size = 18,
                             .align = WLX_LEFT,
@@ -131,7 +131,7 @@ int main(void) {
                         );
 
                         wlx_label(ctx, stats,
-                            .boxed = true,
+                            .show_background = true,
                             .back_color = WLX_RGBA(40, 28, 50, 255),
                             .font_size = 17,
                             .align = WLX_LEFT,
@@ -142,7 +142,7 @@ int main(void) {
 
                     wlx_layout_begin(ctx, 4, WLX_VERT, .padding = 6);
                         wlx_label(ctx, "Main content — AUTO remainder",
-                            .boxed = true,
+                            .show_background = true,
                             .back_color = WLX_RGBA(35, 60, 75, 255),
                             .font_size = 24,
                             .align = WLX_CENTER,
@@ -150,7 +150,7 @@ int main(void) {
                         );
 
                         wlx_label(ctx, content_info,
-                            .boxed = true,
+                            .show_background = true,
                             .back_color = WLX_RGBA(20, 28, 34, 255),
                             .font_size = 20,
                             .align = WLX_LEFT,
@@ -169,7 +169,7 @@ int main(void) {
                         }
 
                         wlx_label(ctx, "Because this slot is AUTO, it absorbs whatever space remains after fixed and percent slots are resolved.",
-                            .boxed = true,
+                            .show_background = true,
                             .back_color = WLX_RGBA(20, 28, 34, 255),
                             .font_size = 18,
                             .align = WLX_LEFT,
@@ -180,7 +180,7 @@ int main(void) {
 
                     wlx_layout_begin(ctx, 5, WLX_VERT, .padding = 6);
                         wlx_label(ctx, "Inspector — 25%",
-                            .boxed = true,
+                            .show_background = true,
                             .back_color = WLX_RGBA(70, 55, 35, 255),
                             .font_size = 22,
                             .align = WLX_CENTER,
@@ -198,7 +198,7 @@ int main(void) {
                         }
 
                         wlx_label(ctx, "This column scales with the window because it uses a percentage size.",
-                            .boxed = true,
+                            .show_background = true,
                             .back_color = WLX_RGBA(35, 28, 18, 255),
                             .font_size = 18,
                             .align = WLX_LEFT,
@@ -207,7 +207,7 @@ int main(void) {
                         );
 
                         wlx_label(ctx, "Great for secondary panes that should track overall window size.",
-                            .boxed = true,
+                            .show_background = true,
                             .back_color = WLX_RGBA(35, 28, 18, 255),
                             .font_size = 18,
                             .align = WLX_LEFT,
@@ -216,7 +216,7 @@ int main(void) {
                         );
 
                         wlx_label(ctx, "Try resizing horizontally to see this slot grow and shrink proportionally.",
-                            .boxed = true,
+                            .show_background = true,
                             .back_color = WLX_RGBA(35, 28, 18, 255),
                             .font_size = 17,
                             .align = WLX_LEFT,
@@ -231,7 +231,7 @@ int main(void) {
                     .sizes = (WLX_Slot_Size[]){ WLX_SLOT_AUTO, WLX_SLOT_PX(220), WLX_SLOT_PX(180), WLX_SLOT_PX(180) }
                 );
                     wlx_label(ctx, "Footer uses 18% of window height. Left slot is AUTO; the three right slots are fixed pixel widths.",
-                        .boxed = true,
+                        .show_background = true,
                         .back_color = WLX_RGBA(24, 24, 28, 255),
                         .font_size = 18,
                         .align = WLX_LEFT,
@@ -240,7 +240,7 @@ int main(void) {
                     );
 
                     wlx_label(ctx, "220 px", 
-                        .boxed = true,
+                        .show_background = true,
                         .back_color = WLX_RGBA(48, 48, 72, 255),
                         .font_size = 22,
                         .align = WLX_CENTER,
@@ -248,7 +248,7 @@ int main(void) {
                     );
 
                     wlx_label(ctx, "180 px", 
-                        .boxed = true,
+                        .show_background = true,
                         .back_color = WLX_RGBA(60, 48, 48, 255),
                         .font_size = 22,
                         .align = WLX_CENTER,
@@ -256,7 +256,7 @@ int main(void) {
                     );
 
                     wlx_label(ctx, "180 px", 
-                        .boxed = true,
+                        .show_background = true,
                         .back_color = WLX_RGBA(48, 60, 48, 255),
                         .font_size = 22,
                         .align = WLX_CENTER,

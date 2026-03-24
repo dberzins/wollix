@@ -44,7 +44,7 @@ int main(void) {
 
                         if (wlx_button(ctx, "BUTTON1",
                             .widget_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .spacing = 5, .align = WLX_CENTER
-                            // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .boxed = true
+                            // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Button1 ID: %zu, Left mouse clicked at: (%d, %d)\n", ctx->interaction.hot_id, ctx->input.mouse_x, ctx->input.mouse_y);
                             app.button1_clicked = true;
@@ -52,7 +52,7 @@ int main(void) {
 
                         if (wlx_button(ctx, "BUTTON2",
                             .widget_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .spacing = 5, .align = WLX_CENTER
-                            // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .boxed = true
+                            // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Button2 ID: %zu, Left mouse clicked at: (%d, %d)\n", ctx->interaction.hot_id, ctx->input.mouse_x, ctx->input.mouse_y);
                             app.button2_clicked = true;

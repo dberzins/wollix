@@ -1018,7 +1018,7 @@ wlx_widget(ctx,
 ```
 
 Static text label. Renders text fitted within its slot rect. Optional filled
-background when `boxed = true`.
+background when `show_background = true`.
 
 **Option struct:** `WLX_Label_Opt`
 
@@ -1028,7 +1028,7 @@ background when `boxed = true`.
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *typography* | | | `font`, `font_size`, `spacing`, `align`, `wrap` (default `true`) |
 | *colors* | | | `front_color`, `back_color` |
-| `boxed` | `bool` | `false` | Draw filled background behind text |
+| `show_background` | `bool` | `false` | Draw filled background behind text |
 
 ---
 
@@ -1044,7 +1044,7 @@ brightens it automatically. Returns `true` on the frame the click completes
 (press then release while hovering) or on keyboard activation (Space/Enter
 while hovered).
 
-**Option struct:** `WLX_Button_Opt` — same fields as `WLX_Label_Opt`.
+**Option struct:** `WLX_Button_Opt` — same fields as `WLX_Label_Opt` except\nno `show_background` (button always draws its background).
 
 ---
 
@@ -1065,7 +1065,8 @@ while hovered).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | *shared fields* | | | placement, sizing, typography (default `wrap = false`), colors |
-| `boxed` | `bool` | `false` | Draw filled background |
+| `show_background` | `bool` | `false` | Draw filled background |
+| `full_slot_hit` | `bool` | `true` | Use the full slot rect for hover/click interaction |
 | `border_color` | `WLX_Color` | `{0}` | Indicator border. `{0}` = theme `checkbox.border` |
 | `check_color` | `WLX_Color` | `{0}` | Check mark color. `{0}` = theme `checkbox.check` |
 
@@ -1085,7 +1086,8 @@ Same as `wlx_checkbox` but renders custom textures instead of the drawn indicato
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | *shared fields* | | | placement, sizing, typography, colors |
-| `boxed` | `bool` | `false` | Draw filled background |
+| `show_background` | `bool` | `false` | Draw filled background |
+| `full_slot_hit` | `bool` | `true` | Use the full slot rect for hover/click interaction |
 | `tex_checked` | `WLX_Texture` | — | Texture when checked |
 | `tex_unchecked` | `WLX_Texture` | — | Texture when unchecked |
 

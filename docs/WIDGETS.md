@@ -75,7 +75,7 @@ All widget opt structs include an optional identity field:
 ## `wlx_label`
 
 Static text label. Does not return a value and has no interactive behavior
-beyond hover highlighting (when `boxed` is true).
+beyond hover highlighting (when `show_background` is true).
 
 ### Signature
 
@@ -95,7 +95,7 @@ wlx_label(ctx, "Hello, world!",
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `boxed` | `bool` | `false` | Draw a filled background rectangle behind the text |
+| `show_background` | `bool` | `false` | Draw a filled background rectangle behind the text |
 
 All shared fields (placement, sizing, typography, color) also apply.
 
@@ -109,7 +109,7 @@ wlx_label(ctx, "Settings",
     .align = WLX_CENTER,
     .height = 50,
     .back_color = (WLX_Color){40, 40, 40, 255},
-    .boxed = true
+    .show_background = true
 );
 ```
 
@@ -147,11 +147,9 @@ if (wlx_button(ctx, "Click me")) {
 
 ### Widget-specific options
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `boxed` | `bool` | `false` | Draw a visible border around the button (in addition to the filled background) |
+No widget-specific options beyond the shared fields.
 
-All shared fields (placement, sizing, typography, color) also apply.
+All shared fields (placement, sizing, typography, color) apply.
 The button always draws a filled `back_color` rectangle — hover brightens it
 automatically using the theme's `hover_brightness`.
 
@@ -211,7 +209,8 @@ if (wlx_checkbox(ctx, "Dark mode", &dark_mode)) {
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `boxed` | `bool` | `false` | Draw a filled background behind checkbox + label |
+| `show_background` | `bool` | `false` | Draw a filled background behind checkbox + label |
+| `full_slot_hit` | `bool` | `true` | Use the full slot rect for hover/click interaction |
 | `border_color` | `WLX_Color` | `{0}` | Border color of the check-box indicator. `{0}` = theme `checkbox.border` |
 | `check_color` | `WLX_Color` | `{0}` | Color of the check mark. `{0}` = theme `checkbox.check` |
 
@@ -267,7 +266,8 @@ if (wlx_checkbox_tex(ctx, "Favorite", &favorited,
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `boxed` | `bool` | `false` | Draw a filled background behind texture + label |
+| `show_background` | `bool` | `false` | Draw a filled background behind texture + label |
+| `full_slot_hit` | `bool` | `true` | Use the full slot rect for hover/click interaction |
 | `tex_checked` | `WLX_Texture` | — | Texture to display when checked |
 | `tex_unchecked` | `WLX_Texture` | — | Texture to display when unchecked |
 

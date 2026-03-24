@@ -61,35 +61,35 @@ int main() {
 
                         if (wlx_checkbox(ctx, "Option 2: Enable feature B", &app.option2,
                              .font_size = 20
-                             // .widget_align = BOTTOM_RIGHT, .height = 40, .align = CENTER, .font_size = 20, .boxed = true
+                             // .widget_align = BOTTOM_RIGHT, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Option 2 toggled: %s\n", app.option2 ? "ON" : "OFF");
                         }
 
                         if (wlx_checkbox(ctx, "Option 3: Enable feature C", &app.option3,
                              .font_size = 20
-                             // .widget_align = TOP_RIGHT, .height = 40, .align = CENTER, .font_size = 20, .boxed = true
+                             // .widget_align = TOP_RIGHT, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Option 3 toggled: %s\n", app.option3 ? "ON" : "OFF");
                         }
 
                         if (wlx_checkbox(ctx, "Enable advanced mode", &app.enable_feature,
                              .font_size = 20
-                             // .widget_align = TOP_RIGHT, .height = 40, .align = CENTER, .font_size = 20, .boxed = true
+                             // .widget_align = TOP_RIGHT, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Advanced mode toggled: %s\n", app.enable_feature ? "ON" : "OFF");
                         }
 
                         if (wlx_checkbox(ctx, "Show detailed information", &app.show_details,
                              .font_size = 20
-                             // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .boxed = true
+                             // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Show details toggled: %s\n", app.show_details ? "ON" : "OFF");
                         }
 
                         if (wlx_checkbox(ctx, "I accept terms and conditions", &app.accept_terms,
                              .font_size = 20
-                             // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .boxed = true
+                             // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Terms accepted toggled: %s\n", app.accept_terms ? "ON" : "OFF");
                         }

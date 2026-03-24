@@ -37,7 +37,7 @@ int main(void) {
             wlx_label(ctx, "Flex / Weight-Based Sizing Demo",
                 .height = 50, .font_size = 28,
                 .back_color = (Color){35, 30, 45, 255},
-                .align = WLX_CENTER, .boxed = true);
+                .align = WLX_CENTER, .show_background = true);
 
             // Examples stacked vertically
             wlx_layout_begin(ctx, 6, WLX_VERT, .padding = 4,
@@ -51,7 +51,7 @@ int main(void) {
                 wlx_label(ctx, "1) PX(200) + FLEX(1) sidebar + FLEX(3) content",
                     .height = 25, .font_size = 14,
                     .back_color = (Color){30, 30, 40, 255},
-                    .align = WLX_LEFT, .boxed = true);
+                    .align = WLX_LEFT, .show_background = true);
 
                 wlx_layout_begin(ctx, 3, WLX_HORZ,
                     .sizes = (WLX_Slot_Size[]){
@@ -61,20 +61,20 @@ int main(void) {
                     });
                     wlx_label(ctx, "Nav (200px)",
                         .back_color = (Color){50, 35, 35, 255},
-                        .align = WLX_CENTER, .boxed = true);
+                        .align = WLX_CENTER, .show_background = true);
                     wlx_label(ctx, "Sidebar FLEX(1)",
                         .back_color = (Color){35, 50, 35, 255},
-                        .align = WLX_CENTER, .boxed = true);
+                        .align = WLX_CENTER, .show_background = true);
                     wlx_label(ctx, "Content FLEX(3)",
                         .back_color = (Color){35, 35, 55, 255},
-                        .align = WLX_CENTER, .boxed = true);
+                        .align = WLX_CENTER, .show_background = true);
                 wlx_layout_end(ctx);
 
                 // --- Example 2: Mixed AUTO and FLEX ---
                 wlx_label(ctx, "2) AUTO + FLEX(2) + PX(100)  — AUTO acts as FLEX(1)",
                     .height = 25, .font_size = 14,
                     .back_color = (Color){30, 30, 40, 255},
-                    .align = WLX_LEFT, .boxed = true);
+                    .align = WLX_LEFT, .show_background = true);
 
                 wlx_layout_begin(ctx, 3, WLX_HORZ,
                     .sizes = (WLX_Slot_Size[]){
@@ -84,20 +84,20 @@ int main(void) {
                     });
                     wlx_label(ctx, "AUTO = 1/3 remaining",
                         .back_color = (Color){50, 45, 30, 255},
-                        .align = WLX_CENTER, .boxed = true);
+                        .align = WLX_CENTER, .show_background = true);
                     wlx_label(ctx, "FLEX(2) = 2/3 remaining",
                         .back_color = (Color){30, 45, 50, 255},
-                        .align = WLX_CENTER, .boxed = true);
+                        .align = WLX_CENTER, .show_background = true);
                     wlx_label(ctx, "PX(100)",
                         .back_color = (Color){45, 30, 45, 255},
-                        .align = WLX_CENTER, .boxed = true);
+                        .align = WLX_CENTER, .show_background = true);
                 wlx_layout_end(ctx);
 
                 // --- Example 3: Complex app layout ---
                 wlx_label(ctx, "3) App layout: PX(50) header, FLEX(1) body, PX(30) footer — body has weighted columns",
                     .height = 25, .font_size = 14,
                     .back_color = (Color){30, 30, 40, 255},
-                    .align = WLX_LEFT, .boxed = true);
+                    .align = WLX_LEFT, .show_background = true);
 
                 wlx_layout_begin(ctx, 3, WLX_VERT,
                     .sizes = (WLX_Slot_Size[]){
@@ -109,7 +109,7 @@ int main(void) {
                     // Header
                     wlx_label(ctx, "Header (PX 35)",
                         .back_color = (Color){45, 35, 50, 255},
-                        .align = WLX_CENTER, .boxed = true);
+                        .align = WLX_CENTER, .show_background = true);
 
                     // Body: 4-column weighted layout
                     wlx_layout_begin(ctx, 4, WLX_HORZ,
@@ -124,36 +124,36 @@ int main(void) {
                         wlx_layout_begin_auto(ctx, WLX_VERT, 40);
                             wlx_label(ctx, "[F]",
                                 .back_color = (Color){55, 40, 40, 255},
-                                .align = WLX_CENTER, .font_size = 14, .boxed = true);
+                                .align = WLX_CENTER, .font_size = 14, .show_background = true);
                             wlx_label(ctx, "[S]",
                                 .back_color = (Color){55, 40, 40, 255},
-                                .align = WLX_CENTER, .font_size = 14, .boxed = true);
+                                .align = WLX_CENTER, .font_size = 14, .show_background = true);
                             wlx_label(ctx, "[T]",
                                 .back_color = (Color){55, 40, 40, 255},
-                                .align = WLX_CENTER, .font_size = 14, .boxed = true);
+                                .align = WLX_CENTER, .font_size = 14, .show_background = true);
                         wlx_layout_end(ctx);
 
                         // Main editor area
                         wlx_label(ctx, "Editor FLEX(3)",
                             .back_color = (Color){30, 38, 48, 255},
-                            .align = WLX_CENTER, .boxed = true);
+                            .align = WLX_CENTER, .show_background = true);
 
                         // Side panel
                         wlx_label(ctx, "Panel FLEX(1)",
                             .back_color = (Color){38, 48, 30, 255},
-                            .align = WLX_CENTER, .boxed = true);
+                            .align = WLX_CENTER, .show_background = true);
 
                         // Minimap
                         wlx_label(ctx, "Map",
                             .back_color = (Color){40, 40, 40, 255},
-                            .align = WLX_CENTER, .font_size = 12, .boxed = true);
+                            .align = WLX_CENTER, .font_size = 12, .show_background = true);
 
                     wlx_layout_end(ctx);
 
                     // Footer
                     wlx_label(ctx, "Footer (PX 25)",
                         .back_color = (Color){35, 45, 35, 255},
-                        .align = WLX_CENTER, .font_size = 12, .boxed = true);
+                        .align = WLX_CENTER, .font_size = 12, .show_background = true);
 
                 wlx_layout_end(ctx);
 

@@ -95,7 +95,7 @@ int main(void) {
                         // Submit wlx_button
                         if (wlx_button(ctx, "Submit Form",
                             .widget_align = WLX_CENTER, .font_size = 22, .width = 200, .height = 50, .back_color = MAROON, .align = WLX_CENTER
-                            // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .boxed = true
+                            // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("\n=== FORM SUBMITTED ===\n");
                             printf("Username: %s\n", app.username);
