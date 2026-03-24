@@ -39,7 +39,7 @@ int main(void) {
                             .widget_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .spacing = 5, .align = WLX_CENTER
                         );
 
-                    wlx_textbox(ctx, "TEXTBOX1",
+                    wlx_label(ctx, "TEXTBOX1",
                             .widget_align = WLX_CENTER, .font_size = 20, .height = -1, .back_color = GREEN, .spacing = 5, .align = WLX_CENTER,
                             .span = 3, .boxed = true
                         );

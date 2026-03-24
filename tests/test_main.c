@@ -17,9 +17,8 @@
 #include "test_grid.c"
 #include "test_interaction.c"
 #include "test_scroll_panel.c"
-#include "test_input.c"
 
-// Phase 3: fuzz + edge cases
+// fuzz + edge cases
 #include "test_fuzz.c"
 #include "test_edge_cases.c"
 

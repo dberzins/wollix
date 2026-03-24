@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** Renamed `wlx_textbox` to `wlx_label` (and `WLX_Textbox_Opt`
+  to `WLX_Label_Opt`). Search-replace `wlx_textbox` → `wlx_label` in your
+  code to migrate.
 - **Breaking:** Interaction IDs no longer include a per-frame sequential counter.
   IDs are now `hash(file, line) ^ id_stack_hash`, matching persistent state IDs.
   Loops that emit interactive widgets MUST use `wlx_push_id()`/`wlx_pop_id()`.

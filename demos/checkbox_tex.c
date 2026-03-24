@@ -133,10 +133,10 @@ int main(void) {
                     wlx_layout_begin(ctx, 9, WLX_VERT);
 
                         // Title
-                        wlx_textbox(ctx, "Checkbox texure Demo",
+                        wlx_label(ctx, "Checkbox texure Demo",
                             .widget_align = WLX_TOP_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .spacing = 2, .align = WLX_TOP_LEFT);
                         // Subtitle
-                        wlx_textbox(ctx, "Standard checkboxes with custom textures",
+                        wlx_label(ctx, "Standard checkboxes with custom textures",
                             .widget_align = WLX_TOP_LEFT, .height = 40, .font_size = 30, .back_color = WLX_BACKGROUND_COLOR, .spacing = 2, .align = WLX_TOP_LEFT);
 
                         // Texture-based wlx_checkbox options (checkmark style)
@@ -174,7 +174,7 @@ int main(void) {
                         }
 
                         // Subtitle for star-style checkboxes
-                        wlx_textbox(ctx, "Star-style toggle buttons",
+                        wlx_label(ctx, "Star-style toggle buttons",
                             .widget_align = WLX_LEFT, .height = 40, .font_size = 30, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT);
 
                         // Star-style texture checkboxes
@@ -203,7 +203,7 @@ int main(void) {
                             app.option1 + app.option2 + app.option3,
                             app.enable_feature + app.show_details
                         );
-                        wlx_textbox(ctx, status_text,
+                        wlx_label(ctx, status_text,
                             .widget_align = WLX_BOTTOM_LEFT, .height = 40, .font_size = 18, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_TOP_LEFT);
 
                     wlx_layout_end(ctx);

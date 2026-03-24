@@ -66,12 +66,12 @@ int main(void) {
 
                 wlx_layout_begin(ctx, 2, WLX_VERT);
 
-                // wlx_textbox(ctx, "Outer Scroll Panel Content",
+                // wlx_label(ctx, "Outer Scroll Panel Content",
                 //     .height = 40, .font_size = 20,
                 //     .back_color = (Color){30, 35, 42, 255},
                 //     .align = LEFT);
                 
-                // wlx_textbox(ctx, "Outer Scroll Panel Content",
+                // wlx_label(ctx, "Outer Scroll Panel Content",
                 //     .height = 40, .font_size = 20,
                 //     .back_color = (Color){30, 35, 42, 255},
                 //     .align = LEFT);
@@ -103,7 +103,7 @@ int main(void) {
 
                         //     wlx_layout_begin(ctx, 11, VERT);
                         //         for (int i = 0; i<10; i++) {
-                        //             wlx_textbox(ctx, "yyyYYYYYYYYYYYYYYYYYY",
+                        //             wlx_label(ctx, "yyyYYYYYYYYYYYYYYYYYY",
                         //                 .height = 40, .font_size = 20,
                         //                 .back_color = (Color){30, 35, 42, 255},
                         //                 .align = LEFT);

@@ -48,7 +48,7 @@ int main() {
                     wlx_layout_begin(ctx, 8, WLX_VERT);
 
                         // Title
-                        wlx_textbox(ctx, "Checkbox Demo",
+                        wlx_label(ctx, "Checkbox Demo",
                             .widget_align = WLX_TOP_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_TOP_LEFT);
 
                         // Checkbox options
@@ -101,7 +101,7 @@ int main() {
                             app.option1 + app.option2 + app.option3 + app.enable_feature + app.show_details,
                             app.accept_terms ? "ACCEPTED" : "NOT ACCEPTED"
                         );
-                        wlx_textbox(ctx, status_text,
+                        wlx_label(ctx, status_text,
                             .widget_align = WLX_BOTTOM_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_BOTTOM_LEFT);
 
 

@@ -89,11 +89,11 @@ int main(void) {
 
         wlx_layout_begin(ctx, 10, WLX_VERT);
 
-        wlx_textbox(ctx, "SDL3 Backend Demo", .height = 52, .font_size = 30, .font = wf_title, .align = WLX_CENTER, .back_color = WLX_RGBA(28, 32, 45, 255));
+        wlx_label(ctx, "SDL3 Backend Demo", .height = 52, .font_size = 30, .font = wf_title, .align = WLX_CENTER, .back_color = WLX_RGBA(28, 32, 45, 255));
 
         char click_label[64];
         snprintf(click_label, sizeof(click_label), "Clicks: %d", click_count);
-        wlx_textbox(ctx, click_label, .height = 40, .font_size = 18, .font = wf_small, .align = WLX_CENTER, .back_color = WLX_RGBA(20, 24, 34, 255));
+        wlx_label(ctx, click_label, .height = 40, .font_size = 18, .font = wf_small, .align = WLX_CENTER, .back_color = WLX_RGBA(20, 24, 34, 255));
 
         if (wlx_button(ctx, "Click me", .height = 44, .font_size = 20, .font = wf_body, .align = WLX_CENTER, .back_color = WLX_RGBA(55, 70, 95, 255))) {
             click_count++;
@@ -112,7 +112,7 @@ int main(void) {
 
         char status[128];
         snprintf(status, sizeof(status), "State: %s  |  value=%.2f", check_enabled ? "ON" : "OFF", slider_value);
-        wlx_textbox(ctx, status, .height = 40, .font_size = 18, .font = wf_small, .align = WLX_LEFT, .back_color = WLX_RGBA(20, 24, 34, 255));
+        wlx_label(ctx, status, .height = 40, .font_size = 18, .font = wf_small, .align = WLX_LEFT, .back_color = WLX_RGBA(20, 24, 34, 255));
 
         wlx_layout_end(ctx);
 

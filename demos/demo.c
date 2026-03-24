@@ -100,7 +100,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
         );
             wlx_layout_begin(ctx, 17, WLX_VERT);
 
-                wlx_textbox(ctx, "Buttons",
+                wlx_label(ctx, "Buttons",
                     .height = ROW_H, .font_size = 22,
                     .back_color = (Color){30, 30, 40, 255}, .align = WLX_CENTER);
 
@@ -113,7 +113,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
 
                 char click_text[64];
                 snprintf(click_text, sizeof(click_text), "Clicks: %d", app.button_click_count);
-                wlx_textbox(ctx, click_text,
+                wlx_label(ctx, click_text,
                     .height = ROW_H, .font_size = 16, .align = WLX_CENTER,
                     .back_color = (Color){22, 22, 28, 255});
 
@@ -130,7 +130,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
                     add_log("Manual log entry #%d", app.log_count + 1);
                 }
 
-                wlx_textbox(ctx, "Checkboxes",
+                wlx_label(ctx, "Checkboxes",
                     .height = ROW_H, .font_size = 22,
                     .back_color = (Color){30, 30, 40, 255}, .align = WLX_CENTER);
 
@@ -159,7 +159,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
                     add_log("Dark mode %s", app.dark_mode ? "ON" : "OFF");
                 }
 
-                wlx_textbox(ctx, "Input Fields",
+                wlx_label(ctx, "Input Fields",
                     .height = ROW_H, .font_size = 22,
                     .back_color = (Color){30, 30, 40, 255}, .align = WLX_CENTER);
 
@@ -189,7 +189,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
         wlx_layout_begin(ctx, 2, WLX_VERT);
 
             // ---- Outer scroll panel (event log) -------------------------
-            wlx_textbox(ctx, "Event Log (outer scroll panel)",
+            wlx_label(ctx, "Event Log (outer scroll panel)",
                 .height = 30, .font_size = 18,
                 .back_color = (Color){35, 25, 25, 255}, .align = WLX_CENTER);
 
@@ -199,7 +199,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
             );
                 wlx_layout_begin_auto(ctx, WLX_VERT, 28);
                     if (app.log_count == 0) {
-                        wlx_textbox(ctx, "  No events yet...",
+                        wlx_label(ctx, "  No events yet...",
                             .height = 28, .font_size = 14,
                             .back_color = (Color){20, 20, 24, 255}, .align = WLX_LEFT);
                     }
@@ -208,7 +208,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
                         Color row_bg = (i % 2 == 0)
                             ? (Color){25, 25, 30, 255}
                             : (Color){30, 30, 36, 255};
-                        wlx_textbox(ctx, app.log_messages[i],
+                        wlx_label(ctx, app.log_messages[i],
                             .height = 28, .font_size = 14,
                             .back_color = row_bg, .align = WLX_LEFT);
                         wlx_pop_id(ctx);
@@ -233,7 +233,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
         );
             wlx_layout_begin(ctx, 11, WLX_VERT);
 
-                wlx_textbox(ctx, "Audio & Display",
+                wlx_label(ctx, "Audio & Display",
                     .height = S_ROW, .font_size = 22,
                     .back_color = (Color){30, 40, 30, 255}, .align = WLX_CENTER);
 
@@ -249,7 +249,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
                     .height = S_ROW, .min_value = 0.5f, .max_value = 2.0f,
                     .font_size = 18);
 
-                wlx_textbox(ctx, "Color Mixer",
+                wlx_label(ctx, "Color Mixer",
                     .height = S_ROW, .font_size = 22,
                     .back_color = (Color){30, 40, 30, 255}, .align = WLX_CENTER);
 
@@ -279,7 +279,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
                 char color_hex[64];
                 snprintf(color_hex, sizeof(color_hex), "#%02X%02X%02X",
                     (int)(app.r * 255), (int)(app.g * 255), (int)(app.b * 255));
-                wlx_textbox(ctx, color_hex,
+                wlx_label(ctx, color_hex,
                     .height = S_ROW, .font_size = 16,
                     .back_color = (Color){22, 26, 22, 255}, .align = WLX_CENTER);
 
@@ -300,33 +300,33 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
         wlx_scroll_panel_begin(ctx, -1);
             wlx_layout_begin(ctx, 10, WLX_VERT);
 
-                wlx_textbox(ctx, "Quick Notes",
+                wlx_label(ctx, "Quick Notes",
                     .height = R_ROW, .font_size = 22,
                     .align = WLX_CENTER);
 
                 wlx_inputbox(ctx, "Note:", app.note, sizeof(app.note),
                     .height = R_ROW, .font_size = 16, .wrap = true);
 
-                wlx_textbox(ctx, "Current Settings",
+                wlx_label(ctx, "Current Settings",
                     .height = R_ROW, .font_size = 20,
                     .align = WLX_CENTER);
 
                 {
                     char buf[128];
                     snprintf(buf, sizeof(buf), "  Volume: %.0f%%", app.volume * 100);
-                    wlx_textbox(ctx, buf, .height = R_ROW, .font_size = 16,
+                    wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
                         .align = WLX_LEFT);
                 }
                 {
                     char buf[128];
                     snprintf(buf, sizeof(buf), "  Brightness: %.0f%%", app.brightness * 100);
-                    wlx_textbox(ctx, buf, .height = R_ROW, .font_size = 16,
+                    wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
                         .align = WLX_LEFT);
                 }
                 {
                     char buf[128];
                     snprintf(buf, sizeof(buf), "  Font Scale: %.1fx", app.font_scale);
-                    wlx_textbox(ctx, buf, .height = R_ROW, .font_size = 16,
+                    wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
                         .align = WLX_LEFT);
                 }
                 {
@@ -334,7 +334,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
                     snprintf(buf, sizeof(buf), "  Audio: %s | VSync: %s",
                         app.enable_audio ? "ON" : "OFF",
                         app.enable_vsync ? "ON" : "OFF");
-                    wlx_textbox(ctx, buf, .height = R_ROW, .font_size = 16,
+                    wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
                         .align = WLX_LEFT);
                 }
                 {
@@ -342,20 +342,20 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
                     snprintf(buf, sizeof(buf), "  Fullscreen: %s | FPS: %s",
                         app.fullscreen ? "ON" : "OFF",
                         app.show_fps ? "ON" : "OFF");
-                    wlx_textbox(ctx, buf, .height = R_ROW, .font_size = 16,
+                    wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
                         .align = WLX_LEFT);
                 }
                 {
                     char buf[128];
                     snprintf(buf, sizeof(buf), "  Color: #%02X%02X%02X",
                         (int)(app.r * 255), (int)(app.g * 255), (int)(app.b * 255));
-                    wlx_textbox(ctx, buf, .height = R_ROW, .font_size = 16,
+                    wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
                         .align = WLX_LEFT);
                 }
                 {
                     char buf[128];
                     snprintf(buf, sizeof(buf), "  Dark mode: %s", app.dark_mode ? "ON" : "OFF");
-                    wlx_textbox(ctx, buf, .height = R_ROW, .font_size = 16,
+                    wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
                         .align = WLX_LEFT);
                 }
 
@@ -376,7 +376,7 @@ static void render_dynamic_tab(WLX_Context *ctx, int layout_span) {
         // Header + one section per panel
         wlx_layout_begin(ctx, 1 + PANEL_COUNT * 5, WLX_VERT);
 
-            wlx_textbox(ctx, "Dynamic panels (wlx_push_id / wlx_pop_id)",
+            wlx_label(ctx, "Dynamic panels (wlx_push_id / wlx_pop_id)",
                 .height = D_ROW, .font_size = 22,
                 .back_color = (Color){35, 30, 45, 255}, .align = WLX_CENTER);
 
@@ -394,7 +394,7 @@ static void render_dynamic_tab(WLX_Context *ctx, int layout_span) {
 
                     char header[64];
                     snprintf(header, sizeof(header), "Panel %d", i + 1);
-                    wlx_textbox(ctx, header,
+                    wlx_label(ctx, header,
                         .height = D_ROW, .font_size = 20,
                         .back_color = section_bg, .align = WLX_LEFT);
 
@@ -425,63 +425,63 @@ static void render_about_tab(WLX_Context *ctx, int layout_span) {
     wlx_scroll_panel_begin(ctx, -1, .span = layout_span);
         wlx_layout_begin(ctx, 16, WLX_VERT);
 
-            wlx_textbox(ctx, "Wollix Library - Demo",
+            wlx_label(ctx, "Wollix Library - Demo",
                 .height = A_ROW, .font_size = 28,
                 .align = WLX_CENTER);
 
-            wlx_textbox(ctx, "A lightweight immediate-mode UI layout library built on raylib.",
+            wlx_label(ctx, "A lightweight immediate-mode UI layout library built on raylib.",
                 .height = A_ROW, .font_size = 18,
                 .align = WLX_CENTER);
 
-            wlx_textbox(ctx, "Supported Widgets:",
+            wlx_label(ctx, "Supported Widgets:",
                 .height = A_ROW, .font_size = 22,
                 .align = WLX_LEFT);
 
-            wlx_textbox(ctx, "  - Buttons (with hover highlight)",
+            wlx_label(ctx, "  - Buttons (with hover highlight)",
                 .height = A_ROW, .font_size = 16,
                 .align = WLX_LEFT);
 
-            wlx_textbox(ctx, "  - Checkboxes (toggle states)",
+            wlx_label(ctx, "  - Checkboxes (toggle states)",
                 .height = A_ROW, .font_size = 16,
                 .align = WLX_LEFT);
 
-            wlx_textbox(ctx, "  - Text boxes (static labels)",
+            wlx_label(ctx, "  - Text boxes (static labels)",
                 .height = A_ROW, .font_size = 16,
                 .align = WLX_LEFT);
 
-            wlx_textbox(ctx, "  - Input boxes (editable text fields)",
+            wlx_label(ctx, "  - Input boxes (editable text fields)",
                 .height = A_ROW, .font_size = 16,
                 .align = WLX_LEFT);
 
-            wlx_textbox(ctx, "  - Sliders (float value adjustment)",
+            wlx_label(ctx, "  - Sliders (float value adjustment)",
                 .height = A_ROW, .font_size = 16,
                 .align = WLX_LEFT);
 
-            wlx_textbox(ctx, "  - Scroll panels (with nesting support)",
+            wlx_label(ctx, "  - Scroll panels (with nesting support)",
                 .height = A_ROW, .font_size = 16,
                 .align = WLX_LEFT);
 
-            wlx_textbox(ctx, "  - Colored widgets (rectangles)",
+            wlx_label(ctx, "  - Colored widgets (rectangles)",
                 .height = A_ROW, .font_size = 16,
                 .align = WLX_LEFT);
 
-            wlx_textbox(ctx, "Credits:",
+            wlx_label(ctx, "Credits:",
                 .height = A_ROW, .font_size = 22,
                 .align = WLX_LEFT);
 
-            wlx_textbox(ctx, "  Wollix library by Dainis",
+            wlx_label(ctx, "  Wollix library by Dainis",
                 .height = A_ROW, .font_size = 16,
                 .align = WLX_LEFT);
 
-            wlx_textbox(ctx, "  Built with raylib - https://raylib.com",
+            wlx_label(ctx, "  Built with raylib - https://raylib.com",
                 .height = A_ROW, .font_size = 16,
                 .align = WLX_LEFT);
 
-            wlx_textbox(ctx, "  Immediate mode UI paradigm",
+            wlx_label(ctx, "  Immediate mode UI paradigm",
                 .height = A_ROW, .font_size = 16,
                 .align = WLX_LEFT);
 
-            wlx_textbox(ctx, "  Dynamic array macros from Alexey Kutepov",
+            wlx_label(ctx, "  Dynamic array macros from Alexey Kutepov",
                 .height = A_ROW, .font_size = 16,
                 .align = WLX_LEFT);
 
@@ -530,7 +530,7 @@ int main(void) {
 
                     // ---- Title bar --------------------------------------
                         wlx_layout_begin(ctx, 1, WLX_HORZ, .span = 2);
-                        wlx_textbox(ctx, "Wollix - Widget Demo",
+                        wlx_label(ctx, "Wollix - Widget Demo",
                             .height = 44, .font_size = 26,
                             .back_color = (Color){28, 28, 38, 255},
                             .align = WLX_CENTER);

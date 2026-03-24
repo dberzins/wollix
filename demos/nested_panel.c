@@ -68,12 +68,12 @@ int main(void) {
                 wlx_layout_begin(ctx, 10, WLX_VERT);
 
                     // ---- Title bar --------------------------------------
-                    wlx_textbox(ctx, "Nested Scroll Panel Demo",
+                    wlx_label(ctx, "Nested Scroll Panel Demo",
                         .height = 50, .font_size = 28,
                         .back_color = (Color){35, 30, 45, 255},
                         .align = WLX_CENTER, .span = 1);
 
-                    wlx_textbox(ctx, "This demonstrates scroll panels nested inside other scroll panels",
+                    wlx_label(ctx, "This demonstrates scroll panels nested inside other scroll panels",
                         .height = 30, .font_size = 16,
                         .back_color = (Color){30, 30, 40, 255},
                         .align = WLX_CENTER, .span = 1);
@@ -89,7 +89,7 @@ int main(void) {
                         // Cell count: 20 single-cell items + 3 panels * 12 span = 56
                         wlx_layout_begin(ctx, 56, WLX_VERT);
 
-                            wlx_textbox(ctx, "Outer Scroll Panel Content",
+                            wlx_label(ctx, "Outer Scroll Panel Content",
                                 .height = 40, .font_size = 20,
                                 .back_color = (Color){30, 35, 42, 255},
                                 .align = WLX_LEFT);
@@ -99,12 +99,12 @@ int main(void) {
                                 Color bg = (i % 2 == 0) 
                                     ? (Color){26, 28, 32, 255} 
                                     : (Color){30, 32, 36, 255};
-                                wlx_textbox(ctx, app.outer_notes[i],
+                                wlx_label(ctx, app.outer_notes[i],
                                     .height = 35, .font_size = 14,
                                     .back_color = bg, .align = WLX_LEFT);
                             }
 
-                            wlx_textbox(ctx, "Nested Scroll Panels Below",
+                            wlx_label(ctx, "Nested Scroll Panels Below",
                                 .height = 40, .font_size = 20,
                                 .back_color = (Color){40, 30, 35, 255},
                                 .align = WLX_LEFT);
@@ -120,7 +120,7 @@ int main(void) {
                                         "Inner Panel %d (Nested - scroll me independently!)", 
                                         panel_idx + 1);
                                     
-                                    wlx_textbox(ctx, panel_title,
+                                    wlx_label(ctx, panel_title,
                                         .height = 35, .font_size = 18,
                                         .back_color = (Color){35, 45, 35, 255},
                                         .align = WLX_LEFT);
@@ -135,7 +135,7 @@ int main(void) {
                                     );
                                         wlx_layout_begin(ctx, 10, WLX_VERT);
 
-                                            wlx_textbox(ctx, "This is scrollable content inside the nested panel",
+                                            wlx_label(ctx, "This is scrollable content inside the nested panel",
                                                 .height = 32, .font_size = 14,
                                                 .back_color = (Color){20, 24, 22, 255},
                                                 .align = WLX_LEFT);
@@ -159,7 +159,7 @@ int main(void) {
                                                 char item[64];
                                                 snprintf(item, sizeof(item), 
                                                     "  Nested item %d - Scroll to see all content", i + 1);
-                                                wlx_textbox(ctx, item,
+                                                wlx_label(ctx, item,
                                                     .height = 32, .font_size = 13,
                                                     .back_color = (Color){22, 26, 24, 255},
                                                     .align = WLX_LEFT);
@@ -178,12 +178,12 @@ int main(void) {
                                 wlx_pop_id(ctx);
 
                                 // Spacing between nested panels
-                                wlx_textbox(ctx, "",
+                                wlx_label(ctx, "",
                                     .height = 10, .font_size = 10,
                                     .back_color = (Color){22, 24, 28, 255});
                             }
 
-                            wlx_textbox(ctx, "More Outer Panel Content",
+                            wlx_label(ctx, "More Outer Panel Content",
                                 .height = 40, .font_size = 20,
                                 .back_color = (Color){30, 35, 42, 255},
                                 .align = WLX_LEFT);
@@ -196,12 +196,12 @@ int main(void) {
                                 Color bg = (i % 2 == 0) 
                                     ? (Color){26, 28, 32, 255} 
                                     : (Color){30, 32, 36, 255};
-                                wlx_textbox(ctx, item,
+                                wlx_label(ctx, item,
                                     .height = 35, .font_size = 14,
                                     .back_color = bg, .align = WLX_LEFT);
                             }
 
-                            wlx_textbox(ctx, "End of outer scroll panel",
+                            wlx_label(ctx, "End of outer scroll panel",
                                 .height = 40, .font_size = 16,
                                 .back_color = (Color){35, 30, 35, 255},
                                 .align = WLX_CENTER);

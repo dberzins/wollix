@@ -53,12 +53,12 @@ int main(void) {
                     wlx_layout_begin(ctx, 11, WLX_VERT);
 
                         // Title
-                        wlx_textbox(ctx, "User registration form",
+                        wlx_label(ctx, "User registration form",
                             .widget_align = WLX_TOP_LEFT, .height = 50, .font_size = 32, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
                         );
 
                         // Instructions
-                        wlx_textbox(ctx, "Click on a field to edit. Press ENTER or ESC to finish editing.",
+                        wlx_label(ctx, "Click on a field to edit. Press ENTER or ESC to finish editing.",
                             .widget_align = WLX_LEFT, .height = 30, .font_size = 16, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
                         );
 
@@ -110,7 +110,7 @@ int main(void) {
 
                         // Status message
                         if (show_submit) {
-                            wlx_textbox(ctx, "Form submitted! Check console for details.",
+                            wlx_label(ctx, "Form submitted! Check console for details.",
                                 .widget_align = WLX_CENTER, .height = 35, .font_size = 18, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
                             );
                         }
@@ -125,7 +125,7 @@ int main(void) {
                             ctx->interaction.active_id
                         );
 
-                        wlx_textbox(ctx, info_text,
+                        wlx_label(ctx, info_text,
                             .widget_align = WLX_BOTTOM_LEFT, .height = 30, .font_size = 16, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
                         );
 

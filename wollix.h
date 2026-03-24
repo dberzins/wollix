@@ -47,7 +47,7 @@
  *
  *   wlx_begin(&ctx, root_rect, wlx_process_raylib_input);
  *     wlx_layout_begin(&ctx, 2, WLX_VERT, .padding = 8);
- *       wlx_textbox(&ctx, "Hello!", .font_size = 24);
+ *       wlx_label(&ctx, "Hello!", .font_size = 24);
  *       if (wlx_button(&ctx, "OK")) { ... }
  *     wlx_layout_end(&ctx);
  *   wlx_end(&ctx);
@@ -894,11 +894,11 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
-} WLX_Textbox_Opt;
+} WLX_Label_Opt;
 
 
-#define wlx_default_textbox_opt(...) \
-    (WLX_Textbox_Opt) { \
+#define wlx_default_label_opt(...) \
+    (WLX_Label_Opt) { \
         /* Placement */ \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
@@ -912,8 +912,8 @@ typedef struct {
         __VA_ARGS__ \
     }
 
-WLXDEF void wlx_textbox_impl(WLX_Context *ctx, const char *text, WLX_Textbox_Opt opt, const char *file, int line);
-#define wlx_textbox(ctx, text, ...) wlx_textbox_impl((ctx), (text), wlx_default_textbox_opt(__VA_ARGS__), __FILE__, __LINE__)
+WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt, const char *file, int line);
+#define wlx_label(ctx, text, ...) wlx_label_impl((ctx), (text), wlx_default_label_opt(__VA_ARGS__), __FILE__, __LINE__)
 
 typedef struct {
     // Placement
@@ -1185,7 +1185,7 @@ WLXDEF void wlx_scroll_panel_end(WLX_Context *ctx);
 #define grid_begin_auto(ctx, cols, row_px, ...) wlx_grid_begin_auto((ctx), (cols), (row_px), __VA_ARGS__)
 #define grid_begin_auto_tile(ctx, tile_w, tile_h, ...) wlx_grid_begin_auto_tile((ctx), (tile_w), (tile_h), __VA_ARGS__)
 #define grid_end(ctx) wlx_grid_end((ctx))
-#define textbox(ctx, text, ...) wlx_textbox((ctx), (text), __VA_ARGS__)
+#define label(ctx, text, ...) wlx_label((ctx), (text), __VA_ARGS__)
 #define button(ctx, text, ...) wlx_button((ctx), (text), __VA_ARGS__)
 #define checkbox(ctx, text, checked, ...) wlx_checkbox((ctx), (text), (checked), __VA_ARGS__)
 #define checkbox_tex(ctx, text, checked, ...) wlx_checkbox_tex((ctx), (text), (checked), __VA_ARGS__)
@@ -1440,7 +1440,7 @@ static inline WLX_Rect wlx_resolve_widget_rect(WLX_Rect cell_rect, int16_t width
     return r;
 }
 
-// Widget prologue helper — consolidates the 3-step cell→scroll→resolve
+// Widget prologue helper — consolidates the cell→scroll→resolve
 // sequence shared by every widget implementation.
 typedef struct {
     WLX_Rect cell;   // the raw layout cell (before alignment/sizing)
@@ -2711,7 +2711,7 @@ static const float WLX_INPUTBOX_CURSOR_PADDING = 2.0f;
 static const float WLX_INPUTBOX_CURSOR_BLINK_PERIOD = 1.0f;
 static const float WLX_INPUTBOX_CURSOR_VISIBLE_FRACTION = 0.5f;
 
-static void wlx_resolve_opt_textbox(const WLX_Theme *theme, WLX_Textbox_Opt *opt) {
+static void wlx_resolve_opt_label(const WLX_Theme *theme, WLX_Label_Opt *opt) {
     if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
     if (opt->font == WLX_FONT_DEFAULT)      opt->font        = theme->font;
@@ -2724,10 +2724,10 @@ static void wlx_resolve_opt_textbox(const WLX_Theme *theme, WLX_Textbox_Opt *opt
     opt->back_color  = wlx_color_apply_opacity(opt->back_color,  opt->opacity);
 }
 
-WLXDEF void wlx_textbox_impl(WLX_Context *ctx, const char *text, WLX_Textbox_Opt opt, const char *file, int line)
+WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt, const char *file, int line)
 {
     if (opt.id) wlx_push_id(ctx, wlx_hash_string(opt.id));
-    wlx_resolve_opt_textbox(ctx->theme, &opt);
+    wlx_resolve_opt_label(ctx->theme, &opt);
 
     WLX_Widget_Rect wg = wlx_widget_begin(ctx, opt.pos, opt.span, opt.padding, opt.width, opt.height, opt.min_width, opt.min_height, opt.max_width, opt.max_height, opt.widget_align, opt.overflow);
     WLX_Rect wr = wg.rect;

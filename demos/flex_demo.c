@@ -34,7 +34,7 @@ int main(void) {
         wlx_layout_begin(ctx, 2, WLX_VERT,
             .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(50), WLX_SLOT_AUTO });
 
-            wlx_textbox(ctx, "Flex / Weight-Based Sizing Demo",
+            wlx_label(ctx, "Flex / Weight-Based Sizing Demo",
                 .height = 50, .font_size = 28,
                 .back_color = (Color){35, 30, 45, 255},
                 .align = WLX_CENTER, .boxed = true);
@@ -48,7 +48,7 @@ int main(void) {
                 });
 
                 // --- Example 1: Sidebar + Content ---
-                wlx_textbox(ctx, "1) PX(200) + FLEX(1) sidebar + FLEX(3) content",
+                wlx_label(ctx, "1) PX(200) + FLEX(1) sidebar + FLEX(3) content",
                     .height = 25, .font_size = 14,
                     .back_color = (Color){30, 30, 40, 255},
                     .align = WLX_LEFT, .boxed = true);
@@ -59,19 +59,19 @@ int main(void) {
                         WLX_SLOT_FLEX(1),
                         WLX_SLOT_FLEX(3),
                     });
-                    wlx_textbox(ctx, "Nav (200px)",
+                    wlx_label(ctx, "Nav (200px)",
                         .back_color = (Color){50, 35, 35, 255},
                         .align = WLX_CENTER, .boxed = true);
-                    wlx_textbox(ctx, "Sidebar FLEX(1)",
+                    wlx_label(ctx, "Sidebar FLEX(1)",
                         .back_color = (Color){35, 50, 35, 255},
                         .align = WLX_CENTER, .boxed = true);
-                    wlx_textbox(ctx, "Content FLEX(3)",
+                    wlx_label(ctx, "Content FLEX(3)",
                         .back_color = (Color){35, 35, 55, 255},
                         .align = WLX_CENTER, .boxed = true);
                 wlx_layout_end(ctx);
 
                 // --- Example 2: Mixed AUTO and FLEX ---
-                wlx_textbox(ctx, "2) AUTO + FLEX(2) + PX(100)  — AUTO acts as FLEX(1)",
+                wlx_label(ctx, "2) AUTO + FLEX(2) + PX(100)  — AUTO acts as FLEX(1)",
                     .height = 25, .font_size = 14,
                     .back_color = (Color){30, 30, 40, 255},
                     .align = WLX_LEFT, .boxed = true);
@@ -82,19 +82,19 @@ int main(void) {
                         WLX_SLOT_FLEX(2),
                         WLX_SLOT_PX(100),
                     });
-                    wlx_textbox(ctx, "AUTO = 1/3 remaining",
+                    wlx_label(ctx, "AUTO = 1/3 remaining",
                         .back_color = (Color){50, 45, 30, 255},
                         .align = WLX_CENTER, .boxed = true);
-                    wlx_textbox(ctx, "FLEX(2) = 2/3 remaining",
+                    wlx_label(ctx, "FLEX(2) = 2/3 remaining",
                         .back_color = (Color){30, 45, 50, 255},
                         .align = WLX_CENTER, .boxed = true);
-                    wlx_textbox(ctx, "PX(100)",
+                    wlx_label(ctx, "PX(100)",
                         .back_color = (Color){45, 30, 45, 255},
                         .align = WLX_CENTER, .boxed = true);
                 wlx_layout_end(ctx);
 
                 // --- Example 3: Complex app layout ---
-                wlx_textbox(ctx, "3) App layout: PX(50) header, FLEX(1) body, PX(30) footer — body has weighted columns",
+                wlx_label(ctx, "3) App layout: PX(50) header, FLEX(1) body, PX(30) footer — body has weighted columns",
                     .height = 25, .font_size = 14,
                     .back_color = (Color){30, 30, 40, 255},
                     .align = WLX_LEFT, .boxed = true);
@@ -107,7 +107,7 @@ int main(void) {
                     });
 
                     // Header
-                    wlx_textbox(ctx, "Header (PX 35)",
+                    wlx_label(ctx, "Header (PX 35)",
                         .back_color = (Color){45, 35, 50, 255},
                         .align = WLX_CENTER, .boxed = true);
 
@@ -122,36 +122,36 @@ int main(void) {
 
                         // Icon sidebar
                         wlx_layout_begin_auto(ctx, WLX_VERT, 40);
-                            wlx_textbox(ctx, "[F]",
+                            wlx_label(ctx, "[F]",
                                 .back_color = (Color){55, 40, 40, 255},
                                 .align = WLX_CENTER, .font_size = 14, .boxed = true);
-                            wlx_textbox(ctx, "[S]",
+                            wlx_label(ctx, "[S]",
                                 .back_color = (Color){55, 40, 40, 255},
                                 .align = WLX_CENTER, .font_size = 14, .boxed = true);
-                            wlx_textbox(ctx, "[T]",
+                            wlx_label(ctx, "[T]",
                                 .back_color = (Color){55, 40, 40, 255},
                                 .align = WLX_CENTER, .font_size = 14, .boxed = true);
                         wlx_layout_end(ctx);
 
                         // Main editor area
-                        wlx_textbox(ctx, "Editor FLEX(3)",
+                        wlx_label(ctx, "Editor FLEX(3)",
                             .back_color = (Color){30, 38, 48, 255},
                             .align = WLX_CENTER, .boxed = true);
 
                         // Side panel
-                        wlx_textbox(ctx, "Panel FLEX(1)",
+                        wlx_label(ctx, "Panel FLEX(1)",
                             .back_color = (Color){38, 48, 30, 255},
                             .align = WLX_CENTER, .boxed = true);
 
                         // Minimap
-                        wlx_textbox(ctx, "Map",
+                        wlx_label(ctx, "Map",
                             .back_color = (Color){40, 40, 40, 255},
                             .align = WLX_CENTER, .font_size = 12, .boxed = true);
 
                     wlx_layout_end(ctx);
 
                     // Footer
-                    wlx_textbox(ctx, "Footer (PX 25)",
+                    wlx_label(ctx, "Footer (PX 25)",
                         .back_color = (Color){35, 45, 35, 255},
                         .align = WLX_CENTER, .font_size = 12, .boxed = true);
 

@@ -107,7 +107,7 @@ int main(void) {
             );
 
                 // ── Title row ───────────────────────────────────────────
-                wlx_textbox(ctx, "Font Demo",
+                wlx_label(ctx, "Font Demo",
                     .font = h_bold, .font_size = 30,
                     .height = 50, .align = WLX_CENTER,
                     .back_color = theme.surface
@@ -119,7 +119,7 @@ int main(void) {
                     // ── Left column: theme & controls ───────────────────
                     wlx_layout_begin(ctx, 8, WLX_VERT);
 
-                        wlx_textbox(ctx, "Theme-level font",
+                        wlx_label(ctx, "Theme-level font",
                             .font = h_bold, .font_size = 20,
                             .height = 36, .align = WLX_LEFT
                         );
@@ -129,7 +129,7 @@ int main(void) {
                             .font_size = 18, .height = 34
                         );
 
-                        wlx_textbox(ctx,
+                        wlx_label(ctx,
                             app.use_theme_font
                                 ? "Theme font: DejaVu Sans"
                                 : "Theme font: Raylib default",
@@ -137,7 +137,7 @@ int main(void) {
                             .align = WLX_LEFT
                         );
 
-                        wlx_textbox(ctx, "Per-widget font override",
+                        wlx_label(ctx, "Per-widget font override",
                             .font = h_bold, .font_size = 20,
                             .height = 36, .align = WLX_LEFT
                         );
@@ -168,28 +168,28 @@ int main(void) {
                     // ── Right column: font showcase ─────────────────────
                     wlx_layout_begin(ctx, 7, WLX_VERT);
 
-                        wlx_textbox(ctx, "Font showcase",
+                        wlx_label(ctx, "Font showcase",
                             .font = h_bold, .font_size = 20,
                             .height = 36, .align = WLX_CENTER,
                             .back_color = theme.surface
                         );
 
-                        wlx_textbox(ctx, "Sans — The quick brown fox",
+                        wlx_label(ctx, "Sans — The quick brown fox",
                             .font = h_sans, .font_size = 20,
                             .height = 36, .align = WLX_LEFT
                         );
 
-                        wlx_textbox(ctx, "Mono — The quick brown fox",
+                        wlx_label(ctx, "Mono — The quick brown fox",
                             .font = h_mono, .font_size = 20,
                             .height = 36, .align = WLX_LEFT
                         );
 
-                        wlx_textbox(ctx, "Bold — The quick brown fox",
+                        wlx_label(ctx, "Bold — The quick brown fox",
                             .font = h_bold, .font_size = 20,
                             .height = 36, .align = WLX_LEFT
                         );
 
-                        wlx_textbox(ctx, "Default — The quick brown fox",
+                        wlx_label(ctx, "Default — The quick brown fox",
                             .font = WLX_FONT_DEFAULT, .font_size = 20,
                             .height = 36, .align = WLX_LEFT
                         );
@@ -220,7 +220,7 @@ int main(void) {
                     mono_ok ? "yes" : "NO",
                     bold_ok ? "yes" : "NO");
 
-                wlx_textbox(ctx, status,
+                wlx_label(ctx, status,
                     .font = h_mono, .font_size = 14,
                     .height = 28, .align = WLX_LEFT,
                     .back_color = theme.surface

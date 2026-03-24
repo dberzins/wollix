@@ -56,7 +56,7 @@ int main(void) {
             );
 
                 // ── Title ────────────────────────────────────────
-                wlx_textbox(ctx, "Opacity / Alpha Demo",
+                wlx_label(ctx, "Opacity / Alpha Demo",
                     .font_size = 24, .align = WLX_CENTER,
                     .front_color = WLX_WHITE
                 );
@@ -84,7 +84,7 @@ int main(void) {
                             // Column header with opacity value
                             char label[32];
                             snprintf(label, sizeof(label), "%.0f%%", op * 100);
-                            wlx_textbox(ctx, label,
+                            wlx_label(ctx, label,
                                 .font_size = 18, .align = WLX_CENTER,
                                 .front_color = WLX_WHITE,
                                 .opacity = op
@@ -97,8 +97,8 @@ int main(void) {
                                 .opacity = op
                             );
 
-                            // Textbox (boxed)
-                            wlx_textbox(ctx, "Boxed text",
+                            // Label (boxed)
+                            wlx_label(ctx, "Boxed text",
                                 .font_size = 14, .height = 30,
                                 .boxed = true,
                                 .widget_align = WLX_CENTER,
@@ -131,14 +131,14 @@ int main(void) {
                             );
 
                             // Plain text
-                            wlx_textbox(ctx, "Plain text",
+                            wlx_label(ctx, "Plain text",
                                 .font_size = 12, .align = WLX_CENTER,
                                 .front_color = WLX_WHITE,
                                 .opacity = op
                             );
 
                             // Spacer
-                            wlx_textbox(ctx, "", .font_size = 1);
+                            wlx_label(ctx, "", .font_size = 1);
 
                         wlx_layout_end(ctx);
 
@@ -158,7 +158,7 @@ int main(void) {
                 WLX_Layout bl = wlx_create_layout(ctx, bottom, 4, WLX_HORZ);
                 wlx_da_append(&ctx->layouts, bl);
 
-                    wlx_textbox(ctx, "Dynamic:",
+                    wlx_label(ctx, "Dynamic:",
                         .font_size = 16, .align = WLX_CENTER,
                         .front_color = WLX_WHITE,
                         .opacity = app.opacity_control

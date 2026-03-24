@@ -39,7 +39,7 @@ int main(void) {
 
             wlx_layout_begin(&ctx, 4, WLX_VERT, .padding = 8);
 
-                wlx_textbox(&ctx, "Hello, wollix.h!", .font_size = 24, .align = WLX_CENTER);
+                wlx_label(&ctx, "Hello, wollix.h!", .font_size = 24, .align = WLX_CENTER);
 
                 if (wlx_button(&ctx, "Click me", .height = 40))
                     printf("clicked!\n");
@@ -154,7 +154,7 @@ not shaped-run based.
 The library includes the following widgets and layout/container primitives:
 
 - **Button** - Clickable button widget with hover effects
-- **Textbox** - Static text display with wrapping and alignment
+- **Label** - Static text display with wrapping and alignment
 - **Checkbox** - Toggle checkbox with text label
 - **Checkbox (Texture)** - Checkbox using custom textures
 - **Input Box** - Text input field with cursor and selection

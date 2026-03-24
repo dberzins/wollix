@@ -252,10 +252,10 @@ Use `wlx_grid_cell()` to place a child at a specific row/column with optional sp
 ```c
 wlx_grid_begin(ctx, 3, 3);
     wlx_grid_cell(ctx, 0, 0, .col_span = 2);    // row 0, cols 0–1
-    wlx_textbox(ctx, "Wide header");
+    wlx_label(ctx, "Wide header");
 
     wlx_grid_cell(ctx, 1, 2, .row_span = 2);    // rows 1–2, col 2
-    wlx_textbox(ctx, "Tall sidebar");
+    wlx_label(ctx, "Tall sidebar");
 wlx_grid_end(ctx);
 ```
 
@@ -385,9 +385,9 @@ All widgets inherit these field groups:
 
 ### Widget Quick Reference
 
-**`wlx_textbox`** — static text display:
+**`wlx_label`** — static text display:
 ```c
-wlx_textbox(ctx, "Hello", .font_size = 20, .align = WLX_CENTER, .wrap = true);
+wlx_label(ctx, "Hello", .font_size = 20, .align = WLX_CENTER, .wrap = true);
 ```
 
 **`wlx_button`** — clickable, returns `true` on click:

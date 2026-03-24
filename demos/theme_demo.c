@@ -69,7 +69,7 @@ int main(void) {
                 // ── Title bar ────────────────────────────────────
                 wlx_layout_begin(ctx, 2, WLX_HORZ);
 
-                    wlx_textbox(ctx, app.dark_mode ? "Dark Theme" : "Light Theme",
+                    wlx_label(ctx, app.dark_mode ? "Dark Theme" : "Light Theme",
                         .font_size = 28, .align = WLX_LEFT,
                         .widget_align = WLX_CENTER
                     );
@@ -89,7 +89,7 @@ int main(void) {
                     // Left column: buttons & text
                     wlx_layout_begin(ctx, 5, WLX_VERT);
 
-                        wlx_textbox(ctx, "Buttons",
+                        wlx_label(ctx, "Buttons",
                             .font_size = 20, .align = WLX_CENTER
                         );
 
@@ -108,20 +108,20 @@ int main(void) {
                             printf("Accent button clicked\n");
                         }
 
-                        wlx_textbox(ctx, "All colors come from the active theme.\n"
+                        wlx_label(ctx, "All colors come from the active theme.\n"
                                      "Per-widget overrides still work.",
                             .font_size = 14, .align = WLX_LEFT
                         );
 
                         // spacer
-                        wlx_textbox(ctx, "", .font_size = 1);
+                        wlx_label(ctx, "", .font_size = 1);
 
                     wlx_layout_end(ctx);
 
                     // Right column: checkboxes, wlx_slider, input
                     wlx_layout_begin_auto(ctx, WLX_VERT, 30);
 
-                        wlx_textbox(ctx, "Controls",
+                        wlx_label(ctx, "Controls",
                             .font_size = 20, .align = WLX_CENTER
                         );
 

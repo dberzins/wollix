@@ -51,7 +51,7 @@ int main(void) {
                 wlx_layout_begin(ctx, 1, WLX_HORZ);
                     wlx_layout_begin(ctx, 8, WLX_VERT);
 
-                        wlx_textbox(ctx, "Slider Demo",
+                        wlx_label(ctx, "Slider Demo",
                             .widget_align = WLX_CENTER, .font_size = 28, .height = 50, .align = WLX_CENTER
                         );
 

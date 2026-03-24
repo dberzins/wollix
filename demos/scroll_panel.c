@@ -73,7 +73,7 @@ int main(void) {
                                 wlx_push_id(ctx, (size_t)i);
                                 char label[64];
                                 snprintf(label, sizeof(label), "Text row %d - scrollable content", i + 1);
-                                wlx_textbox(ctx, label,
+                                wlx_label(ctx, label,
                                     .font_size = 16,
                                     .height = 40,
                                     .align = WLX_LEFT

@@ -43,7 +43,7 @@ otherwise.
 
 ### Typography fields (`WLX_TEXT_TYPOGRAPHY_FIELDS`)
 
-Used by `textbox`, `button`, `checkbox`, `checkbox_tex`, and `inputbox`.
+Used by `label`, `button`, `checkbox`, `checkbox_tex`, and `inputbox`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -55,7 +55,7 @@ Used by `textbox`, `button`, `checkbox`, `checkbox_tex`, and `inputbox`.
 
 ### Color fields (`WLX_TEXT_COLOR_FIELDS`)
 
-Used by `textbox`, `button`, `checkbox`, `checkbox_tex`, and `inputbox`.
+Used by `label`, `button`, `checkbox`, `checkbox_tex`, and `inputbox`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -72,7 +72,7 @@ All widget opt structs include an optional identity field:
 
 ---
 
-## `wlx_textbox`
+## `wlx_label`
 
 Static text label. Does not return a value and has no interactive behavior
 beyond hover highlighting (when `boxed` is true).
@@ -80,13 +80,13 @@ beyond hover highlighting (when `boxed` is true).
 ### Signature
 
 ```c
-void wlx_textbox(WLX_Context *ctx, const char *text, ...options);
+void wlx_label(WLX_Context *ctx, const char *text, ...options);
 ```
 
 ### Minimal example
 
 ```c
-wlx_textbox(ctx, "Hello, world!",
+wlx_label(ctx, "Hello, world!",
     .font_size = 20, .align = WLX_CENTER
 );
 ```
@@ -104,7 +104,7 @@ All shared fields (placement, sizing, typography, color) also apply.
 Centered heading with background:
 
 ```c
-wlx_textbox(ctx, "Settings",
+wlx_label(ctx, "Settings",
     .font_size = 28,
     .align = WLX_CENTER,
     .height = 50,
@@ -116,7 +116,7 @@ wlx_textbox(ctx, "Settings",
 Right-aligned status line:
 
 ```c
-wlx_textbox(ctx, status_text,
+wlx_label(ctx, status_text,
     .font_size = 14,
     .align = WLX_RIGHT,
     .height = 30,
@@ -473,7 +473,7 @@ wlx_scroll_panel_begin(ctx, -1);  // auto-height: measured from children
         for (int i = 0; i < 50; i++) {
             char label[32];
             snprintf(label, sizeof(label), "Item %d", i + 1);
-            wlx_textbox(ctx, label, .height = 30, .font_size = 16);
+            wlx_label(ctx, label, .height = 30, .font_size = 16);
         }
     wlx_layout_end(ctx);
 wlx_scroll_panel_end(ctx);

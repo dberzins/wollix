@@ -447,7 +447,7 @@ TEST(id_same_site_same_id_without_push) {
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
     // Same call-site (widget_A) called twice without push_id → same ID
-    // This documents the Phase 2 contract: no counter, so duplicates are identical.
+    // This documents the contract: no counter, so duplicates are identical.
     test_frame_begin(&ctx, 0, 0, false, false);
     WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
@@ -474,7 +474,7 @@ TEST(id_same_site_different_push_id) {
 }
 
 // ============================================================================
-// String ID tests (Phase 3: opt.id)
+// String ID tests (opt.id)
 // ============================================================================
 
 TEST(string_id_different_strings_different_ids) {

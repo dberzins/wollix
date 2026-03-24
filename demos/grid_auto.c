@@ -52,7 +52,7 @@ int main(void) {
         wlx_layout_begin(ctx, 3, WLX_VERT,
             .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(50), WLX_SLOT_PX(45), WLX_SLOT_AUTO });
 
-            wlx_textbox(ctx, "Auto-Sizing Grid Demo",
+            wlx_label(ctx, "Auto-Sizing Grid Demo",
                 .height = 50, .font_size = 28,
                 .back_color = (Color){35, 30, 45, 255},
                 .align = WLX_CENTER);
@@ -103,7 +103,7 @@ int main(void) {
                     char header_buf[64];
                     snprintf(header_buf, sizeof(header_buf),
                              "Data Table (%d rows)", record_count);
-                    wlx_textbox(ctx, header_buf,
+                    wlx_label(ctx, header_buf,
                         .height = 25, .font_size = 14,
                         .back_color = (Color){30, 40, 30, 255},
                         .align = WLX_CENTER);
@@ -143,11 +143,11 @@ int main(void) {
                                     row_bg = (Color){50, 40, 30, 255};
                                 }
 
-                                wlx_textbox(ctx, records[i].name,
+                                wlx_label(ctx, records[i].name,
                                     .align = WLX_LEFT,
                                     .back_color = row_bg,
                                     .boxed = true);
-                                wlx_textbox(ctx, records[i].value,
+                                wlx_label(ctx, records[i].value,
                                     .align = WLX_LEFT,
                                     .back_color = row_bg,
                                     .boxed = true);
@@ -169,7 +169,7 @@ int main(void) {
                 wlx_layout_begin(ctx, 2, WLX_VERT,
                     .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(25), WLX_SLOT_AUTO });
 
-                    wlx_textbox(ctx, "Tile Grid",
+                    wlx_label(ctx, "Tile Grid",
                         .height = 25, .font_size = 14,
                         .back_color = (Color){40, 30, 30, 255},
                         .align = WLX_CENTER);
@@ -187,7 +187,7 @@ int main(void) {
                                 };
                                 char tile_label[16];
                                 snprintf(tile_label, sizeof(tile_label), "%d", i + 1);
-                                wlx_textbox(ctx, tile_label,
+                                wlx_label(ctx, tile_label,
                                     .align = WLX_CENTER,
                                     .back_color = tile_bg,
                                     .font_size = 18,

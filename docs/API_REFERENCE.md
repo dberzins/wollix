@@ -30,7 +30,7 @@ layout library.
 16. [Input Queries](#input-queries)
 17. [Utility Functions](#utility-functions)
 18. [Widget — `wlx_widget`](#widget--wlx_widget)
-19. [Widget — `wlx_textbox`](#widget--wlx_textbox)
+19. [Widget — `wlx_label`](#widget--wlx_label)
 20. [Widget — `wlx_button`](#widget--wlx_button)
 21. [Widget — `wlx_checkbox`](#widget--wlx_checkbox)
 22. [Widget — `wlx_checkbox_tex`](#widget--wlx_checkbox_tex)
@@ -1010,17 +1010,17 @@ wlx_widget(ctx,
 
 ---
 
-## Widget — `wlx_textbox`
+## Widget — `wlx_label`
 
 ```c
-#define wlx_textbox(ctx, text, ...options)
+#define wlx_label(ctx, text, ...options)
 // void — no return value
 ```
 
 Static text label. Renders text fitted within its slot rect. Optional filled
 background when `boxed = true`.
 
-**Option struct:** `WLX_Textbox_Opt`
+**Option struct:** `WLX_Label_Opt`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -1044,7 +1044,7 @@ brightens it automatically. Returns `true` on the frame the click completes
 (press then release while hovering) or on keyboard activation (Space/Enter
 while hovered).
 
-**Option struct:** `WLX_Button_Opt` — same fields as `WLX_Textbox_Opt`.
+**Option struct:** `WLX_Button_Opt` — same fields as `WLX_Label_Opt`.
 
 ---
 
