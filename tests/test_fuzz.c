@@ -1,4 +1,4 @@
-// test_fuzz.c — property-based fuzz tests for layout math invariants
+// test_fuzz.c - property-based fuzz tests for layout math invariants
 // Verifies invariants hold over thousands of randomly generated inputs.
 
 #include <stdlib.h>
@@ -23,7 +23,7 @@ static void fuzz_srand(unsigned int seed) {
     _fuzz_seed = seed;
 }
 
-// xorshift32 — fast, deterministic, no libc dependency
+// xorshift32 - fast, deterministic, no libc dependency
 static unsigned int fuzz_rand(void) {
     _fuzz_seed ^= _fuzz_seed << 13;
     _fuzz_seed ^= _fuzz_seed >> 17;
@@ -89,7 +89,7 @@ TEST(fuzz_offsets_monotonic) {
         }
 
         float offsets[FUZZ_MAX_SLOTS + 1];
-        wlx_compute_offsets(offsets, count, total, sizes);
+        wlx_compute_offsets(offsets, count, total, total, sizes);
 
         // Invariant 1: starts at 0
         if (fabsf(offsets[0]) > 0.001f) {
@@ -125,7 +125,7 @@ TEST(fuzz_offsets_equal_split) {
         float total = fuzz_randf(1.0f, 5000.0f);
 
         float offsets[FUZZ_MAX_SLOTS + 1];
-        wlx_compute_offsets(offsets, count, total, NULL);
+        wlx_compute_offsets(offsets, count, total, total, NULL);
 
         // offsets[0] == 0
         if (fabsf(offsets[0]) > 0.001f) {
@@ -136,8 +136,8 @@ TEST(fuzz_offsets_equal_split) {
         }
         tests_assertions++;
 
-        // offsets[count] == total
-        if (fabsf(offsets[count] - total) > 0.01f) {
+        // offsets[count] == total (±1px due to pixel snapping)
+        if (fabsf(offsets[count] - total) > 1.0f) {
             fprintf(stderr, "    fuzz_offsets_equal_split: offsets[%zu]=%.4f != total=%.4f "
                     "(seed=%u, iter=%d)\n",
                     count, (double)offsets[count], (double)total, seed, iter);
@@ -146,11 +146,11 @@ TEST(fuzz_offsets_equal_split) {
         }
         tests_assertions++;
 
-        // All slots are equal (within tolerance)
+        // All slots are equal (within tolerance; ±1px from pixel snapping)
         float expected_size = total / (float)count;
         for (size_t i = 0; i < count; i++) {
             float slot_size = offsets[i + 1] - offsets[i];
-            if (fabsf(slot_size - expected_size) > 0.1f) {
+            if (fabsf(slot_size - expected_size) > 1.0f) {
                 fprintf(stderr, "    fuzz_offsets_equal_split: slot %zu size=%.4f != expected=%.4f "
                         "(seed=%u, iter=%d)\n",
                         i, (double)slot_size, (double)expected_size, seed, iter);
@@ -187,13 +187,13 @@ TEST(fuzz_offsets_minmax_respected) {
         }
 
         float offsets[FUZZ_MAX_SLOTS + 1];
-        wlx_compute_offsets(offsets, count, total, sizes);
+        wlx_compute_offsets(offsets, count, total, total, sizes);
 
         for (size_t i = 0; i < count; i++) {
             float slot_size = offsets[i + 1] - offsets[i];
 
-            // Max constraint: slot should not exceed max
-            if (sizes[i].max > 0 && slot_size > sizes[i].max + 0.1f) {
+            // Max constraint: slot should not exceed max (±1px from pixel snapping)
+            if (sizes[i].max > 0 && slot_size > sizes[i].max + 1.0f) {
                 fprintf(stderr, "    fuzz_offsets_minmax_respected: slot %zu size=%.4f > max=%.4f "
                         "(seed=%u, iter=%d, count=%zu, total=%.2f)\n",
                         i, (double)slot_size, (double)sizes[i].max, seed, iter, count, (double)total);
@@ -204,7 +204,7 @@ TEST(fuzz_offsets_minmax_respected) {
 
             // Min constraint: slot should be at least min
             // (exception: if total is too small to satisfy all mins, we can't guarantee this)
-            if (sizes[i].min > 0 && slot_size < sizes[i].min - 0.1f) {
+            if (sizes[i].min > 0 && slot_size < sizes[i].min - 1.0f) {
                 // Only flag as failure if total is large enough that min should have been achievable
                 float total_min = 0;
                 for (size_t j = 0; j < count; j++) {
@@ -237,7 +237,7 @@ TEST(fuzz_offsets_nonnegative_sizes) {
         }
 
         float offsets[FUZZ_MAX_SLOTS + 1];
-        wlx_compute_offsets(offsets, count, total, sizes);
+        wlx_compute_offsets(offsets, count, total, total, sizes);
 
         for (size_t i = 0; i < count; i++) {
             float slot_size = offsets[i + 1] - offsets[i];

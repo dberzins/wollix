@@ -1,4 +1,4 @@
-// test_input.c — inputbox text editing tests (focus, typing, backspace, cursor, buffer limits)
+// test_input.c - inputbox text editing tests (focus, typing, backspace, cursor, buffer limits)
 
 #ifndef WOLLIX_H_
 #define WOLLIX_IMPLEMENTATION
@@ -58,7 +58,7 @@ TEST(input_unfocus_enter) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 2: press Enter → should lose focus
+    // Frame 2: press Enter -> should lose focus
     bool keys_pressed[WLX_KEY_COUNT] = {0};
     keys_pressed[WLX_KEY_ENTER] = true;
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
@@ -82,7 +82,7 @@ TEST(input_unfocus_click_away) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 2: click at (0,0) — for a 400x300 widget, (0,0) is on the edge
+    // Frame 2: click at (0,0) - for a 400x300 widget, (0,0) is on the edge
     // but still inside. We need to click truly outside the widget rect.
     // However the widget fills the full area. Let's use two inputboxes instead.
     // Actually, let's just verify focus is cleared by Enter, which we tested above.
@@ -243,7 +243,7 @@ TEST(input_backspace_empty) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 2: backspace on empty — should be no-op
+    // Frame 2: backspace on empty - should be no-op
     bool keys_pressed[WLX_KEY_COUNT] = {0};
     keys_pressed[WLX_KEY_BACKSPACE] = true;
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
@@ -282,7 +282,7 @@ TEST(input_cursor_move_left_right) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 3: type 'X' at cursor pos=1 → "AXB"
+    // Frame 3: type 'X' at cursor pos=1 -> "AXB"
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
                          NULL, NULL, "X");
     wlx_layout_begin(&ctx, 1, WLX_VERT);
@@ -305,7 +305,7 @@ TEST(input_cursor_move_left_insert) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 2: press LEFT twice → cursor at pos=0
+    // Frame 2: press LEFT twice -> cursor at pos=0
     bool keys_left[WLX_KEY_COUNT] = {0};
     keys_left[WLX_KEY_LEFT] = true;
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
@@ -323,7 +323,7 @@ TEST(input_cursor_move_left_insert) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 4: type 'Z' at pos=0 → "ZCD"
+    // Frame 4: type 'Z' at pos=0 -> "ZCD"
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
                          NULL, NULL, "Z");
     wlx_layout_begin(&ctx, 1, WLX_VERT);
@@ -351,7 +351,7 @@ TEST(input_buffer_overflow) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 2: type "ABCDE" — should only fit 4 chars
+    // Frame 2: type "ABCDE" - should only fit 4 chars
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
                          NULL, NULL, "ABCDE");
     wlx_layout_begin(&ctx, 1, WLX_VERT);
@@ -368,7 +368,7 @@ TEST(input_no_type_when_unfocused) {
     test_ctx_init(&ctx, 400, 300);
     char buf[64] = "";
 
-    // Frame 1: no click → not focused, send text input
+    // Frame 1: no click -> not focused, send text input
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
                          NULL, NULL, "X");
     wlx_layout_begin(&ctx, 1, WLX_VERT);
@@ -457,7 +457,7 @@ TEST(input_cursor_utf8_left) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 2: press LEFT → cursor should jump to byte 1 (before ö, skipping 2 bytes)
+    // Frame 2: press LEFT -> cursor should jump to byte 1 (before ö, skipping 2 bytes)
     bool keys_left[WLX_KEY_COUNT] = {0};
     keys_left[WLX_KEY_LEFT] = true;
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
@@ -467,7 +467,7 @@ TEST(input_cursor_utf8_left) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 3: press LEFT again → cursor at byte 0
+    // Frame 3: press LEFT again -> cursor at byte 0
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
                          NULL, keys_left, NULL);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
@@ -475,7 +475,7 @@ TEST(input_cursor_utf8_left) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 4: type "X" at position 0 → "XAö"
+    // Frame 4: type "X" at position 0 -> "XAö"
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
                          NULL, NULL, "X");
     wlx_layout_begin(&ctx, 1, WLX_VERT);
@@ -499,7 +499,7 @@ TEST(input_cursor_utf8_right) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 2: press LEFT twice → cursor at byte 0
+    // Frame 2: press LEFT twice -> cursor at byte 0
     bool keys_left[WLX_KEY_COUNT] = {0};
     keys_left[WLX_KEY_LEFT] = true;
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
@@ -516,7 +516,7 @@ TEST(input_cursor_utf8_right) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 4: press RIGHT → cursor should jump to byte 2 (after ö)
+    // Frame 4: press RIGHT -> cursor should jump to byte 2 (after ö)
     bool keys_right[WLX_KEY_COUNT] = {0};
     keys_right[WLX_KEY_RIGHT] = true;
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
@@ -526,7 +526,7 @@ TEST(input_cursor_utf8_right) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 5: type "X" at byte 2 → "öXB"
+    // Frame 5: type "X" at byte 2 -> "öXB"
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
                          NULL, NULL, "X");
     wlx_layout_begin(&ctx, 1, WLX_VERT);
@@ -554,7 +554,7 @@ TEST(input_backspace_utf8) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 2: press LEFT → cursor at byte 3 (after ö, before B)
+    // Frame 2: press LEFT -> cursor at byte 3 (after ö, before B)
     bool keys_left[WLX_KEY_COUNT] = {0};
     keys_left[WLX_KEY_LEFT] = true;
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
@@ -564,7 +564,7 @@ TEST(input_backspace_utf8) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 3: press Backspace → should delete ö (2 bytes), leaving "AB"
+    // Frame 3: press Backspace -> should delete ö (2 bytes), leaving "AB"
     bool keys_bs[WLX_KEY_COUNT] = {0};
     keys_bs[WLX_KEY_BACKSPACE] = true;
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
@@ -590,7 +590,7 @@ TEST(input_backspace_utf8_at_start) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 2–3: press LEFT twice → cursor at byte 0
+    // Frame 2-3: press LEFT twice -> cursor at byte 0
     bool keys_left[WLX_KEY_COUNT] = {0};
     keys_left[WLX_KEY_LEFT] = true;
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
@@ -607,7 +607,7 @@ TEST(input_backspace_utf8_at_start) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 4: press Backspace at position 0 → no-op
+    // Frame 4: press Backspace at position 0 -> no-op
     bool keys_bs[WLX_KEY_COUNT] = {0};
     keys_bs[WLX_KEY_BACKSPACE] = true;
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
@@ -637,7 +637,7 @@ TEST(input_utf8_buffer_full) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 2: type "ö" (2 bytes) — should fit (2 + NUL = 3 <= 4)
+    // Frame 2: type "ö" (2 bytes) - should fit (2 + NUL = 3 <= 4)
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
                          NULL, NULL, "\xC3\xB6");
     wlx_layout_begin(&ctx, 1, WLX_VERT);
@@ -647,7 +647,7 @@ TEST(input_utf8_buffer_full) {
 
     ASSERT_EQ_STR(buf, "\xC3\xB6");
 
-    // Frame 3: type "€" (3 bytes) — doesn't fit (2 + 3 = 5 > 3 usable), buffer unchanged
+    // Frame 3: type "€" (3 bytes) - doesn't fit (2 + 3 = 5 > 3 usable), buffer unchanged
     test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
                          NULL, NULL, "\xE2\x82\xAC");
     wlx_layout_begin(&ctx, 1, WLX_VERT);

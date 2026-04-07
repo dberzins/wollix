@@ -11,7 +11,7 @@ layouts. Define rows, columns, and grids — widgets interlock into place.
 - Zero dependencies in the core library
 - Backend adapters for Raylib and SDL3 included
 - Built-in widgets: buttons, checkboxes, sliders, text input, scroll panels
-- Current version: `WOLLIX_VERSION` = `"0.1.0"`
+- Current version: `WOLLIX_VERSION` = `"0.2.0"`
 
 ## Quick Start
 
@@ -79,48 +79,14 @@ layout_end(&ctx);
 
 ## Project Structure
 
-The repository contains the core `wollix.h` library, demo programs, build files,
-and design/analysis notes.
-
-```
-wollix/
-├── LICENSE                    # Project license
-├── wollix.h                   # Core header-only UI layout library
-├── wollix_raylib.h            # Raylib backend adapter
-├── wollix_sdl3.h              # SDL3 backend adapter
-├── Makefile                   # Main build system
-├── build.sh                   # Original build script
-├── README.md                  # Project overview
-├── docs/                      # Documentation
-│   ├── API_REFERENCE.md       # Public API reference
-│   ├── LAYOUT_MODEL.md        # Layout model and sizing behavior
-│   └── WIDGETS.md             # Widget usage guide
-├── demos/                     # Demo sources and built demo executables
-│   ├── assets/                # Bundled fonts and their licenses
-    ├── demo.c                 # General demo
-    ├── button.c               # Button demo
-    ├── checkbox.c             # Checkbox demo
-    ├── checkbox_tex.c         # Textured checkbox demo
-    ├── flex_demo.c            # Flex sizing demo
-    ├── font_demo.c            # Font demo
-    ├── gallery.c              # Widgets gallery demo
-    ├── grid.c                 # Fixed grid demo
-    ├── grid_auto.c            # Auto-growing grid demo
-    ├── input.c                # Text input demo
-    ├── layout.c               # Layout primitives demo
-    ├── minmax_demo.c          # Min/max sizing demo
-    ├── nest2_panel.c          # Nested scroll panel demo
-    ├── nested_panel.c         # Nested panel demo
-    ├── opacity_demo.c         # Opacity and layering demo
-    ├── scroll_panel.c         # Scrollable panel demo
-    ├── slider.c               # Slider demo
-    ├── sdl3_demo.c            # SDL3 backend demo
-    ├── text.c                 # Text rendering demo
-    ├── theme_demo.c           # Theme styling demo
-    ├── variable_slots.c       # Variable slot sizing demo
-    └── widget_size.c          # Widget sizing demo
-└── tests/                     # Unit tests and test helpers
-```
+| Path | Contents |
+|------|----------|
+| `wollix.h` | Core header-only library |
+| `wollix_raylib.h` | Raylib backend adapter |
+| `wollix_sdl3.h` | SDL3 backend adapter |
+| `docs/` | API reference, layout model, widget guide, opacity guide |
+| `demos/` | Standalone demo programs (one per feature) |
+| `tests/` | Unit test suite |
 
 ## Dependencies
 
@@ -155,11 +121,12 @@ The library includes the following widgets and layout/container primitives:
 
 - **Button** - Clickable button widget with hover effects
 - **Label** - Static text display with wrapping and alignment
-- **Checkbox** - Toggle checkbox with text label
-- **Checkbox (Texture)** - Checkbox using custom textures
+- **Checkbox** - Toggle checkbox with text label (supports custom textures)
 - **Input Box** - Text input field with cursor and selection
 - **Slider** - Value slider with label and drag interaction
 - **Scrollable Panel** - Vertical scrolling container for long content
+- **Split** - Two-pane compound layout with independent scroll panels
+- **Panel** - Capacity-based compound layout with optional heading
 - **Linear layouts** - Horizontal and vertical slot-based layouting
 - **Grid layouts** - Fixed and auto-growing grid layout helpers
 

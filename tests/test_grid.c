@@ -1,4 +1,4 @@
-// test_grid.c — tests for grid layout creation, offset computation,
+// test_grid.c - tests for grid layout creation, offset computation,
 // auto-advance cursor, explicit cell placement, dynamic row growth,
 // and per-row size overrides.
 // Included from test_main.c (single TU build).
@@ -17,7 +17,7 @@
 #define GRID_EPS 0.01f
 
 // ============================================================================
-// wlx_create_grid — equal division (NULL sizes)
+// wlx_create_grid - equal division (NULL sizes)
 // ============================================================================
 
 TEST(grid_equal_2x2) {
@@ -47,11 +47,11 @@ TEST(grid_equal_3x4) {
 
     WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 600, 300), 3, 4, NULL, NULL);
 
-    // 3 rows in 300px → 100 each
+    // 3 rows in 300px -> 100 each
     for (int i = 0; i <= 3; i++) {
         ASSERT_EQ_F(l.grid.row_offsets[i], (float)i * 100.0f, GRID_EPS);
     }
-    // 4 cols in 600px → 150 each
+    // 4 cols in 600px -> 150 each
     for (int i = 0; i <= 4; i++) {
         ASSERT_EQ_F(l.grid.col_offsets[i], (float)i * 150.0f, GRID_EPS);
     }
@@ -60,7 +60,7 @@ TEST(grid_equal_3x4) {
 }
 
 // ============================================================================
-// wlx_create_grid — explicit row/col sizes
+// wlx_create_grid - explicit row/col sizes
 // ============================================================================
 
 TEST(grid_explicit_sizes) {
@@ -77,7 +77,7 @@ TEST(grid_explicit_sizes) {
     ASSERT_EQ_F(l.grid.row_offsets[1], 100.0f, GRID_EPS);
     ASSERT_EQ_F(l.grid.row_offsets[2], 300.0f, GRID_EPS);
 
-    // Cols: 150px + flex(1) + 50px → 150 + 200 + 50 = 400
+    // Cols: 150px + flex(1) + 50px -> 150 + 200 + 50 = 400
     ASSERT_EQ_F(l.grid.col_offsets[0],   0.0f, GRID_EPS);
     ASSERT_EQ_F(l.grid.col_offsets[1], 150.0f, GRID_EPS);
     ASSERT_EQ_F(l.grid.col_offsets[2], 350.0f, GRID_EPS);
@@ -109,7 +109,7 @@ TEST(grid_mixed_pct_flex) {
 }
 
 // ============================================================================
-// wlx_calc_grid_slot_rect — cell rect computation
+// wlx_calc_grid_slot_rect - cell rect computation
 // ============================================================================
 
 TEST(grid_cell_rect_basic) {
@@ -241,7 +241,7 @@ TEST(grid_cell_with_span) {
 }
 
 // ============================================================================
-// Dynamic grid (`wlx_grid_begin_auto()`) — rows grow on demand
+// Dynamic grid (`wlx_grid_begin_auto()`) - rows grow on demand
 // ============================================================================
 
 TEST(grid_auto_grow_rows) {
@@ -256,15 +256,15 @@ TEST(grid_auto_grow_rows) {
     ASSERT_EQ_INT(l->grid.rows, 0);  // starts with 0 rows
     ASSERT_TRUE(l->grid.dynamic);
 
-    // First 3 slots → creates row 0
+    // First 3 slots -> creates row 0
     WLX_Rect r0 = wlx_get_slot_rect(&ctx, l, -1, 1);
     ASSERT_EQ_INT(l->grid.rows, 1);
     ASSERT_EQ_F(r0.h, 50.0f, GRID_EPS);
 
     wlx_get_slot_rect(&ctx, l, -1, 1); // col 1
-    wlx_get_slot_rect(&ctx, l, -1, 1); // col 2 → wraps
+    wlx_get_slot_rect(&ctx, l, -1, 1); // col 2 -> wraps
 
-    // Next slot → creates row 1
+    // Next slot -> creates row 1
     WLX_Rect r3 = wlx_get_slot_rect(&ctx, l, -1, 1);
     ASSERT_EQ_INT(l->grid.rows, 2);
     ASSERT_EQ_F(r3.y, 50.0f, GRID_EPS);  // second row starts at 50px
@@ -281,7 +281,7 @@ TEST(grid_auto_row_count_grows) {
     wlx_grid_begin_auto(&ctx, 2, 40);
     WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
 
-    // Add 8 items → 4 rows with 2 cols
+    // Add 8 items -> 4 rows with 2 cols
     for (int i = 0; i < 8; i++) {
         wlx_get_slot_rect(&ctx, l, -1, 1);
     }
@@ -292,7 +292,7 @@ TEST(grid_auto_row_count_grows) {
 }
 
 // ============================================================================
-// Dynamic grid — per-row size override via wlx_grid_auto_row_px()
+// Dynamic grid - per-row size override via wlx_grid_auto_row_px()
 // ============================================================================
 
 TEST(grid_auto_row_px_override) {
@@ -322,7 +322,7 @@ TEST(grid_auto_row_px_override) {
 }
 
 // ============================================================================
-// Dynamic grid — with explicit col sizes
+// Dynamic grid - with explicit col sizes
 // ============================================================================
 
 TEST(grid_auto_with_col_sizes) {
@@ -356,7 +356,7 @@ TEST(grid_with_padding) {
     test_ctx_init(&ctx, 400, 300);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    // Root layout → grid with 10px padding
+    // Root layout -> grid with 10px padding
     wlx_layout_begin(&ctx, 1, WLX_VERT);
     wlx_grid_begin(&ctx, 2, 2, .padding = 10);
     WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];

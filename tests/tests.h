@@ -1,4 +1,4 @@
-// tests.h — minimal test framework for wollix.h
+// tests.h - minimal test framework for wollix.h
 // No dependencies beyond libc. Header-only.
 //
 // Usage:
@@ -88,7 +88,7 @@ static inline int _test_use_color(void) {
 } while(0)
 
 // ============================================================================
-// Assertions — each one increments tests_assertions and returns from the
+// Assertions - each one increments tests_assertions and returns from the
 // test function on failure (so later asserts in the same test are skipped).
 // ============================================================================
 
@@ -185,7 +185,7 @@ static inline int _test_use_color(void) {
 } while(0)
 
 // ============================================================================
-// Summary — call at the end of main(), returns process exit code
+// Summary - call at the end of main(), returns process exit code
 // ============================================================================
 
 static inline int test_summary(void) {

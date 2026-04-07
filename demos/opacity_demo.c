@@ -1,5 +1,7 @@
-// opacity_demo.c — Demo showing per-wlx_widget opacity support
-// Renders the same widgets at different opacity levels side-by-side.
+// opacity_demo.c - Demo showing the three-layer opacity model
+// Per-widget .opacity field, theme.opacity global multiplier,
+// and wlx_push_opacity / wlx_pop_opacity context stack.
+// All three multiply together: final = widget * theme * ctx_stack
 
 #include <stddef.h>
 #include <stdint.h>
@@ -12,179 +14,239 @@
 #include "wollix.h"
 #include "wollix_raylib.h"
 
-#define WINDOW_WIDTH  900
-#define WINDOW_HEIGHT 700
+#define WINDOW_WIDTH  1000
+#define WINDOW_HEIGHT 750
 #define TARGET_FPS    60
 
 typedef struct {
     bool   checkbox_val;
     float  slider_val;
     char   input_buf[128];
-    float  opacity_control;
+    float  widget_opacity;    // per-widget slider
+    float  theme_opacity;     // theme-level slider
+    float  stack_opacity;     // context stack slider
 } App_State;
 
 static App_State app = {
     .checkbox_val    = true,
     .slider_val      = 0.5f,
     .input_buf       = "Hello, opacity!",
-    .opacity_control = 0.5f,
+    .widget_opacity  = 0.5f,
+    .theme_opacity   = 1.0f,
+    .stack_opacity   = 1.0f,
 };
 
+// Draw a column of sample widgets at the given per-widget opacity.
+// ctx_stack and theme opacity are applied externally.
+static void draw_widget_column(WLX_Context *ctx, float op) {
+    wlx_layout_begin(ctx, 7, WLX_VERT, .padding = 4);
+
+        char label[32];
+        snprintf(label, sizeof(label), "%.0f%%", op * 100);
+        wlx_label(ctx, label,
+            .font_size = 16, .align = WLX_CENTER,
+            .front_color = WLX_WHITE, .opacity = op);
+
+        wlx_button(ctx, "Button",
+            .font_size = 13, .height = 30,
+            .widget_align = WLX_CENTER, .opacity = op);
+
+        wlx_label(ctx, "Boxed text",
+            .font_size = 13, .height = 26,
+            .show_background = true,
+            .widget_align = WLX_CENTER, .opacity = op);
+
+        bool cb = app.checkbox_val;
+        wlx_checkbox(ctx, "Check", &cb,
+            .font_size = 13, .height = 22, .opacity = op);
+
+        float sv = app.slider_val;
+        wlx_slider(ctx, "", &sv,
+            .min_value = 0.0f, .max_value = 1.0f,
+            .height = 26, .font_size = 11,
+            .show_label = false, .opacity = op);
+
+        char buf[64];
+        strncpy(buf, app.input_buf, sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+        wlx_inputbox(ctx, "", buf, sizeof(buf),
+            .font_size = 11, .height = 30, .opacity = op);
+
+        wlx_label(ctx, "Plain text",
+            .font_size = 11, .align = WLX_CENTER,
+            .front_color = WLX_WHITE, .opacity = op);
+
+    wlx_layout_end(ctx);
+}
+
 int main(void) {
-    printf("Opacity demo — widgets at varying transparency levels\n");
+    printf("Opacity demo - three-layer opacity model\n");
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Opacity Demo");
+    InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Opacity Demo - Three-Layer Model");
     SetTargetFPS(TARGET_FPS);
 
     WLX_Context *ctx = malloc(sizeof(*ctx));
     memset(ctx, 0, sizeof(*ctx));
     wlx_context_init_raylib(ctx);
 
+    // Mutable theme so we can adjust theme.opacity at runtime
+    WLX_Theme theme = wlx_theme_dark;
+    ctx->theme = &theme;
+
     while (!WindowShouldClose()) {
         float w = (float)GetRenderWidth();
         float h = (float)GetRenderHeight();
         WLX_Rect root = {0, 0, w, h};
 
+        // Apply theme opacity from slider
+        theme.opacity = app.theme_opacity;
+
         wlx_begin(ctx, root, wlx_process_raylib_input);
         BeginDrawing();
 
-            ClearBackground((Color){30, 60, 90, 255});  // blue-ish background to show transparency
+            ClearBackground((Color){30, 60, 90, 255});
 
-            // Outer vertical layout: title + opacity wlx_slider + grid of demos
-            wlx_layout_begin(ctx, 3, WLX_VERT,
-                .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(50), WLX_SLOT_PX(50), WLX_SLOT_FLEX(1) }
+            // Main vertical layout: title + controls + 3 demo sections
+            wlx_layout_begin(ctx, 5, WLX_VERT,
+                .sizes = (WLX_Slot_Size[]){
+                    WLX_SLOT_PX(40),   // title
+                    WLX_SLOT_PX(50),   // control sliders
+                    WLX_SLOT_PX(24),   // header
+                    WLX_SLOT_FLEX(1),  // per-widget columns
+                    WLX_SLOT_PX(200),  // stack demo
+                }
             );
 
-                // ── Title ────────────────────────────────────────
-                wlx_label(ctx, "Opacity / Alpha Demo",
-                    .font_size = 24, .align = WLX_CENTER,
-                    .front_color = WLX_WHITE
-                );
+                // -- Title ------------------------------------------------
+                wlx_label(ctx, "Three-Layer Opacity: widget * theme * context stack",
+                    .font_size = 20, .align = WLX_CENTER,
+                    .front_color = WLX_WHITE);
 
-                // ── Opacity control wlx_slider ──────────────────────
-                wlx_layout_begin(ctx, 1, WLX_HORZ, .padding = 10);
-                    wlx_slider(ctx, "Dynamic opacity:", &app.opacity_control,
+                // -- Control sliders --------------------------------------
+                wlx_layout_begin(ctx, 3, WLX_HORZ, .padding = 8);
+
+                    wlx_slider(ctx, "Widget .opacity:", &app.widget_opacity,
                         .min_value = 0.0f, .max_value = 1.0f,
-                        .height = 30, .font_size = 16,
-                        .label_color = WLX_WHITE
-                    );
+                        .height = 28, .font_size = 13,
+                        .label_color = WLX_WHITE);
+
+                    wlx_slider(ctx, "theme.opacity:", &app.theme_opacity,
+                        .min_value = 0.0f, .max_value = 1.0f,
+                        .height = 28, .font_size = 13,
+                        .label_color = WLX_WHITE);
+
+                    wlx_slider(ctx, "push_opacity:", &app.stack_opacity,
+                        .min_value = 0.0f, .max_value = 1.0f,
+                        .height = 28, .font_size = 13,
+                        .label_color = WLX_WHITE);
+
                 wlx_layout_end(ctx);
 
-                // ── 5 columns at fixed opacity levels ───────────
-                wlx_layout_begin(ctx, 5, WLX_HORZ, .padding = 5);
+                // -- Section header ---------------------------------------
+                wlx_label(ctx, "Per-widget .opacity at fixed levels (theme & stack also active)",
+                    .font_size = 13, .align = WLX_CENTER,
+                    .front_color = (WLX_Color){180, 200, 255, 255});
+
+                // -- 5 columns at fixed per-widget opacity ---------------
+                wlx_layout_begin(ctx, 5, WLX_HORZ, .padding = 4);
 
                     float opacities[] = { 0.2f, 0.4f, 0.6f, 0.8f, 1.0f };
 
                     for (int col = 0; col < 5; col++) {
-                        float op = opacities[col];
                         wlx_push_id(ctx, (size_t)(col + 1));
-
-                        wlx_layout_begin(ctx, 8, WLX_VERT, .padding = 5);
-
-                            // Column header with opacity value
-                            char label[32];
-                            snprintf(label, sizeof(label), "%.0f%%", op * 100);
-                            wlx_label(ctx, label,
-                                .font_size = 18, .align = WLX_CENTER,
-                                .front_color = WLX_WHITE,
-                                .opacity = op
-                            );
-
-                            // Button
-                            wlx_button(ctx, "Button",
-                                .font_size = 14, .height = 35,
-                                .widget_align = WLX_CENTER,
-                                .opacity = op
-                            );
-
-                            // Label (boxed)
-                            wlx_label(ctx, "Boxed text",
-                                .font_size = 14, .height = 30,
-                                .show_background = true,
-                                .widget_align = WLX_CENTER,
-                                .opacity = op
-                            );
-
-                            // Checkbox
-                            bool cb = app.checkbox_val;
-                            wlx_checkbox(ctx, "Check", &cb,
-                                .font_size = 14, .height = 25,
-                                .opacity = op
-                            );
-
-                            // Slider
-                            float sv = app.slider_val;
-                            wlx_slider(ctx, "", &sv,
-                                .min_value = 0.0f, .max_value = 1.0f,
-                                .height = 30, .font_size = 12,
-                                .show_label = false,
-                                .opacity = op
-                            );
-
-                            // Inputbox
-                            char buf[64];
-                            strncpy(buf, app.input_buf, sizeof(buf) - 1);
-                            buf[sizeof(buf) - 1] = '\0';
-                            wlx_inputbox(ctx, "", buf, sizeof(buf),
-                                .font_size = 12, .height = 35,
-                                .opacity = op
-                            );
-
-                            // Plain text
-                            wlx_label(ctx, "Plain text",
-                                .font_size = 12, .align = WLX_CENTER,
-                                .front_color = WLX_WHITE,
-                                .opacity = op
-                            );
-
-                            // Spacer
-                            wlx_label(ctx, "", .font_size = 1);
-
-                        wlx_layout_end(ctx);
-
+                        draw_widget_column(ctx, opacities[col]);
                         wlx_pop_id(ctx);
                     }
 
                 wlx_layout_end(ctx);
 
-            wlx_layout_end(ctx);
+                // -- Context stack demo ------------------------------------
+                wlx_layout_begin(ctx, 3, WLX_HORZ, .padding = 6);
 
-            // ── Dynamic opacity row at the bottom ────────────────
-            // Draw a row of widgets using the wlx_slider-controlled opacity value
-            DrawRectangle(0, (int)h - 100, (int)w, 100, (Color){20, 20, 20, 200});
+                    // Left: inside wlx_push_opacity (stack-controlled)
+                    wlx_push_id(ctx, 100);
+                    wlx_push_opacity(ctx, app.stack_opacity);
 
-            {
-                WLX_Rect bottom = {10, h - 90, w - 20, 80};
-                WLX_Layout bl = wlx_create_layout(ctx, bottom, 4, WLX_HORZ);
-                wlx_da_append(&ctx->layouts, bl);
+                        wlx_layout_begin(ctx, 2, WLX_VERT, .padding = 4);
+                            wlx_label(ctx, "Inside push_opacity()",
+                                .font_size = 13, .align = WLX_CENTER,
+                                .front_color = (WLX_Color){150, 255, 150, 255});
 
-                    wlx_label(ctx, "Dynamic:",
-                        .font_size = 16, .align = WLX_CENTER,
-                        .front_color = WLX_WHITE,
-                        .opacity = app.opacity_control
-                    );
+                            wlx_layout_begin(ctx, 3, WLX_VERT, .padding = 4);
+                                wlx_button(ctx, "Stack-faded button",
+                                    .font_size = 13, .height = 30);
+                                bool cb = true;
+                                wlx_checkbox(ctx, "Stack-faded check", &cb,
+                                    .font_size = 13, .height = 24);
+                                wlx_label(ctx, "No per-widget .opacity set",
+                                    .font_size = 11, .align = WLX_CENTER,
+                                    .show_background = true, .height = 24,
+                                    .front_color = WLX_WHITE);
+                            wlx_layout_end(ctx);
+                        wlx_layout_end(ctx);
 
-                    wlx_button(ctx, "Click me",
-                        .font_size = 14, .height = 35,
-                        .widget_align = WLX_CENTER,
-                        .opacity = app.opacity_control
-                    );
+                    wlx_pop_opacity(ctx);
+                    wlx_pop_id(ctx);
 
-                    bool cb2 = true;
-                    wlx_checkbox(ctx, "Toggle", &cb2,
-                        .font_size = 14, .height = 30,
-                        .opacity = app.opacity_control
-                    );
+                    // Center: nested push (stack * stack)
+                    wlx_push_id(ctx, 200);
+                    wlx_push_opacity(ctx, app.stack_opacity);
+                    wlx_push_opacity(ctx, 0.5f);
 
-                    float sv2 = 0.7f;
-                    wlx_slider(ctx, "", &sv2,
-                        .height = 30, .font_size = 12,
-                        .show_label = false,
-                        .opacity = app.opacity_control
-                    );
+                        wlx_layout_begin(ctx, 2, WLX_VERT, .padding = 4);
+                            wlx_label(ctx, "Nested: push(slider) * push(0.5)",
+                                .font_size = 13, .align = WLX_CENTER,
+                                .front_color = (WLX_Color){255, 200, 150, 255});
+
+                            wlx_layout_begin(ctx, 3, WLX_VERT, .padding = 4);
+                                wlx_button(ctx, "Double-faded",
+                                    .font_size = 13, .height = 30);
+                                float sv = 0.6f;
+                                wlx_slider(ctx, "", &sv,
+                                    .height = 26, .font_size = 11,
+                                    .show_label = false);
+                                wlx_label(ctx, "Both stacks compound",
+                                    .font_size = 11, .align = WLX_CENTER,
+                                    .show_background = true, .height = 24,
+                                    .front_color = WLX_WHITE);
+                            wlx_layout_end(ctx);
+                        wlx_layout_end(ctx);
+
+                    wlx_pop_opacity(ctx);
+                    wlx_pop_opacity(ctx);
+                    wlx_pop_id(ctx);
+
+                    // Right: stack + per-widget override
+                    wlx_push_id(ctx, 300);
+                    wlx_push_opacity(ctx, app.stack_opacity);
+
+                        wlx_layout_begin(ctx, 2, WLX_VERT, .padding = 4);
+                            wlx_label(ctx, "Stack + per-widget override",
+                                .font_size = 13, .align = WLX_CENTER,
+                                .front_color = (WLX_Color){255, 150, 200, 255});
+
+                            wlx_layout_begin(ctx, 3, WLX_VERT, .padding = 4);
+                                // This widget uses the slider-controlled per-widget opacity ON TOP of stack
+                                wlx_button(ctx, "widget .opacity from slider",
+                                    .font_size = 13, .height = 30,
+                                    .opacity = app.widget_opacity);
+                                // This widget forces full opacity, overriding stack fade
+                                wlx_button(ctx, "Forced .opacity=1.0",
+                                    .font_size = 13, .height = 30,
+                                    .opacity = 1.0f);
+                                wlx_label(ctx, "All 3 layers multiply",
+                                    .font_size = 11, .align = WLX_CENTER,
+                                    .show_background = true, .height = 24,
+                                    .front_color = WLX_WHITE);
+                            wlx_layout_end(ctx);
+                        wlx_layout_end(ctx);
+
+                    wlx_pop_opacity(ctx);
+                    wlx_pop_id(ctx);
 
                 wlx_layout_end(ctx);
-            }
+
+            wlx_layout_end(ctx);
 
         EndDrawing();
         wlx_end(ctx);

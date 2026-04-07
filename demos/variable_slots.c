@@ -37,7 +37,7 @@ int main(void) {
         WLX_Rect root = { .x = 0, .y = 0, .w = w, .h = h };
 
         char title[128];
-        snprintf(title, sizeof(title), "Window %.0fx%.0f — vertical: 80px / auto / 18%%", w, h);
+        snprintf(title, sizeof(title), "Window %.0fx%.0f - vertical: 80px / auto / 18%%", w, h);
 
         char content_info[256];
         snprintf(content_info, sizeof(content_info),
@@ -46,7 +46,7 @@ int main(void) {
 
         char stats[160];
         snprintf(stats, sizeof(stats),
-            "Clicks — sidebar: %d, main: %d, inspector: %d",
+            "Clicks - sidebar: %d, main: %d, inspector: %d",
             app.sidebar_clicks, app.content_clicks, app.inspector_clicks);
 
         wlx_begin(ctx, root, wlx_process_raylib_input);
@@ -94,7 +94,7 @@ int main(void) {
                     .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(220), WLX_SLOT_AUTO, WLX_SLOT_PCT(25) }
                 );
                     wlx_layout_begin(ctx, 5, WLX_VERT, .padding = 6);
-                        wlx_label(ctx, "Sidebar — fixed 220px",
+                        wlx_label(ctx, "Sidebar - fixed 220px",
                             .show_background = true,
                             .back_color = WLX_RGBA(55, 40, 70, 255),
                             .font_size = 22,
@@ -141,7 +141,7 @@ int main(void) {
                     wlx_layout_end(ctx);
 
                     wlx_layout_begin(ctx, 4, WLX_VERT, .padding = 6);
-                        wlx_label(ctx, "Main content — AUTO remainder",
+                        wlx_label(ctx, "Main content - AUTO remainder",
                             .show_background = true,
                             .back_color = WLX_RGBA(35, 60, 75, 255),
                             .font_size = 24,
@@ -179,7 +179,7 @@ int main(void) {
                     wlx_layout_end(ctx);
 
                     wlx_layout_begin(ctx, 5, WLX_VERT, .padding = 6);
-                        wlx_label(ctx, "Inspector — 25%",
+                        wlx_label(ctx, "Inspector - 25%",
                             .show_background = true,
                             .back_color = WLX_RGBA(70, 55, 35, 255),
                             .font_size = 22,

@@ -1,4 +1,4 @@
-// test_utf8.c — unit tests for UTF-8 helper functions in wollix.h
+// test_utf8.c - unit tests for UTF-8 helper functions in wollix.h
 
 #ifndef WOLLIX_H_
 #define WOLLIX_IMPLEMENTATION
@@ -36,7 +36,7 @@ TEST(utf8_char_len_4byte) {
 }
 
 TEST(utf8_char_len_invalid) {
-    // 0xFF is not a valid UTF-8 lead byte — fallback to 1
+    // 0xFF is not a valid UTF-8 lead byte - fallback to 1
     ASSERT_EQ_INT(1, wlx_utf8_char_len("\xFF"));
 }
 
@@ -83,7 +83,7 @@ TEST(utf8_decode_invalid_lead) {
 }
 
 TEST(utf8_decode_truncated_2byte) {
-    // 2-byte lead with no continuation byte — next byte is NUL
+    // 2-byte lead with no continuation byte - next byte is NUL
     uint32_t cp = 0;
     size_t n = wlx_utf8_decode("\xC3", &cp);
     ASSERT_EQ_INT(1, n);
@@ -111,7 +111,7 @@ TEST(utf8_encode_ascii) {
 
 TEST(utf8_encode_2byte) {
     char out[4] = {0};
-    // ö = U+00F6 → 0xC3 0xB6
+    // ö = U+00F6 -> 0xC3 0xB6
     size_t n = wlx_utf8_encode(0x00F6, out);
     ASSERT_EQ_INT(2, n);
     ASSERT_EQ_INT((char)0xC3, out[0]);
@@ -120,7 +120,7 @@ TEST(utf8_encode_2byte) {
 
 TEST(utf8_encode_3byte) {
     char out[4] = {0};
-    // € = U+20AC → 0xE2 0x82 0xAC
+    // € = U+20AC -> 0xE2 0x82 0xAC
     size_t n = wlx_utf8_encode(0x20AC, out);
     ASSERT_EQ_INT(3, n);
     ASSERT_EQ_INT((char)0xE2, out[0]);
@@ -130,7 +130,7 @@ TEST(utf8_encode_3byte) {
 
 TEST(utf8_encode_4byte) {
     char out[4] = {0};
-    // 𐐀 = U+10400 → 0xF0 0x90 0x90 0x80
+    // 𐐀 = U+10400 -> 0xF0 0x90 0x90 0x80
     size_t n = wlx_utf8_encode(0x10400, out);
     ASSERT_EQ_INT(4, n);
     ASSERT_EQ_INT((char)0xF0, out[0]);
@@ -141,7 +141,7 @@ TEST(utf8_encode_4byte) {
 
 TEST(utf8_encode_invalid) {
     char out[4] = {0};
-    // Codepoint > U+10FFFF → encodes U+FFFD (3 bytes: 0xEF 0xBF 0xBD)
+    // Codepoint > U+10FFFF -> encodes U+FFFD (3 bytes: 0xEF 0xBF 0xBD)
     size_t n = wlx_utf8_encode(0x110000, out);
     ASSERT_EQ_INT(3, n);
     ASSERT_EQ_INT((char)0xEF, out[0]);
@@ -162,22 +162,22 @@ TEST(utf8_strlen_ascii) {
 }
 
 TEST(utf8_strlen_mixed) {
-    // "Héllo" — é is 2 bytes, total 6 bytes but 5 codepoints
+    // "Héllo" - é is 2 bytes, total 6 bytes but 5 codepoints
     ASSERT_EQ_INT(5, wlx_utf8_strlen("H\xC3\xA9llo"));
 }
 
 TEST(utf8_strlen_latvian) {
-    // "āčēģ" — each 2 bytes, 8 bytes total, 4 codepoints
+    // "āčēģ" - each 2 bytes, 8 bytes total, 4 codepoints
     ASSERT_EQ_INT(4, wlx_utf8_strlen("\xC4\x81\xC4\x8D\xC4\x93\xC4\xA3"));
 }
 
 TEST(utf8_strlen_3byte) {
-    // "A€B" — € is 3 bytes, total 5 bytes, 3 codepoints
+    // "A€B" - € is 3 bytes, total 5 bytes, 3 codepoints
     ASSERT_EQ_INT(3, wlx_utf8_strlen("A\xE2\x82\xAC" "B"));
 }
 
 TEST(utf8_strlen_4byte) {
-    // "A𐐀B" — 𐐀 is 4 bytes, total 6 bytes, 3 codepoints
+    // "A𐐀B" - 𐐀 is 4 bytes, total 6 bytes, 3 codepoints
     ASSERT_EQ_INT(3, wlx_utf8_strlen("A\xF0\x90\x90\x80\x42"));
 }
 
@@ -195,22 +195,22 @@ TEST(utf8_prev_ascii) {
 TEST(utf8_prev_2byte) {
     // "Aö" = 'A' (1 byte) + ö (2 bytes) = 3 bytes total
     const char *s = "A\xC3\xB6";
-    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 3)); // end → before ö
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1)); // before ö → before A
+    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 3)); // end -> before ö
+    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1)); // before ö -> before A
 }
 
 TEST(utf8_prev_3byte) {
     // "A€" = 'A' (1 byte) + € (3 bytes) = 4 bytes total
     const char *s = "A\xE2\x82\xAC";
-    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 4)); // end → before €
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1)); // before € → before A
+    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 4)); // end -> before €
+    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1)); // before € -> before A
 }
 
 TEST(utf8_prev_4byte) {
     // "A𐐀" = 'A' (1 byte) + 𐐀 (4 bytes) = 5 bytes total
     const char *s = "A\xF0\x90\x90\x80";
-    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 5)); // end → before 𐐀
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1)); // before 𐐀 → before A
+    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 5)); // end -> before 𐐀
+    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1)); // before 𐐀 -> before A
 }
 
 // ============================================================================

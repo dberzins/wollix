@@ -143,8 +143,52 @@ wlx_layout_end(ctx);
 ```
 
 - `slot_px > 0` — fixed pixel size per slot.
-- `slot_px = 0` — variable mode: call `wlx_layout_auto_slot_px(ctx, px)` before
-  each child to set its size.
+- `slot_px = 0` — variable mode: call `wlx_layout_auto_slot(ctx, size)` before
+  each child to set its size. Any `WLX_Slot_Size` type is accepted.
+
+### Mixed-Size Auto Layouts
+
+Dynamic layouts support the full range of `WLX_Slot_Size` types via
+`wlx_layout_auto_slot()`. Non-pixel types are resolved to pixels immediately:
+
+```c
+wlx_layout_begin_auto(ctx, WLX_VERT, 0);
+    // Fixed-size items
+    for (int i = 0; i < n; i++) {
+        wlx_layout_auto_slot(ctx, WLX_SLOT_PX(36));
+        wlx_button(ctx, items[i], .height = 36);
+    }
+    // Fill remaining space
+    wlx_layout_auto_slot(ctx, WLX_SLOT_FLEX(1));
+    wlx_label(ctx, "Footer", .height = -1);
+wlx_layout_end(ctx);
+```
+
+**Supported types and resolution:**
+
+| Type | Resolution in auto layout |
+|------|---------------------------|
+| `WLX_SLOT_PX(px)` | Exact pixel value |
+| `WLX_SLOT_PCT(pct)` | Percentage of the layout rect |
+| `WLX_SLOT_FILL` | Full viewport height/width |
+| `WLX_SLOT_FILL_PCT(pct)` | Percentage of viewport |
+| `WLX_SLOT_FLEX(w)` | **Greedy** — takes all remaining space |
+| `WLX_SLOT_AUTO` | Same as FLEX (greedy remaining) |
+
+Min/max constraints work as expected:
+
+```c
+wlx_layout_auto_slot(ctx, WLX_SLOT_FLEX_MIN(1, 50));   // at least 50px
+wlx_layout_auto_slot(ctx, WLX_SLOT_PCT_MINMAX(20, 80, 300)); // 20%, clamped
+```
+
+> **FLEX is greedy, not proportional.** In a dynamic layout, a FLEX slot
+> consumes all remaining space at the point it is declared. Two FLEX slots
+> will *not* split evenly — the first takes everything. For proportional
+> multi-flex splitting, use a static layout (`wlx_layout_begin_s`).
+
+The pixel-only convenience function `wlx_layout_auto_slot_px(ctx, px)` is
+still available and equivalent to `wlx_layout_auto_slot(ctx, WLX_SLOT_PX(px))`.
 
 ### Slot Placement Options
 
@@ -190,6 +234,9 @@ wlx_layout_begin(ctx, 4, WLX_HORZ, .sizes = sizes);
 | `WLX_SLOT_PX(px)` | `WLX_SIZE_PIXELS` | Fixed pixel size |
 | `WLX_SLOT_PCT(pct)` | `WLX_SIZE_PERCENT` | Percentage of parent size |
 | `WLX_SLOT_FLEX(w)` | `WLX_SIZE_FLEX` | Weighted share of remaining space |
+| `WLX_SLOT_FILL` | `WLX_SIZE_FILL` | Fill entire viewport (scroll panel or layout rect) |
+| `WLX_SLOT_FILL_PCT(pct)` | `WLX_SIZE_FILL` | Fill percentage of viewport |
+| `WLX_SLOT_CONTENT` | `WLX_SIZE_CONTENT` | Measured from child content (frame-delayed) |
 
 **Resolution order:** pixels and percents are subtracted from the total first.
 The remaining space is distributed among flex and auto slots proportionally to

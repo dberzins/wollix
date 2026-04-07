@@ -33,7 +33,7 @@ int main(void) {
         BeginDrawing();
         ClearBackground(WLX_BACKGROUND_COLOR);
 
-        // Root: two rows — top for title, bottom for content
+        // Root: two rows - top for title, bottom for content
         wlx_layout_begin(ctx, 2, WLX_VERT,
             .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(50), WLX_SLOT_AUTO });
 
@@ -45,7 +45,7 @@ int main(void) {
             // Content: 2 columns
             wlx_layout_begin(ctx, 2, WLX_HORZ);
 
-                // Left: simple 3×2 form grid
+                // Left: simple 3x2 form grid
                 wlx_layout_begin(ctx, 2, WLX_VERT,
                     .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(30), WLX_SLOT_AUTO });
 
@@ -71,7 +71,7 @@ int main(void) {
                     wlx_grid_end(ctx);
                 wlx_layout_end(ctx);
 
-                // Right: spanning demo (3×3)
+                // Right: spanning demo (3x3)
                 wlx_layout_begin(ctx, 2, WLX_VERT,
                     .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(30), WLX_SLOT_AUTO });
 
@@ -81,7 +81,7 @@ int main(void) {
                         .align = WLX_CENTER);
 
                     wlx_grid_begin(ctx, 3, 3);
-                        // Big tile: 2 rows × 2 cols at (0,0)
+                        // Big tile: 2 rows x 2 cols at (0,0)
                         wlx_grid_cell(ctx, 0, 0, .row_span = 2, .col_span = 2);
                         wlx_label(ctx, "2x2 Tile",
                             .back_color = (Color){40, 60, 90, 255},

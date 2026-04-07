@@ -532,6 +532,214 @@ wlx_scroll_panel_end(ctx);
 
 ---
 
+## `wlx_split_begin` / `wlx_split_next` / `wlx_split_end`
+
+Compound two-pane split layout with independent scroll panels. Replaces the
+recurring pattern of outer VERT wrapper + HORZ layout + two scroll panels
+(6 begin/end pairs) with 3 calls. Each pane gets its own auto-height scroll
+panel; the user creates their own inner layout inside each pane.
+
+### Signature
+
+```c
+void wlx_split_begin(WLX_Context *ctx, ...options);
+void wlx_split_next(WLX_Context *ctx, ...options);
+void wlx_split_end(WLX_Context *ctx);
+```
+
+### Minimal example
+
+```c
+wlx_split_begin(ctx);
+
+    // Left pane (280px sidebar by default)
+    wlx_layout_begin_s(ctx, WLX_VERT,
+        WLX_SIZES(WLX_SLOT_CONTENT, WLX_SLOT_CONTENT),
+        .padding = 2);
+        wlx_label(ctx, "Options", .font_size = 18, .height = 32);
+        wlx_slider(ctx, "Value", &val, .height = 36);
+    wlx_layout_end(ctx);
+
+wlx_split_next(ctx);
+
+    // Right pane (flexible width)
+    wlx_layout_begin_s(ctx, WLX_VERT,
+        WLX_SIZES(WLX_SLOT_CONTENT, WLX_SLOT_CONTENT));
+        wlx_label(ctx, "Content", .font_size = 26, .height = 48);
+        wlx_label(ctx, "Hello world", .font_size = 16, .height = 30);
+    wlx_layout_end(ctx);
+
+wlx_split_end(ctx);
+```
+
+### `wlx_split_begin` options (`WLX_Split_Opt`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `first_size` | `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | Width of the first (left) pane |
+| `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width of the second (right) pane |
+| `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FILL` | Outer wrapper slot size |
+| `padding` | `float` | `4` | Gap between panes |
+| `first_back_color` | `WLX_Color` | `{0}` | First pane background. `{0}` = theme default |
+| `second_back_color` | `WLX_Color` | `{0}` | Second pane background. `{0}` = theme default |
+
+### `wlx_split_next` options (`WLX_Split_Next_Opt`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `back_color` | `WLX_Color` | `{0}` | Override second pane background color |
+
+### Common overrides
+
+Custom sidebar width with colored left pane:
+
+```c
+wlx_split_begin(ctx,
+    .first_size = WLX_SLOT_PX(300),
+    .first_back_color = (WLX_Color){20, 20, 30, 255});
+    // ... left pane ...
+wlx_split_next(ctx);
+    // ... right pane ...
+wlx_split_end(ctx);
+```
+
+Constrained fill with minimum height:
+
+```c
+wlx_split_begin(ctx,
+    .fill_size = WLX_SLOT_FILL_MIN(400),
+    .first_size = WLX_SLOT_PX(300));
+    // ...
+wlx_split_next(ctx);
+    // ...
+wlx_split_end(ctx);
+```
+
+Nested split (split inside the right pane of another split):
+
+```c
+wlx_split_begin(ctx);
+    // outer left pane
+    wlx_layout_begin_auto(ctx, WLX_VERT, 30);
+        wlx_label(ctx, "Sidebar", .height = 30);
+    wlx_layout_end(ctx);
+wlx_split_next(ctx);
+    // outer right pane contains a nested split
+    wlx_split_begin(ctx, .first_size = WLX_SLOT_PX(200));
+        wlx_layout_begin_auto(ctx, WLX_VERT, 30);
+            wlx_label(ctx, "Inner left", .height = 30);
+        wlx_layout_end(ctx);
+    wlx_split_next(ctx);
+        wlx_layout_begin_auto(ctx, WLX_VERT, 30);
+            wlx_label(ctx, "Inner right", .height = 30);
+        wlx_layout_end(ctx);
+    wlx_split_end(ctx);
+wlx_split_end(ctx);
+```
+
+### Notes
+
+- Each pane wraps content in an auto-height scroll panel (`content_height = -1`).
+  Scrollbars appear automatically when content exceeds the pane height.
+- The user must create their own inner layout inside each pane.
+  The split widget manages only the outer structure (VERT + HORZ + scroll panels).
+- In loops, wrap each iteration with `wlx_push_id()` / `wlx_pop_id()` as with
+  any repeated widget.
+- Do **not** place `wlx_split_begin` inside a dynamic auto layout
+  (`wlx_layout_begin_auto`) — the compound widget's internal layouts disrupt
+  the dynamic layout's contiguous offset buffer. Use a static layout as the
+  parent instead.
+
+---
+
+## `wlx_panel_begin` / `wlx_panel_end`
+
+Capacity-based CONTENT layout with optional heading label. Eliminates manual
+slot counting for layouts where every slot uses `WLX_SLOT_CONTENT`. The panel
+pre-allocates a fixed capacity of CONTENT slots — unused slots contribute 0px.
+Adding or removing child widgets requires no slot-count updates.
+
+### Signature
+
+```c
+void wlx_panel_begin(WLX_Context *ctx, ...options);
+void wlx_panel_end(WLX_Context *ctx);
+```
+
+### Minimal example
+
+```c
+wlx_panel_begin(ctx, .title = "Options",
+    .title_back_color = (WLX_Color){40, 24, 24, 255});
+
+    wlx_slider(ctx, "Value", &val, .height = 36);
+    wlx_checkbox(ctx, "Enable", &flag, .height = 30);
+
+wlx_panel_end(ctx);
+```
+
+### `wlx_panel_begin` options (`WLX_Panel_Opt`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `title` | `const char *` | `NULL` | Heading text. `NULL` = no heading |
+| `title_font_size` | `int` | `18` | Heading font size |
+| `title_height` | `float` | `32` | Heading slot height in pixels |
+| `title_align` | `WLX_Align` | `WLX_CENTER` | Heading text alignment |
+| `title_back_color` | `WLX_Color` | `{0}` | Heading background color |
+| `padding` | `float` | `2` | Inner layout padding |
+| `capacity` | `int` | `32` | Max child widgets (excl. title). Clamped to 64. |
+
+### Common overrides
+
+Left pane of a split with custom heading:
+
+```c
+wlx_split_begin(ctx,
+    .first_back_color = (WLX_Color){20, 20, 30, 255});
+
+    wlx_panel_begin(ctx, .title = "Options",
+        .title_back_color = (WLX_Color){40, 24, 24, 255});
+        wlx_slider(ctx, "Speed", &speed, .height = 36);
+        wlx_slider(ctx, "Size", &size, .height = 36);
+    wlx_panel_end(ctx);
+
+wlx_split_next(ctx);
+
+    wlx_panel_begin(ctx, .title = "Content",
+        .title_font_size = 26, .title_height = 48,
+        .title_back_color = (WLX_Color){34, 24, 50, 255},
+        .padding = 0);
+        wlx_label(ctx, "Hello world", .font_size = 16, .height = 30);
+    wlx_panel_end(ctx);
+
+wlx_split_end(ctx);
+```
+
+No heading (pure CONTENT layout wrapper):
+
+```c
+wlx_panel_begin(ctx, .padding = 4);
+    wlx_label(ctx, "Item 1", .height = 30);
+    wlx_label(ctx, "Item 2", .height = 30);
+wlx_panel_end(ctx);
+```
+
+### Notes
+
+- The panel creates a single VERT layout with all-CONTENT slots. It does
+  **not** create a scroll panel — inside a split pane the scroll panel is
+  already provided by the split.
+- For standalone scrollable panels, wrap in
+  `wlx_scroll_panel_begin` / `wlx_scroll_panel_end`.
+- Unused CONTENT slots measure 0px — no visual impact from over-allocation.
+- The default capacity of 32 covers most use cases. Set `.capacity = 48` or
+  higher for sections with many widgets.
+- Users needing mixed slot types (e.g. CONTENT + PX) should use the raw
+  `wlx_layout_begin_s` API instead.
+
+---
+
 ## `wlx_widget`
 
 Low-level colored rectangle. Use it for dividers, color swatches, spacers,

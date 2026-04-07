@@ -78,9 +78,9 @@ static inline void wlx_process_raylib_input(WLX_Context *ctx) {
     if (raw_wheel != 0.0f) {
         float dir = (raw_wheel > 0.0f) ? 1.0f : -1.0f;
         if (prev_wheel_dir != 0.0f && dir != prev_wheel_dir && !prev_was_zero) {
-            // Single-frame reversal mid-scroll → likely encoder bounce, suppress
+            // Single-frame reversal mid-scroll -> likely encoder bounce, suppress
             ctx->input.wheel_delta = 0.0f;
-            // Don't update prev_wheel_dir — keep the "real" direction
+            // Don't update prev_wheel_dir - keep the "real" direction
         } else {
             ctx->input.wheel_delta = raw_wheel;
             prev_wheel_dir = dir;

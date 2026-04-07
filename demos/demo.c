@@ -14,7 +14,7 @@
 #define TARGET_FPS 60
 
 // ---------------------------------------------------------------------------
-// Application state  – every wlx_widget's data lives here
+// Application state  - every wlx_widget's data lives here
 // ---------------------------------------------------------------------------
 #define PANEL_COUNT 5
 
@@ -45,7 +45,7 @@ typedef struct {
     char log_messages[50][128];
     int  log_count;
 
-    // Dynamic tab – loop-generated panels with wlx_push_id/wlx_pop_id
+    // Dynamic tab - loop-generated panels with wlx_push_id/wlx_pop_id
     char panel_names[PANEL_COUNT][64];
     float panel_sliders[PANEL_COUNT];
     bool  panel_toggles[PANEL_COUNT];

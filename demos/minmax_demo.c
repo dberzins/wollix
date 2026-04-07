@@ -35,7 +35,7 @@ int main(void) {
         wlx_layout_begin(ctx, 2, WLX_VERT,
             .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(50), WLX_SLOT_AUTO });
 
-            wlx_label(ctx, "Min/Max Constraints Demo  —  resize the window to see clamping",
+            wlx_label(ctx, "Min/Max Constraints Demo  -  resize the window to see clamping",
                 .height = 50, .font_size = 24,
                 .back_color = (Color){35, 30, 45, 255},
                 .align = WLX_CENTER, .show_background = true);
@@ -62,7 +62,7 @@ int main(void) {
                 // =============================================================
 
                 // --- Example 1: Sidebar with min width ---
-                wlx_label(ctx, "1) Slot min: Sidebar FLEX(1) min=150  +  Content FLEX(3)  —  sidebar stops shrinking at 150px",
+                wlx_label(ctx, "1) Slot min: Sidebar FLEX(1) min=150  +  Content FLEX(3)  -  sidebar stops shrinking at 150px",
                     .height = 22, .font_size = 13,
                     .back_color = (Color){30, 30, 40, 255},
                     .align = WLX_LEFT, .show_background = true);
@@ -81,7 +81,7 @@ int main(void) {
                 wlx_layout_end(ctx);
 
                 // --- Example 2: Columns with max width ---
-                wlx_label(ctx, "2) Slot max: Three FLEX(1) columns, each max=250  —  columns cap at 250px as window grows",
+                wlx_label(ctx, "2) Slot max: Three FLEX(1) columns, each max=250  -  columns cap at 250px as window grows",
                     .height = 22, .font_size = 13,
                     .back_color = (Color){30, 30, 40, 255},
                     .align = WLX_LEFT, .show_background = true);
@@ -131,7 +131,7 @@ int main(void) {
                 // =============================================================
 
                 // --- Example 4: Button with max_width ---
-                wlx_label(ctx, "4) Widget max: Button max_width=200 inside wide FLEX slot  —  button caps, slot unchanged",
+                wlx_label(ctx, "4) Widget max: Button max_width=200 inside wide FLEX slot  -  button caps, slot unchanged",
                     .height = 22, .font_size = 13,
                     .back_color = (Color){30, 30, 40, 255},
                     .align = WLX_LEFT, .show_background = true);
@@ -154,7 +154,7 @@ int main(void) {
                 wlx_layout_end(ctx);
 
                 // --- Example 5: Widget min_width on inputs ---
-                wlx_label(ctx, "5) Widget min: Inputs with min_width=120 in shrinking FLEX slots  —  inputs won't go below 120px",
+                wlx_label(ctx, "5) Widget min: Inputs with min_width=120 in shrinking FLEX slots  -  inputs won't go below 120px",
                     .height = 22, .font_size = 13,
                     .back_color = (Color){30, 30, 40, 255},
                     .align = WLX_LEFT, .show_background = true);
@@ -193,7 +193,7 @@ int main(void) {
                 // =============================================================
 
                 // --- Example 6: Redistribute surplus from capped slots ---
-                wlx_label(ctx, "6) Redistribute: FLEX(1) max=150 + FLEX(1) + FLEX(1) — surplus from capped slot fills siblings",
+                wlx_label(ctx, "6) Redistribute: FLEX(1) max=150 + FLEX(1) + FLEX(1) - surplus from capped slot fills siblings",
                     .height = 22, .font_size = 13,
                     .back_color = (Color){30, 30, 40, 255},
                     .align = WLX_LEFT, .show_background = true);

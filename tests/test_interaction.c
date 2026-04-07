@@ -1,4 +1,4 @@
-// test_interaction.c — interaction system tests (hover, click, focus, drag, keyboard, ID stack)
+// test_interaction.c - interaction system tests (hover, click, focus, drag, keyboard, ID stack)
 
 #ifndef WOLLIX_H_
 #define WOLLIX_IMPLEMENTATION
@@ -44,13 +44,13 @@ TEST(hover_clears_on_leave) {
     test_ctx_init(&ctx, 800, 600);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Frame 1: mouse inside → hover true
+    // Frame 1: mouse inside -> hover true
     test_frame_begin(&ctx, 150, 120, false, false);
     WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     ASSERT_TRUE(s1.hover);
     test_frame_end(&ctx);
 
-    // Frame 2: mouse outside → hover false
+    // Frame 2: mouse outside -> hover false
     test_frame_begin(&ctx, 0, 0, false, false);
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     ASSERT_FALSE(s2.hover);
@@ -62,13 +62,13 @@ TEST(hover_edge_cases) {
     test_ctx_init(&ctx, 800, 600);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Exactly on top-left corner → inside (>=)
+    // Exactly on top-left corner -> inside (>=)
     test_frame_begin(&ctx, 100, 100, false, false);
     WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     ASSERT_TRUE(s1.hover);
     test_frame_end(&ctx);
 
-    // Exactly on bottom-right edge (x+w, y+h) → outside (<)
+    // Exactly on bottom-right edge (x+w, y+h) -> outside (<)
     test_frame_begin(&ctx, 300, 150, false, false);
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     ASSERT_FALSE(s2.hover);
@@ -93,7 +93,7 @@ TEST(click_basic) {
     ASSERT_FALSE(s1.clicked);  // clicked fires on release
     test_frame_end(&ctx);
 
-    // Frame 2: release while still hovering → clicked
+    // Frame 2: release while still hovering -> clicked
     test_frame_begin(&ctx, 150, 120, false, false);
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_CLICK);
     ASSERT_TRUE(s2.clicked);
@@ -112,7 +112,7 @@ TEST(click_release_outside) {
     ASSERT_TRUE(s1.active);
     test_frame_end(&ctx);
 
-    // Frame 2: release outside → no clicked
+    // Frame 2: release outside -> no clicked
     test_frame_begin(&ctx, 0, 0, false, false);
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_CLICK);
     ASSERT_FALSE(s2.clicked);
@@ -147,7 +147,7 @@ TEST(click_no_double_active) {
     WLX_Rect rA = wlx_rect(100, 100, 100, 50);
     WLX_Rect rB = wlx_rect(300, 100, 100, 50);
 
-    // Frame 1: click on widget A → A becomes active
+    // Frame 1: click on widget A -> A becomes active
     test_frame_begin(&ctx, 150, 120, true, true);
     WLX_Interaction sA1 = interact_widget_A(&ctx, rA, WLX_INTERACT_HOVER | WLX_INTERACT_CLICK);
     WLX_Interaction sB1 = interact_widget_B(&ctx, rB, WLX_INTERACT_HOVER | WLX_INTERACT_CLICK);
@@ -180,7 +180,7 @@ TEST(focus_click_to_focus) {
     test_ctx_init(&ctx, 800, 600);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Click on widget → focused + just_focused
+    // Click on widget -> focused + just_focused
     test_frame_begin(&ctx, 150, 120, true, true);
     WLX_Interaction s = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
     ASSERT_TRUE(s.focused);
@@ -199,7 +199,7 @@ TEST(focus_persists) {
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
     test_frame_end(&ctx);
 
-    // Frame 2: no input → focus persists, just_focused is false
+    // Frame 2: no input -> focus persists, just_focused is false
     test_frame_begin(&ctx, 150, 120, false, false);
     WLX_Interaction s = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
     ASSERT_TRUE(s.focused);
@@ -218,7 +218,7 @@ TEST(focus_click_away) {
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
     test_frame_end(&ctx);
 
-    // Frame 2: click outside → unfocused
+    // Frame 2: click outside -> unfocused
     test_frame_begin(&ctx, 0, 0, true, true);
     WLX_Interaction s = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
     ASSERT_FALSE(s.focused);
@@ -237,7 +237,7 @@ TEST(focus_enter_unfocus) {
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
     test_frame_end(&ctx);
 
-    // Frame 2: press Enter → unfocused
+    // Frame 2: press Enter -> unfocused
     bool keys_pressed[WLX_KEY_COUNT] = {0};
     keys_pressed[WLX_KEY_ENTER] = true;
     test_frame_begin_ex(&ctx, 150, 120, false, false, false, 0.0f,
@@ -254,14 +254,14 @@ TEST(focus_transfer) {
     WLX_Rect rA = wlx_rect(100, 100, 100, 50);
     WLX_Rect rB = wlx_rect(300, 100, 100, 50);
 
-    // Frame 1: click on A → A focused
+    // Frame 1: click on A -> A focused
     test_frame_begin(&ctx, 150, 120, true, true);
     WLX_Interaction sA1 = interact_widget_A(&ctx, rA, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
     interact_widget_B(&ctx, rB, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
     ASSERT_TRUE(sA1.focused);
     test_frame_end(&ctx);
 
-    // Frame 2: click on B → A loses focus, B gains focus
+    // Frame 2: click on B -> A loses focus, B gains focus
     test_frame_begin(&ctx, 350, 120, true, true);
     WLX_Interaction sA2 = interact_widget_A(&ctx, rA, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
     WLX_Interaction sB2 = interact_widget_B(&ctx, rB, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
@@ -281,14 +281,14 @@ TEST(drag_while_held) {
     test_ctx_init(&ctx, 800, 600);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Frame 1: mouse down inside (not a "click" — drag uses mouse_down)
+    // Frame 1: mouse down inside (not a "click" - drag uses mouse_down)
     test_frame_begin(&ctx, 150, 120, true, false);
     WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_DRAG);
     ASSERT_TRUE(s1.active);
     ASSERT_TRUE(s1.pressed);
     test_frame_end(&ctx);
 
-    // Frame 2: still held, mouse moves outside the rect → stays active
+    // Frame 2: still held, mouse moves outside the rect -> stays active
     test_frame_begin(&ctx, 0, 0, true, false);
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_DRAG);
     ASSERT_TRUE(s2.active);
@@ -307,7 +307,7 @@ TEST(drag_release) {
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_DRAG);
     test_frame_end(&ctx);
 
-    // Frame 2: release → no longer active
+    // Frame 2: release -> no longer active
     test_frame_begin(&ctx, 150, 120, false, false);
     WLX_Interaction s = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_DRAG);
     ASSERT_FALSE(s.active);
@@ -320,7 +320,7 @@ TEST(drag_no_activate_outside) {
     test_ctx_init(&ctx, 800, 600);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Mouse down outside the rect → should not activate
+    // Mouse down outside the rect -> should not activate
     test_frame_begin(&ctx, 0, 0, true, false);
     WLX_Interaction s = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_DRAG);
     ASSERT_FALSE(s.active);
@@ -369,7 +369,7 @@ TEST(keyboard_not_hot) {
     test_ctx_init(&ctx, 800, 600);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Mouse is NOT over the widget → not hot → keyboard should have no effect
+    // Mouse is NOT over the widget -> not hot -> keyboard should have no effect
     bool keys_pressed[WLX_KEY_COUNT] = {0};
     keys_pressed[WLX_KEY_SPACE] = true;
     test_frame_begin_ex(&ctx, 0, 0, false, false, false, 0.0f,
@@ -391,7 +391,7 @@ TEST(id_push_pop_unique) {
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
     // Two interactions from the SAME wrapper function, but with different push_id
-    // → they should get different IDs
+    // -> they should get different IDs
     test_frame_begin(&ctx, 150, 120, false, false);
 
     wlx_push_id(&ctx, 0);
@@ -418,7 +418,7 @@ TEST(id_same_stack_same_id_across_frames) {
     wlx_pop_id(&ctx);
     test_frame_end(&ctx);
 
-    // Frame 2: same push_id + same wrapper → same ID
+    // Frame 2: same push_id + same wrapper -> same ID
     test_frame_begin(&ctx, 150, 120, false, false);
     wlx_push_id(&ctx, 42);
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
@@ -433,7 +433,7 @@ TEST(id_different_without_stack) {
     test_ctx_init(&ctx, 800, 600);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Two different wrapper functions (different __LINE__) → different IDs
+    // Two different wrapper functions (different __LINE__) -> different IDs
     test_frame_begin(&ctx, 150, 120, false, false);
     WLX_Interaction sA = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     WLX_Interaction sB = interact_widget_B(&ctx, r, WLX_INTERACT_HOVER);
@@ -446,7 +446,7 @@ TEST(id_same_site_same_id_without_push) {
     test_ctx_init(&ctx, 800, 600);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Same call-site (widget_A) called twice without push_id → same ID
+    // Same call-site (widget_A) called twice without push_id -> same ID
     // This documents the contract: no counter, so duplicates are identical.
     test_frame_begin(&ctx, 0, 0, false, false);
     WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
@@ -460,7 +460,7 @@ TEST(id_same_site_different_push_id) {
     test_ctx_init(&ctx, 800, 600);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Same call-site with push_id(0) vs push_id(1) → different IDs
+    // Same call-site with push_id(0) vs push_id(1) -> different IDs
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_push_id(&ctx, 0);
     WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
@@ -482,7 +482,7 @@ TEST(string_id_different_strings_different_ids) {
     test_ctx_init(&ctx, 800, 600);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Same call-site, but different string IDs pushed → different interaction IDs
+    // Same call-site, but different string IDs pushed -> different interaction IDs
     test_frame_begin(&ctx, 0, 0, false, false);
 
     wlx_push_id(&ctx, wlx_hash_string("alpha"));
@@ -502,7 +502,7 @@ TEST(string_id_stable_across_frames) {
     test_ctx_init(&ctx, 800, 600);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Same string ID across two frames → same interaction ID
+    // Same string ID across two frames -> same interaction ID
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_push_id(&ctx, wlx_hash_string("persistent"));
     WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
@@ -543,23 +543,25 @@ TEST(string_id_hash_deterministic) {
 static int _debug_warn_count = 0;
 static const char *_debug_warn_last_file = NULL;
 static int _debug_warn_last_line = 0;
-static size_t _debug_warn_last_hits = 0;
+static const char *_debug_warn_last_msg = NULL;
 
-static void _test_debug_warn_cb(const char *file, int line, size_t hit_count, void *user_data) {
+static void _test_debug_warn_cb(const char *file, int line, const char *msg, void *user_data) {
     (void)user_data;
     _debug_warn_count++;
     _debug_warn_last_file = file;
     _debug_warn_last_line = line;
-    _debug_warn_last_hits = hit_count;
+    _debug_warn_last_msg = msg;
 }
 
 static void _test_debug_warn_reset(WLX_Context *ctx) {
     _debug_warn_count = 0;
     _debug_warn_last_file = NULL;
     _debug_warn_last_line = 0;
-    _debug_warn_last_hits = 0;
-    ctx->debug_warn_cb = _test_debug_warn_cb;
-    ctx->debug_warn_user_data = NULL;
+    _debug_warn_last_msg = NULL;
+    // Ensure debug context is allocated, then install test callback
+    wlx_dbg_init(ctx);
+    ctx->dbg->warn_cb = _test_debug_warn_cb;
+    ctx->dbg->warn_user_data = NULL;
 }
 
 TEST(debug_warn_same_site_no_push_id) {
@@ -568,7 +570,7 @@ TEST(debug_warn_same_site_no_push_id) {
     _test_debug_warn_reset(&ctx);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Two calls from widget_A (same file+line) without push_id → should warn
+    // Two calls from widget_A (same file+line) without push_id -> should warn
     test_frame_begin(&ctx, 0, 0, false, false);
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
@@ -583,7 +585,7 @@ TEST(debug_warn_different_sites_no_warning) {
     _test_debug_warn_reset(&ctx);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // widget_A then widget_B (different __LINE__) → no warning
+    // widget_A then widget_B (different __LINE__) -> no warning
     test_frame_begin(&ctx, 0, 0, false, false);
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     interact_widget_B(&ctx, r, WLX_INTERACT_HOVER);
@@ -598,7 +600,7 @@ TEST(debug_warn_push_id_suppresses) {
     _test_debug_warn_reset(&ctx);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Same call-site but with push_id → different id_stack → no warning
+    // Same call-site but with push_id -> different id_stack -> no warning
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_push_id(&ctx, 0);
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
@@ -618,14 +620,14 @@ TEST(debug_warn_resets_each_frame) {
     _test_debug_warn_reset(&ctx);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Frame 1: duplicate → warn
+    // Frame 1: duplicate -> warn
     test_frame_begin(&ctx, 0, 0, false, false);
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     test_frame_end(&ctx);
     ASSERT_EQ_INT(1, _debug_warn_count);
 
-    // Frame 2: single hit → no additional warning
+    // Frame 2: single hit -> no additional warning
     _debug_warn_count = 0;
     test_frame_begin(&ctx, 0, 0, false, false);
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
@@ -639,7 +641,7 @@ TEST(debug_warn_only_once_per_site_per_frame) {
     _test_debug_warn_reset(&ctx);
     WLX_Rect r = wlx_rect(100, 100, 200, 50);
 
-    // Three calls from same site → should still only warn once (per site per frame)
+    // Three calls from same site -> should still only warn once (per site per frame)
     test_frame_begin(&ctx, 0, 0, false, false);
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);

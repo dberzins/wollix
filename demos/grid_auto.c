@@ -93,7 +93,7 @@ int main(void) {
 
             wlx_layout_end(ctx);
 
-            // Content: two columns — scrollable data table + tile grid
+            // Content: two columns - scrollable data table + tile grid
             wlx_layout_begin(ctx, 2, WLX_HORZ);
 
                 // Left: data table inside scroll panel

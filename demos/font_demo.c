@@ -1,4 +1,4 @@
-// font_demo.c — Demonstrates per-wlx_widget and theme-level font assignment
+// font_demo.c - Demonstrates per-wlx_widget and theme-level font assignment
 // using the WLX_Text_Style / WLX_Font system.
 //
 // Loads 2 TTF fonts via Raylib and shows how to:
@@ -24,10 +24,14 @@
 #define WINDOW_HEIGHT 650
 #define TARGET_FPS    60
 
-// ── Font file paths — change these to fonts available on your system ─────
+// ── Font file paths - change these to fonts available on your system ─────
 #define FONT_PATH_SANS  "demos/assets/DejaVuSans.ttf"
 #define FONT_PATH_MONO  "demos/assets/DejaVuSansMono.ttf"
 #define FONT_PATH_BOLD  "demos/assets/DejaVuSans-Bold.ttf"
+#define FONT_PATH_PUBLIC      "demos/assets/PublicSans-Regular.ttf"
+#define FONT_PATH_PUBLIC_BOLD "demos/assets/PublicSans-Bold.ttf"
+#define FONT_PATH_INTER       "demos/assets/Inter-Regular.ttf"
+#define FONT_PATH_INTER_BOLD  "demos/assets/Inter-Bold.ttf"
 
 // ── Application state ────────────────────────────────────────────────────
 typedef struct {
@@ -47,7 +51,7 @@ static App_State app = {
 };
 
 int main(void) {
-    printf("Font demo — demonstrates per-widget and theme-level font usage\n");
+    printf("Font demo - demonstrates per-widget and theme-level font usage\n");
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Font Demo");
     SetTargetFPS(TARGET_FPS);
@@ -58,24 +62,44 @@ int main(void) {
     Font font_sans = LoadFontEx(FONT_PATH_SANS, 32, NULL, 0);
     Font font_mono = LoadFontEx(FONT_PATH_MONO, 32, NULL, 0);
     Font font_bold = LoadFontEx(FONT_PATH_BOLD, 32, NULL, 0);
+    Font font_public      = LoadFontEx(FONT_PATH_PUBLIC, 32, NULL, 0);
+    Font font_public_bold = LoadFontEx(FONT_PATH_PUBLIC_BOLD, 32, NULL, 0);
+    Font font_inter       = LoadFontEx(FONT_PATH_INTER, 32, NULL, 0);
+    Font font_inter_bold  = LoadFontEx(FONT_PATH_INTER_BOLD, 32, NULL, 0);
 
-    bool sans_ok = font_sans.glyphCount > 0;
-    bool mono_ok = font_mono.glyphCount > 0;
-    bool bold_ok = font_bold.glyphCount > 0;
+    bool sans_ok   = font_sans.glyphCount > 0;
+    bool mono_ok   = font_mono.glyphCount > 0;
+    bool bold_ok   = font_bold.glyphCount > 0;
+    bool public_ok      = font_public.glyphCount > 0;
+    bool public_bold_ok = font_public_bold.glyphCount > 0;
+    bool inter_ok       = font_inter.glyphCount > 0;
+    bool inter_bold_ok  = font_inter_bold.glyphCount > 0;
 
-    if (!sans_ok) printf("WARNING: could not load %s\n", FONT_PATH_SANS);
-    if (!mono_ok) printf("WARNING: could not load %s\n", FONT_PATH_MONO);
-    if (!bold_ok) printf("WARNING: could not load %s\n", FONT_PATH_BOLD);
+    if (!sans_ok)        printf("WARNING: could not load %s\n", FONT_PATH_SANS);
+    if (!mono_ok)        printf("WARNING: could not load %s\n", FONT_PATH_MONO);
+    if (!bold_ok)        printf("WARNING: could not load %s\n", FONT_PATH_BOLD);
+    if (!public_ok)      printf("WARNING: could not load %s\n", FONT_PATH_PUBLIC);
+    if (!public_bold_ok) printf("WARNING: could not load %s\n", FONT_PATH_PUBLIC_BOLD);
+    if (!inter_ok)       printf("WARNING: could not load %s\n", FONT_PATH_INTER);
+    if (!inter_bold_ok)  printf("WARNING: could not load %s\n", FONT_PATH_INTER_BOLD);
 
     // Raylib requires setting texture filter for smooth scaling
-    if (sans_ok) SetTextureFilter(font_sans.texture, TEXTURE_FILTER_BILINEAR);
-    if (mono_ok) SetTextureFilter(font_mono.texture, TEXTURE_FILTER_BILINEAR);
-    if (bold_ok) SetTextureFilter(font_bold.texture, TEXTURE_FILTER_BILINEAR);
+    if (sans_ok)   SetTextureFilter(font_sans.texture, TEXTURE_FILTER_BILINEAR);
+    if (mono_ok)   SetTextureFilter(font_mono.texture, TEXTURE_FILTER_BILINEAR);
+    if (bold_ok)   SetTextureFilter(font_bold.texture, TEXTURE_FILTER_BILINEAR);
+    if (public_ok)      SetTextureFilter(font_public.texture, TEXTURE_FILTER_BILINEAR);
+    if (public_bold_ok) SetTextureFilter(font_public_bold.texture, TEXTURE_FILTER_BILINEAR);
+    if (inter_ok)       SetTextureFilter(font_inter.texture, TEXTURE_FILTER_BILINEAR);
+    if (inter_bold_ok)  SetTextureFilter(font_inter_bold.texture, TEXTURE_FILTER_BILINEAR);
 
-    // Convert to WLX_Font handles (pointer → uintptr_t)
+    // Convert to WLX_Font handles (pointer -> uintptr_t)
     WLX_Font h_sans = sans_ok ? wlx_font_from_raylib(&font_sans) : WLX_FONT_DEFAULT;
     WLX_Font h_mono = mono_ok ? wlx_font_from_raylib(&font_mono) : WLX_FONT_DEFAULT;
     WLX_Font h_bold = bold_ok ? wlx_font_from_raylib(&font_bold) : WLX_FONT_DEFAULT;
+    WLX_Font h_public      = public_ok      ? wlx_font_from_raylib(&font_public)      : WLX_FONT_DEFAULT;
+    WLX_Font h_public_bold = public_bold_ok ? wlx_font_from_raylib(&font_public_bold) : WLX_FONT_DEFAULT;
+    WLX_Font h_inter       = inter_ok       ? wlx_font_from_raylib(&font_inter)       : WLX_FONT_DEFAULT;
+    WLX_Font h_inter_bold  = inter_bold_ok  ? wlx_font_from_raylib(&font_inter_bold)  : WLX_FONT_DEFAULT;
 
     // ── UI context ───────────────────────────────────────────────────────
     WLX_Context *ctx = malloc(sizeof(*ctx));
@@ -166,7 +190,7 @@ int main(void) {
                     wlx_layout_end(ctx);
 
                     // ── Right column: font showcase ─────────────────────
-                    wlx_layout_begin(ctx, 7, WLX_VERT);
+                    wlx_layout_begin(ctx, 11, WLX_VERT);
 
                         wlx_label(ctx, "Font showcase",
                             .font = h_bold, .font_size = 20,
@@ -174,22 +198,42 @@ int main(void) {
                             .back_color = theme.surface
                         );
 
-                        wlx_label(ctx, "Sans — The quick brown fox",
+                        wlx_label(ctx, "Sans - The quick brown fox",
                             .font = h_sans, .font_size = 20,
                             .height = 36, .align = WLX_LEFT
                         );
 
-                        wlx_label(ctx, "Mono — The quick brown fox",
+                        wlx_label(ctx, "Mono - The quick brown fox",
                             .font = h_mono, .font_size = 20,
                             .height = 36, .align = WLX_LEFT
                         );
 
-                        wlx_label(ctx, "Bold — The quick brown fox",
+                        wlx_label(ctx, "Bold - The quick brown fox",
                             .font = h_bold, .font_size = 20,
                             .height = 36, .align = WLX_LEFT
                         );
 
-                        wlx_label(ctx, "Default — The quick brown fox",
+                        wlx_label(ctx, "Public Sans - The quick brown fox",
+                            .font = h_public, .font_size = 20,
+                            .height = 36, .align = WLX_LEFT
+                        );
+
+                        wlx_label(ctx, "Public Bold - The quick brown fox",
+                            .font = h_public_bold, .font_size = 20,
+                            .height = 36, .align = WLX_LEFT
+                        );
+
+                        wlx_label(ctx, "Inter - The quick brown fox",
+                            .font = h_inter, .font_size = 20,
+                            .height = 36, .align = WLX_LEFT
+                        );
+
+                        wlx_label(ctx, "Inter Bold - The quick brown fox",
+                            .font = h_inter_bold, .font_size = 20,
+                            .height = 36, .align = WLX_LEFT
+                        );
+
+                        wlx_label(ctx, "Default - The quick brown fox",
                             .font = WLX_FONT_DEFAULT, .font_size = 20,
                             .height = 36, .align = WLX_LEFT
                         );
@@ -215,10 +259,14 @@ int main(void) {
                 // ── Status bar ──────────────────────────────────────────
                 char status[256];
                 snprintf(status, sizeof(status),
-                    "Fonts loaded:  Sans=%s  Mono=%s  Bold=%s",
+                    "Fonts:  Sans=%s  Mono=%s  Bold=%s  Public=%s  PubBold=%s  Inter=%s  InterB=%s",
                     sans_ok ? "yes" : "NO",
                     mono_ok ? "yes" : "NO",
-                    bold_ok ? "yes" : "NO");
+                    bold_ok ? "yes" : "NO",
+                    public_ok ? "yes" : "NO",
+                    public_bold_ok ? "yes" : "NO",
+                    inter_ok ? "yes" : "NO",
+                    inter_bold_ok ? "yes" : "NO");
 
                 wlx_label(ctx, status,
                     .font = h_mono, .font_size = 14,
@@ -233,9 +281,13 @@ int main(void) {
     }
 
     // ── Cleanup ──────────────────────────────────────────────────────────
-    if (sans_ok) UnloadFont(font_sans);
-    if (mono_ok) UnloadFont(font_mono);
-    if (bold_ok) UnloadFont(font_bold);
+    if (sans_ok)   UnloadFont(font_sans);
+    if (mono_ok)   UnloadFont(font_mono);
+    if (bold_ok)   UnloadFont(font_bold);
+    if (public_ok)      UnloadFont(font_public);
+    if (public_bold_ok) UnloadFont(font_public_bold);
+    if (inter_ok)       UnloadFont(font_inter);
+    if (inter_bold_ok)  UnloadFont(font_inter_bold);
     wlx_context_destroy(ctx);
     free(ctx);
     CloseWindow();

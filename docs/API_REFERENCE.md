@@ -37,10 +37,12 @@ layout library.
 23. [Widget — `wlx_inputbox`](#widget--wlx_inputbox)
 24. [Widget — `wlx_slider`](#widget--wlx_slider)
 25. [Widget — `wlx_scroll_panel`](#widget--wlx_scroll_panel)
-26. [Shared Option Field Macros](#shared-option-field-macros)
-27. [Theme Presets](#theme-presets)
-28. [Backend — Raylib](#backend--raylib)
-29. [Backend — SDL3](#backend--sdl3)
+26. [Compound Widget — `wlx_split`](#compound-widget--wlx_split)
+27. [Compound Widget — `wlx_panel`](#compound-widget--wlx_panel)
+28. [Shared Option Field Macros](#shared-option-field-macros)
+29. [Theme Presets](#theme-presets)
+30. [Backend — Raylib](#backend--raylib)
+31. [Backend — SDL3](#backend--sdl3)
 
 ---
 
@@ -187,7 +189,7 @@ verify.
 | Callback | Purpose |
 |----------|---------|
 | `draw_rect` | Fill a rectangle with a solid color |
-| `draw_rect_lines` | Draw a rectangle outline with given thickness |
+| `draw_rect_lines` | Draw a rectangle outline with given thickness. Sub-pixel values (`thick < 1`) are rendered as 1px with alpha scaled proportionally (e.g. 0.3 → 1px at 30% opacity) |
 | `draw_rect_rounded` | Fill a rounded rectangle |
 | `draw_line` | Draw a line segment |
 | `draw_text` | Render text at a position with the given style |
@@ -661,13 +663,63 @@ Push a dynamic layout whose slot count grows as children are added.
 |-----------|------|-------------|
 | `ctx` | `WLX_Context *` | The UI context |
 | `orient` | `WLX_Orient` | `WLX_HORZ` or `WLX_VERT` |
-| `slot_px` | `float` | Fixed pixel size per slot. `0` = variable (use `wlx_layout_auto_slot_px()`) |
+| `slot_px` | `float` | Fixed pixel size per slot. `0` = variable (use `wlx_layout_auto_slot()` or `wlx_layout_auto_slot_px()`) |
+
+### `wlx_layout_auto_slot`
+
+```c
+void wlx_layout_auto_slot(WLX_Context *ctx, WLX_Slot_Size size);
+```
+
+Resolve a `WLX_Slot_Size` to pixels and set it as the **next** slot size in the
+enclosing dynamic layout. Call immediately before the widget that should receive
+this size. The resolved pixel value is consumed automatically when the next
+child calls `wlx_get_slot_rect()`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ctx` | `WLX_Context *` | The UI context |
+| `size` | `WLX_Slot_Size` | Any slot size — `WLX_SLOT_PX`, `WLX_SLOT_PCT`, `WLX_SLOT_FLEX`, `WLX_SLOT_FILL`, etc. |
+
+**Resolution rules:**
+
+| Kind | Resolution |
+|------|------------|
+| `WLX_SIZE_PIXELS` | Exact pixel value |
+| `WLX_SIZE_PERCENT` | `value × total / 100` where total is the layout rect width (HORZ) or height (VERT) |
+| `WLX_SIZE_FILL` | `value × viewport` (scroll panel viewport, or layout rect if none) |
+| `WLX_SIZE_FLEX` | **Greedy:** consumes all remaining space (`total − used`). Only the *last* FLEX slot in the layout gets the correct split — multiple FLEX slots do **not** share proportionally. |
+| `WLX_SIZE_AUTO` | Same as FLEX (greedy remaining space) |
+| `WLX_SIZE_CONTENT` | Uses `size.value` directly (pre-resolved externally, or 0) |
+
+Min/max constraints from the `WLX_Slot_Size` are applied after resolution.
+
+**Example — PX header, FLEX body, PX footer:**
+
+```c
+wlx_layout_begin_auto(ctx, WLX_VERT, 0);
+    wlx_layout_auto_slot(ctx, WLX_SLOT_PX(44));
+    render_header(ctx);
+    wlx_layout_auto_slot(ctx, WLX_SLOT_FLEX(1));  // fill remaining
+    render_body(ctx);
+    wlx_layout_auto_slot(ctx, WLX_SLOT_PX(24));
+    render_footer(ctx);
+wlx_layout_end(ctx);
+```
+
+> **Note:** FLEX is greedy in dynamic layouts. For proportional multi-FLEX
+> splitting, use a static layout (`wlx_layout_begin_s`) instead.
+
+Short alias: `layout_auto_slot(ctx, size)`
 
 ### `wlx_layout_auto_slot_px`
 
 ```c
 void wlx_layout_auto_slot_px(WLX_Context *ctx, float px);
 ```
+
+Convenience wrapper — equivalent to
+`wlx_layout_auto_slot(ctx, WLX_SLOT_PX(px))`.
 
 Override the pixel size for the **next** slot in the enclosing dynamic layout.
 Call immediately before the widget whose size differs from the layout's global
@@ -802,8 +854,29 @@ arrays.
 |-------|-------------|
 | `WLX_SLOT_AUTO` | Equal division of remaining space |
 | `WLX_SLOT_PX(px)` | Fixed pixel size |
-| `WLX_SLOT_PCT(pct)` | Percentage of parent (0.0–1.0) |
+| `WLX_SLOT_PCT(pct)` | Percentage of parent (0–100) |
 | `WLX_SLOT_FLEX(weight)` | Flex weight — proportional share of remaining space |
+| `WLX_SLOT_FILL` | Fill entire viewport (scroll panel or layout rect) |
+| `WLX_SLOT_CONTENT` | Measured from child content (frame-delayed) |
+
+### Fill variants
+
+| Macro | Description |
+|-------|-------------|
+| `WLX_SLOT_FILL` | Fill entire viewport (scroll panel or layout rect) |
+| `WLX_SLOT_FILL_PCT(pct)` | Fill `pct`% of viewport |
+| `WLX_SLOT_FILL_MIN(lo)` | Fill viewport with minimum |
+| `WLX_SLOT_FILL_MAX(hi)` | Fill viewport with maximum |
+| `WLX_SLOT_FILL_MINMAX(lo, hi)` | Fill viewport with both min and max |
+
+### Content variants
+
+| Macro | Description |
+|-------|-------------|
+| `WLX_SLOT_CONTENT` | Size measured from child content (frame-delayed) |
+| `WLX_SLOT_CONTENT_MIN(lo)` | Content-sized with minimum |
+| `WLX_SLOT_CONTENT_MAX(hi)` | Content-sized with maximum |
+| `WLX_SLOT_CONTENT_MINMAX(lo, hi)` | Content-sized with both min and max |
 
 ### Constrained variants
 
@@ -827,6 +900,49 @@ WLX_Slot_Size sizes[] = {
     WLX_SLOT_PX(100),        // panel: fixed 100px
 };
 wlx_layout_begin(ctx, 3, WLX_HORZ, .sizes = sizes);
+```
+
+### `WLX_SIZES`
+
+```c
+#define WLX_SIZES(...)
+```
+
+Auto-counting slot sizes helper. Expands to **two** comma-separated values:
+the element count and a `WLX_Slot_Size[]` compound literal. Designed to be
+passed to `wlx_layout_begin_s()` so you never need to manually count slots:
+
+```c
+wlx_layout_begin_s(ctx, WLX_VERT,
+    WLX_SIZES(WLX_SLOT_PX(44), WLX_SLOT_FLEX(1), WLX_SLOT_PX(24)),
+    .padding = 4);
+```
+
+Adding or removing entries automatically updates the slot count — no manual
+counting needed.
+
+> **Note:** arguments are evaluated twice (once in `sizeof`, once in the
+> literal). Only use with side-effect-free expressions — all `WLX_SLOT_*`
+> macros are safe.
+
+### `wlx_layout_begin_s`
+
+```c
+#define wlx_layout_begin_s(ctx, orient, count_val, sizes_ptr, ...)
+```
+
+Layout with auto-counted sizes. Equivalent to `wlx_layout_begin` but the
+count is derived from `WLX_SIZES()` instead of being passed manually.
+The `WLX_SIZES(...)` argument expands into `count_val` and `sizes_ptr`.
+Trailing options (`.padding`, `.pos`, `.span`, etc.) are passed through.
+
+```c
+// These two are equivalent:
+wlx_layout_begin(ctx, 2, WLX_HORZ,
+    .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(200), WLX_SLOT_FLEX(1) });
+
+wlx_layout_begin_s(ctx, WLX_HORZ,
+    WLX_SIZES(WLX_SLOT_PX(200), WLX_SLOT_FLEX(1)));
 ```
 
 ---
@@ -986,6 +1102,45 @@ WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size_t span
 ```
 
 Compute the rect for slot `pos` (spanning `span` slots) in layout `l`.
+
+### `wlx_get_parent_rect`
+
+```c
+WLX_Rect wlx_get_parent_rect(WLX_Context *ctx);
+```
+
+Return the full rect of the innermost layout on the stack. If no layout is
+active, returns the root rect (`ctx->rect`). Does **not** advance the layout
+cursor — this is a non-consuming peek.
+
+Use this to size a child relative to its container without hardcoding pixel
+values:
+
+```c
+float h = wlx_get_parent_rect(ctx).h;
+wlx_layout_begin(ctx, 1, WLX_VERT,
+    .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(h) });
+```
+
+### `wlx_get_scroll_panel_viewport`
+
+```c
+WLX_Rect wlx_get_scroll_panel_viewport(WLX_Context *ctx);
+```
+
+Return the viewport rect of the innermost scroll panel. Returns `{0}` if no
+scroll panel is active. Useful for sizing children to the visible area rather
+than the (potentially larger) scrollable content area.
+
+### `wlx_get_available_width` / `wlx_get_available_height`
+
+```c
+static inline float wlx_get_available_width(WLX_Context *ctx);
+static inline float wlx_get_available_height(WLX_Context *ctx);
+```
+
+Convenience wrappers around `wlx_get_parent_rect()`. Return the width or
+height of the innermost layout rect.
 
 ---
 
@@ -1186,6 +1341,88 @@ Scrollable container. Used as a begin/end pair with layout content between.
 | `scrollbar_width` | `float` | `0` | Scrollbar width. `0` = default (10) |
 | `wheel_scroll_speed` | `float` | `20.0` | Pixels per wheel tick |
 | `show_scrollbar` | `bool` | `true` | Draw the scrollbar |
+
+---
+
+## Compound Widget — `wlx_split`
+
+```c
+#define wlx_split_begin(ctx, ...options)
+#define wlx_split_next(ctx, ...options)
+void wlx_split_end(WLX_Context *ctx);
+```
+
+Two-pane split layout with independent scroll panels. Replaces the common
+pattern of outer VERT wrapper + HORZ layout + two scroll panels (6 begin/end
+pairs) with 3 calls. Each pane gets its own auto-height scroll panel;
+the user creates their own inner layout inside each pane.
+
+**Option struct:** `WLX_Split_Opt` (for `wlx_split_begin`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `first_size` | `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | Width/size of the first (left) pane |
+| `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width/size of the second (right) pane |
+| `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FILL` | Outer wrapper slot size (e.g. `WLX_SLOT_FILL_MIN(400)`) |
+| `padding` | `float` | `4` | Gap between the two panes |
+| `first_back_color` | `WLX_Color` | `{0}` | First pane scroll panel background. `{0}` = theme default |
+| `second_back_color` | `WLX_Color` | `{0}` | Second pane scroll panel background. `{0}` = theme default |
+
+**Option struct:** `WLX_Split_Next_Opt` (for `wlx_split_next`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `back_color` | `WLX_Color` | `{0}` | Override second pane background color |
+
+**Internal structure created by split:**
+
+1. Outer VERT layout (1 slot, `fill_size`)
+2. Inner HORZ layout (2 slots: `first_size`, `second_size`, with `padding`)
+3. First pane: auto-height scroll panel (`content_height = -1`)
+4. *(user code for first pane)*
+5. `wlx_split_next` closes first scroll panel, opens second
+6. *(user code for second pane)*
+7. `wlx_split_end` closes second scroll panel + both layouts
+
+**Debug assertions:** `split_depth` counter in `WLX_Context` (under `WLX_DEBUG`)
+catches mismatched begin/next/end calls.
+
+---
+
+## Compound Widget — `wlx_panel`
+
+```c
+#define wlx_panel_begin(ctx, ...options)
+void wlx_panel_end(WLX_Context *ctx);
+```
+
+Capacity-based CONTENT layout with optional heading label. Replaces the
+common pattern of `wlx_layout_begin_s` with N manually-counted
+`WLX_SLOT_CONTENT` entries plus a heading label. The panel pre-allocates a
+fixed number of CONTENT slots — unused slots measure 0px and have no visual
+impact. Adding or removing child widgets requires no slot-count updates.
+
+**Option struct:** `WLX_Panel_Opt`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `title` | `const char *` | `NULL` | Heading text. `NULL` = no heading (full capacity available for children) |
+| `title_font_size` | `int` | `18` | Heading font size |
+| `title_height` | `float` | `32` | Heading slot height in pixels |
+| `title_align` | `WLX_Align` | `WLX_CENTER` | Heading text alignment |
+| `title_back_color` | `WLX_Color` | `{0}` | Heading background color. `{0}` = theme surface |
+| `padding` | `float` | `2` | Inner layout padding |
+| `capacity` | `int` | `32` | Maximum number of child widgets (excluding title). Clamped to `WLX_CONTENT_SLOTS_MAX` (64) |
+
+**Internal structure:**
+
+1. VERT layout with `capacity` (+ 1 if title) CONTENT slots
+2. Optional heading label in the first slot
+3. `wlx_panel_end` closes the layout
+
+The panel does **not** create a scroll panel. Inside a split pane, the scroll
+panel is already provided by `wlx_split_begin`. For standalone scrollable
+panels, wrap in `wlx_scroll_panel_begin` / `wlx_scroll_panel_end`.
 
 ---
 

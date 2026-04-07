@@ -1,4 +1,4 @@
-// test_color.c — tests for wlx_clamp_u8, wlx_color_brightness,
+// test_color.c - tests for wlx_clamp_u8, wlx_color_brightness,
 // wlx_color_apply_opacity, wlx_color_is_zero.
 // Included from test_main.c (single TU build).
 
@@ -49,14 +49,14 @@ TEST(color_is_zero_false) {
 // ============================================================================
 
 TEST(brightness_zero_factor) {
-    // factor=0 → unchanged
+    // factor=0 -> unchanged
     WLX_Color c = {100, 150, 200, 255};
     WLX_Color r = wlx_color_brightness(c, 0.0f);
     ASSERT_EQ_COLOR(r, c);
 }
 
 TEST(brightness_positive) {
-    // factor > 0 → moves toward 255 (white)
+    // factor > 0 -> moves toward 255 (white)
     WLX_Color c = {100, 100, 100, 200};
     WLX_Color r = wlx_color_brightness(c, 0.5f);
     // r = 100 + (255-100)*0.5 = 100 + 77.5 = 178 (rounded)
@@ -67,7 +67,7 @@ TEST(brightness_positive) {
 }
 
 TEST(brightness_negative) {
-    // factor < 0 → moves toward 0 (black)
+    // factor < 0 -> moves toward 0 (black)
     WLX_Color c = {200, 200, 200, 255};
     WLX_Color r = wlx_color_brightness(c, -0.5f);
     // r = 200 * (1 + (-0.5)) = 200 * 0.5 = 100
@@ -148,7 +148,7 @@ TEST(opacity_half) {
 }
 
 TEST(opacity_above_one) {
-    // opacity >= 1.0 → unchanged
+    // opacity >= 1.0 -> unchanged
     WLX_Color c = {10, 20, 30, 128};
     WLX_Color r = wlx_color_apply_opacity(c, 2.0f);
     ASSERT_EQ_COLOR(r, c);

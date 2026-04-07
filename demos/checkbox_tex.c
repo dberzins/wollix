@@ -140,7 +140,7 @@ int main(void) {
                             .widget_align = WLX_TOP_LEFT, .height = 40, .font_size = 30, .back_color = WLX_BACKGROUND_COLOR, .spacing = 2, .align = WLX_TOP_LEFT);
 
                         // Texture-based wlx_checkbox options (checkmark style)
-                        if (wlx_checkbox_tex(ctx, "Option 1: Enable feature A", &app.option1,
+                        if (wlx_checkbox(ctx, "Option 1: Enable feature A", &app.option1,
                             .font_size = 20,
                             .tex_checked = tex_checked,
                             .tex_unchecked = tex_unchecked,
@@ -151,7 +151,7 @@ int main(void) {
                             printf("Option 1 toggled: %s\n", app.option1 ? "ON" : "OFF");
                         }
 
-                        if (wlx_checkbox_tex(ctx, "Option 2: Enable feature B", &app.option2,
+                        if (wlx_checkbox(ctx, "Option 2: Enable feature B", &app.option2,
                             .font_size = 30,
                             .tex_checked = tex_checked,
                             .tex_unchecked = tex_unchecked,
@@ -162,7 +162,7 @@ int main(void) {
                             printf("Option 2 toggled: %s\n", app.option2 ? "ON" : "OFF");
                         }
 
-                        if (wlx_checkbox_tex(ctx, "Option 3: Enable feature C", &app.option3,
+                        if (wlx_checkbox(ctx, "Option 3: Enable feature C", &app.option3,
                             .font_size = 30,
                             .tex_checked = tex_checked,
                             .tex_unchecked = tex_unchecked,
@@ -178,7 +178,7 @@ int main(void) {
                             .widget_align = WLX_LEFT, .height = 40, .font_size = 30, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT);
 
                         // Star-style texture checkboxes
-                        WLX_Checkbox_Tex_Opt opt = wlx_default_checkbox_tex_opt(
+                        WLX_Checkbox_Opt opt = wlx_default_checkbox_opt(
                             .font_size = 30,
                             .tex_checked = tex_star_filled,
                             .tex_unchecked = tex_star_empty,
@@ -187,12 +187,12 @@ int main(void) {
                             .front_color = WLX_WHITE,
                         );
                         
-                        if (wlx_checkbox_tex_impl(ctx, "Enable advanced mode", &app.enable_feature, opt, __FILE__, __LINE__)) {
+                        if (wlx_checkbox_impl(ctx, "Enable advanced mode", &app.enable_feature, opt, __FILE__, __LINE__)) {
                             printf("Advanced mode toggled: %s\n", app.enable_feature ? "ON" : "OFF");
 
                         }
                         
-                        if (wlx_checkbox_tex_impl(ctx, "Show detailed information", &app.show_details, opt, __FILE__, __LINE__)) {
+                        if (wlx_checkbox_impl(ctx, "Show detailed information", &app.show_details, opt, __FILE__, __LINE__)) {
                             printf("Show details toggled: %s\n", app.show_details ? "ON" : "OFF");
                         }
 

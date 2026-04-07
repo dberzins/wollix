@@ -6,6 +6,13 @@
 .copilot
 compile_commands.json
 docs/dev
+docs/workflow
+
+#copilot
+.github/copilot-instructions.md
+.github/prompts
+.github/templates
+.github/COMPACT_WORKFLOW.md
 
 # build
 panel
@@ -32,3 +39,4 @@ demos/font_demo
 demos/opacity_demo
 demos/gallery
 tests/test_runner
+demos/border_demo

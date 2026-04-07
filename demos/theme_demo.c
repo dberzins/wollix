@@ -1,4 +1,4 @@
-// theme_demo.c — Minimal demo showing before/after theme switching
+// theme_demo.c - Minimal demo showing before/after theme switching
 // Demonstrates switching between wlx_theme_dark and wlx_theme_light at runtime.
 
 #include <stddef.h>
@@ -35,7 +35,7 @@ static App_State app = {
 };
 
 int main(void) {
-    printf("Theme demo — press the toggle to switch dark/light\n");
+    printf("Theme demo - press the toggle to switch dark/light\n");
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Theme Demo");
     SetTargetFPS(TARGET_FPS);

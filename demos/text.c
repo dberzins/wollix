@@ -17,9 +17,9 @@
 
 // Build a codepoint array covering ASCII + Latin Extended (Latvian, etc.)
 static int *get_font_codepoints(int *out_count) {
-    // ASCII printable: 32–126 (95 chars)
-    // Latin-1 Supplement: 0x00A0–0x00FF (96 chars) — accented Latin chars
-    // Latin Extended-A:   0x0100–0x017F (128 chars) — ā, č, ē, ģ, ī, ķ, ļ, ņ, š, ū, ž
+    // ASCII printable: 32-126 (95 chars)
+    // Latin-1 Supplement: 0x00A0-0x00FF (96 chars) - accented Latin chars
+    // Latin Extended-A:   0x0100-0x017F (128 chars) - ā, č, ē, ģ, ī, ķ, ļ, ņ, š, ū, ž
     int count = (126 - 32 + 1) + (0x00FF - 0x00A0 + 1) + (0x017F - 0x0100 + 1);
     int *cps = malloc(count * sizeof(int));
     int idx = 0;

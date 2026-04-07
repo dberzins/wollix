@@ -1,4 +1,4 @@
-// test_main.c — entry point for wollix.h test suite
+// test_main.c - entry point for wollix.h test suite
 // Single-TU build: all test files are #included here.
 
 #define WLX_DEBUG
@@ -8,7 +8,7 @@
 #include "tests.h"
 #include "test_mock_backend.h"
 
-// Test files (pure math — no backend needed)
+// Test files (pure math - no backend needed)
 #include "test_layout_math.c"
 #include "test_color.c"
 #include "test_utf8.c"
@@ -18,10 +18,18 @@
 #include "test_interaction.c"
 #include "test_scroll_panel.c"
 #include "test_input.c"
+#include "test_auto_layout.c"
 
 // fuzz + edge cases
 #include "test_fuzz.c"
 #include "test_edge_cases.c"
+
+// compound widgets
+#include "test_split.c"
+#include "test_panel.c"
+
+// opacity
+#include "test_opacity_stack.c"
 
 int main(void) {
     RUN_SUITE(layout_math);
@@ -31,7 +39,11 @@ int main(void) {
     RUN_SUITE(interaction);
     RUN_SUITE(scroll_panel);
     RUN_SUITE(input);
+    RUN_SUITE(auto_layout);
     RUN_SUITE(fuzz);
     RUN_SUITE(edge_cases);
+    RUN_SUITE(split);
+    RUN_SUITE(panel);
+    RUN_SUITE(opacity_stack);
     return test_summary();
 }

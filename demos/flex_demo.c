@@ -71,7 +71,7 @@ int main(void) {
                 wlx_layout_end(ctx);
 
                 // --- Example 2: Mixed AUTO and FLEX ---
-                wlx_label(ctx, "2) AUTO + FLEX(2) + PX(100)  — AUTO acts as FLEX(1)",
+                wlx_label(ctx, "2) AUTO + FLEX(2) + PX(100)  - AUTO acts as FLEX(1)",
                     .height = 25, .font_size = 14,
                     .back_color = (Color){30, 30, 40, 255},
                     .align = WLX_LEFT, .show_background = true);
@@ -94,7 +94,7 @@ int main(void) {
                 wlx_layout_end(ctx);
 
                 // --- Example 3: Complex app layout ---
-                wlx_label(ctx, "3) App layout: PX(50) header, FLEX(1) body, PX(30) footer — body has weighted columns",
+                wlx_label(ctx, "3) App layout: PX(50) header, FLEX(1) body, PX(30) footer - body has weighted columns",
                     .height = 25, .font_size = 14,
                     .back_color = (Color){30, 30, 40, 255},
                     .align = WLX_LEFT, .show_background = true);

@@ -1,12 +1,12 @@
-// test_mock_backend.h — no-op WLX_Backend stubs and frame simulation helpers
+// test_mock_backend.h - no-op WLX_Backend stubs and frame simulation helpers
 // Include after wollix.h (with WOLLIX_IMPLEMENTATION) and tests.h.
 //
 // Provides:
-//   mock_backend()                 — fully populated WLX_Backend with no-op draws
-//   test_ctx_init(ctx, w, h)      — zero-init a WLX_Context with mock backend
-//   test_frame_begin(ctx, ...)    — begin a frame with mouse state
-//   test_frame_begin_ex(ctx, ...) — begin a frame with mouse + keyboard state
-//   test_frame_end(ctx)           — end a frame
+//   mock_backend()                 - fully populated WLX_Backend with no-op draws
+//   test_ctx_init(ctx, w, h)      - zero-init a WLX_Context with mock backend
+//   test_frame_begin(ctx, ...)    - begin a frame with mouse state
+//   test_frame_begin_ex(ctx, ...) - begin a frame with mouse + keyboard state
+//   test_frame_end(ctx)           - end a frame
 
 #ifndef TEST_MOCK_BACKEND_H_
 #define TEST_MOCK_BACKEND_H_
@@ -19,8 +19,12 @@ static void noop_draw_rect(WLX_Rect r, WLX_Color c) {
     (void)r; (void)c;
 }
 
+static float _mock_last_border_thick = 0.0f;
+static WLX_Color _mock_last_border_color = {0};
 static void noop_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
-    (void)r; (void)thick; (void)c;
+    _mock_last_border_thick = thick;
+    _mock_last_border_color = c;
+    (void)r;
 }
 
 static void noop_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c) {
@@ -95,7 +99,7 @@ static inline void test_ctx_init(WLX_Context *ctx, float w, float h) {
 }
 
 // ============================================================================
-// Frame simulation — staged input
+// Frame simulation - staged input
 // ============================================================================
 
 // Internal: cached input state set before wlx_begin's input handler callback.
