@@ -877,6 +877,8 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
                     WLX_SLOT_CONTENT,  // heading
                     WLX_SLOT_CONTENT,  // sub: fixed grid
                     WLX_SLOT_PX(200),  // fixed grid
+                    WLX_SLOT_CONTENT,  // sub: content-sized rows
+                    WLX_SLOT_PX(130),  // content-sized rows grid
                     WLX_SLOT_CONTENT,  // sub: auto grid
                     WLX_SLOT_PX(130),  // auto grid
                     WLX_SLOT_CONTENT,  // sub: auto tile grid
@@ -909,6 +911,41 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
                         }
                     }
                 wlx_layout_end(ctx);
+
+                SUB_HEADING(ctx, "Content-Sized Rows (row_sizes)");
+                {
+                    WLX_Slot_Size rsizes[] = {
+                        WLX_SLOT_CONTENT,
+                        WLX_SLOT_CONTENT_MIN(20),
+                        WLX_SLOT_CONTENT_MAX(30),
+                    };
+                    wlx_grid_begin(ctx, 3, 3, .padding = 2, .row_sizes = rsizes);
+                        for (int c = 0; c < 3; c++) {
+                            wlx_push_id(ctx, (size_t)c);
+                            Color clr = { (unsigned char)(50 + c * 30), 70, 140, 255 };
+                            wlx_label(ctx, "Tall", .height = 40, .font_size = 13,
+                                .align = WLX_CENTER, .back_color = clr,
+                                .show_background = true);
+                            wlx_pop_id(ctx);
+                        }
+                        for (int c = 0; c < 3; c++) {
+                            wlx_push_id(ctx, (size_t)(3 + c));
+                            Color clr = { 70, (unsigned char)(50 + c * 30), 140, 255 };
+                            wlx_label(ctx, "Min 20", .height = 20, .font_size = 13,
+                                .align = WLX_CENTER, .back_color = clr,
+                                .show_background = true);
+                            wlx_pop_id(ctx);
+                        }
+                        for (int c = 0; c < 3; c++) {
+                            wlx_push_id(ctx, (size_t)(6 + c));
+                            Color clr = { 70, 140, (unsigned char)(50 + c * 30), 255 };
+                            wlx_label(ctx, "Max 30", .height = 35, .font_size = 13,
+                                .align = WLX_CENTER, .back_color = clr,
+                                .show_background = true);
+                            wlx_pop_id(ctx);
+                        }
+                    wlx_layout_end(ctx);
+                }
 
                 SUB_HEADING(ctx, "Auto Grid (wlx_grid_begin_auto)");
                 wlx_grid_begin_auto(ctx, 4, 40, .padding = 2);

@@ -12,12 +12,13 @@ writing code.
 3. [Layout Stack](#3-layout-stack)
 4. [Slot Sizing](#4-slot-sizing)
 5. [Grid Layouts](#5-grid-layouts)
-6. [Alignment](#6-alignment)
-7. [Widgets & Option Structs](#7-widgets--option-structs)
-8. [Interaction](#8-interaction)
-9. [IDs & Persistent State](#9-ids--persistent-state)
-10. [Theming](#10-theming)
-11. [Backend Contract](#11-backend-contract)
+6. [Layout Capabilities](#6-layout-capabilities)
+7. [Alignment](#7-alignment)
+8. [Widgets & Option Structs](#8-widgets--option-structs)
+9. [Interaction](#9-interaction)
+10. [IDs & Persistent State](#10-ids--persistent-state)
+11. [Theming](#11-theming)
+12. [Backend Contract](#12-backend-contract)
 
 ---
 
@@ -292,6 +293,33 @@ wlx_grid_begin(ctx, 3, 2, .row_sizes = row_sizes, .col_sizes = col_sizes);
 wlx_grid_end(ctx);
 ```
 
+### Content-Sized Rows
+
+Grid rows support `WLX_SLOT_CONTENT` sizing. Each CONTENT row measures the
+tallest widget placed in that row (across all columns) and uses that height
+on the next frame. This uses the same one-frame-delay persistent state
+mechanism as linear CONTENT slots.
+
+```c
+WLX_Slot_Size row_sizes[] = {
+    WLX_SLOT_CONTENT,           // adapts to tallest widget in row 0
+    WLX_SLOT_CONTENT_MIN(50),   // at least 50px regardless of content
+    WLX_SLOT_CONTENT_MAX(30),   // capped at 30px even if content is taller
+    WLX_SLOT_PX(100),           // fixed rows can be mixed freely
+};
+wlx_grid_begin(ctx, 4, 3, .row_sizes = row_sizes);
+    // ... 12 widgets ...
+wlx_grid_end(ctx);
+```
+
+Min/max constraints work as expected: `WLX_SLOT_CONTENT_MIN(px)` sets a floor,
+`WLX_SLOT_CONTENT_MAX(px)` sets a ceiling, and `WLX_SLOT_CONTENT_MINMAX(lo, hi)`
+sets both. CONTENT rows can be mixed with PX, FLEX, PCT, and other row types
+in the same grid.
+
+> **Note:** CONTENT is supported only in `row_sizes`, not `col_sizes`.
+> Max 32 CONTENT rows per grid (`WLX_CONTENT_SLOTS_MAX`).
+
 ### Explicit Cell Placement
 
 Use `wlx_grid_cell()` to place a child at a specific row/column with optional spans:
@@ -332,7 +360,43 @@ wlx_grid_end(ctx);
 
 ---
 
-## 6. Alignment
+## 6. Layout Capabilities
+
+### Sizing Support
+
+| Layout | Axis | PX | PCT | FLEX | AUTO | FILL | CONTENT | Min/Max |
+|---|---|---|---|---|---|---|---|---|
+| `wlx_layout_begin` | slots (VERT/HORZ) | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `wlx_layout_begin_s` | slots (VERT/HORZ) | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `wlx_layout_begin_auto` (slot_px>0) | per-slot uniform | Fixed | -- | -- | -- | -- | -- | -- |
+| `wlx_layout_begin_auto` (slot_px=0) | per-slot via `auto_slot` | Yes | Yes | Yes | Yes | Yes | Passthrough\* | Yes |
+| `wlx_grid_begin` | rows | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `wlx_grid_begin` | cols | Yes | Yes | Yes | Yes | Yes | No | Yes |
+| `wlx_grid_begin_auto` | rows (dynamic) | Fixed | -- | -- | -- | -- | -- | -- |
+| `wlx_grid_begin_auto` | cols | Yes | Yes | Yes | Yes | Yes | No | Yes |
+| `wlx_grid_begin_auto_tile` | rows (dynamic) | Fixed | -- | -- | -- | -- | -- | -- |
+| `wlx_grid_begin_auto_tile` | cols | Derived | -- | -- | -- | -- | -- | -- |
+
+\* `wlx_layout_auto_slot` with CONTENT reads `size.value` as pre-resolved px
+(falls back to 0). No persistent measurement loop — the caller must supply the
+value.
+
+### Restrictions
+
+| Layout | Restrictions |
+|---|---|
+| `wlx_layout_begin` | Slot count must be known at begin time. Max 32 slots when using CONTENT (`WLX_CONTENT_SLOTS_MAX`). |
+| `wlx_layout_begin_s` | Same as `wlx_layout_begin`; count derived from `WLX_SIZES()` macro. |
+| `wlx_layout_begin_auto` | Sequential access only (no `pos`). No nested `wlx_layout_begin` inside body (scratch buffer corruption). When `slot_px=0`, every child must call `wlx_layout_auto_slot` before use. CONTENT via `auto_slot` is not auto-measured (value=0 fallback). |
+| `wlx_grid_begin` | Row and column count fixed at begin time. CONTENT supported in `row_sizes` (per-row max height, one-frame delay). CONTENT not supported in `col_sizes` (resolves to 0px). Max 32 CONTENT rows (`WLX_CONTENT_SLOTS_MAX`). Max `WLX_MAX_SLOT_COUNT` rows/cols. |
+| `wlx_grid_begin_auto` | Column count fixed; rows grow dynamically. Requires `row_px > 0` (no zero or content-sized rows). Per-row override via `wlx_grid_auto_row_px` consumed once. CONTENT not supported in `col_sizes`. |
+| `wlx_grid_begin_auto_tile` | Same as `wlx_grid_begin_auto`. Column count derived from `floor(width / tile_w)`, minimum 1. `col_sizes` in opt is accepted but column count is computed from tile width. |
+| All layouts | CONTENT sizing uses one-frame delay (0px first frame, measured on second). Use `WLX_SLOT_CONTENT_MIN()` to avoid visual pop. |
+| All layouts | Persistent state keyed by `__FILE__`/`__LINE__` — duplicate calls at same source location share state (e.g. layouts in loops). |
+
+---
+
+## 7. Alignment
 
 `WLX_Align` controls where a widget is positioned within its slot when the
 widget is smaller than the slot:
@@ -364,7 +428,7 @@ If the widget is larger than its slot, it is clamped to the slot bounds
 
 ---
 
-## 7. Widgets & Option Structs
+## 8. Widgets & Option Structs
 
 Every widget follows the same pattern:
 
@@ -481,7 +545,7 @@ content height from the first frame and applies it on subsequent frames.
 
 ---
 
-## 8. Interaction
+## 9. Interaction
 
 Widgets use `wlx_get_interaction()` internally to handle mouse and keyboard
 input. You typically don't call it directly — widgets do it for you. But
@@ -527,7 +591,7 @@ overlapping interactions.
 
 ---
 
-## 9. IDs & Persistent State
+## 10. IDs & Persistent State
 
 ### How IDs Work
 
@@ -606,7 +670,7 @@ automatically inside the widget implementation.
 
 ---
 
-## 10. Theming
+## 11. Theming
 
 ### Theme Struct
 
@@ -665,7 +729,7 @@ wlx_button(ctx, "Custom BG", .back_color = WLX_RGBA(200, 0, 0, 255));
 
 ---
 
-## 11. Backend Contract
+## 12. Backend Contract
 
 `wollix.h` does not render anything itself. It calls function pointers stored
 in `WLX_Backend` to do all drawing and input. Backend adapters

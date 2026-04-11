@@ -761,7 +761,7 @@ Push a fixed-size grid layout.
 | `span` | `size_t` | `1` | Slots to occupy in parent |
 | `overflow` | `bool` | `false` | Allow exceeding slot bounds |
 | `padding` | `float` | `0` | Uniform inset on the slot |
-| `row_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `rows` row sizes. `NULL` = equal division |
+| `row_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `rows` row sizes. `NULL` = equal division. Supports `WLX_SLOT_CONTENT` (with min/max) for rows that adapt to the tallest widget per row (one-frame delay). Max 32 CONTENT rows. |
 | `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes. `NULL` = equal division |
 
 ### `wlx_grid_begin_auto`

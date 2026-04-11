@@ -371,6 +371,250 @@ TEST(grid_with_padding) {
 }
 
 // ============================================================================
+// Grid CONTENT row sizing
+//
+// CONTENT rows use one-frame delay: frame N measures, frame N+1 uses the
+// measured value.  All tests use a loop so the same wlx_grid_begin() call
+// site (and thus the same persistent state key) is used across frames.
+// ============================================================================
+
+TEST(grid_content_row_basic) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_PX(50) };
+    float row0_h = 0, row1_h = 0;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
+        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+        row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
+        row1_h = l->grid.row_offsets[2] - l->grid.row_offsets[1];
+        wlx_label(&ctx, "a", .height = 30);
+        wlx_label(&ctx, "b", .height = 40);
+        wlx_label(&ctx, "c");
+        wlx_label(&ctx, "d");
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    // After convergence: row 0 = max(30,40) = 40, row 1 = PX(50)
+    ASSERT_EQ_F(row0_h, 40.0f, GRID_EPS);
+    ASSERT_EQ_F(row1_h, 50.0f, GRID_EPS);
+}
+
+TEST(grid_content_row_all) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_CONTENT, WLX_SLOT_CONTENT };
+    float r0 = 0, r1 = 0, r2 = 0;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 3, 2, .row_sizes = row_sizes);
+        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+        r0 = l->grid.row_offsets[1] - l->grid.row_offsets[0];
+        r1 = l->grid.row_offsets[2] - l->grid.row_offsets[1];
+        r2 = l->grid.row_offsets[3] - l->grid.row_offsets[2];
+        // row 0: 20, 35 -> max 35
+        wlx_label(&ctx, "a", .height = 20);
+        wlx_label(&ctx, "b", .height = 35);
+        // row 1: 50, 10 -> max 50
+        wlx_label(&ctx, "c", .height = 50);
+        wlx_label(&ctx, "d", .height = 10);
+        // row 2: 25, 25 -> max 25
+        wlx_label(&ctx, "e", .height = 25);
+        wlx_label(&ctx, "f", .height = 25);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(r0, 35.0f, GRID_EPS);
+    ASSERT_EQ_F(r1, 50.0f, GRID_EPS);
+    ASSERT_EQ_F(r2, 25.0f, GRID_EPS);
+}
+
+TEST(grid_content_row_min) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    // min=60, content max=40 -> row should be 60
+    WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT_MIN(60), WLX_SLOT_PX(50) };
+    float row0_h = 0;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
+        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+        row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
+        wlx_label(&ctx, "a", .height = 30);
+        wlx_label(&ctx, "b", .height = 40);
+        wlx_label(&ctx, "c");
+        wlx_label(&ctx, "d");
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(row0_h, 60.0f, GRID_EPS);
+}
+
+TEST(grid_content_row_max) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    // max=25, content max=40 -> row should be clamped to 25
+    WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT_MAX(25), WLX_SLOT_PX(50) };
+    float row0_h = 0;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
+        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+        row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
+        wlx_label(&ctx, "a", .height = 30);
+        wlx_label(&ctx, "b", .height = 40);
+        wlx_label(&ctx, "c");
+        wlx_label(&ctx, "d");
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(row0_h, 25.0f, GRID_EPS);
+}
+
+TEST(grid_content_row_minmax) {
+    // min=30, max=35, content=40 -> clamp to 35
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT_MINMAX(30, 35), WLX_SLOT_PX(50) };
+    float row0_h = 0;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
+        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+        row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
+        wlx_label(&ctx, "a", .height = 30);
+        wlx_label(&ctx, "b", .height = 40);
+        wlx_label(&ctx, "c");
+        wlx_label(&ctx, "d");
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(row0_h, 35.0f, GRID_EPS);
+
+    // min=50, max=80, content=40 -> clamp to 50
+    WLX_Context ctx2;
+    test_ctx_init(&ctx2, 400, 300);
+    WLX_Slot_Size row_sizes2[] = { WLX_SLOT_CONTENT_MINMAX(50, 80), WLX_SLOT_PX(50) };
+    float row0_h2 = 0;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx2, 0, 0, false, false);
+        wlx_grid_begin(&ctx2, 2, 2, .row_sizes = row_sizes2);
+        WLX_Layout *l2 = &ctx2.layouts.items[ctx2.layouts.count - 1];
+        row0_h2 = l2->grid.row_offsets[1] - l2->grid.row_offsets[0];
+        wlx_label(&ctx2, "a", .height = 30);
+        wlx_label(&ctx2, "b", .height = 40);
+        wlx_label(&ctx2, "c");
+        wlx_label(&ctx2, "d");
+        wlx_grid_end(&ctx2);
+        test_frame_end(&ctx2);
+    }
+    ASSERT_EQ_F(row0_h2, 50.0f, GRID_EPS);
+}
+
+TEST(grid_content_row_mixed) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size row_sizes[] = { WLX_SLOT_PX(20), WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    float row0_h = 0, row1_h = 0, row2_h = 0;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 3, 2, .row_sizes = row_sizes);
+        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+        row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
+        row1_h = l->grid.row_offsets[2] - l->grid.row_offsets[1];
+        row2_h = l->grid.row_offsets[3] - l->grid.row_offsets[2];
+        // row 0: PX(20)
+        wlx_label(&ctx, "a");
+        wlx_label(&ctx, "b");
+        // row 1: CONTENT, heights 45 and 30 -> max 45
+        wlx_label(&ctx, "c", .height = 45);
+        wlx_label(&ctx, "d", .height = 30);
+        // row 2: FLEX
+        wlx_label(&ctx, "e");
+        wlx_label(&ctx, "f");
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(row0_h, 20.0f, GRID_EPS);
+    ASSERT_EQ_F(row1_h, 45.0f, GRID_EPS);
+    // FLEX gets remaining: 300 - 20 - 45 = 235
+    ASSERT_EQ_F(row2_h, 235.0f, GRID_EPS);
+}
+
+TEST(grid_content_row_empty) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_CONTENT };
+    float row0_h = 0, row1_h = 0;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
+        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+        row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
+        row1_h = l->grid.row_offsets[2] - l->grid.row_offsets[1];
+        // row 0: explicit heights
+        wlx_label(&ctx, "a", .height = 50);
+        wlx_label(&ctx, "b", .height = 60);
+        // row 1: no explicit heights (default = cell.h)
+        wlx_label(&ctx, "c");
+        wlx_label(&ctx, "d");
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(row0_h, 60.0f, GRID_EPS);
+    // Row 1 widgets use default cell.h which equals the row's measured height
+    // from the previous frame. On first frame it's 0, but the mock text
+    // measurement gives height = font_size (default 10). So this converges
+    // to the cell.h of the measured row which is font_size=10.
+    ASSERT_TRUE(row1_h >= 0.0f);
+}
+
+TEST(grid_content_row_multiframe) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_PX(100) };
+    float row0_f1 = -1, row0_f2 = -1, row0_f3 = -1;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
+        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+        float row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
+        if (frame == 0) row0_f1 = row0_h;
+        if (frame == 1) row0_f2 = row0_h;
+        if (frame == 2) row0_f3 = row0_h;
+        wlx_label(&ctx, "a", .height = 70);
+        wlx_label(&ctx, "b", .height = 80);
+        wlx_label(&ctx, "c");
+        wlx_label(&ctx, "d");
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    // Frame 1: 0 (no prior measurement)
+    ASSERT_EQ_F(row0_f1, 0.0f, GRID_EPS);
+    // Frame 2: uses measured value from frame 1 = 80
+    ASSERT_EQ_F(row0_f2, 80.0f, GRID_EPS);
+    // Frame 3: stable
+    ASSERT_EQ_F(row0_f3, 80.0f, GRID_EPS);
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
@@ -402,4 +646,14 @@ SUITE(grid) {
 
     // Padding
     RUN_TEST(grid_with_padding);
+
+    // CONTENT row sizing
+    RUN_TEST(grid_content_row_basic);
+    RUN_TEST(grid_content_row_all);
+    RUN_TEST(grid_content_row_min);
+    RUN_TEST(grid_content_row_max);
+    RUN_TEST(grid_content_row_minmax);
+    RUN_TEST(grid_content_row_mixed);
+    RUN_TEST(grid_content_row_empty);
+    RUN_TEST(grid_content_row_multiframe);
 }

@@ -471,7 +471,8 @@ typedef struct {
     // Content-fit tracking (NULL when no CONTENT slots)
     const WLX_Slot_Size *content_sizes;     // original sizes array (for kind check in layout_end)
     WLX_Content_Slot_State *content_state;  // persistent state pointer
-    float *content_slot_heights;            // per-slot height accumulator (scratch)
+    float *content_slot_heights;            // per-slot height accumulator (scratch, linear only)
+    float *grid_row_content_heights;        // per-row max height accumulator (scratch, grid only)
 
     union {
         struct {
@@ -504,6 +505,7 @@ typedef struct {
             size_t row_offsets_base;    // index in scratch buffer where row_offsets starts
             size_t col_offsets_base;    // index in scratch buffer where col_offsets starts
             float  next_row_size;       // per-row override
+            size_t last_placed_row;     // row of the most recently placed cell
         } grid;
     };
 } WLX_Layout;
@@ -925,9 +927,10 @@ WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Grid_Cell
 
 WLXDEF void wlx_layout_end(WLX_Context *ctx);
 
-WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_Grid_Opt opt);
+WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_Grid_Opt opt,
+                                const char *file, int line);
 #define wlx_grid_begin(ctx, rows, cols, ...) \
-    wlx_grid_begin_impl((ctx), (rows), (cols), wlx_default_grid_opt(__VA_ARGS__))
+    wlx_grid_begin_impl((ctx), (rows), (cols), wlx_default_grid_opt(__VA_ARGS__), __FILE__, __LINE__)
 
 WLXDEF void wlx_grid_begin_auto_impl(WLX_Context *ctx, size_t cols, float row_px, WLX_Grid_Auto_Opt opt);
 #define wlx_grid_begin_auto(ctx, cols, row_px, ...) \
@@ -1756,6 +1759,17 @@ static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layo
                 l->content_slot_heights[slot_idx] += contrib;
             }
         }
+
+        // Per-row content height tracking for grid CONTENT rows.
+        // Uses max() across cells in the same row.
+        if (l->grid_row_content_heights != NULL) {
+            size_t row = l->grid.last_placed_row;
+            if (row < l->grid.rows) {
+                float contrib = (ly.height > 0) ? ly.height : cell.h;
+                if (contrib > l->grid_row_content_heights[row])
+                    l->grid_row_content_heights[row] = contrib;
+            }
+        }
     }
 
     // --- Widget rect resolution ---
@@ -2214,6 +2228,8 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
 
         WLX_Rect slot_rect = wlx_calc_grid_slot_rect(l, row, col, rspan, cspan);
 
+        l->grid.last_placed_row = row;
+
         // Advance cursor past this cell (row-major order)
         l->grid.cursor_col = col + cspan;
         if (l->grid.cursor_col >= l->grid.cols) {
@@ -2348,7 +2364,7 @@ WLXDEF void wlx_layout_begin_impl(WLX_Context *ctx, size_t count, WLX_Orient ori
         l.viewport = (orient == WLX_HORZ) ? ctx->rect.w : ctx->rect.h;
     }
 
-    // --- CONTENT slot detection and pre-resolution (Approach A) ---
+    // --- CONTENT slot detection and pre-resolution ---
     bool has_content_slots = false;
     if (opt.sizes != NULL) {
         for (size_t i = 0; i < count; i++) {
@@ -2444,7 +2460,8 @@ WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, floa
     WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, NULL, 0);
 }
 
-WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_Grid_Opt opt) {
+WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_Grid_Opt opt,
+                                const char *file, int line) {
     WLX_Rect r = {0};
     if (ctx->layouts.count <= 0) {
         r = ctx->rect;
@@ -2456,9 +2473,62 @@ WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_
 
     r = wlx_rect_inset(r, opt.padding);
 
+    // --- CONTENT row detection and pre-resolution ---
+    bool has_content_rows = false;
+    if (opt.row_sizes != NULL) {
+        for (size_t i = 0; i < rows; i++) {
+            if (opt.row_sizes[i].kind == WLX_SIZE_CONTENT) {
+                has_content_rows = true;
+                break;
+            }
+        }
+    }
+
+    const WLX_Slot_Size *effective_row_sizes = opt.row_sizes;
+    WLX_Content_Slot_State *cstate = NULL;
+    WLX_Slot_Size *sizes_copy = NULL;
+    WLX_Slot_Size resolved[WLX_CONTENT_SLOTS_MAX];
+
+    if (has_content_rows) {
+        assert(rows <= WLX_CONTENT_SLOTS_MAX &&
+               "Grid with CONTENT rows exceeds WLX_CONTENT_SLOTS_MAX");
+
+        WLX_State pstate = wlx_get_state_impl(ctx,
+            sizeof(WLX_Content_Slot_State), file, line);
+        cstate = (WLX_Content_Slot_State *)pstate.data;
+
+        // Build resolved row sizes: replace CONTENT -> PX(measured)
+        for (size_t i = 0; i < rows; i++) {
+            resolved[i] = opt.row_sizes[i];
+            if (opt.row_sizes[i].kind == WLX_SIZE_CONTENT) {
+                float h = cstate->measured[i];
+                if (h <= 0) h = 0;
+                resolved[i].kind = WLX_SIZE_PIXELS;
+                resolved[i].value = h;
+            }
+        }
+
+        // Copy original sizes into byte scratch (survives caller stack)
+        sizes_copy = wlx_scratch_alloc_bytes(ctx,
+            rows * sizeof(WLX_Slot_Size), _Alignof(WLX_Slot_Size));
+        memcpy(sizes_copy, opt.row_sizes, rows * sizeof(WLX_Slot_Size));
+
+        effective_row_sizes = resolved;
+    }
+
     WLX_Layout l = wlx_create_grid(ctx, r, rows, cols,
-                                         opt.row_sizes, opt.col_sizes);
+                                         effective_row_sizes, opt.col_sizes);
     l.padding = opt.padding;
+
+    if (has_content_rows) {
+        l.content_sizes = sizes_copy;
+        l.content_state = cstate;
+
+        float *rch = wlx_scratch_alloc(ctx, rows);
+        wlx_zero_array(rows, rch);
+        l.grid_row_content_heights = rch;
+    }
+
     wlx_da_append(&ctx->layouts, l);
     // layout_begin: grid layouts - inherit parent vert_bounded, no per-slot FLEX/FILL check
     WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, NULL, 0);
@@ -2516,10 +2586,20 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
     // --- Write CONTENT slot measurements to persistent state ---
     WLX_DBG(layout_end, ctx);
     if (l->content_state != NULL && l->content_sizes != NULL) {
-        for (size_t i = 0; i < l->count; i++) {
-            if (l->content_sizes[i].kind == WLX_SIZE_CONTENT) {
-                float new_val = l->content_slot_heights[i];
-                l->content_state->measured[i] = new_val;
+        if (l->kind == WLX_LAYOUT_GRID && l->grid_row_content_heights != NULL) {
+            // Grid: write per-row max heights
+            for (size_t r = 0; r < l->grid.rows; r++) {
+                if (l->content_sizes[r].kind == WLX_SIZE_CONTENT) {
+                    l->content_state->measured[r] = l->grid_row_content_heights[r];
+                }
+            }
+        } else if (l->content_slot_heights != NULL) {
+            // Linear: write per-slot accumulated heights
+            for (size_t i = 0; i < l->count; i++) {
+                if (l->content_sizes[i].kind == WLX_SIZE_CONTENT) {
+                    float new_val = l->content_slot_heights[i];
+                    l->content_state->measured[i] = new_val;
+                }
             }
         }
     }
@@ -2532,6 +2612,15 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
             if (slot_idx < WLX_CONTENT_SLOTS_MAX) {
                 parent->content_slot_heights[slot_idx] +=
                     l->accumulated_content_height;
+            }
+        }
+        // Grid parent: contribute to per-row max content height
+        if (parent->grid_row_content_heights != NULL) {
+            size_t row = parent->grid.last_placed_row;
+            if (row < parent->grid.rows) {
+                float child_h = l->accumulated_content_height + 2.0f * l->padding;
+                if (child_h > parent->grid_row_content_heights[row])
+                    parent->grid_row_content_heights[row] = child_h;
             }
         }
     }
@@ -4428,9 +4517,21 @@ static inline void wlx_dbg_layout_end(WLX_Context *ctx) {
     WLX_Debug_Content_Slot_State *comp = wlx_dbg_get_companion(ctx, l->content_state);
     if (!comp) return;
 
-    for (size_t i = 0; i < l->count; i++) {
+    // Determine iteration count and height source based on layout kind
+    size_t slot_count;
+    float *heights;
+    if (l->kind == WLX_LAYOUT_GRID && l->grid_row_content_heights != NULL) {
+        slot_count = l->grid.rows;
+        heights = l->grid_row_content_heights;
+    } else {
+        slot_count = l->count;
+        heights = l->content_slot_heights;
+    }
+    if (heights == NULL) return;
+
+    for (size_t i = 0; i < slot_count; i++) {
         if (l->content_sizes[i].kind == WLX_SIZE_CONTENT) {
-            float new_val = l->content_slot_heights[i];
+            float new_val = heights[i];
             float old_val = l->content_state->measured[i];
             float prev_val = comp->prev_measured[i];
             float epsilon = 0.5f;

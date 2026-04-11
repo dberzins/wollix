@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Grid CONTENT row sizing:** `wlx_grid_begin` `row_sizes` now accepts
+  `WLX_SLOT_CONTENT`, `CONTENT_MIN`, `CONTENT_MAX`, and `CONTENT_MINMAX`.
+  Rows adapt to the tallest widget per row via one-frame-delay measurement.
+  Mixable with PX, FLEX, PCT, etc. Max 32 CONTENT rows.
+- Content-Sized Rows demo in gallery Grid Layout section.
+- 8 new grid CONTENT row test cases.
+- Updated `docs/LAYOUT_MODEL.md` and `docs/API_REFERENCE.md`.
+
+### Fixed
+- Dangling-pointer UB in `wlx_grid_begin_impl` where `resolved` array
+  was scoped inside an `if` block but read after it closed.
+
 ## [0.2.0] - 2026-04-07
 
 ### Removed

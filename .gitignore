@@ -6,13 +6,13 @@
 .copilot
 compile_commands.json
 docs/dev
-docs/workflow
 
 #copilot
 .github/copilot-instructions.md
 .github/prompts
 .github/templates
 .github/COMPACT_WORKFLOW.md
+.github/RULES_REGISTRY.md
 
 # build
 panel
