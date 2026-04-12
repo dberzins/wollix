@@ -15,8 +15,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Content-Sized Rows demo in gallery Grid Layout section.
 - 8 new grid CONTENT row test cases.
 - Updated `docs/LAYOUT_MODEL.md` and `docs/API_REFERENCE.md`.
+- **Bare-WASM32 backend** (`wollix_wasm.h`): New header-only rendering
+  adapter targeting `wasm32-unknown-unknown` with no libc dependency.
+  Implements drawing and input handling via imported JS host functions,
+  including scissor/clip rect support.
+- **WASM gallery demo** (`demos/gallery_wasm.c`): Standalone gallery demo
+  compiled to WebAssembly, exercising the wasm backend.
+- **JavaScript host runtime** (`web/wollix_wasm.js`): Host-side JS that
+  loads the `.wasm` module, drives the render loop, and bridges canvas 2D
+  drawing and input events to the wasm backend callbacks.
+- **HTML shell** (`web/wollix_wasm.html`): Minimal HTML page with canvas
+  setup for the WASM Widget Gallery demo.
+- **Libc shim** (`web/wlx_libc_shim.c`, `web/wlx_libc_shim.h`): Bare-metal
+  libc shim for the wasm32 target providing memory, string, and math
+  functions needed by the gallery demo.
+- **Makefile `wasm-site` target:** Packages `gallery.wasm`, `index.html`,
+  and `wollix_wasm.js` into `dist/wasm-demo/` for local preview and
+  deployment. `wasm-bare` is an alias.
+- **WASM demo GitHub Pages workflow:** Added manual-dispatch workflow
+  (`.github/workflows/wasm-demo-pages.yml`) to build and deploy the
+  packaged `dist/wasm-demo/` gallery demo to GitHub Pages.
 
 ### Fixed
+- Input state handling edge cases in `web/wollix_wasm.js`.
 - Dangling-pointer UB in `wlx_grid_begin_impl` where `resolved` array
   was scoped inside an `if` block but read after it closed.
 

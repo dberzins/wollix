@@ -316,6 +316,9 @@ typedef struct {
     void (*draw_text)(const char *text, float x, float y, WLX_Text_Style style);
     void (*measure_text)(const char *text, WLX_Text_Style style, float *out_w, float *out_h);
     void (*draw_texture)(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint);
+    // Scissor contract: begin_scissor installs rect as the current clip.
+    // Core code explicitly restores parent clipping after ending nested child
+    // regions, so backends must not rely on implicit push/pop clip stacks.
     void (*begin_scissor)(WLX_Rect rect);
     void (*end_scissor)(void);
     float (*get_frame_time)(void);

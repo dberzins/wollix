@@ -16,14 +16,28 @@ SDL3_INCLUDES = -I. -I$(HOME)/opt/sdl3/include -I$(HOME)/opt/sdl3_ttf/include
 SDL3_LDFLAGS = -L$(HOME)/opt/sdl3/lib -Wl,-rpath,$(HOME)/opt/sdl3/lib -L$(HOME)/opt/sdl3_ttf/lib -Wl,-rpath,$(HOME)/opt/sdl3_ttf/lib
 SDL3_LIBS = -lSDL3 -lSDL3_ttf -lm
 
+WASM_CC = clang
+WASM_SRC_DIR = web
+WASM_SITE_DIR = dist/wasm-demo
+WASM_BARE_CFLAGS = --target=wasm32-unknown-unknown -nostdlib -nostdinc \
+	-isystem $(WASM_SRC_DIR)/libc -isystem $(shell $(WASM_CC) -print-resource-dir)/include \
+    -O2 -DNDEBUG -I. \
+    -Wl,--no-entry \
+    -Wl,--export=wlx_wasm_init \
+    -Wl,--export=wlx_wasm_frame \
+    -Wl,--export=wlx_wasm_input_state \
+    -Wl,--export=memory \
+    -Wl,--allow-undefined
+
 DEMO_DIR = demos
 RAYLIB_DEMOS = layout button text checkbox checkbox_tex input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo gallery
 SDL3_DEMOS = sdl3_demo
 DEMO_NAMES = $(RAYLIB_DEMOS) $(SDL3_DEMOS)
 TARGETS = $(addprefix $(DEMO_DIR)/,$(DEMO_NAMES))
 DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
+WASM_SITE_TARGETS = $(WASM_SITE_DIR)/gallery.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js
 
-.PHONY: all clean debug release help test test-demos $(DEMO_NAMES)
+.PHONY: all clean debug release help test test-demos wasm-bare wasm-site $(DEMO_NAMES)
 
 all: $(DEFAULT_TARGETS)
 
@@ -37,6 +51,23 @@ $(DEMO_DIR)/%: $(DEMO_DIR)/%.c wollix.h wollix_raylib.h | $(DEMO_DIR)
 
 $(DEMO_DIR)/sdl3_demo: $(DEMO_DIR)/sdl3_demo.c wollix.h wollix_sdl3.h | $(DEMO_DIR)
 	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
+
+# ── Bare WASM ────────────────────────────────────────────────────────────────
+wasm-bare: wasm-site
+
+wasm-site: $(WASM_SITE_TARGETS)
+
+$(WASM_SITE_DIR):
+	mkdir -p $@
+
+$(WASM_SITE_DIR)/gallery.wasm: demos/gallery_wasm.c $(WASM_SRC_DIR)/wlx_libc_shim.c wollix.h wollix_wasm.h | $(WASM_SITE_DIR)
+	$(WASM_CC) $(WASM_BARE_CFLAGS) -o $@ demos/gallery_wasm.c $(WASM_SRC_DIR)/wlx_libc_shim.c
+
+$(WASM_SITE_DIR)/index.html: $(WASM_SRC_DIR)/wollix_wasm.html | $(WASM_SITE_DIR)
+	cp $< $@
+
+$(WASM_SITE_DIR)/wollix_wasm.js: $(WASM_SRC_DIR)/wollix_wasm.js | $(WASM_SITE_DIR)
+	cp $< $@
 
 debug: CFLAGS += -DDEBUG -O0
 debug: layout
@@ -58,7 +89,8 @@ test-demos: $(DEFAULT_TARGETS)
 	@echo "All demos built successfully."
 
 clean:
-	rm -f $(TARGETS) $(TEST_BIN)
+	rm -f $(TARGETS) $(TEST_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
+	rm -rf $(WASM_SITE_DIR)
 
 # Help target
 help:
@@ -69,6 +101,8 @@ help:
 	@echo "  clean        - Remove built demo executables from ./$(DEMO_DIR)/"
 	@echo "  <demo-name>  - Build a specific demo into ./$(DEMO_DIR)/<demo-name>"
 	@echo "  sdl3_demo    - Build the SDL3 backend demo into ./$(DEMO_DIR)/sdl3_demo"
+	@echo "  wasm-site    - Package the bare-wasm gallery demo into ./$(WASM_SITE_DIR)/"
+	@echo "  wasm-bare    - Alias for wasm-site"
 	@echo "  test         - Build and run the unit test suite"
 	@echo "  test-demos   - Build all Raylib demos and verify exit codes"
 	@echo "  help         - Show this help message"

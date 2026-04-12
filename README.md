@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/dberzins/wollix/actions/workflows/ci.yml/badge.svg)](https://github.com/dberzins/wollix/actions/workflows/ci.yml)
 
+> **Warning:** This library is a work in progress. The API is not stable and may change without notice. Use at your own risk.
+
 **Woven layouts for C.**
 
 Wollix is a lightweight, header-only C library for building immediate-mode UI
@@ -9,7 +11,7 @@ layouts. Define rows, columns, and grids — widgets interlock into place.
 
 - Single header: [wollix.h](wollix.h)
 - Zero dependencies in the core library
-- Backend adapters for Raylib and SDL3 included
+- Backend adapters for Raylib, SDL3, and bare WASM32 included
 - Built-in widgets: buttons, checkboxes, sliders, text input, scroll panels
 - Current version: `WOLLIX_VERSION` = `"0.2.0"`
 
@@ -84,6 +86,8 @@ layout_end(&ctx);
 | `wollix.h` | Core header-only library |
 | `wollix_raylib.h` | Raylib backend adapter |
 | `wollix_sdl3.h` | SDL3 backend adapter |
+| `wollix_wasm.h` | Bare WASM32 backend adapter (no libc) |
+| `web/` | WASM host runtime, HTML shell, and libc shim |
 | `docs/` | API reference, layout model, widget guide, opacity guide |
 | `demos/` | Standalone demo programs (one per feature) |
 | `tests/` | Unit test suite |
@@ -93,6 +97,7 @@ layout_end(&ctx);
 - **Raylib**: Graphics library installed in `~/opt/raylib/`
 - **SDL3** (optional): Needed only for `sdl3_demo` target
 - **SDL3_ttf** (optional): Needed for TTF font rendering in the SDL3 backend
+- **Clang** (for WASM): The `wasm-site` target requires `clang` with wasm32 support and `lld`
 
 > **Note:** The build files assume Raylib is installed in `~/opt/raylib/`,
 > SDL3 in `~/opt/sdl3/`, and SDL3_ttf in `~/opt/sdl3_ttf/`.
@@ -101,10 +106,11 @@ layout_end(&ctx);
 
 ## Text Rendering
 
-Both backends support real TTF font rendering:
+The Raylib and SDL3 backends support real TTF font rendering:
 
 - **Raylib**: pass a `Font*` via `wlx_font_from_raylib()`
 - **SDL3**: pass a `TTF_Font*` via `wlx_font_from_sdl3()` (requires SDL3_ttf)
+- **WASM**: text rendering is handled by the JavaScript host via canvas 2D
 
 When no font is set (`WLX_FONT_DEFAULT`), the SDL3 backend falls back to the
 built-in 8×8 debug font. The Raylib backend uses its default font.
@@ -140,6 +146,7 @@ make test           # Build and run the unit test suite
 make test-demos     # Build all Raylib demos and verify they compile
 make all            # Build all
 make sdl3_demo      # Build the SDL3 backend demo
+make wasm-site      # Package the WASM gallery demo into dist/wasm-demo/
 make debug          # Build demos/layout with debug flags
 make release        # Build demos/layout with release optimization
 make clean          # Remove all built executables

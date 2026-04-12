@@ -40,3 +40,4 @@ demos/opacity_demo
 demos/gallery
 tests/test_runner
 demos/border_demo
+dist/
