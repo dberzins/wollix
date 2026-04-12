@@ -1901,13 +1901,24 @@ void wlx_wasm_frame(float width, float height) {
         // -- Status bar --
         {
             float ft = ctx->backend.get_frame_time();
-            int fps = (ft > 0.0001f) ? (int)(1.0f / ft) : 0;
+            static float smoothed_fps = 0.0f;
+            if (ft > 0.0001f) {
+                float instant_fps = 1.0f / ft;
+                if (smoothed_fps <= 0.0f) {
+                    smoothed_fps = instant_fps;
+                } else {
+                    // Smooth browser frame jitter without delaying rendering.
+                    smoothed_fps += 0.02f * (instant_fps - smoothed_fps);
+                }
+            }
+
+            int fps = (smoothed_fps > 0.0f) ? (int)(smoothed_fps + 0.5f) : 0;
             char status[256];
             snprintf(status, sizeof(status),
-                "  FPS: %d  |  Section: %s  |  Theme: %s",
-                fps,
+                "  Theme: %s  |  Section: %s  |  FPS: %d",
+                g.dark_mode ? "Dark" : "Light",
                 sections[g.active_section].name,
-                g.dark_mode ? "Dark" : "Light");
+                fps);
             wlx_label(ctx, status,
                 .font_size = 13, .height = 24, .align = WLX_LEFT,
                 .back_color = heading_color(ctx->theme, 4, 4, 10));

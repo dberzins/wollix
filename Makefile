@@ -19,7 +19,7 @@ SDL3_LIBS = -lSDL3 -lSDL3_ttf -lm
 WASM_CC = clang
 WASM_SRC_DIR = web
 WASM_SITE_DIR = dist/wasm-demo
-WASM_BARE_CFLAGS = --target=wasm32-unknown-unknown -nostdlib -nostdinc \
+WASM_BARE_CFLAGS = --target=wasm32-unknown-unknown -nostdlib -nostdinc -Wno-initializer-overrides\
 	-isystem $(WASM_SRC_DIR)/libc -isystem $(shell $(WASM_CC) -print-resource-dir)/include \
     -O2 -DNDEBUG -I. \
     -Wl,--no-entry \
