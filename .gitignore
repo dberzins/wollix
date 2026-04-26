@@ -4,8 +4,11 @@
 .cache
 .clangd
 .copilot
-compile_commands.json
+.claude
+.venv
 docs/dev
+graphify-out
+compile_commands.json
 
 #copilot
 .github/copilot-instructions.md
@@ -40,4 +43,7 @@ demos/opacity_demo
 demos/gallery
 tests/test_runner
 demos/border_demo
+demos/auth
 dist/
+CLAUDE.md
+demos/gallery_sdl3

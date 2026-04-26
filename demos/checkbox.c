@@ -108,8 +108,8 @@ int main() {
                     wlx_layout_end(ctx);
                 wlx_layout_end(ctx);
 
-            EndDrawing();
         wlx_end(ctx);
+            EndDrawing();
     }
     CloseWindow();
     wlx_context_destroy(ctx);

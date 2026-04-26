@@ -146,6 +146,18 @@ static inline void wlx_raylib_draw_rect_rounded(WLX_Rect rect, float roundness, 
     DrawRectangleRounded((Rectangle){rect.x, rect.y, rect.w, rect.h}, roundness, segments, color);
 }
 
+static inline void wlx_raylib_draw_rect_rounded_lines(WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color) {
+    DrawRectangleRoundedLinesEx((Rectangle){rect.x, rect.y, rect.w, rect.h}, roundness, segments, thick, color);
+}
+
+static inline void wlx_raylib_draw_circle(float cx, float cy, float radius, int segments, WLX_Color color) {
+    DrawCircleSector((Vector2){cx, cy}, radius, 0, 360, segments, color);
+}
+
+static inline void wlx_raylib_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color) {
+    DrawRing((Vector2){cx, cy}, inner_r, outer_r, 0, 360, segments, color);
+}
+
 static inline void wlx_raylib_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color color) {
     DrawLineEx((Vector2){x1, y1}, (Vector2){x2, y2}, thick, color);
 }
@@ -188,6 +200,9 @@ static inline WLX_Backend wlx_backend_raylib(void) {
         .draw_rect = wlx_raylib_draw_rect,
         .draw_rect_lines = wlx_raylib_draw_rect_lines,
         .draw_rect_rounded = wlx_raylib_draw_rect_rounded,
+        .draw_rect_rounded_lines = wlx_raylib_draw_rect_rounded_lines,
+        .draw_circle = wlx_raylib_draw_circle,
+        .draw_ring = wlx_raylib_draw_ring,
         .draw_line = wlx_raylib_draw_line,
         .draw_text = wlx_raylib_draw_text,
         .measure_text = wlx_raylib_measure_text,

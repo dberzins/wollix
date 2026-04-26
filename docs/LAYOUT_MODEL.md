@@ -19,6 +19,7 @@ writing code.
 10. [IDs & Persistent State](#10-ids--persistent-state)
 11. [Theming](#11-theming)
 12. [Backend Contract](#12-backend-contract)
+13. [Deferred Drawing](#13-deferred-drawing)
 
 ---
 
@@ -59,7 +60,8 @@ wlx_end(&ctx);
 **`wlx_begin`** resets per-frame state (hot widget, debug tracking, scratch buffers),
 calls the input handler to populate `ctx.input`, and sets the root rect.
 
-**`wlx_end`** closes the frame (currently a no-op, reserved for future cleanup).
+**`wlx_end`** replays the deferred command buffer (see [Deferred Drawing](#13-deferred-drawing)),
+then closes the frame.
 
 The **input handler** is a callback that reads platform input and writes it to
 `ctx->input`. Backend adapters provide one (e.g. `wlx_process_raylib_input`).
@@ -320,6 +322,25 @@ in the same grid.
 > **Note:** CONTENT is supported only in `row_sizes`, not `col_sizes`.
 > Max 32 CONTENT rows per grid (`WLX_CONTENT_SLOTS_MAX`).
 
+### Widget Contribution Rule
+
+A widget contributes to its parent's CONTENT measurement as follows:
+
+- **Explicit `.height`:** contributes that value directly.
+- **No explicit `.height`:** contributes `max(min_h, cell.h)`, where
+  `min_h` is the widget's declared minimum height and `cell.h` is the
+  space allocated by the parent.
+
+Built-in widgets (label, button, checkbox, inputbox, slider, progress,
+toggle, radio) default `min_height` to the resolved `font_size` when
+unset.  This guarantees CONTENT slots measure to a non-zero value on
+the first frame, even when nested layouts allocate zero space due to
+the frame-delayed measurement model.
+
+The generic `wlx_widget()` does not default `min_height` -- set it
+explicitly if the widget lives inside a CONTENT slot without a fixed
+`.height`.
+
 ### Explicit Cell Placement
 
 Use `wlx_grid_cell()` to place a child at a specific row/column with optional spans:
@@ -514,9 +535,9 @@ if (wlx_checkbox(ctx, "Enable", &enabled))
     printf("toggled: %d\n", enabled);
 ```
 
-**`wlx_checkbox_tex`** — checkbox with custom textures:
+**`wlx_checkbox` with texture mode** — checkbox with custom textures:
 ```c
-wlx_checkbox_tex(ctx, "Mute", &muted,
+wlx_checkbox(ctx, "Mute", &muted,
     .tex_checked = checked_tex, .tex_unchecked = unchecked_tex);
 ```
 
@@ -738,25 +759,35 @@ graphics libraries.
 
 ### WLX_Backend Function Pointers
 
-| Function | Signature | Purpose |
-|----------|-----------|---------|
-| `draw_rect` | `(WLX_Rect, WLX_Color)` | Fill a rectangle |
-| `draw_rect_lines` | `(WLX_Rect, float thick, WLX_Color)` | Stroke a rectangle outline |
-| `draw_rect_rounded` | `(WLX_Rect, float roundness, int segments, WLX_Color)` | Fill a rounded rectangle |
-| `draw_line` | `(float x1, y1, x2, y2, float thick, WLX_Color)` | Draw a line segment |
-| `draw_text` | `(const char *text, float x, y, WLX_Text_Style)` | Render text at a position |
-| `measure_text` | `(const char *text, WLX_Text_Style, float *w, *h)` | Measure text bounding box |
-| `draw_texture` | `(WLX_Texture, WLX_Rect src, dst, WLX_Color tint)` | Draw a texture region |
-| `begin_scissor` | `(WLX_Rect)` | Begin a clip rectangle |
-| `end_scissor` | `(void)` | End clipping |
-| `get_frame_time` | `(void) → float` | Return frame delta time in seconds |
+`WLX_Backend` currently exposes 13 function pointers: 11 required callbacks
+checked by `wlx_backend_is_ready()`, plus 2 optional native circle helpers.
 
-All 10 function pointers **must** be set before calling `wlx_begin`. The library
-asserts on this.
+| Function | Signature | Required | Purpose |
+|----------|-----------|----------|---------|
+| `draw_rect` | `(WLX_Rect, WLX_Color)` | Yes | Fill a rectangle |
+| `draw_rect_lines` | `(WLX_Rect, float thick, WLX_Color)` | Yes | Stroke a rectangle outline |
+| `draw_rect_rounded` | `(WLX_Rect, float roundness, int segments, WLX_Color)` | Yes | Fill a rounded rectangle |
+| `draw_rect_rounded_lines` | `(WLX_Rect, float roundness, int segments, float thick, WLX_Color)` | Yes | Stroke a rounded rectangle outline |
+| `draw_circle` | `(float cx, float cy, float radius, int segments, WLX_Color)` | No | Native circle fill; `NULL` falls back to the rounded-rect tessellation path |
+| `draw_ring` | `(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color)` | No | Native ring draw; `NULL` falls back to the rounded-outline tessellation path |
+| `draw_line` | `(float x1, y1, x2, y2, float thick, WLX_Color)` | Yes | Draw a line segment |
+| `draw_text` | `(const char *text, float x, y, WLX_Text_Style)` | Yes | Render text at a position |
+| `measure_text` | `(const char *text, WLX_Text_Style, float *w, *h)` | Yes | Measure text bounding box |
+| `draw_texture` | `(WLX_Texture, WLX_Rect src, dst, WLX_Color tint)` | Yes | Draw a texture region |
+| `begin_scissor` | `(WLX_Rect)` | Yes | Begin a clip rectangle |
+| `end_scissor` | `(void)` | Yes | End clipping |
+| `get_frame_time` | `(void) -> float` | Yes | Return frame delta time in seconds |
+
+All 11 required function pointers must be set before calling `wlx_begin`. The
+library checks this with `wlx_backend_is_ready` and asserts on missing required
+pointers. `draw_circle` and `draw_ring` are optional; if they are `NULL`, the
+core routes circle and ring commands through `draw_rect_rounded` and
+`draw_rect_rounded_lines` using the requested segment count.
 
 ### Writing a New Backend
 
-1. Implement all 10 functions wrapping your graphics API.
+1. Implement all 11 required functions wrapping your graphics API.
+   Optionally implement `draw_circle` and `draw_ring` for native shape quality.
 2. Write an init function that populates `ctx->backend`.
 3. Write an input handler that reads platform input into `ctx->input`.
 
@@ -776,3 +807,48 @@ The input handler callback writes to `ctx->input` (`WLX_Input_State`):
 | `keys_down[WLX_KEY_COUNT]` | `bool[]` | Current key states |
 | `keys_pressed[WLX_KEY_COUNT]` | `bool[]` | Key pressed this frame (one-shot) |
 | `text_input[32]` | `char[]` | Text typed this frame (for input boxes) |
+
+---
+
+## 13. Deferred Drawing
+
+By default, wollix **defers** all draw calls. Every `wlx_draw_*` helper
+records a command into a per-frame buffer instead of dispatching to the
+backend immediately. When `wlx_end` is called, the library replays the
+entire buffer, applying accumulated translation offsets so that widgets
+inside `WLX_SIZE_CONTENT` slots appear at their resolved positions from
+the very first frame.
+
+### Why deferred?
+
+`WLX_SIZE_CONTENT` slots are measured by the children they contain. In a
+single-pass model, children draw at *provisional* positions before the
+parent slot is finalized. Deferral lets `wlx_layout_end` compute the
+delta between provisional and resolved positions and write it into a
+range table. The replay pass in `wlx_end` then shifts every command by
+the correct offset.
+
+### Immediate mode opt-out
+
+For debugging, profiling, or backwards compatibility, call
+`wlx_begin_immediate` instead of `wlx_begin`:
+
+```c
+wlx_begin_immediate(&ctx, root_rect, input_handler);
+    // draws dispatch directly to the backend (no deferral)
+wlx_end(&ctx);
+```
+
+In immediate mode, `wlx_end` skips the replay pass. CONTENT slots
+still work but may show a one-frame positional lag on the first frame
+they appear or change shape.
+
+### Demo ordering
+
+Because `wlx_end` dispatches the draw commands, it must be called
+**before** the backend presents the frame:
+
+```c
+wlx_end(&ctx);      // replay draws
+EndDrawing();        // present (Raylib example)
+```

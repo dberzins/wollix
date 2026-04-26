@@ -45,8 +45,8 @@ TEST(split_stack_balance_basic) {
     wlx_layout_end(&ctx);
 
     // After closing the root layout, stacks should be at zero
-    ASSERT_EQ_INT(0, (int)ctx.layouts.count);
-    ASSERT_EQ_INT(0, (int)ctx.scroll_panels.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
 }
@@ -69,8 +69,8 @@ TEST(split_stack_balance_no_inner_layout) {
 
     wlx_layout_end(&ctx);
 
-    ASSERT_EQ_INT(0, (int)ctx.layouts.count);
-    ASSERT_EQ_INT(0, (int)ctx.scroll_panels.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
 }
@@ -108,8 +108,8 @@ TEST(split_stack_balance_multiple_sequential) {
 
     wlx_layout_end(&ctx);
 
-    ASSERT_EQ_INT(0, (int)ctx.layouts.count);
-    ASSERT_EQ_INT(0, (int)ctx.scroll_panels.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
 }
@@ -157,8 +157,8 @@ TEST(split_nested) {
 
     wlx_layout_end(&ctx);
 
-    ASSERT_EQ_INT(0, (int)ctx.layouts.count);
-    ASSERT_EQ_INT(0, (int)ctx.scroll_panels.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
 }
@@ -194,8 +194,8 @@ TEST(split_nested_both_panes) {
 
     wlx_layout_end(&ctx);
 
-    ASSERT_EQ_INT(0, (int)ctx.layouts.count);
-    ASSERT_EQ_INT(0, (int)ctx.scroll_panels.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
 }
@@ -263,8 +263,8 @@ TEST(split_fill_min_option) {
 
     wlx_layout_end(&ctx);
 
-    ASSERT_EQ_INT(0, (int)ctx.layouts.count);
-    ASSERT_EQ_INT(0, (int)ctx.scroll_panels.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
 }
@@ -323,8 +323,8 @@ TEST(split_scroll_persists_across_frames) {
         wlx_split_end(&ctx);
     wlx_layout_end(&ctx);
 
-    ASSERT_EQ_INT(0, (int)ctx.layouts.count);
-    ASSERT_EQ_INT(0, (int)ctx.scroll_panels.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
 
@@ -336,22 +336,21 @@ TEST(split_scroll_persists_across_frames) {
 // ============================================================================
 
 TEST(split_in_loop_with_push_id) {
-    // Multiple splits created in a loop, disambiguated by push_id.
-    // NOTE: splits must live inside a static (pre-counted) layout, not a
-    // dynamic one, because split_begin creates nested layouts internally
-    // which would violate the dynamic layout contiguous-offsets invariant.
+    // Multiple splits created in a loop inside a dynamic (auto) layout.
+    // This was the original SPLIT_ISSUE.md failure: split_begin creates
+    // nested static layouts whose slot_size_offsets allocations used to
+    // corrupt the dynamic parent's contiguous region.  With dyn_offsets
+    // on a separate sub-arena, the two no longer interfere.
     WLX_Context ctx;
     test_ctx_init(&ctx, 800, 600);
 
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    WLX_Slot_Size loop_sizes[] = {
-        WLX_SLOT_PX(180), WLX_SLOT_PX(180), WLX_SLOT_PX(180)
-    };
-    wlx_layout_begin(&ctx, 3, WLX_VERT, .sizes = loop_sizes);
+    wlx_layout_begin_auto(&ctx, WLX_VERT, 0);
 
     for (int i = 0; i < 3; i++) {
         wlx_push_id(&ctx, (size_t)i);
+        wlx_layout_auto_slot(&ctx, WLX_SLOT_PX(180));
 
         wlx_split_begin(&ctx, .first_size = WLX_SLOT_PX(100));
             wlx_label(&ctx, "L", .height = 30);
@@ -364,8 +363,8 @@ TEST(split_in_loop_with_push_id) {
 
     wlx_layout_end(&ctx);
 
-    ASSERT_EQ_INT(0, (int)ctx.layouts.count);
-    ASSERT_EQ_INT(0, (int)ctx.scroll_panels.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
 }
@@ -397,8 +396,8 @@ TEST(split_next_back_color_override) {
 
     wlx_layout_end(&ctx);
 
-    ASSERT_EQ_INT(0, (int)ctx.layouts.count);
-    ASSERT_EQ_INT(0, (int)ctx.scroll_panels.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
 }
@@ -424,9 +423,90 @@ TEST(split_zero_padding) {
 
     wlx_layout_end(&ctx);
 
-    ASSERT_EQ_INT(0, (int)ctx.layouts.count);
-    ASSERT_EQ_INT(0, (int)ctx.scroll_panels.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
+    test_frame_end(&ctx);
+}
+
+// ============================================================================
+// Per-side padding
+// ============================================================================
+
+TEST(split_perside_defaults_sentinel) {
+    // Default per-side values are -1 (sentinel)
+    WLX_Split_Opt opt = wlx_default_split_opt();
+    ASSERT_EQ_F(-1.0f, opt.padding_top, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.padding_right, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.padding_bottom, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.padding_left, 0.001f);
+}
+
+TEST(split_perside_top_zero) {
+    // .padding_top = 0 while uniform defaults to 4 -> top flush
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+
+        wlx_split_begin(&ctx, .padding_top = 0);
+            wlx_label(&ctx, "Left", .height = 30);
+        wlx_split_next(&ctx);
+            wlx_label(&ctx, "Right", .height = 30);
+        wlx_split_end(&ctx);
+
+    wlx_layout_end(&ctx);
+
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
+
+    test_frame_end(&ctx);
+}
+
+// ============================================================================
+// Split gap
+// ============================================================================
+
+TEST(split_gap_basic) {
+    // Split with gap=4, default first_size=PX(280), second=FLEX(1).
+    // The internal HORZ layout uses gap for the 2-slot layout.
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+
+        wlx_split_begin(&ctx, .gap = 4);
+
+            // After split_begin: stack is [outer_vert, outer_vert_slot,
+            // horz_split, scroll_panel_vert].
+            // The HORZ split layout is at count-2 (under the scroll panel's vert).
+            // Actually: outer VERT, HORZ(2 slots), scroll panel VERT.
+            // Find the HORZ layout with 2 slots.
+            bool found = false;
+            for (size_t i = 0; i < ctx.arena.layouts.count; i++) {
+                WLX_Layout *l = &wlx_pool_layouts(&ctx)[i];
+                if (l->kind == WLX_LAYOUT_LINEAR && l->linear.orient == WLX_HORZ
+                    && l->count == 2) {
+                    ASSERT_EQ_F(l->gap, 4.0f, 0.01f);
+                    found = true;
+                    break;
+                }
+            }
+            ASSERT_TRUE(found);
+
+            wlx_label(&ctx, "Left", .height = 30);
+
+        wlx_split_next(&ctx);
+
+            wlx_label(&ctx, "Right", .height = 30);
+
+        wlx_split_end(&ctx);
+
+    wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 }
 
@@ -447,4 +527,11 @@ SUITE(split) {
     RUN_TEST(split_in_loop_with_push_id);
     RUN_TEST(split_next_back_color_override);
     RUN_TEST(split_zero_padding);
+
+    // Per-side padding
+    RUN_TEST(split_perside_defaults_sentinel);
+    RUN_TEST(split_perside_top_zero);
+
+    // Gap
+    RUN_TEST(split_gap_basic);
 }

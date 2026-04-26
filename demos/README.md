@@ -16,6 +16,7 @@ library features. Build all demos with `./build.sh` or compile one directly
 | [checkbox_tex.c](checkbox_tex.c) | Texture-based checkboxes with programmatically generated checked/unchecked icons |
 | [input.c](input.c) | Multi-field form (username, password, email, phone, address, comments) with focus tracking |
 | [slider.c](slider.c) | Volume, brightness, RGB, and speed sliders with colored thumbs and a live color preview |
+| [border_demo.c](border_demo.c) | Border system showcase covering labels, buttons, widgets, checkboxes, input boxes, sliders, and scroll panels |
 | [scroll_panel.c](scroll_panel.c) | Scrollable list of 30 items using auto content height (`-1`), custom scrollbar colors |
 
 ## Layout demos
@@ -34,7 +35,9 @@ library features. Build all demos with `./build.sh` or compile one directly
 
 | Demo | Description |
 |------|-------------|
+| [auth.c](auth.c) | Styled login-card UI with centered layout composition, borders, transparency, separators, and custom font styling |
 | [demo.c](demo.c) | Full showcase (~580 lines): buttons, checkboxes, sliders, inputs, scroll panels, tabs, `wlx_push_id`/`wlx_pop_id` |
+| [gallery.c](gallery.c) | Main cross-backend gallery source for Raylib, SDL3, and WASM, covering widgets, layouts, theming, borders, opacity, and newer controls |
 | [nested_panel.c](nested_panel.c) | Nested scroll panels — outer list with three inner scrollable panels containing sliders and toggles |
 | [nest2_panel.c](nest2_panel.c) | Nested scroll panel variant — outer notes + inner panels with sliders and toggles |
 | [opacity_demo.c](opacity_demo.c) | Per-widget opacity — side-by-side comparison of widgets at different transparency levels |

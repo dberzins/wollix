@@ -7,6 +7,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -170,6 +171,124 @@ static inline void wlx_sdl3_draw_texture(WLX_Texture texture, WLX_Rect src, WLX_
     SDL_RenderTexture(wlx_sdl3_renderer, tex, &s, &d);
 }
 
+#define WLX_SDL3_MAX_CORNER_SEGMENTS 32
+#define WLX_SDL3_PI 3.14159265358979323846f
+
+static inline SDL_FColor wlx_sdl3_to_fcolor(WLX_Color c) {
+    return (SDL_FColor){
+        c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, c.a / 255.0f
+    };
+}
+
+static inline int wlx_sdl3_clamp_segments(int segments) {
+    if (segments < 16) return 16;
+    if (segments > WLX_SDL3_MAX_CORNER_SEGMENTS) return WLX_SDL3_MAX_CORNER_SEGMENTS;
+    return segments;
+}
+
+// Tessellation helpers - geometry building blocks shared by shape-drawing functions.
+
+static inline float wlx_sdl3_corner_radius(WLX_Rect rect, float roundness) {
+    float min_dim = (rect.w < rect.h) ? rect.w : rect.h;
+    float r = roundness * min_dim * 0.5f;
+    if (r > min_dim * 0.5f) r = min_dim * 0.5f;
+    return r;
+}
+
+static inline SDL_FColor wlx_sdl3_setup_blend_color(WLX_Color color) {
+    SDL_SetRenderDrawBlendMode(wlx_sdl3_renderer, SDL_BLENDMODE_BLEND);
+    return wlx_sdl3_to_fcolor(color);
+}
+
+typedef struct {
+    float cx, cy, start, end;
+} WLX_SDL3_Corner;
+
+static inline void wlx_sdl3_build_rect_corners(WLX_Rect rect, float r, WLX_SDL3_Corner corners[4]) {
+    float w = rect.w, h = rect.h;
+    corners[0] = (WLX_SDL3_Corner){ rect.x + w - r, rect.y + r,     -WLX_SDL3_PI * 0.5f, 0.0f };
+    corners[1] = (WLX_SDL3_Corner){ rect.x + w - r, rect.y + h - r,  0.0f,                WLX_SDL3_PI * 0.5f };
+    corners[2] = (WLX_SDL3_Corner){ rect.x + r,     rect.y + h - r,  WLX_SDL3_PI * 0.5f,  WLX_SDL3_PI };
+    corners[3] = (WLX_SDL3_Corner){ rect.x + r,     rect.y + r,      WLX_SDL3_PI,          WLX_SDL3_PI * 1.5f };
+}
+
+static inline void wlx_sdl3_emit_perimeter_verts(SDL_Vertex *verts, int *vi,
+    const WLX_SDL3_Corner corners[4], int segments, float r, SDL_FColor fc)
+{
+    for (int c = 0; c < 4; c++) {
+        for (int i = 0; i <= segments; i++) {
+            float t = (float)i / (float)segments;
+            float angle = corners[c].start + t * (corners[c].end - corners[c].start);
+            verts[(*vi)++] = (SDL_Vertex){
+                {corners[c].cx + cosf(angle) * r, corners[c].cy + sinf(angle) * r}, fc, {0, 0}
+            };
+        }
+    }
+}
+
+static inline void wlx_sdl3_emit_dual_perimeter_verts(SDL_Vertex *verts, int *vi,
+    const WLX_SDL3_Corner corners[4], int segments, float r_outer, float r_inner, SDL_FColor fc)
+{
+    for (int c = 0; c < 4; c++) {
+        for (int i = 0; i <= segments; i++) {
+            float t = (float)i / (float)segments;
+            float angle = corners[c].start + t * (corners[c].end - corners[c].start);
+            float cs = cosf(angle), sn = sinf(angle);
+            verts[(*vi)++] = (SDL_Vertex){
+                {corners[c].cx + cs * r_outer, corners[c].cy + sn * r_outer}, fc, {0, 0}
+            };
+            verts[(*vi)++] = (SDL_Vertex){
+                {corners[c].cx + cs * r_inner, corners[c].cy + sn * r_inner}, fc, {0, 0}
+            };
+        }
+    }
+}
+
+static inline void wlx_sdl3_emit_fan_indices(int *indices, int perimeter_count) {
+    for (int i = 0; i < perimeter_count; i++) {
+        indices[i * 3 + 0] = 0;
+        indices[i * 3 + 1] = 1 + i;
+        indices[i * 3 + 2] = 1 + (i + 1) % perimeter_count;
+    }
+}
+
+static inline void wlx_sdl3_emit_strip_indices(int *indices, int segment_count) {
+    for (int i = 0; i < segment_count; i++) {
+        int next = (i + 1) % segment_count;
+        int o0 = i * 2, i0 = i * 2 + 1;
+        int o1 = next * 2, i1 = next * 2 + 1;
+        indices[i * 6 + 0] = o0;
+        indices[i * 6 + 1] = o1;
+        indices[i * 6 + 2] = i0;
+        indices[i * 6 + 3] = i0;
+        indices[i * 6 + 4] = o1;
+        indices[i * 6 + 5] = i1;
+    }
+}
+
+static inline void wlx_sdl3_emit_circle_fan_verts(
+    SDL_Vertex *verts, float cx, float cy, float radius, int segments, SDL_FColor fc)
+{
+    verts[0] = (SDL_Vertex){ {cx, cy}, fc, {0, 0} };
+    for (int i = 0; i < segments; i++) {
+        float angle = (float)i / (float)segments * 2.0f * WLX_SDL3_PI;
+        verts[i + 1] = (SDL_Vertex){
+            {cx + cosf(angle) * radius, cy + sinf(angle) * radius}, fc, {0, 0}
+        };
+    }
+}
+
+static inline void wlx_sdl3_emit_ring_strip_verts(
+    SDL_Vertex *verts, float cx, float cy, float outer_r, float inner_r, int segments, SDL_FColor fc)
+{
+    for (int i = 0; i < segments; i++) {
+        float angle = (float)i / (float)segments * 2.0f * WLX_SDL3_PI;
+        float cs = cosf(angle), sn = sinf(angle);
+        verts[i * 2]     = (SDL_Vertex){ {cx + cs * outer_r, cy + sn * outer_r}, fc, {0, 0} };
+        verts[i * 2 + 1] = (SDL_Vertex){ {cx + cs * inner_r, cy + sn * inner_r}, fc, {0, 0} };
+    }
+}
+
 static inline void wlx_sdl3_draw_rect(WLX_Rect rect, WLX_Color color) {
     assert(wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
@@ -192,10 +311,99 @@ static inline void wlx_sdl3_draw_rect_lines(WLX_Rect rect, float thick, WLX_Colo
     SDL_RenderRect(wlx_sdl3_renderer, &r);
 }
 
-static inline void wlx_sdl3_draw_rect_rounded(WLX_Rect rect, float roundness, int segments, WLX_Color color) {
-    WLX_UNUSED(roundness);
-    WLX_UNUSED(segments);
-    wlx_sdl3_draw_rect(rect, color);
+static inline void wlx_sdl3_draw_rect_rounded(
+    WLX_Rect rect, float roundness, int segments, WLX_Color color) 
+{
+    assert(wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
+
+    float r = wlx_sdl3_corner_radius(rect, roundness);
+    if (r < 0.5f) {
+        wlx_sdl3_draw_rect(rect, color);
+        return;
+    }
+
+    segments = wlx_sdl3_clamp_segments(segments);
+    SDL_FColor fc = wlx_sdl3_setup_blend_color(color);
+
+    WLX_SDL3_Corner corners[4];
+    wlx_sdl3_build_rect_corners(rect, r, corners);
+
+    int perimeter_count = 4 * (segments + 1);
+    int nv = perimeter_count + 1;
+    SDL_Vertex verts[4 * (WLX_SDL3_MAX_CORNER_SEGMENTS + 1) + 1];
+    float cx = rect.x + rect.w * 0.5f, cy = rect.y + rect.h * 0.5f;
+    verts[0] = (SDL_Vertex){ {cx, cy}, fc, {0, 0} };
+    int vi = 1;
+    wlx_sdl3_emit_perimeter_verts(verts, &vi, corners, segments, r, fc);
+
+    int indices[4 * (WLX_SDL3_MAX_CORNER_SEGMENTS + 1) * 3];
+    wlx_sdl3_emit_fan_indices(indices, perimeter_count);
+
+    SDL_RenderGeometry(wlx_sdl3_renderer, NULL, verts, nv, indices, perimeter_count * 3);
+}
+
+static inline void wlx_sdl3_draw_rect_rounded_lines(
+    WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color) 
+{
+    assert(wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
+
+    float r = wlx_sdl3_corner_radius(rect, roundness);
+    if (r < 0.5f) {
+        wlx_sdl3_draw_rect_lines(rect, thick, color);
+        return;
+    }
+
+    segments = wlx_sdl3_clamp_segments(segments);
+    SDL_FColor fc = wlx_sdl3_setup_blend_color(color);
+
+    float r_inner = r - thick;
+    if (r_inner < 0.0f) r_inner = 0.0f;
+
+    WLX_SDL3_Corner corners[4];
+    wlx_sdl3_build_rect_corners(rect, r, corners);
+
+    int perimeter_count = 4 * (segments + 1);
+    int nv = perimeter_count * 2;
+    SDL_Vertex verts[2 * 4 * (WLX_SDL3_MAX_CORNER_SEGMENTS + 1)];
+    int vi = 0;
+    wlx_sdl3_emit_dual_perimeter_verts(verts, &vi, corners, segments, r, r_inner, fc);
+
+    int indices[4 * (WLX_SDL3_MAX_CORNER_SEGMENTS + 1) * 6];
+    wlx_sdl3_emit_strip_indices(indices, perimeter_count);
+
+    SDL_RenderGeometry(wlx_sdl3_renderer, NULL, verts, nv, indices, perimeter_count * 6);
+}
+
+static inline void wlx_sdl3_draw_circle(float cx, float cy, float radius, int segments, WLX_Color color) {
+    assert(wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
+    
+    segments = wlx_sdl3_clamp_segments(segments);
+    SDL_FColor fc = wlx_sdl3_setup_blend_color(color);
+
+    SDL_Vertex verts[WLX_SDL3_MAX_CORNER_SEGMENTS + 1];
+    wlx_sdl3_emit_circle_fan_verts(verts, cx, cy, radius, segments, fc);
+
+    int indices[WLX_SDL3_MAX_CORNER_SEGMENTS * 3];
+    wlx_sdl3_emit_fan_indices(indices, segments);
+
+    SDL_RenderGeometry(wlx_sdl3_renderer, NULL, verts, segments + 1, indices, segments * 3);
+}
+
+static inline void wlx_sdl3_draw_ring(float cx, float cy, float inner_r, float outer_r,
+        int segments, WLX_Color color) {
+
+    assert(wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
+    
+    segments = wlx_sdl3_clamp_segments(segments);
+    SDL_FColor fc = wlx_sdl3_setup_blend_color(color);
+
+    SDL_Vertex verts[WLX_SDL3_MAX_CORNER_SEGMENTS * 2];
+    wlx_sdl3_emit_ring_strip_verts(verts, cx, cy, outer_r, inner_r, segments, fc);
+
+    int indices[WLX_SDL3_MAX_CORNER_SEGMENTS * 6];
+    wlx_sdl3_emit_strip_indices(indices, segments);
+
+    SDL_RenderGeometry(wlx_sdl3_renderer, NULL, verts, segments * 2, indices, segments * 6);
 }
 
 static inline void wlx_sdl3_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color color) {
@@ -306,6 +514,9 @@ static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer) {
         .draw_rect = wlx_sdl3_draw_rect,
         .draw_rect_lines = wlx_sdl3_draw_rect_lines,
         .draw_rect_rounded = wlx_sdl3_draw_rect_rounded,
+        .draw_rect_rounded_lines = wlx_sdl3_draw_rect_rounded_lines,
+        .draw_circle = wlx_sdl3_draw_circle,
+        .draw_ring = wlx_sdl3_draw_ring,
         .draw_line = wlx_sdl3_draw_line,
         .draw_text = wlx_sdl3_draw_text,
         .measure_text = wlx_sdl3_measure_text,

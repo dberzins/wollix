@@ -16,6 +16,25 @@
 
 #define GRID_EPS 0.01f
 
+#ifdef WLX_DEBUG
+static int _grid_debug_warn_count = 0;
+
+static void _grid_debug_warn_cb(const char *file, int line, const char *msg, void *user_data) {
+    (void)file;
+    (void)line;
+    (void)msg;
+    (void)user_data;
+    _grid_debug_warn_count++;
+}
+
+static void _grid_debug_warn_reset(WLX_Context *ctx) {
+    _grid_debug_warn_count = 0;
+    wlx_dbg_init(ctx);
+    ctx->dbg->warn_cb = _grid_debug_warn_cb;
+    ctx->dbg->warn_user_data = NULL;
+}
+#endif
+
 // ============================================================================
 // wlx_create_grid - equal division (NULL sizes)
 // ============================================================================
@@ -25,17 +44,17 @@ TEST(grid_equal_2x2) {
     test_ctx_init(&ctx, 400, 300);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 400, 300), 2, 2, NULL, NULL);
+    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 400, 300), 2, 2, NULL, NULL, 0.0f);
 
     // Row offsets: 0, 150, 300
-    ASSERT_EQ_F(l.grid.row_offsets[0],   0.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.row_offsets[1], 150.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.row_offsets[2], 300.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[0],   0.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[1], 150.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[2], 300.0f, GRID_EPS);
 
     // Col offsets: 0, 200, 400
-    ASSERT_EQ_F(l.grid.col_offsets[0],   0.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.col_offsets[1], 200.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.col_offsets[2], 400.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[0],   0.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[1], 200.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[2], 400.0f, GRID_EPS);
 
     test_frame_end(&ctx);
 }
@@ -45,15 +64,15 @@ TEST(grid_equal_3x4) {
     test_ctx_init(&ctx, 600, 300);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 600, 300), 3, 4, NULL, NULL);
+    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 600, 300), 3, 4, NULL, NULL, 0.0f);
 
     // 3 rows in 300px -> 100 each
     for (int i = 0; i <= 3; i++) {
-        ASSERT_EQ_F(l.grid.row_offsets[i], (float)i * 100.0f, GRID_EPS);
+        ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[i], (float)i * 100.0f, GRID_EPS);
     }
     // 4 cols in 600px -> 150 each
     for (int i = 0; i <= 4; i++) {
-        ASSERT_EQ_F(l.grid.col_offsets[i], (float)i * 150.0f, GRID_EPS);
+        ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[i], (float)i * 150.0f, GRID_EPS);
     }
 
     test_frame_end(&ctx);
@@ -70,18 +89,18 @@ TEST(grid_explicit_sizes) {
 
     WLX_Slot_Size row_sizes[] = { WLX_SLOT_PX(100), WLX_SLOT_FLEX(1) };
     WLX_Slot_Size col_sizes[] = { WLX_SLOT_PX(150), WLX_SLOT_FLEX(1), WLX_SLOT_PX(50) };
-    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 400, 300), 2, 3, row_sizes, col_sizes);
+    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 400, 300), 2, 3, row_sizes, col_sizes, 0.0f);
 
     // Rows: 100px + flex(1) = 100 + 200 = 300
-    ASSERT_EQ_F(l.grid.row_offsets[0],   0.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.row_offsets[1], 100.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.row_offsets[2], 300.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[0],   0.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[1], 100.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[2], 300.0f, GRID_EPS);
 
     // Cols: 150px + flex(1) + 50px -> 150 + 200 + 50 = 400
-    ASSERT_EQ_F(l.grid.col_offsets[0],   0.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.col_offsets[1], 150.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.col_offsets[2], 350.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.col_offsets[3], 400.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[0],   0.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[1], 150.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[2], 350.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[3], 400.0f, GRID_EPS);
 
     test_frame_end(&ctx);
 }
@@ -93,17 +112,17 @@ TEST(grid_mixed_pct_flex) {
 
     WLX_Slot_Size row_sizes[] = { WLX_SLOT_PCT(25), WLX_SLOT_FLEX(1) };
     WLX_Slot_Size col_sizes[] = { WLX_SLOT_PCT(50), WLX_SLOT_PCT(50) };
-    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 600, 400), 2, 2, row_sizes, col_sizes);
+    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 600, 400), 2, 2, row_sizes, col_sizes, 0.0f);
 
     // Rows: 25% of 400 = 100, flex gets 300
-    ASSERT_EQ_F(l.grid.row_offsets[0],   0.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.row_offsets[1], 100.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.row_offsets[2], 400.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[0],   0.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[1], 100.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[2], 400.0f, GRID_EPS);
 
     // Cols: 50% + 50% of 600 = 300 + 300
-    ASSERT_EQ_F(l.grid.col_offsets[0],   0.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.col_offsets[1], 300.0f, GRID_EPS);
-    ASSERT_EQ_F(l.grid.col_offsets[2], 600.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[0],   0.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[1], 300.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[2], 600.0f, GRID_EPS);
 
     test_frame_end(&ctx);
 }
@@ -117,22 +136,22 @@ TEST(grid_cell_rect_basic) {
     test_ctx_init(&ctx, 400, 200);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(10, 20, 400, 200), 2, 2, NULL, NULL);
+    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(10, 20, 400, 200), 2, 2, NULL, NULL, 0.0f);
 
     // Cell (0,0): top-left quarter
-    WLX_Rect r00 = wlx_calc_grid_slot_rect(&l, 0, 0, 1, 1);
+    WLX_Rect r00 = wlx_calc_grid_slot_rect(&ctx, &l, 0, 0, 1, 1);
     ASSERT_EQ_RECT(r00, ((WLX_Rect){10, 20, 200, 100}), GRID_EPS);
 
     // Cell (0,1): top-right quarter
-    WLX_Rect r01 = wlx_calc_grid_slot_rect(&l, 0, 1, 1, 1);
+    WLX_Rect r01 = wlx_calc_grid_slot_rect(&ctx, &l, 0, 1, 1, 1);
     ASSERT_EQ_RECT(r01, ((WLX_Rect){210, 20, 200, 100}), GRID_EPS);
 
     // Cell (1,0): bottom-left quarter
-    WLX_Rect r10 = wlx_calc_grid_slot_rect(&l, 1, 0, 1, 1);
+    WLX_Rect r10 = wlx_calc_grid_slot_rect(&ctx, &l, 1, 0, 1, 1);
     ASSERT_EQ_RECT(r10, ((WLX_Rect){10, 120, 200, 100}), GRID_EPS);
 
     // Cell (1,1): bottom-right quarter
-    WLX_Rect r11 = wlx_calc_grid_slot_rect(&l, 1, 1, 1, 1);
+    WLX_Rect r11 = wlx_calc_grid_slot_rect(&ctx, &l, 1, 1, 1, 1);
     ASSERT_EQ_RECT(r11, ((WLX_Rect){210, 120, 200, 100}), GRID_EPS);
 
     test_frame_end(&ctx);
@@ -143,19 +162,19 @@ TEST(grid_cell_rect_span) {
     test_ctx_init(&ctx, 300, 300);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 300, 300), 3, 3, NULL, NULL);
+    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 300, 300), 3, 3, NULL, NULL, 0.0f);
     // Each cell: 100x100
 
     // Span 2 columns at (0,0)
-    WLX_Rect r = wlx_calc_grid_slot_rect(&l, 0, 0, 1, 2);
+    WLX_Rect r = wlx_calc_grid_slot_rect(&ctx, &l, 0, 0, 1, 2);
     ASSERT_EQ_RECT(r, ((WLX_Rect){0, 0, 200, 100}), GRID_EPS);
 
     // Span 2 rows at (0,0)
-    r = wlx_calc_grid_slot_rect(&l, 0, 0, 2, 1);
+    r = wlx_calc_grid_slot_rect(&ctx, &l, 0, 0, 2, 1);
     ASSERT_EQ_RECT(r, ((WLX_Rect){0, 0, 100, 200}), GRID_EPS);
 
     // Span 2x2 at (1,1)
-    r = wlx_calc_grid_slot_rect(&l, 1, 1, 2, 2);
+    r = wlx_calc_grid_slot_rect(&ctx, &l, 1, 1, 2, 2);
     ASSERT_EQ_RECT(r, ((WLX_Rect){100, 100, 200, 200}), GRID_EPS);
 
     test_frame_end(&ctx);
@@ -171,7 +190,7 @@ TEST(grid_auto_advance) {
     test_frame_begin(&ctx, 0, 0, false, false);
 
     wlx_grid_begin(&ctx, 2, 3);
-    WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
 
     // Consume cells sequentially (auto-advance)
     WLX_Rect r0 = wlx_get_slot_rect(&ctx, l, -1, 1); // (0,0)
@@ -207,7 +226,7 @@ TEST(grid_explicit_cell) {
     test_frame_begin(&ctx, 0, 0, false, false);
 
     wlx_grid_begin(&ctx, 3, 3);
-    WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
     // Each cell 100x100
 
     // Jump to (2,1) explicitly
@@ -229,7 +248,7 @@ TEST(grid_cell_with_span) {
     test_frame_begin(&ctx, 0, 0, false, false);
 
     wlx_grid_begin(&ctx, 4, 4);
-    WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
     // Each cell 100x100
 
     // Place a 2x2 cell at (1,1)
@@ -251,7 +270,7 @@ TEST(grid_auto_grow_rows) {
 
     // 3 columns, 50px per row, dynamic
     wlx_grid_begin_auto(&ctx, 3, 50);
-    WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
 
     ASSERT_EQ_INT(l->grid.rows, 0);  // starts with 0 rows
     ASSERT_TRUE(l->grid.dynamic);
@@ -279,14 +298,14 @@ TEST(grid_auto_row_count_grows) {
     test_frame_begin(&ctx, 0, 0, false, false);
 
     wlx_grid_begin_auto(&ctx, 2, 40);
-    WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
 
     // Add 8 items -> 4 rows with 2 cols
     for (int i = 0; i < 8; i++) {
         wlx_get_slot_rect(&ctx, l, -1, 1);
     }
     ASSERT_EQ_INT(l->grid.rows, 4);
-    ASSERT_EQ_F(l->grid.row_offsets[4], 160.0f, GRID_EPS); // 4 * 40
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, l)[4], 160.0f, GRID_EPS); // 4 * 40
 
     test_frame_end(&ctx);
 }
@@ -301,22 +320,22 @@ TEST(grid_auto_row_px_override) {
     test_frame_begin(&ctx, 0, 0, false, false);
 
     wlx_grid_begin_auto(&ctx, 2, 40);
-    WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
 
     // Row 0: default 40px
     wlx_get_slot_rect(&ctx, l, -1, 1);
     wlx_get_slot_rect(&ctx, l, -1, 1);
-    ASSERT_EQ_F(l->grid.row_offsets[1], 40.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, l)[1], 40.0f, GRID_EPS);
 
     // Row 1: override to 80px
     wlx_grid_auto_row_px(&ctx, 80);
     wlx_get_slot_rect(&ctx, l, -1, 1);
-    ASSERT_EQ_F(l->grid.row_offsets[2], 120.0f, GRID_EPS); // 40 + 80
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, l)[2], 120.0f, GRID_EPS); // 40 + 80
 
     // Row 2: back to default 40px (override consumed)
     wlx_get_slot_rect(&ctx, l, -1, 1); // fills row 1 col 1
     wlx_get_slot_rect(&ctx, l, -1, 1); // triggers row 2
-    ASSERT_EQ_F(l->grid.row_offsets[3], 160.0f, GRID_EPS); // 120 + 40
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, l)[3], 160.0f, GRID_EPS); // 120 + 40
 
     test_frame_end(&ctx);
 }
@@ -332,7 +351,7 @@ TEST(grid_auto_with_col_sizes) {
 
     WLX_Slot_Size col_sizes[] = { WLX_SLOT_PX(100), WLX_SLOT_FLEX(1) };
     wlx_grid_begin_auto(&ctx, 2, 50, .col_sizes = col_sizes);
-    WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
 
     // First cell: col 0, 100px wide
     WLX_Rect r0 = wlx_get_slot_rect(&ctx, l, -1, 1);
@@ -359,7 +378,7 @@ TEST(grid_with_padding) {
     // Root layout -> grid with 10px padding
     wlx_layout_begin(&ctx, 1, WLX_VERT);
     wlx_grid_begin(&ctx, 2, 2, .padding = 10);
-    WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
 
     // Padded rect: (10, 10, 380, 280)
     ASSERT_EQ_F(l->rect.x, 10.0f, GRID_EPS);
@@ -388,9 +407,9 @@ TEST(grid_content_row_basic) {
     for (int frame = 0; frame < 3; frame++) {
         test_frame_begin(&ctx, 0, 0, false, false);
         wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
-        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
-        row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
-        row1_h = l->grid.row_offsets[2] - l->grid.row_offsets[1];
+        WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+        row0_h = wlx_grid_row_offsets(&ctx, l)[1] - wlx_grid_row_offsets(&ctx, l)[0];
+        row1_h = wlx_grid_row_offsets(&ctx, l)[2] - wlx_grid_row_offsets(&ctx, l)[1];
         wlx_label(&ctx, "a", .height = 30);
         wlx_label(&ctx, "b", .height = 40);
         wlx_label(&ctx, "c");
@@ -413,10 +432,10 @@ TEST(grid_content_row_all) {
     for (int frame = 0; frame < 3; frame++) {
         test_frame_begin(&ctx, 0, 0, false, false);
         wlx_grid_begin(&ctx, 3, 2, .row_sizes = row_sizes);
-        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
-        r0 = l->grid.row_offsets[1] - l->grid.row_offsets[0];
-        r1 = l->grid.row_offsets[2] - l->grid.row_offsets[1];
-        r2 = l->grid.row_offsets[3] - l->grid.row_offsets[2];
+        WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+        r0 = wlx_grid_row_offsets(&ctx, l)[1] - wlx_grid_row_offsets(&ctx, l)[0];
+        r1 = wlx_grid_row_offsets(&ctx, l)[2] - wlx_grid_row_offsets(&ctx, l)[1];
+        r2 = wlx_grid_row_offsets(&ctx, l)[3] - wlx_grid_row_offsets(&ctx, l)[2];
         // row 0: 20, 35 -> max 35
         wlx_label(&ctx, "a", .height = 20);
         wlx_label(&ctx, "b", .height = 35);
@@ -445,8 +464,8 @@ TEST(grid_content_row_min) {
     for (int frame = 0; frame < 3; frame++) {
         test_frame_begin(&ctx, 0, 0, false, false);
         wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
-        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
-        row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
+        WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+        row0_h = wlx_grid_row_offsets(&ctx, l)[1] - wlx_grid_row_offsets(&ctx, l)[0];
         wlx_label(&ctx, "a", .height = 30);
         wlx_label(&ctx, "b", .height = 40);
         wlx_label(&ctx, "c");
@@ -468,8 +487,8 @@ TEST(grid_content_row_max) {
     for (int frame = 0; frame < 3; frame++) {
         test_frame_begin(&ctx, 0, 0, false, false);
         wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
-        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
-        row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
+        WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+        row0_h = wlx_grid_row_offsets(&ctx, l)[1] - wlx_grid_row_offsets(&ctx, l)[0];
         wlx_label(&ctx, "a", .height = 30);
         wlx_label(&ctx, "b", .height = 40);
         wlx_label(&ctx, "c");
@@ -490,8 +509,8 @@ TEST(grid_content_row_minmax) {
     for (int frame = 0; frame < 3; frame++) {
         test_frame_begin(&ctx, 0, 0, false, false);
         wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
-        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
-        row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
+        WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+        row0_h = wlx_grid_row_offsets(&ctx, l)[1] - wlx_grid_row_offsets(&ctx, l)[0];
         wlx_label(&ctx, "a", .height = 30);
         wlx_label(&ctx, "b", .height = 40);
         wlx_label(&ctx, "c");
@@ -510,8 +529,8 @@ TEST(grid_content_row_minmax) {
     for (int frame = 0; frame < 3; frame++) {
         test_frame_begin(&ctx2, 0, 0, false, false);
         wlx_grid_begin(&ctx2, 2, 2, .row_sizes = row_sizes2);
-        WLX_Layout *l2 = &ctx2.layouts.items[ctx2.layouts.count - 1];
-        row0_h2 = l2->grid.row_offsets[1] - l2->grid.row_offsets[0];
+        WLX_Layout *l2 = &wlx_pool_layouts(&ctx2)[ctx2.arena.layouts.count - 1];
+        row0_h2 = wlx_grid_row_offsets(&ctx2, l2)[1] - wlx_grid_row_offsets(&ctx2, l2)[0];
         wlx_label(&ctx2, "a", .height = 30);
         wlx_label(&ctx2, "b", .height = 40);
         wlx_label(&ctx2, "c");
@@ -532,10 +551,10 @@ TEST(grid_content_row_mixed) {
     for (int frame = 0; frame < 3; frame++) {
         test_frame_begin(&ctx, 0, 0, false, false);
         wlx_grid_begin(&ctx, 3, 2, .row_sizes = row_sizes);
-        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
-        row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
-        row1_h = l->grid.row_offsets[2] - l->grid.row_offsets[1];
-        row2_h = l->grid.row_offsets[3] - l->grid.row_offsets[2];
+        WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+        row0_h = wlx_grid_row_offsets(&ctx, l)[1] - wlx_grid_row_offsets(&ctx, l)[0];
+        row1_h = wlx_grid_row_offsets(&ctx, l)[2] - wlx_grid_row_offsets(&ctx, l)[1];
+        row2_h = wlx_grid_row_offsets(&ctx, l)[3] - wlx_grid_row_offsets(&ctx, l)[2];
         // row 0: PX(20)
         wlx_label(&ctx, "a");
         wlx_label(&ctx, "b");
@@ -564,9 +583,9 @@ TEST(grid_content_row_empty) {
     for (int frame = 0; frame < 3; frame++) {
         test_frame_begin(&ctx, 0, 0, false, false);
         wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
-        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
-        row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
-        row1_h = l->grid.row_offsets[2] - l->grid.row_offsets[1];
+        WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+        row0_h = wlx_grid_row_offsets(&ctx, l)[1] - wlx_grid_row_offsets(&ctx, l)[0];
+        row1_h = wlx_grid_row_offsets(&ctx, l)[2] - wlx_grid_row_offsets(&ctx, l)[1];
         // row 0: explicit heights
         wlx_label(&ctx, "a", .height = 50);
         wlx_label(&ctx, "b", .height = 60);
@@ -594,8 +613,8 @@ TEST(grid_content_row_multiframe) {
     for (int frame = 0; frame < 3; frame++) {
         test_frame_begin(&ctx, 0, 0, false, false);
         wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
-        WLX_Layout *l = &ctx.layouts.items[ctx.layouts.count - 1];
-        float row0_h = l->grid.row_offsets[1] - l->grid.row_offsets[0];
+        WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+        float row0_h = wlx_grid_row_offsets(&ctx, l)[1] - wlx_grid_row_offsets(&ctx, l)[0];
         if (frame == 0) row0_f1 = row0_h;
         if (frame == 1) row0_f2 = row0_h;
         if (frame == 2) row0_f3 = row0_h;
@@ -606,12 +625,148 @@ TEST(grid_content_row_multiframe) {
         wlx_grid_end(&ctx);
         test_frame_end(&ctx);
     }
-    // Frame 1: 0 (no prior measurement)
-    ASSERT_EQ_F(row0_f1, 0.0f, GRID_EPS);
+    // Frame 1: 1px seed (no prior measurement, no .min set)
+    ASSERT_EQ_F(row0_f1, 1.0f, GRID_EPS);
     // Frame 2: uses measured value from frame 1 = 80
     ASSERT_EQ_F(row0_f2, 80.0f, GRID_EPS);
     // Frame 3: stable
     ASSERT_EQ_F(row0_f3, 80.0f, GRID_EPS);
+}
+
+#ifdef WLX_DEBUG
+TEST(grid_content_row_seed_does_not_warn_clip) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    _grid_debug_warn_reset(&ctx);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    {
+        WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT_MAX(30) };
+        wlx_grid_begin(&ctx, 1, 1, .row_sizes = row_sizes);
+        wlx_label(&ctx, "Max 30", .height = 35, .font_size = 13,
+            .align = WLX_CENTER,
+            .show_background = true);
+        wlx_grid_end(&ctx);
+    }
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT(0, _grid_debug_warn_count);
+}
+#endif
+
+// ============================================================================
+// Grid per-side padding
+// ============================================================================
+
+TEST(grid_perside_padding_top_zero) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_grid_begin(&ctx, 2, 2, .padding = 10, .padding_top = 0);
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+
+    // top=0, right=10, bottom=10, left=10
+    ASSERT_EQ_F(l->rect.x, 10.0f, GRID_EPS);
+    ASSERT_EQ_F(l->rect.y, 0.0f, GRID_EPS);
+    ASSERT_EQ_F(l->rect.w, 380.0f, GRID_EPS);  // 400 - 10 - 10
+    ASSERT_EQ_F(l->rect.h, 290.0f, GRID_EPS);  // 300 - 0 - 10
+
+    test_frame_end(&ctx);
+}
+
+// ============================================================================
+// Grid gap (inter-slot spacing)
+// ============================================================================
+
+TEST(grid_gap_basic) {
+    // 2x2 grid, gap=8, 400x300. Gap applies to both rows and cols.
+    // Cols: total=400, 1 gap, distributable=392, col_w=196.
+    //   Offsets: 0, 196+8=204, 204+196=400.
+    // Rows: total=300, 1 gap, distributable=292, row_h=146.
+    //   Offsets: 0, 146+8=154, 154+146=300.
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 400, 300), 2, 2, NULL, NULL, 8.0f);
+
+    // Col offsets
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[0],   0.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[1], 204.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[2], 400.0f, GRID_EPS);
+
+    // Row offsets
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[0],   0.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[1], 154.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[2], 300.0f, GRID_EPS);
+
+    test_frame_end(&ctx);
+}
+
+TEST(grid_gap_auto) {
+    // Auto-grow grid with gap=6, 3 cols, 400x600 container.
+    // Cols: total=400, 2 gaps=12, distributable=388, col_w ~= 129.33.
+    //   Off: 0, 129.33+6=135.33, 135.33+129.33+6=270.67, 270.67+129.33=400.
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 600);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_grid_begin_auto(&ctx, 3, 50, .gap = 6);
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+
+    // 3 cols with gap=6 in 400px width
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, l)[0],   0.0f, GRID_EPS);
+    ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, l)[3], 400.0f, GRID_EPS);
+
+    // Verify gap structure: off[1] - off[0] > off[2] - off[1] is not expected;
+    // both non-last regions include gap. Just verify col_offsets[1] > 0.
+    ASSERT_TRUE(wlx_grid_col_offsets(&ctx, l)[1] > 100.0f);
+    ASSERT_TRUE(wlx_grid_col_offsets(&ctx, l)[2] > 230.0f);
+
+    // Gap stored in layout
+    ASSERT_EQ_F(l->gap, 6.0f, GRID_EPS);
+
+    wlx_grid_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+}
+
+TEST(grid_gap_slot_rect) {
+    // 2x2 grid, gap=8, 400x300.
+    // Col content = (400 - 8) / 2 = 196. Row content = (300 - 8) / 2 = 146.
+    // Cell (0,0): w=196 (not 204), h=146 (not 154).
+    // Cell (0,1): w=196, h=146 (last col, last row not applicable for col).
+    // Cell (1,1): w=196, h=146 (last col, last row).
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    WLX_Layout l = wlx_create_grid(&ctx, wlx_rect(0, 0, 400, 300), 2, 2, NULL, NULL, 8.0f);
+
+    WLX_Rect r00 = wlx_calc_grid_slot_rect(&ctx, &l, 0, 0, 1, 1);
+    WLX_Rect r01 = wlx_calc_grid_slot_rect(&ctx, &l, 0, 1, 1, 1);
+    WLX_Rect r10 = wlx_calc_grid_slot_rect(&ctx, &l, 1, 0, 1, 1);
+    WLX_Rect r11 = wlx_calc_grid_slot_rect(&ctx, &l, 1, 1, 1, 1);
+
+    // All cells should have content width = 196, content height = 146
+    ASSERT_EQ_F(r00.w, 196.0f, GRID_EPS);
+    ASSERT_EQ_F(r01.w, 196.0f, GRID_EPS);
+    ASSERT_EQ_F(r10.w, 196.0f, GRID_EPS);
+    ASSERT_EQ_F(r11.w, 196.0f, GRID_EPS);
+
+    ASSERT_EQ_F(r00.h, 146.0f, GRID_EPS);
+    ASSERT_EQ_F(r01.h, 146.0f, GRID_EPS);
+    ASSERT_EQ_F(r10.h, 146.0f, GRID_EPS);
+    ASSERT_EQ_F(r11.h, 146.0f, GRID_EPS);
+
+    // Gap space: cell (0,0) right edge + 8 == cell (0,1) left edge
+    ASSERT_EQ_F(r01.x - (r00.x + r00.w), 8.0f, GRID_EPS);
+    ASSERT_EQ_F(r10.y - (r00.y + r00.h), 8.0f, GRID_EPS);
+
+    test_frame_end(&ctx);
 }
 
 // ============================================================================
@@ -656,4 +811,15 @@ SUITE(grid) {
     RUN_TEST(grid_content_row_mixed);
     RUN_TEST(grid_content_row_empty);
     RUN_TEST(grid_content_row_multiframe);
+#ifdef WLX_DEBUG
+    RUN_TEST(grid_content_row_seed_does_not_warn_clip);
+#endif
+
+    // Per-side padding
+    RUN_TEST(grid_perside_padding_top_zero);
+
+    // Gap (inter-slot spacing)
+    RUN_TEST(grid_gap_basic);
+    RUN_TEST(grid_gap_auto);
+    RUN_TEST(grid_gap_slot_rect);
 }

@@ -572,8 +572,8 @@ int main(void) {
                     DrawFPS(8, 8);
                 }
 
-            EndDrawing();
         wlx_end(ctx);
+            EndDrawing();
     }
 
     wlx_context_destroy(ctx);

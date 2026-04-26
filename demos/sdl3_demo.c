@@ -19,7 +19,11 @@ int main(void) {
         return 1;
     }
 
-    SDL_Window *window = SDL_CreateWindow("Wollix SDL3 Demo", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_RESIZABLE);
+    SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+    SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 8);
+
+    SDL_Window *window = SDL_CreateWindow("Wollix SDL3 Demo", WINDOW_WIDTH, WINDOW_HEIGHT,
+            SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
     if (window == NULL) {
         fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
         SDL_Quit();
@@ -58,7 +62,11 @@ int main(void) {
     wlx_context_init_sdl3(ctx, window, renderer);
 
     float slider_value = 0.42f;
+    float roundness = 0.25f;
     bool check_enabled = true;
+    bool toggle_a = true;
+    bool toggle_b = false;
+    int radio_sel = 0;
     int click_count = 0;
     bool running = true;
 
@@ -87,7 +95,7 @@ int main(void) {
         SDL_SetRenderDrawColor(renderer, WLX_BACKGROUND_COLOR.r, WLX_BACKGROUND_COLOR.g, WLX_BACKGROUND_COLOR.b, WLX_BACKGROUND_COLOR.a);
         SDL_RenderClear(renderer);
 
-        wlx_layout_begin(ctx, 10, WLX_VERT);
+        wlx_layout_begin(ctx, 14, WLX_VERT);
 
         wlx_label(ctx, "SDL3 Backend Demo", .height = 52, .font_size = 30, .font = wf_title, .align = WLX_CENTER, .back_color = WLX_RGBA(28, 32, 45, 255));
 
@@ -113,6 +121,69 @@ int main(void) {
         char status[128];
         snprintf(status, sizeof(status), "State: %s  |  value=%.2f", check_enabled ? "ON" : "OFF", slider_value);
         wlx_label(ctx, status, .height = 40, .font_size = 18, .font = wf_small, .align = WLX_LEFT, .back_color = WLX_RGBA(20, 24, 34, 255));
+
+        // --- Rounded Shapes Section ---
+        wlx_label(ctx, "Rounded Shapes", .height = 48, .font_size = 26, .font = wf_title, .align = WLX_CENTER, .back_color = WLX_RGBA(35, 40, 55, 255));
+
+        wlx_slider(ctx, "Roundness", &roundness,
+               .height = 44,
+               .font_size = 18,
+               .font = wf_small,
+               .min_value = 0.0f,
+               .max_value = 1.0f,
+               .track_color = WLX_RGBA(60, 60, 70, 255),
+               .thumb_color = WLX_RGBA(180, 120, 255, 255));
+
+        wlx_layout_begin(ctx, 3, WLX_HORZ, .padding = 4);
+            if (wlx_button(ctx, "Rounded", .height = 70, .font_size = 20, .font = wf_body,
+                    .align = WLX_CENTER,
+                    .back_color = WLX_RGBA(70, 50, 120, 255),
+                    .roundness = roundness)) {
+                click_count++;
+            }
+            if (wlx_button(ctx, "Full Round", .height = 70, .font_size = 20, .font = wf_body,
+                    .align = WLX_CENTER,
+                    .back_color = WLX_RGBA(50, 100, 70, 255),
+                    .roundness = 1.0f)) {
+                click_count++;
+            }
+            if (wlx_button(ctx, "Sharp", .height = 70, .font_size = 20, .font = wf_body,
+                    .align = WLX_CENTER,
+                    .back_color = WLX_RGBA(120, 50, 50, 255),
+                    .roundness = 0.0f)) {
+                click_count++;
+            }
+        wlx_layout_end(ctx);
+
+        wlx_layout_begin(ctx, 4, WLX_HORZ, .padding = 4);
+            wlx_widget(ctx, .height = 70, .color = WLX_RGBA(180, 80, 80, 255),
+                    .roundness = roundness,
+                    .border_color = WLX_RGBA(255, 120, 120, 255), .border_width = 2);
+            wlx_widget(ctx, .height = 70, .color = WLX_RGBA(80, 140, 180, 255),
+                    .roundness = roundness,
+                    .border_color = WLX_RGBA(120, 200, 255, 255), .border_width = 2);
+            wlx_widget(ctx, .height = 70, .color = WLX_RGBA(80, 180, 100, 255),
+                    .roundness = roundness,
+                    .border_color = WLX_RGBA(120, 255, 140, 255), .border_width = 2);
+            wlx_widget(ctx, .height = 70, .width = 70, .color = WLX_RGBA(200, 160, 60, 255),
+                    .roundness = 1.0f, .widget_align = WLX_CENTER);
+        wlx_layout_end(ctx);
+
+        // --- Toggle / Radio / Progress Section ---
+        wlx_label(ctx, "Toggle / Radio / Progress", .height = 48, .font_size = 26, .font = wf_title, .align = WLX_CENTER, .back_color = WLX_RGBA(35, 40, 55, 255));
+
+        wlx_layout_begin(ctx, 2, WLX_HORZ, .padding = 4);
+            wlx_toggle(ctx, "Feature A", &toggle_a, .height = 40);
+            wlx_toggle(ctx, "Feature B", &toggle_b, .height = 40);
+        wlx_layout_end(ctx);
+
+        wlx_layout_begin(ctx, 3, WLX_HORZ, .padding = 4);
+            wlx_radio(ctx, "Low", &radio_sel, 0, .height = 40);
+            wlx_radio(ctx, "Medium", &radio_sel, 1, .height = 40);
+            wlx_radio(ctx, "High", &radio_sel, 2, .height = 40);
+        wlx_layout_end(ctx);
+
+        wlx_progress(ctx, slider_value, .height = 30);
 
         wlx_layout_end(ctx);
 

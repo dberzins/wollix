@@ -5,41 +5,123 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] - 2026-04-26
 
 ### Added
-- **Grid CONTENT row sizing:** `wlx_grid_begin` `row_sizes` now accepts
-  `WLX_SLOT_CONTENT`, `CONTENT_MIN`, `CONTENT_MAX`, and `CONTENT_MINMAX`.
-  Rows adapt to the tallest widget per row via one-frame-delay measurement.
-  Mixable with PX, FLEX, PCT, etc. Max 32 CONTENT rows.
-- Content-Sized Rows demo in gallery Grid Layout section.
-- 8 new grid CONTENT row test cases.
-- Updated `docs/LAYOUT_MODEL.md` and `docs/API_REFERENCE.md`.
-- **Bare-WASM32 backend** (`wollix_wasm.h`): New header-only rendering
-  adapter targeting `wasm32-unknown-unknown` with no libc dependency.
-  Implements drawing and input handling via imported JS host functions,
-  including scissor/clip rect support.
-- **WASM gallery demo** (`demos/gallery_wasm.c`): Standalone gallery demo
-  compiled to WebAssembly, exercising the wasm backend.
-- **JavaScript host runtime** (`web/wollix_wasm.js`): Host-side JS that
-  loads the `.wasm` module, drives the render loop, and bridges canvas 2D
-  drawing and input events to the wasm backend callbacks.
-- **HTML shell** (`web/wollix_wasm.html`): Minimal HTML page with canvas
-  setup for the WASM Widget Gallery demo.
-- **Libc shim** (`web/wlx_libc_shim.c`, `web/wlx_libc_shim.h`): Bare-metal
-  libc shim for the wasm32 target providing memory, string, and math
-  functions needed by the gallery demo.
-- **Makefile `wasm-site` target:** Packages `gallery.wasm`, `index.html`,
-  and `wollix_wasm.js` into `dist/wasm-demo/` for local preview and
-  deployment. `wasm-bare` is an alias.
-- **WASM demo GitHub Pages workflow:** Added manual-dispatch workflow
-  (`.github/workflows/wasm-demo-pages.yml`) to build and deploy the
-  packaged `dist/wasm-demo/` gallery demo to GitHub Pages.
+- Scoped container IDs: `WLX_Layout_Opt`, `WLX_Grid_Opt`, `WLX_Grid_Auto_Opt`,
+  `WLX_Panel_Opt`, and `WLX_Split_Opt` now accept `const char *id`, pushing a
+  scope ID for the full container body. `wlx_scroll_panel_begin` /
+  `wlx_scroll_panel_end` now do the same for scroll-panel bodies. The identity
+  model is now documented in `wollix.h` and `docs/API_REFERENCE.md`, including
+  Widget ID / State ID / Scope ID roles and guidance on when
+  `wlx_push_id` / `wlx_pop_id` is still needed.
+
+  **Migration note:** callers that both pass scroll-panel `.id` and wrap the
+  panel body in manual `wlx_push_id` / `wlx_pop_id` calls will see descendant
+  state keys change because the panel scope now stays active for the full body.
+- New widgets and styling APIs: added `wlx_progress`, `wlx_toggle`,
+  `wlx_radio`, and `wlx_separator`; added rounded backgrounds and borders for
+  widgets and containers; and added per-slot / per-grid-cell decoration plus
+  one-shot style overrides.
+- Theming additions: added built-in `wlx_theme_glass`, theme sub-structs for
+  toggle, radio, and progress styling, advisory size/style constants, and
+  `WLX_SHORT_NAMES` aliases for `progress`, `toggle`, and `radio`.
+- Layout additions: added per-side padding across layouts, panels, grids,
+  splits, and scroll panels, plus per-slot `gap` support.
+- Backend and web additions: `WLX_Backend` now supports
+  `draw_rect_rounded_lines`, plus optional `draw_circle` and `draw_ring`
+  callbacks with widget-level fallbacks. Raylib and WASM expose native
+  circle/ring support, SDL3 now includes rounded-shape tessellation helpers,
+  and the bare-WASM backend/browser host gained optional FPS limiting.
+- Demo and docs additions: added `demos/auth.c`, expanded the gallery with
+  themed control sections and layout examples, and added `docs/CORE_PATTERNS_GUIDE.md`
+  plus `docs/SENTINEL.md`.
+
+### Changed
+- `gallery.c` is now the main cross-backend gallery source for Raylib, SDL3,
+  and WASM, with backend-specific setup moved into platform layers and the
+  current demo layout retuned for a wider sidebar.
+- Default rendering is now deferred through a per-frame command buffer
+  replayed by `wlx_end`; use `wlx_begin_immediate` to opt out. Public examples
+  and docs now consistently call `wlx_end(ctx)` before `EndDrawing()` /
+  `SDL_RenderPresent(ren)`.
+- `WLX_Context` per-frame storage now lives in `WLX_Arena_Pool`, with new
+  `wlx_context_init` and `wlx_context_init_ex` entry points plus
+  allocator-group configuration.
+- Theme presets and demo styling were refreshed across dark, light, and glass
+  modes, and toggle/radio label placement now respects the `align` field via
+  `wlx_get_align_rect`.
+- Text measurement, wrapping, and input/gallery sizing were refined for more
+  stable two-pass layout behavior and cleaner demo ergonomics.
+
+### Changed (Breaking)
+- **Breaking:** `WLX_Theme.toggle` gained `track_to_height_ratio` (default 0 =
+  use 2.0) and `thumb_inset_ratio` (default 0 = use 0.15). `WLX_Theme.radio`
+  gained `selected_inset_ratio` (default 0 = use 0.25). `WLX_Theme` gained a
+  global `min_rounded_segments` field (built-in presets set to 16) replacing
+  the hardcoded `< 16 ? 16` clamp in toggle and radio impls. Custom themes
+  that zero-initialize from struct literals gain the new fields at zero, which
+  preserves previous visual output.
+- **Breaking:** `WLX_Theme` gained a `progress` sub-struct with `track`,
+  `fill`, and `track_height` fields. `wlx_resolve_opt_progress` now reads
+  from `theme->progress` first and falls back to `theme->slider.track` /
+  `theme->accent` only when the progress-specific fields are zero. Custom
+  themes that zero-initialize the new sub-struct retain previous visual output.
+  Built-in presets (`wlx_theme_dark`, `wlx_theme_light`, `wlx_theme_glass`)
+  have been updated with dedicated progress colors.
 
 ### Fixed
-- Input state handling edge cases in `web/wollix_wasm.js`.
-- Dangling-pointer UB in `wlx_grid_begin_impl` where `resolved` array
-  was scoped inside an `if` block but read after it closed.
+- Fixed nested CONTENT bootstrap deadlocks by seeding unmeasured slots,
+  improving intrinsic height contribution, and including child padding in
+  linear parent measurements.
+- Fixed overly noisy nested CONTENT debug warnings while preserving
+  widget/content-slot diagnostics for real layout issues.
+- Fixed gap handling so slot and grid rects no longer paint into visual gap
+  space, and dynamic linear/grid paths now apply spacing consistently.
+- Fixed dynamic-layout and nested-static-layout contention by moving dynamic
+  offsets into a dedicated `dyn_offsets` arena.
+- Fixed `wlx_widget` so opacity and hover brightness apply to border color as
+  well as fill color.
+- Fixed sentinel resolution for negative and float-valued option fields,
+  including border width, roundness, scrollbar width, and hover-brightness
+  fields.
+- Fixed `WLX_Cmd_Range.parent_range_idx` back to `int` with
+  `WLX_NO_RANGE == -1`, removing redundant casts and restoring the intended
+  internal sentinel handling.
+- Fixed WASM host input edge cases, SDL3 multisampling, a dangling-pointer bug
+  in `wlx_grid_begin_impl`, content-based debug-warning deduplication, and
+  assorted demo sizing issues.
+- Fixed documentation drift around backend requirements, sentinel
+  conventions, the identity model, and frame-loop ordering.
+
+### Removed
+- Deprecated `wlx_is_unset()` removed. Use `wlx_is_negative_unset()` for `-1`
+  sentinel fields and `wlx_is_float_unset()` when other negative values are
+  valid.
+- **Breaking:** Removed `WLX_Grid_Cell_Opt` and `wlx_default_grid_cell_opt`.
+  `row_span` and `col_span` now live on `WLX_Slot_Style_Opt` (defaults remain
+  `1`), and `wlx_grid_cell()` now takes `WLX_Slot_Style_Opt` directly. Calls
+  like `wlx_grid_cell(ctx, r, c, .row_span = 2, .col_span = 2)` still work,
+  but named `WLX_Grid_Cell_Opt` variables must migrate to `WLX_Slot_Style_Opt`.
+- Removed outdated `demos/gallery_new.c` after folding its content into the
+  main gallery flow.
+
+### Internal
+- Introduced shared helper and macro layers for command recording, widget
+  frames, layout/container decoration, padding, opacity, typography, border
+  resolution, and box drawing.
+- Unified the five layout-begin entry points behind shared frame/common
+  helpers, extracted the CONTENT sizing lifecycle into named helpers,
+  decomposed `wlx_scroll_panel_begin_impl`, and moved widget wrappers onto a
+  balanced frame lifecycle.
+- Refactored per-frame storage around `WLX_Arena_Pool`, `WLX_Sub_Arena`, a
+  WASM page pool, `dyn_offsets`, and `WLX_ARENA_POOL_FIELDS(X)`, while
+  switching layout internals to on-demand offset/content-height accessors.
+- Added SDL3-local tessellation helpers and expanded regression coverage with
+  new suites including `test_circle_dispatch`, `test_cmd_replay`,
+  `test_container_scope`, `test_dyn_offsets`, `test_rounding`,
+  `test_slot_style`, `test_sub_arena`, `test_text_layout`, `test_wasm_pool`,
+  `test_widget_wrapper`, and `test_widgets`.
 
 ## [0.2.0] - 2026-04-07
 

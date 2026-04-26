@@ -12,12 +12,15 @@ layouts. Define rows, columns, and grids — widgets interlock into place.
 - Single header: [wollix.h](wollix.h)
 - Zero dependencies in the core library
 - Backend adapters for Raylib, SDL3, and bare WASM32 included
-- Built-in widgets: buttons, checkboxes, sliders, text input, scroll panels
-- Current version: `WOLLIX_VERSION` = `"0.2.0"`
+- Built-in widgets and compound helpers: labels, buttons, checkboxes,
+    toggles, radios, input boxes, sliders, progress bars, separators, scroll
+    panels, panels, split layouts, and fixed/auto-growing grid helpers
+- Current version: `WOLLIX_VERSION` = `"0.3.0"`
 
 ## Quick Start
 
 ```c
+#include <stdio.h>
 #include <raylib.h>
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
@@ -36,25 +39,29 @@ int main(void) {
     while (!WindowShouldClose()) {
         WLX_Rect root = {0, 0, GetRenderWidth(), GetRenderHeight()};
         wlx_begin(&ctx, root, wlx_process_raylib_input);
+
         BeginDrawing();
         ClearBackground((Color){18, 18, 18, 255});
 
-            wlx_layout_begin(&ctx, 4, WLX_VERT, .padding = 8);
+        wlx_layout_begin(&ctx, 4, WLX_VERT, .padding = 8);
 
-                wlx_label(&ctx, "Hello, wollix.h!", .font_size = 24, .align = WLX_CENTER);
+            wlx_label(&ctx, "Hello, wollix.h!", .font_size = 24, .align = WLX_CENTER);
 
-                if (wlx_button(&ctx, "Click me", .height = 40))
-                    printf("clicked!\n");
+            if (wlx_button(&ctx, "Click me", .height = 40))
+                printf("clicked!\n");
 
-                wlx_checkbox(&ctx, "Enable feature", &checked);
+            wlx_checkbox(&ctx, "Enable feature", &checked);
 
-                wlx_slider(&ctx, "Volume", &slider_val, .min_value = 0, .max_value = 1);
+            wlx_slider(&ctx, "Volume", &slider_val,
+                .min_value = 0.0f, .max_value = 1.0f);
 
-            wlx_layout_end(&ctx);
+        wlx_layout_end(&ctx);
 
-        EndDrawing();
         wlx_end(&ctx);
+        EndDrawing();
     }
+
+    wlx_context_destroy(&ctx);
     CloseWindow();
 }
 ```
@@ -127,9 +134,13 @@ The library includes the following widgets and layout/container primitives:
 
 - **Button** - Clickable button widget with hover effects
 - **Label** - Static text display with wrapping and alignment
-- **Checkbox** - Toggle checkbox with text label (supports custom textures)
+- **Checkbox** - Toggle checkbox with text label and optional checked/unchecked textures
+- **Toggle** - On/off switch widget with animated thumb/track styling
+- **Radio** - Single-choice radio control with label alignment options
 - **Input Box** - Text input field with cursor and selection
 - **Slider** - Value slider with label and drag interaction
+- **Progress Bar** - Read-only progress indicator with theme-aware track/fill styling
+- **Separator** - Horizontal or vertical divider for grouping related controls
 - **Scrollable Panel** - Vertical scrolling container for long content
 - **Split** - Two-pane compound layout with independent scroll panels
 - **Panel** - Capacity-based compound layout with optional heading

@@ -60,8 +60,8 @@ TEST(scroll_initial_zero) {
 
     // The content layout is the topmost layout. Its rect.y should be
     // panel.y - scroll_offset. For zero scroll, the y should be very close to 0.
-    ASSERT_TRUE(ctx.layouts.count > 0);
-    WLX_Layout *content_layout = &ctx.layouts.items[ctx.layouts.count - 1];
+    ASSERT_TRUE(ctx.arena.layouts.count > 0);
+    WLX_Layout *content_layout = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
     // scroll_offset = 0, so content rect y should equal panel rect y (approximately 0)
     ASSERT_EQ_F(content_layout->rect.y, 0.0f, 1.0f);
 
@@ -93,8 +93,8 @@ TEST(scroll_wheel_down) {
     test_frame_begin(&ctx, 200, 150, false, false);
     open_scroll_panel_A(&ctx, 600);
 
-    ASSERT_TRUE(ctx.layouts.count > 0);
-    WLX_Layout *content = &ctx.layouts.items[ctx.layouts.count - 1];
+    ASSERT_TRUE(ctx.arena.layouts.count > 0);
+    WLX_Layout *content = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
     // scroll_offset > 0, so content rect y < panel rect y
     ASSERT_TRUE(content->rect.y < 0.0f);
 
@@ -130,8 +130,8 @@ TEST(scroll_wheel_up) {
     test_frame_begin(&ctx, 200, 150, false, false);
     open_scroll_panel_A(&ctx, 600);
 
-    ASSERT_TRUE(ctx.layouts.count > 0);
-    WLX_Layout *content = &ctx.layouts.items[ctx.layouts.count - 1];
+    ASSERT_TRUE(ctx.arena.layouts.count > 0);
+    WLX_Layout *content = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
     // After -3*20=60 down then +1*20=20 up -> net 40 down, so y should be ~ -40
     ASSERT_EQ_F(content->rect.y, -40.0f, 1.0f);
 
@@ -160,8 +160,8 @@ TEST(scroll_clamp_top) {
     test_frame_begin(&ctx, 200, 150, false, false);
     open_scroll_panel_A(&ctx, 600);
 
-    ASSERT_TRUE(ctx.layouts.count > 0);
-    WLX_Layout *content = &ctx.layouts.items[ctx.layouts.count - 1];
+    ASSERT_TRUE(ctx.arena.layouts.count > 0);
+    WLX_Layout *content = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
     // scroll_offset clamped to 0, so y stays at panel y (~0)
     ASSERT_EQ_F(content->rect.y, 0.0f, 1.0f);
 
@@ -191,8 +191,8 @@ TEST(scroll_clamp_bottom) {
     test_frame_begin(&ctx, 200, 150, false, false);
     open_scroll_panel_A(&ctx, 600);
 
-    ASSERT_TRUE(ctx.layouts.count > 0);
-    WLX_Layout *content = &ctx.layouts.items[ctx.layouts.count - 1];
+    ASSERT_TRUE(ctx.arena.layouts.count > 0);
+    WLX_Layout *content = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
     // max_scroll = 600 - 300 = 300 -> content y = panel_y - 300
     ASSERT_EQ_F(content->rect.y, -300.0f, 1.0f);
 
@@ -222,8 +222,8 @@ TEST(scroll_no_scroll_when_content_fits) {
     test_frame_begin(&ctx, 200, 150, false, false);
     open_scroll_panel_A(&ctx, 200);
 
-    ASSERT_TRUE(ctx.layouts.count > 0);
-    WLX_Layout *content = &ctx.layouts.items[ctx.layouts.count - 1];
+    ASSERT_TRUE(ctx.arena.layouts.count > 0);
+    WLX_Layout *content = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
     ASSERT_EQ_F(content->rect.y, 0.0f, 1.0f);
 
     close_scroll_panel_A(&ctx);
@@ -259,7 +259,7 @@ TEST(scroll_auto_height) {
         wlx_default_scroll_panel_opt(.wheel_scroll_speed = 20.0f),
         __FILE__, __LINE__);
 
-    ASSERT_TRUE(ctx.layouts.count > 0);
+    ASSERT_TRUE(ctx.arena.layouts.count > 0);
 
     wlx_scroll_panel_end(&ctx);
     wlx_layout_end(&ctx);
@@ -307,7 +307,7 @@ TEST(scroll_nested_grid_no_double_count) {
     test_frame_begin(&ctx, 0, 0, false, false);
     open_auto_scroll(&ctx);
         WLX_Scroll_Panel_State *sp =
-            ctx.scroll_panels.items[ctx.scroll_panels.count - 1];
+            wlx_pool_scroll_panels(&ctx)[ctx.arena.scroll_panels.count - 1];
         // Should be ~40px (one grid row), not inflated by inner layouts.
         ASSERT_TRUE(sp->content_height <= 60.0f);
     close_auto_scroll(&ctx);
@@ -332,7 +332,7 @@ TEST(scroll_flat_vert_height) {
     test_frame_begin(&ctx, 0, 0, false, false);
     open_auto_scroll(&ctx);
         WLX_Scroll_Panel_State *sp =
-            ctx.scroll_panels.items[ctx.scroll_panels.count - 1];
+            wlx_pool_scroll_panels(&ctx)[ctx.arena.scroll_panels.count - 1];
         // 3 * 50 = 150px
         ASSERT_EQ_F(sp->content_height, 150.0f, 5.0f);
     close_auto_scroll(&ctx);
@@ -359,7 +359,7 @@ TEST(scroll_nested_vert_propagation) {
     test_frame_begin(&ctx, 0, 0, false, false);
     open_auto_scroll(&ctx);
         WLX_Scroll_Panel_State *sp =
-            ctx.scroll_panels.items[ctx.scroll_panels.count - 1];
+            wlx_pool_scroll_panels(&ctx)[ctx.arena.scroll_panels.count - 1];
         // Inner: 30+30=60, Outer: 60+40=100 (plus padding from inner layout)
         ASSERT_TRUE(sp->content_height >= 95.0f && sp->content_height <= 115.0f);
     close_auto_scroll(&ctx);
@@ -383,7 +383,7 @@ TEST(scroll_horz_layout_max_height) {
     test_frame_begin(&ctx, 0, 0, false, false);
     open_auto_scroll(&ctx);
         WLX_Scroll_Panel_State *sp =
-            ctx.scroll_panels.items[ctx.scroll_panels.count - 1];
+            wlx_pool_scroll_panels(&ctx)[ctx.arena.scroll_panels.count - 1];
         // HORZ: max(60, 80) = 80
         ASSERT_EQ_F(sp->content_height, 80.0f, 5.0f);
     close_auto_scroll(&ctx);

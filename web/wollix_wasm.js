@@ -7,6 +7,7 @@
 
 const WASM_FILE = "gallery.wasm";
 const CANVAS_ID = "wlx-canvas";
+const TARGET_FPS = 60; // 0 = uncapped (tracks monitor refresh rate)
 
 // ============================================================================
 // WLX_Input_State layout (must match C struct on wasm32)
@@ -103,6 +104,8 @@ function cssColor(rgba) {
     let inputPtr = 0;     // pointer into wasm memory for WLX_Input_State
     let lastTime = 0;     // for get_frame_time
     let frameTime = 0;
+    let targetInterval = TARGET_FPS > 0 ? 1000 / TARGET_FPS : 0;
+    let lastRenderedTime = 0;
 
     // ========================================================================
     // Read a NUL-terminated C string from wasm memory
@@ -142,6 +145,32 @@ function cssColor(rgba) {
             ctx.beginPath();
             ctx.roundRect(x, y, w, h, r);
             ctx.fill();
+        },
+
+        draw_rect_rounded_lines(x, y, w, h, roundness, _segments, thick, rgba) {
+            const r = Math.min(roundness * Math.min(w, h) / 2, Math.min(w, h) / 2);
+            ctx.strokeStyle = cssColor(rgba);
+            ctx.lineWidth = thick;
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, r);
+            ctx.stroke();
+        },
+
+        draw_circle(cx, cy, radius, _segments, rgba) {
+            ctx.fillStyle = cssColor(rgba);
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.fill();
+        },
+
+        draw_ring(cx, cy, innerR, outerR, _segments, rgba) {
+            const lineW = outerR - innerR;
+            const midR = (innerR + outerR) / 2;
+            ctx.strokeStyle = cssColor(rgba);
+            ctx.lineWidth = lineW;
+            ctx.beginPath();
+            ctx.arc(cx, cy, midR, 0, Math.PI * 2);
+            ctx.stroke();
         },
 
         draw_line(x1, y1, x2, y2, thick, rgba) {
@@ -379,9 +408,19 @@ function cssColor(rgba) {
     // Frame loop
     // ========================================================================
     function onFrame(timestamp) {
-        // Compute frame time in seconds
+        requestAnimationFrame(onFrame);
+
+        // Skip frame if below target interval
+        if (targetInterval > 0) {
+            if (lastRenderedTime > 0 && (timestamp - lastRenderedTime) < targetInterval - 1) {
+                return;
+            }
+            lastRenderedTime = timestamp;
+        }
+
+        // Compute frame time in seconds (elapsed between rendered frames)
         if (lastTime === 0) lastTime = timestamp;
-        frameTime = (timestamp - lastTime) / 1000;
+        frameTime = Math.min((timestamp - lastTime) / 1000, 0.25);
         lastTime = timestamp;
 
         // Resize canvas to match display size
@@ -402,8 +441,6 @@ function cssColor(rgba) {
 
         // Call the wasm frame function with canvas dimensions
         wasmFrame(displayW, displayH);
-
-        requestAnimationFrame(onFrame);
     }
 
     requestAnimationFrame(onFrame);

@@ -651,6 +651,20 @@ TEST(debug_warn_only_once_per_site_per_frame) {
     ASSERT_EQ_INT(1, _debug_warn_count);
 }
 
+TEST(debug_warn_once_same_file_text_different_pointer) {
+    WLX_Context ctx;
+    char file_a[] = "same_site.c";
+    char file_b[] = "same_site.c";
+
+    test_ctx_init(&ctx, 800, 600);
+    _test_debug_warn_reset(&ctx);
+
+    wlx_dbg_warn_once(&ctx, file_a, 123, "first warning");
+    wlx_dbg_warn_once(&ctx, file_b, 123, "second warning");
+
+    ASSERT_EQ_INT(1, _debug_warn_count);
+}
+
 #endif // WLX_DEBUG
 
 // ============================================================================
@@ -706,5 +720,6 @@ SUITE(interaction) {
     RUN_TEST(debug_warn_push_id_suppresses);
     RUN_TEST(debug_warn_resets_each_frame);
     RUN_TEST(debug_warn_only_once_per_site_per_frame);
+    RUN_TEST(debug_warn_once_same_file_text_different_pointer);
 #endif
 }

@@ -18,7 +18,7 @@
 TEST(edge_offsets_zero_total) {
     // total=0 -> all offsets should be 0
     float off[4];
-    wlx_compute_offsets(off, 3, 0.0f, 0.0f, NULL);
+    wlx_compute_offsets(off, 3, 0.0f, 0.0f, NULL, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[1], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[2], 0.0f, EDGE_EPS);
@@ -29,7 +29,7 @@ TEST(edge_offsets_zero_total_with_sizes) {
     // total=0 but slots request space -> offsets clamp, no crash
     WLX_Slot_Size sizes[] = { WLX_SLOT_PX(100), WLX_SLOT_FLEX(1) };
     float off[3];
-    wlx_compute_offsets(off, 2, 0.0f, 0.0f, sizes);
+    wlx_compute_offsets(off, 2, 0.0f, 0.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     // PX(100) still gets 100, flex gets 0 (remaining is 0)
     ASSERT_EQ_F(off[1], 100.0f, EDGE_EPS);
@@ -40,7 +40,7 @@ TEST(edge_offsets_all_zero_px) {
     // All PX(0) -> all offsets at 0
     WLX_Slot_Size sizes[] = { WLX_SLOT_PX(0), WLX_SLOT_PX(0), WLX_SLOT_PX(0) };
     float off[4];
-    wlx_compute_offsets(off, 3, 500.0f, 500.0f, sizes);
+    wlx_compute_offsets(off, 3, 500.0f, 500.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[1], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[2], 0.0f, EDGE_EPS);
@@ -51,7 +51,7 @@ TEST(edge_offsets_px_exceeds_total) {
     // Pixel slots sum to more than total -> no crash, offsets go beyond total
     WLX_Slot_Size sizes[] = { WLX_SLOT_PX(300), WLX_SLOT_PX(300) };
     float off[3];
-    wlx_compute_offsets(off, 2, 100.0f, 100.0f, sizes);
+    wlx_compute_offsets(off, 2, 100.0f, 100.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[1], 300.0f, EDGE_EPS);
     ASSERT_EQ_F(off[2], 600.0f, EDGE_EPS);
@@ -64,7 +64,7 @@ TEST(edge_offsets_pct_exceeds_100) {
     // Percentages sum > 100% -> no crash, slots stretch beyond total
     WLX_Slot_Size sizes[] = { WLX_SLOT_PCT(80), WLX_SLOT_PCT(80) };
     float off[3];
-    wlx_compute_offsets(off, 2, 100.0f, 100.0f, sizes);
+    wlx_compute_offsets(off, 2, 100.0f, 100.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[1], 80.0f, EDGE_EPS);
     ASSERT_EQ_F(off[2], 160.0f, EDGE_EPS);
@@ -74,7 +74,7 @@ TEST(edge_offsets_flex_zero_weight) {
     // FLEX(0) -> should get 0 size, not crash/divide-by-zero
     WLX_Slot_Size sizes[] = { WLX_SLOT_FLEX(0), WLX_SLOT_FLEX(1) };
     float off[3];
-    wlx_compute_offsets(off, 2, 100.0f, 100.0f, sizes);
+    wlx_compute_offsets(off, 2, 100.0f, 100.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     // FLEX(0) gets 0, FLEX(1) gets all 100
     ASSERT_EQ_F(off[1], 0.0f, EDGE_EPS);
@@ -85,7 +85,7 @@ TEST(edge_offsets_all_flex_zero) {
     // All FLEX(0) -> total_weight=0, no crash, all get 0
     WLX_Slot_Size sizes[] = { WLX_SLOT_FLEX(0), WLX_SLOT_FLEX(0) };
     float off[3];
-    wlx_compute_offsets(off, 2, 200.0f, 200.0f, sizes);
+    wlx_compute_offsets(off, 2, 200.0f, 200.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[1], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[2], 0.0f, EDGE_EPS);
@@ -94,7 +94,7 @@ TEST(edge_offsets_all_flex_zero) {
 TEST(edge_offsets_very_large_total) {
     // Very large total -> no overflow, slots divide correctly
     float off[3];
-    wlx_compute_offsets(off, 2, 1000000.0f, 1000000.0f, NULL);
+    wlx_compute_offsets(off, 2, 1000000.0f, 1000000.0f, NULL, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, 1.0f);
     ASSERT_EQ_F(off[1], 500000.0f, 1.0f);
     ASSERT_EQ_F(off[2], 1000000.0f, 1.0f);
@@ -103,7 +103,7 @@ TEST(edge_offsets_very_large_total) {
 TEST(edge_offsets_many_slots) {
     // Many slots (16) with NULL sizes -> equal split works
     float off[17];
-    wlx_compute_offsets(off, 16, 1600.0f, 1600.0f, NULL);
+    wlx_compute_offsets(off, 16, 1600.0f, 1600.0f, NULL, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[16], 1600.0f, EDGE_EPS);
     for (int i = 0; i < 16; i++) {
@@ -118,7 +118,7 @@ TEST(edge_offsets_min_larger_than_slot) {
         WLX_SLOT_FLEX_MIN(1, 300),  // normally 50px in 100px total, but min=300
     };
     float off[2];
-    wlx_compute_offsets(off, 1, 100.0f, 100.0f, sizes);
+    wlx_compute_offsets(off, 1, 100.0f, 100.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     // Min forces to 300 even though total is only 100
     ASSERT_EQ_F(off[1], 300.0f, EDGE_EPS);
@@ -128,7 +128,7 @@ TEST(edge_offsets_max_smaller_than_total) {
     // Max constrains the slot even though there's plenty of space
     WLX_Slot_Size sizes[] = { WLX_SLOT_FLEX_MAX(1, 50) };
     float off[2];
-    wlx_compute_offsets(off, 1, 1000.0f, 1000.0f, sizes);
+    wlx_compute_offsets(off, 1, 1000.0f, 1000.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[1], 50.0f, EDGE_EPS);
 }
@@ -137,7 +137,7 @@ TEST(edge_offsets_min_equals_max) {
     // min == max -> slot locked to that exact size
     WLX_Slot_Size sizes[] = { WLX_SLOT_FLEX_MINMAX(1, 100, 100) };
     float off[2];
-    wlx_compute_offsets(off, 1, 500.0f, 500.0f, sizes);
+    wlx_compute_offsets(off, 1, 500.0f, 500.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[1], 100.0f, EDGE_EPS);
 }
@@ -146,7 +146,7 @@ TEST(edge_offsets_single_auto) {
     // Single AUTO slot -> gets all the space
     WLX_Slot_Size sizes[] = { WLX_SLOT_AUTO };
     float off[2];
-    wlx_compute_offsets(off, 1, 500.0f, 500.0f, sizes);
+    wlx_compute_offsets(off, 1, 500.0f, 500.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[1], 500.0f, EDGE_EPS);
 }
@@ -160,7 +160,7 @@ TEST(edge_offsets_mixed_all_types) {
         WLX_SLOT_AUTO,       // auto(1) of total weight 2 -> 125
     };
     float off[5];
-    wlx_compute_offsets(off, 4, 400.0f, 400.0f, sizes);
+    wlx_compute_offsets(off, 4, 400.0f, 400.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EDGE_EPS);
     ASSERT_EQ_F(off[1], 50.0f, EDGE_EPS);
     ASSERT_EQ_F(off[2], 150.0f, EDGE_EPS);  // 50 + 100
@@ -394,6 +394,7 @@ TEST(border_clamp_subpixel) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
     test_frame_begin(&ctx, 0, 0, false, false);
+    ctx.immediate_mode = true;
 
     WLX_Rect r = {10, 10, 100, 50};
     WLX_Color white = {255, 255, 255, 255};
@@ -425,6 +426,32 @@ TEST(border_clamp_subpixel) {
     wlx_draw_rect_lines(&ctx, r, 0.5f, half);
     ASSERT_EQ_F(_mock_last_border_thick, 1.0f, 0.001f);
     ASSERT_EQ_INT(_mock_last_border_color.a, 64);    // 128 * 0.5 = 64
+
+    test_frame_end(&ctx);
+}
+
+// ── wlx_begin_immediate opt-out ─────────────────────────────────────────────
+
+TEST(begin_immediate_dispatches_directly) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    // Use wlx_begin_immediate instead of test_frame_begin
+    memset(&_test_staged_input, 0, sizeof(_test_staged_input));
+    wlx_begin_immediate(&ctx, ctx.rect, _test_input_handler);
+
+    // immediate_mode should be set
+    ASSERT_TRUE(ctx.immediate_mode);
+
+    // Draws should dispatch directly, observable via mock state
+    WLX_Rect r = {10, 20, 100, 50};
+    WLX_Color white = {255, 255, 255, 255};
+    wlx_draw_rect_lines(&ctx, r, 3.0f, white);
+    ASSERT_EQ_F(_mock_last_border_thick, 3.0f, 0.001f);
+    ASSERT_EQ_INT(_mock_last_border_color.a, 255);
+
+    // No commands should be recorded
+    ASSERT_EQ_INT((int)ctx.arena.commands.count, 0);
 
     test_frame_end(&ctx);
 }
@@ -486,4 +513,7 @@ SUITE(edge_cases) {
 
     // Border clamp
     RUN_TEST(border_clamp_subpixel);
+
+    // Opt-out (wlx_begin_immediate)
+    RUN_TEST(begin_immediate_dispatches_directly);
 }

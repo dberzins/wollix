@@ -102,6 +102,51 @@ TEST(resolve_opacity_zero_widget) {
 }
 
 // ============================================================================
+// wlx_resolve_opacity_for - wrapper reads theme + ctx stack automatically
+// ============================================================================
+
+TEST(resolve_opacity_for_all_defaults) {
+    WLX_Context ctx = {0};
+    ctx.backend = mock_backend();
+    WLX_Theme theme = {0};
+    theme.opacity = -1.0f; // sentinel -> no theme attenuation
+    ctx.theme = &theme;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    // ctx opacity stack is empty -> 1.0; theme sentinel -> 1.0; opt sentinel -> 1.0
+    ASSERT_EQ_F(wlx_resolve_opacity_for(&ctx, -1.0f), 1.0f, 0.001f);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(resolve_opacity_for_theme_attenuates) {
+    WLX_Context ctx = {0};
+    ctx.backend = mock_backend();
+    WLX_Theme theme = {0};
+    theme.opacity = 0.5f;
+    ctx.theme = &theme;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    // opt sentinel -> 1.0; theme 0.5; ctx 1.0 -> 0.5
+    ASSERT_EQ_F(wlx_resolve_opacity_for(&ctx, -1.0f), 0.5f, 0.001f);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(resolve_opacity_for_stack_attenuates) {
+    WLX_Context ctx = {0};
+    ctx.backend = mock_backend();
+    WLX_Theme theme = {0};
+    theme.opacity = -1.0f;
+    ctx.theme = &theme;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_push_opacity(&ctx, 0.4f);
+    // opt 0.5; theme sentinel -> 1.0; ctx 0.4 -> 0.2
+    ASSERT_EQ_F(wlx_resolve_opacity_for(&ctx, 0.5f), 0.2f, 0.001f);
+    wlx_pop_opacity(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
@@ -119,4 +164,9 @@ SUITE(opacity_stack) {
     RUN_TEST(resolve_opacity_ctx_only);
     RUN_TEST(resolve_opacity_all_three);
     RUN_TEST(resolve_opacity_zero_widget);
+
+    // wlx_resolve_opacity_for wrapper
+    RUN_TEST(resolve_opacity_for_all_defaults);
+    RUN_TEST(resolve_opacity_for_theme_attenuates);
+    RUN_TEST(resolve_opacity_for_stack_attenuates);
 }

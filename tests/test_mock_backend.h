@@ -31,6 +31,36 @@ static void noop_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WL
     (void)r; (void)roundness; (void)segments; (void)c;
 }
 
+static void noop_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
+    (void)r; (void)roundness; (void)segments; (void)thick; (void)c;
+}
+
+static int _mock_circle_call_count = 0;
+static float _mock_last_circle_cx = 0;
+static float _mock_last_circle_cy = 0;
+static float _mock_last_circle_radius = 0;
+static void noop_draw_circle(float cx, float cy, float radius, int segments, WLX_Color c) {
+    _mock_circle_call_count++;
+    _mock_last_circle_cx = cx;
+    _mock_last_circle_cy = cy;
+    _mock_last_circle_radius = radius;
+    (void)segments; (void)c;
+}
+
+static int _mock_ring_call_count = 0;
+static float _mock_last_ring_cx = 0;
+static float _mock_last_ring_cy = 0;
+static float _mock_last_ring_inner_r = 0;
+static float _mock_last_ring_outer_r = 0;
+static void noop_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c) {
+    _mock_ring_call_count++;
+    _mock_last_ring_cx = cx;
+    _mock_last_ring_cy = cy;
+    _mock_last_ring_inner_r = inner_r;
+    _mock_last_ring_outer_r = outer_r;
+    (void)segments; (void)c;
+}
+
 static void noop_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c) {
     (void)x1; (void)y1; (void)x2; (void)y2; (void)thick; (void)c;
 }
@@ -75,8 +105,11 @@ static inline WLX_Backend mock_backend(void) {
     return (WLX_Backend){
         .draw_rect         = noop_draw_rect,
         .draw_rect_lines   = noop_draw_rect_lines,
-        .draw_rect_rounded = noop_draw_rect_rounded,
-        .draw_line         = noop_draw_line,
+        .draw_rect_rounded       = noop_draw_rect_rounded,
+        .draw_rect_rounded_lines = noop_draw_rect_rounded_lines,
+        .draw_circle             = noop_draw_circle,
+        .draw_ring               = noop_draw_ring,
+        .draw_line               = noop_draw_line,
         .draw_text         = noop_draw_text,
         .measure_text      = mock_measure_text,
         .draw_texture      = noop_draw_texture,
@@ -156,7 +189,7 @@ static inline void test_frame_begin_ex(WLX_Context *ctx, int mx, int my,
 // End the current frame.
 static inline void test_frame_end(WLX_Context *ctx) {
     // Drain any open layouts so wlx_end doesn't assert
-    while (ctx->layouts.count > 0) {
+    while (ctx->arena.layouts.count > 0) {
         wlx_layout_end(ctx);
     }
     wlx_end(ctx);

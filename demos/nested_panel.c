@@ -214,8 +214,8 @@ int main(void) {
                 // FPS counter
                 DrawFPS(8, 8);
 
-            EndDrawing();
         wlx_end(ctx);
+            EndDrawing();
     }
 
     wlx_context_destroy(ctx);

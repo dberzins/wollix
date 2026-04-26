@@ -25,13 +25,14 @@ WASM_BARE_CFLAGS = --target=wasm32-unknown-unknown -nostdlib -nostdinc -Wno-init
     -Wl,--no-entry \
     -Wl,--export=wlx_wasm_init \
     -Wl,--export=wlx_wasm_frame \
+    -Wl,--export=wlx_wasm_pool_stats \
     -Wl,--export=wlx_wasm_input_state \
     -Wl,--export=memory \
     -Wl,--allow-undefined
 
 DEMO_DIR = demos
-RAYLIB_DEMOS = layout button text checkbox checkbox_tex input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo gallery
-SDL3_DEMOS = sdl3_demo
+RAYLIB_DEMOS = layout button text checkbox checkbox_tex input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo gallery auth
+SDL3_DEMOS = sdl3_demo gallery_sdl3
 DEMO_NAMES = $(RAYLIB_DEMOS) $(SDL3_DEMOS)
 TARGETS = $(addprefix $(DEMO_DIR)/,$(DEMO_NAMES))
 DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
@@ -52,6 +53,9 @@ $(DEMO_DIR)/%: $(DEMO_DIR)/%.c wollix.h wollix_raylib.h | $(DEMO_DIR)
 $(DEMO_DIR)/sdl3_demo: $(DEMO_DIR)/sdl3_demo.c wollix.h wollix_sdl3.h | $(DEMO_DIR)
 	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
 
+$(DEMO_DIR)/gallery_sdl3: $(DEMO_DIR)/gallery.c wollix.h wollix_sdl3.h | $(DEMO_DIR)
+	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -DWLX_GALLERY_SDL3 -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
+
 # ── Bare WASM ────────────────────────────────────────────────────────────────
 wasm-bare: wasm-site
 
@@ -60,8 +64,8 @@ wasm-site: $(WASM_SITE_TARGETS)
 $(WASM_SITE_DIR):
 	mkdir -p $@
 
-$(WASM_SITE_DIR)/gallery.wasm: demos/gallery_wasm.c $(WASM_SRC_DIR)/wlx_libc_shim.c wollix.h wollix_wasm.h | $(WASM_SITE_DIR)
-	$(WASM_CC) $(WASM_BARE_CFLAGS) -o $@ demos/gallery_wasm.c $(WASM_SRC_DIR)/wlx_libc_shim.c
+$(WASM_SITE_DIR)/gallery.wasm: demos/gallery.c $(WASM_SRC_DIR)/wlx_libc_shim.c wollix.h wollix_wasm.h | $(WASM_SITE_DIR)
+	$(WASM_CC) $(WASM_BARE_CFLAGS) -DWLX_GALLERY_WASM -o $@ demos/gallery.c $(WASM_SRC_DIR)/wlx_libc_shim.c
 
 $(WASM_SITE_DIR)/index.html: $(WASM_SRC_DIR)/wollix_wasm.html | $(WASM_SITE_DIR)
 	cp $< $@
@@ -101,6 +105,7 @@ help:
 	@echo "  clean        - Remove built demo executables from ./$(DEMO_DIR)/"
 	@echo "  <demo-name>  - Build a specific demo into ./$(DEMO_DIR)/<demo-name>"
 	@echo "  sdl3_demo    - Build the SDL3 backend demo into ./$(DEMO_DIR)/sdl3_demo"
+	@echo "  gallery_sdl3 - Build the SDL3 widget gallery into ./$(DEMO_DIR)/gallery_sdl3"
 	@echo "  wasm-site    - Package the bare-wasm gallery demo into ./$(WASM_SITE_DIR)/"
 	@echo "  wasm-bare    - Alias for wasm-site"
 	@echo "  test         - Build and run the unit test suite"

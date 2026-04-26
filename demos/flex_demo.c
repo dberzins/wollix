@@ -160,8 +160,8 @@ int main(void) {
             wlx_layout_end(ctx);
         wlx_layout_end(ctx);
 
-        EndDrawing();
         wlx_end(ctx);
+        EndDrawing();
     }
 
     wlx_context_destroy(ctx);

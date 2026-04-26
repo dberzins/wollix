@@ -18,7 +18,7 @@
 
 TEST(offsets_equal_split_2) {
     float off[3];
-    wlx_compute_offsets(off, 2, 400.0f, 400.0f, NULL);
+    wlx_compute_offsets(off, 2, 400.0f, 400.0f, NULL, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 200.0f, EPS);
     ASSERT_EQ_F(off[2], 400.0f, EPS);
@@ -26,7 +26,7 @@ TEST(offsets_equal_split_2) {
 
 TEST(offsets_equal_split_5) {
     float off[6];
-    wlx_compute_offsets(off, 5, 500.0f, 500.0f, NULL);
+    wlx_compute_offsets(off, 5, 500.0f, 500.0f, NULL, 0.0f);
     for (int i = 0; i <= 5; i++) {
         ASSERT_EQ_F(off[i], (float)i * 100.0f, EPS);
     }
@@ -34,7 +34,7 @@ TEST(offsets_equal_split_5) {
 
 TEST(offsets_single_slot) {
     float off[2];
-    wlx_compute_offsets(off, 1, 300.0f, 300.0f, NULL);
+    wlx_compute_offsets(off, 1, 300.0f, 300.0f, NULL, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 300.0f, EPS);
 }
@@ -46,7 +46,7 @@ TEST(offsets_single_slot) {
 TEST(offsets_all_pixels) {
     WLX_Slot_Size sizes[] = { WLX_SLOT_PX(100), WLX_SLOT_PX(150), WLX_SLOT_PX(50) };
     float off[4];
-    wlx_compute_offsets(off, 3, 500.0f, 500.0f, sizes);
+    wlx_compute_offsets(off, 3, 500.0f, 500.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 100.0f, EPS);
     ASSERT_EQ_F(off[2], 250.0f, EPS);
@@ -60,7 +60,7 @@ TEST(offsets_all_pixels) {
 TEST(offsets_all_percent) {
     WLX_Slot_Size sizes[] = { WLX_SLOT_PCT(30), WLX_SLOT_PCT(50), WLX_SLOT_PCT(20) };
     float off[4];
-    wlx_compute_offsets(off, 3, 400.0f, 400.0f, sizes);
+    wlx_compute_offsets(off, 3, 400.0f, 400.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 120.0f, EPS);  // 30% of 400
     ASSERT_EQ_F(off[2], 320.0f, EPS);  // +50% of 400
@@ -74,7 +74,7 @@ TEST(offsets_all_percent) {
 TEST(offsets_all_flex_equal) {
     WLX_Slot_Size sizes[] = { WLX_SLOT_FLEX(1), WLX_SLOT_FLEX(1), WLX_SLOT_FLEX(1) };
     float off[4];
-    wlx_compute_offsets(off, 3, 300.0f, 300.0f, sizes);
+    wlx_compute_offsets(off, 3, 300.0f, 300.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 100.0f, EPS);
     ASSERT_EQ_F(off[2], 200.0f, EPS);
@@ -85,7 +85,7 @@ TEST(offsets_flex_weighted) {
     // 1:2:1 ratio over 400px -> 100, 200, 100
     WLX_Slot_Size sizes[] = { WLX_SLOT_FLEX(1), WLX_SLOT_FLEX(2), WLX_SLOT_FLEX(1) };
     float off[4];
-    wlx_compute_offsets(off, 3, 400.0f, 400.0f, sizes);
+    wlx_compute_offsets(off, 3, 400.0f, 400.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 100.0f, EPS);
     ASSERT_EQ_F(off[2], 300.0f, EPS);
@@ -100,7 +100,7 @@ TEST(offsets_auto_slots) {
     // AUTO acts like flex(1)
     WLX_Slot_Size sizes[] = { WLX_SLOT_AUTO, WLX_SLOT_AUTO };
     float off[3];
-    wlx_compute_offsets(off, 2, 200.0f, 200.0f, sizes);
+    wlx_compute_offsets(off, 2, 200.0f, 200.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 100.0f, EPS);
     ASSERT_EQ_F(off[2], 200.0f, EPS);
@@ -114,7 +114,7 @@ TEST(offsets_mixed_px_flex) {
     // 100px fixed + flex(1) takes remainder of 300px total -> 100 + 200
     WLX_Slot_Size sizes[] = { WLX_SLOT_PX(100), WLX_SLOT_FLEX(1) };
     float off[3];
-    wlx_compute_offsets(off, 2, 300.0f, 300.0f, sizes);
+    wlx_compute_offsets(off, 2, 300.0f, 300.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 100.0f, EPS);
     ASSERT_EQ_F(off[2], 300.0f, EPS);
@@ -124,7 +124,7 @@ TEST(offsets_mixed_px_pct_flex) {
     // 50px + 25% of 400 (=100) + flex(1) takes remaining 250
     WLX_Slot_Size sizes[] = { WLX_SLOT_PX(50), WLX_SLOT_PCT(25), WLX_SLOT_FLEX(1) };
     float off[4];
-    wlx_compute_offsets(off, 3, 400.0f, 400.0f, sizes);
+    wlx_compute_offsets(off, 3, 400.0f, 400.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1],  50.0f, EPS);
     ASSERT_EQ_F(off[2], 150.0f, EPS);
@@ -135,7 +135,7 @@ TEST(offsets_zero_remaining_for_flex) {
     // Pixels consume all 200px, flex gets 0
     WLX_Slot_Size sizes[] = { WLX_SLOT_PX(100), WLX_SLOT_PX(100), WLX_SLOT_FLEX(1) };
     float off[4];
-    wlx_compute_offsets(off, 3, 200.0f, 200.0f, sizes);
+    wlx_compute_offsets(off, 3, 200.0f, 200.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 100.0f, EPS);
     ASSERT_EQ_F(off[2], 200.0f, EPS);
@@ -155,7 +155,7 @@ TEST(offsets_flex_with_min) {
         WLX_SLOT_FLEX(1),
     };
     float off[4];
-    wlx_compute_offsets(off, 3, 300.0f, 300.0f, sizes);
+    wlx_compute_offsets(off, 3, 300.0f, 300.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 150.0f, EPS);  // clamped up to min
     ASSERT_EQ_F(off[2], 250.0f, EPS);  // 100
@@ -169,7 +169,7 @@ TEST(offsets_flex_with_max) {
         WLX_SLOT_FLEX(1),
     };
     float off[3];
-    wlx_compute_offsets(off, 2, 400.0f, 400.0f, sizes);
+    wlx_compute_offsets(off, 2, 400.0f, 400.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 100.0f, EPS);  // clamped down to max
     ASSERT_EQ_F(off[2], 300.0f, EPS);  // 200 (single-pass, no redistribute)
@@ -182,7 +182,7 @@ TEST(offsets_pct_minmax) {
         WLX_SLOT_FLEX(1),
     };
     float off[3];
-    wlx_compute_offsets(off, 2, 200.0f, 200.0f, sizes);
+    wlx_compute_offsets(off, 2, 200.0f, 200.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 120.0f, EPS);  // clamped up to min
     // flex gets remaining after first pass: total - used_pct = 200 - 100 = 100
@@ -199,7 +199,7 @@ TEST(offsets_monotonic) {
         WLX_SLOT_FLEX(1), WLX_SLOT_AUTO
     };
     float off[6];
-    wlx_compute_offsets(off, 5, 600.0f, 600.0f, sizes);
+    wlx_compute_offsets(off, 5, 600.0f, 600.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0], 0.0f, EPS);
     for (int i = 0; i < 5; i++) {
         ASSERT_TRUE(off[i] <= off[i + 1] + EPS);
@@ -214,7 +214,7 @@ TEST(offsets_fill_basic) {
     // Single FILL slot: should resolve to full viewport, not total
     WLX_Slot_Size sizes[] = { WLX_SLOT_FILL };
     float off[2];
-    wlx_compute_offsets(off, 1, 1200.0f, 600.0f, sizes);
+    wlx_compute_offsets(off, 1, 1200.0f, 600.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 600.0f, EPS);  // viewport, not total
 }
@@ -223,7 +223,7 @@ TEST(offsets_fill_plus_px) {
     // FILL(1.0) + PX(100): FILL = viewport, total = viewport + 100
     WLX_Slot_Size sizes[] = { WLX_SLOT_FILL, WLX_SLOT_PX(100) };
     float off[3];
-    wlx_compute_offsets(off, 2, 1200.0f, 600.0f, sizes);
+    wlx_compute_offsets(off, 2, 1200.0f, 600.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 600.0f, EPS);
     ASSERT_EQ_F(off[2], 700.0f, EPS);
@@ -233,7 +233,7 @@ TEST(offsets_fill_plus_flex) {
     // FILL(1.0) + FLEX(1): FILL uses 600 of viewport, FLEX gets remaining from total
     WLX_Slot_Size sizes[] = { WLX_SLOT_FILL, WLX_SLOT_FLEX(1) };
     float off[3];
-    wlx_compute_offsets(off, 2, 800.0f, 600.0f, sizes);
+    wlx_compute_offsets(off, 2, 800.0f, 600.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 600.0f, EPS);    // FILL = viewport
     ASSERT_EQ_F(off[2], 800.0f, EPS);    // FLEX = total - viewport = 200
@@ -243,7 +243,7 @@ TEST(offsets_fill_flex_no_remaining) {
     // FILL(1.0) + FLEX(1) when total == viewport: FLEX gets 0
     WLX_Slot_Size sizes[] = { WLX_SLOT_FILL, WLX_SLOT_FLEX(1) };
     float off[3];
-    wlx_compute_offsets(off, 2, 600.0f, 600.0f, sizes);
+    wlx_compute_offsets(off, 2, 600.0f, 600.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 600.0f, EPS);
     ASSERT_EQ_F(off[2], 600.0f, EPS);    // FLEX = 0
@@ -253,7 +253,7 @@ TEST(offsets_fill_with_min) {
     // FILL_MIN(500) when viewport = 300 -> clamps to 500
     WLX_Slot_Size sizes[] = { WLX_SLOT_FILL_MIN(500) };
     float off[2];
-    wlx_compute_offsets(off, 1, 1000.0f, 300.0f, sizes);
+    wlx_compute_offsets(off, 1, 1000.0f, 300.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 500.0f, EPS);  // min wins over viewport
 }
@@ -262,7 +262,7 @@ TEST(offsets_fill_with_max) {
     // FILL_MAX(300) when viewport = 600 -> clamps to 300
     WLX_Slot_Size sizes[] = { WLX_SLOT_FILL_MAX(300) };
     float off[2];
-    wlx_compute_offsets(off, 1, 1000.0f, 600.0f, sizes);
+    wlx_compute_offsets(off, 1, 1000.0f, 600.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 300.0f, EPS);  // max wins over viewport
 }
@@ -271,7 +271,7 @@ TEST(offsets_fill_pct) {
     // FILL_PCT(50) -> half the viewport
     WLX_Slot_Size sizes[] = { WLX_SLOT_FILL_PCT(50) };
     float off[2];
-    wlx_compute_offsets(off, 1, 1000.0f, 800.0f, sizes);
+    wlx_compute_offsets(off, 1, 1000.0f, 800.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 400.0f, EPS);  // 50% of 800
 }
@@ -280,7 +280,7 @@ TEST(offsets_fill_multiple) {
     // Two FILL_PCT(50) slots: each = 50% of viewport
     WLX_Slot_Size sizes[] = { WLX_SLOT_FILL_PCT(50), WLX_SLOT_FILL_PCT(50) };
     float off[3];
-    wlx_compute_offsets(off, 2, 1200.0f, 600.0f, sizes);
+    wlx_compute_offsets(off, 2, 1200.0f, 600.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 300.0f, EPS);
     ASSERT_EQ_F(off[2], 600.0f, EPS);
@@ -290,7 +290,7 @@ TEST(offsets_fill_no_scroll_panel) {
     // When viewport == total (no scroll panel), FILL behaves like PCT(100)
     WLX_Slot_Size sizes[] = { WLX_SLOT_FILL };
     float off[2];
-    wlx_compute_offsets(off, 1, 500.0f, 500.0f, sizes);
+    wlx_compute_offsets(off, 1, 500.0f, 500.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
     ASSERT_EQ_F(off[1], 500.0f, EPS);
 }
@@ -491,6 +491,70 @@ TEST(rect_inset_too_large) {
     WLX_Rect r = wlx_rect_inset((WLX_Rect){0, 0, 20, 10}, 15.0f);
     ASSERT_EQ_F(r.w, 0.0f, EPS);
     ASSERT_EQ_F(r.h, 0.0f, EPS);
+}
+
+// ============================================================================
+// wlx_rect_inset_sides
+// ============================================================================
+
+TEST(rect_inset_sides_uniform) {
+    WLX_Rect r = wlx_rect_inset_sides((WLX_Rect){0, 0, 200, 100}, 5, 5, 5, 5);
+    ASSERT_EQ_RECT(r, ((WLX_Rect){5, 5, 190, 90}), EPS);
+}
+
+TEST(rect_inset_sides_asymmetric) {
+    WLX_Rect r = wlx_rect_inset_sides((WLX_Rect){0, 0, 200, 100}, 10, 20, 30, 40);
+    // x = 0+40=40, y = 0+10=10, w = 200-40-20=140, h = 100-10-30=60
+    ASSERT_EQ_RECT(r, ((WLX_Rect){40, 10, 140, 60}), EPS);
+}
+
+TEST(rect_inset_sides_clamp) {
+    WLX_Rect r = wlx_rect_inset_sides((WLX_Rect){0, 0, 20, 10}, 0, 15, 0, 15);
+    ASSERT_EQ_F(r.w, 0.0f, EPS);
+    ASSERT_EQ_F(r.h, 10.0f, EPS);
+}
+
+TEST(rect_inset_sides_zero_one_side) {
+    WLX_Rect r = wlx_rect_inset_sides((WLX_Rect){0, 0, 200, 100}, 0, 10, 10, 10);
+    // top=0, so y stays 0: x=10, y=0, w=180, h=90
+    ASSERT_EQ_RECT(r, ((WLX_Rect){10, 0, 180, 90}), EPS);
+}
+
+// ============================================================================
+// wlx_resolve_padding
+// ============================================================================
+
+TEST(resolve_padding_all_sentinel) {
+    WLX_Resolved_Padding p = wlx_resolve_padding(10, -1, -1, -1, -1);
+    ASSERT_EQ_F(p.top, 10.0f, EPS);
+    ASSERT_EQ_F(p.right, 10.0f, EPS);
+    ASSERT_EQ_F(p.bottom, 10.0f, EPS);
+    ASSERT_EQ_F(p.left, 10.0f, EPS);
+}
+
+TEST(resolve_padding_override_top) {
+    WLX_Resolved_Padding p = wlx_resolve_padding(10, 0, -1, -1, -1);
+    ASSERT_EQ_F(p.top, 0.0f, EPS);
+    ASSERT_EQ_F(p.right, 10.0f, EPS);
+    ASSERT_EQ_F(p.bottom, 10.0f, EPS);
+    ASSERT_EQ_F(p.left, 10.0f, EPS);
+}
+
+TEST(resolve_padding_all_explicit) {
+    WLX_Resolved_Padding p = wlx_resolve_padding(10, 1, 2, 3, 4);
+    ASSERT_EQ_F(p.top, 1.0f, EPS);
+    ASSERT_EQ_F(p.right, 2.0f, EPS);
+    ASSERT_EQ_F(p.bottom, 3.0f, EPS);
+    ASSERT_EQ_F(p.left, 4.0f, EPS);
+}
+
+TEST(resolve_padding_zero_is_explicit) {
+    // 0 is a valid explicit value, not a sentinel
+    WLX_Resolved_Padding p = wlx_resolve_padding(10, 0, 0, 0, 0);
+    ASSERT_EQ_F(p.top, 0.0f, EPS);
+    ASSERT_EQ_F(p.right, 0.0f, EPS);
+    ASSERT_EQ_F(p.bottom, 0.0f, EPS);
+    ASSERT_EQ_F(p.left, 0.0f, EPS);
 }
 
 // ============================================================================
@@ -810,6 +874,277 @@ TEST(layout_begin_s_single_slot) {
 }
 
 // ============================================================================
+// Per-side padding on layouts
+// ============================================================================
+
+TEST(layout_perside_uniform_regression) {
+    // Uniform padding still works after per-side wiring
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 10);
+    WLX_Rect r = wlx_get_parent_rect(&ctx);
+    ASSERT_EQ_F(r.x, 10.0f, EPS);
+    ASSERT_EQ_F(r.y, 10.0f, EPS);
+    ASSERT_EQ_F(r.w, 380.0f, EPS);
+    ASSERT_EQ_F(r.h, 280.0f, EPS);
+
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+}
+
+TEST(layout_perside_top_override) {
+    // .padding = 10, .padding_top = 0 -> top flush, other sides inset 10
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 10, .padding_top = 0);
+    WLX_Rect r = wlx_get_parent_rect(&ctx);
+    ASSERT_EQ_F(r.x, 10.0f, EPS);
+    ASSERT_EQ_F(r.y, 0.0f, EPS);
+    ASSERT_EQ_F(r.w, 380.0f, EPS);
+    ASSERT_EQ_F(r.h, 290.0f, EPS);  // 300 - 0 - 10
+
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+}
+
+TEST(layout_perside_left_only) {
+    // .padding = 0, .padding_left = 20 -> only left inset
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0, .padding_left = 20);
+    WLX_Rect r = wlx_get_parent_rect(&ctx);
+    ASSERT_EQ_F(r.x, 20.0f, EPS);
+    ASSERT_EQ_F(r.y, 0.0f, EPS);
+    ASSERT_EQ_F(r.w, 380.0f, EPS);  // 400 - 20 - 0
+    ASSERT_EQ_F(r.h, 300.0f, EPS);
+
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+}
+
+TEST(layout_perside_all_independent) {
+    // All four sides set independently
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 1, WLX_VERT,
+        .padding_top = 5, .padding_right = 10, .padding_bottom = 15, .padding_left = 20);
+    WLX_Rect r = wlx_get_parent_rect(&ctx);
+    ASSERT_EQ_F(r.x, 20.0f, EPS);
+    ASSERT_EQ_F(r.y, 5.0f, EPS);
+    ASSERT_EQ_F(r.w, 370.0f, EPS);  // 400 - 20 - 10
+    ASSERT_EQ_F(r.h, 280.0f, EPS);  // 300 - 5 - 15
+
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+}
+
+TEST(layout_perside_content_height_asymmetric) {
+    // Content-height propagation with asymmetric vertical padding
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+
+        wlx_layout_begin(&ctx, 1, WLX_VERT);
+        wlx_scroll_panel_begin(&ctx, -1);
+
+            // Nested layout with asymmetric vertical padding
+            wlx_layout_begin(&ctx, 1, WLX_VERT,
+                .padding_top = 5, .padding_bottom = 15);
+                wlx_label(&ctx, "Test", .height = 50);
+            wlx_layout_end(&ctx);
+
+        wlx_scroll_panel_end(&ctx);
+        wlx_layout_end(&ctx);
+
+        // No crash, stack balanced
+        ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+        test_frame_end(&ctx);
+    }
+}
+
+// ============================================================================
+// Gap tests - wlx_compute_offsets with gap parameter
+// ============================================================================
+
+TEST(gap_horz_two_slots) {
+    // 2-slot equal division, gap=10, total=400.
+    // Distributable = 400 - 10 = 390, slot_w = 195.
+    // Offsets: 0, 195+10=205, 205+195=400.
+    float off[3];
+    wlx_compute_offsets(off, 2, 400.0f, 400.0f, NULL, 10.0f);
+    ASSERT_EQ_F(off[0],   0.0f, EPS);
+    ASSERT_EQ_F(off[1], 205.0f, EPS);
+    ASSERT_EQ_F(off[2], 400.0f, EPS);
+    // Slot widths: slot0 region=205 (195 content + 10 gap), slot1 region=195.
+    // Total gap regions = 10 (1 gap for 2 slots).
+}
+
+TEST(gap_vert_three_slots) {
+    // 3-slot equal division, gap=8, total=400.
+    // Distributable = 400 - 2*8 = 384, slot_w = 128.
+    // Offsets: 0, 128+8=136, 136+128+8=272, 272+128=400.
+    float off[4];
+    wlx_compute_offsets(off, 3, 400.0f, 400.0f, NULL, 8.0f);
+    ASSERT_EQ_F(off[0],   0.0f, EPS);
+    ASSERT_EQ_F(off[1], 136.0f, EPS);
+    ASSERT_EQ_F(off[2], 272.0f, EPS);
+    ASSERT_EQ_F(off[3], 400.0f, EPS);
+}
+
+TEST(gap_with_padding) {
+    // Layout with padding=4, gap=6, 3 widgets in a 400px HORZ container.
+    // Padding insets to 392px. Distributable = 392 - 2*6 = 380. slot_w ~= 126.67.
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 3, WLX_HORZ, .padding = 4, .gap = 6);
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+
+    // Container rect should be inset by 4 on each side
+    ASSERT_EQ_F(l->rect.x, 4.0f, EPS);
+    ASSERT_EQ_F(l->rect.w, 392.0f, EPS);
+
+    // Offsets should reflect gap
+    float total_gap = 2 * 6.0f;
+    float slot_total = 392.0f - total_gap;
+    ASSERT_EQ_F(wlx_layout_offsets(&ctx, l)[3], 392.0f, EPS);
+    // Sum of slot content widths = total - gap
+    float s0 = wlx_layout_offsets(&ctx, l)[1] - wlx_layout_offsets(&ctx, l)[0];
+    float s1 = wlx_layout_offsets(&ctx, l)[2] - wlx_layout_offsets(&ctx, l)[1];
+    float s2 = wlx_layout_offsets(&ctx, l)[3] - wlx_layout_offsets(&ctx, l)[2];
+    // s0 and s1 include trailing gap; s2 does not
+    ASSERT_EQ_F(s0 + s1 + s2, 392.0f, EPS);
+    ASSERT_EQ_F(s0 - 6.0f, s2, 1.0f);  // slot0 content == slot2 content (approx)
+    (void)slot_total;
+
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+}
+
+TEST(gap_flex_distribution) {
+    // FLEX(1) + FLEX(2), gap=10, total=400.
+    // adjusted_total = 390, flex total weight=3.
+    // slot0 = 390/3 = 130, slot1 = 390*2/3 = 260.
+    // Offsets: 0, 130+10=140, 140+260=400.
+    WLX_Slot_Size sizes[] = { WLX_SLOT_FLEX(1), WLX_SLOT_FLEX(2) };
+    float off[3];
+    wlx_compute_offsets(off, 2, 400.0f, 400.0f, sizes, 10.0f);
+    ASSERT_EQ_F(off[0],   0.0f, EPS);
+    ASSERT_EQ_F(off[1], 140.0f, EPS);
+    ASSERT_EQ_F(off[2], 400.0f, EPS);
+}
+
+TEST(gap_single_slot) {
+    // 1-slot layout with gap=10: no gap applied (0 gaps for 1 slot).
+    float off[2];
+    wlx_compute_offsets(off, 1, 300.0f, 300.0f, NULL, 10.0f);
+    ASSERT_EQ_F(off[0],   0.0f, EPS);
+    ASSERT_EQ_F(off[1], 300.0f, EPS);
+}
+
+TEST(gap_zero_default) {
+    // gap=0 produces identical results to no-gap.
+    float off_gap[3], off_no[3];
+    wlx_compute_offsets(off_gap, 2, 400.0f, 400.0f, NULL, 0.0f);
+    // Equal division with no gap: 0, 200, 400.
+    ASSERT_EQ_F(off_gap[0],   0.0f, EPS);
+    ASSERT_EQ_F(off_gap[1], 200.0f, EPS);
+    ASSERT_EQ_F(off_gap[2], 400.0f, EPS);
+    (void)off_no;
+}
+
+TEST(gap_content_height_vert) {
+    // VERT auto layout with gap=5, 3 children of 30px each.
+    // Content height = 30+30+30 + 2*5 = 100.
+    // Test that accumulated_content_height includes gap contribution.
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 600);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+        wlx_layout_begin_auto(&ctx, WLX_VERT, 30, .gap = 5);
+            wlx_label(&ctx, "A", .height = 30);
+            wlx_label(&ctx, "B", .height = 30);
+            wlx_label(&ctx, "C", .height = 30);
+
+            // Before layout_end, check accumulated content height.
+            // Each label contributes 30px. Gap adds 5*(3-1)=10 in layout_end.
+            WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+            float pre_gap = l->accumulated_content_height;
+            // Before layout_end adds gap: should be 3*30 = 90
+            ASSERT_EQ_F(pre_gap, 90.0f, 5.0f);
+        wlx_layout_end(&ctx);
+
+        // After layout_end, gap contribution added. Check parent propagation.
+        // Parent accumulated = child accumulated (90 + 10 gap = 100) + padding.
+        WLX_Layout *parent = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+        ASSERT_EQ_F(parent->accumulated_content_height, 100.0f, 5.0f);
+
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+}
+
+TEST(gap_slot_rect_horz) {
+    // Verify slot rects exclude trailing gap.
+    // 3-slot HORZ, gap=10, 400px. distributable=380, slot_w ~= 126.67.
+    // Slot 0 rect width = slot_w (not slot_w + gap).
+    // Slot 2 (last) rect width = slot_w (no trailing gap).
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 3, WLX_HORZ, .gap = 10);
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+
+    WLX_Rect r0 = wlx_calc_layout_slot_rect(&ctx, l, 0, 1);
+    WLX_Rect r1 = wlx_calc_layout_slot_rect(&ctx, l, 1, 1);
+    WLX_Rect r2 = wlx_calc_layout_slot_rect(&ctx, l, 2, 1);
+
+    float slot_w = (400.0f - 20.0f) / 3.0f;
+    ASSERT_EQ_F(r0.w, slot_w, 1.0f);
+    ASSERT_EQ_F(r1.w, slot_w, 1.0f);
+    ASSERT_EQ_F(r2.w, slot_w, 1.0f);
+
+    ASSERT_TRUE(r1.x > r0.x + r0.w);
+    ASSERT_TRUE(r2.x > r1.x + r1.w);
+
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+}
+
+TEST(gap_slot_rect_vert) {
+    // Verify VERT slot rects exclude trailing gap.
+    // 2-slot VERT, gap=20, 300px. distributable=280, slot_h=140.
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 2, WLX_VERT, .gap = 20);
+    WLX_Layout *l = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+
+    WLX_Rect r0 = wlx_calc_layout_slot_rect(&ctx, l, 0, 1);
+    WLX_Rect r1 = wlx_calc_layout_slot_rect(&ctx, l, 1, 1);
+
+    ASSERT_EQ_F(r0.h, 140.0f, 1.0f);
+    ASSERT_EQ_F(r1.h, 140.0f, 1.0f);
+    ASSERT_TRUE(r1.y > r0.y + r0.h);
+
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
@@ -901,4 +1236,34 @@ SUITE(layout_math) {
     RUN_TEST(layout_begin_s_basic);
     RUN_TEST(layout_begin_s_with_options);
     RUN_TEST(layout_begin_s_single_slot);
+
+    // wlx_rect_inset_sides
+    RUN_TEST(rect_inset_sides_uniform);
+    RUN_TEST(rect_inset_sides_asymmetric);
+    RUN_TEST(rect_inset_sides_clamp);
+    RUN_TEST(rect_inset_sides_zero_one_side);
+
+    // wlx_resolve_padding
+    RUN_TEST(resolve_padding_all_sentinel);
+    RUN_TEST(resolve_padding_override_top);
+    RUN_TEST(resolve_padding_all_explicit);
+    RUN_TEST(resolve_padding_zero_is_explicit);
+
+    // Per-side padding on layouts
+    RUN_TEST(layout_perside_uniform_regression);
+    RUN_TEST(layout_perside_top_override);
+    RUN_TEST(layout_perside_left_only);
+    RUN_TEST(layout_perside_all_independent);
+    RUN_TEST(layout_perside_content_height_asymmetric);
+
+    // Gap (inter-slot spacing)
+    RUN_TEST(gap_horz_two_slots);
+    RUN_TEST(gap_vert_three_slots);
+    RUN_TEST(gap_with_padding);
+    RUN_TEST(gap_flex_distribution);
+    RUN_TEST(gap_single_slot);
+    RUN_TEST(gap_zero_default);
+    RUN_TEST(gap_content_height_vert);
+    RUN_TEST(gap_slot_rect_horz);
+    RUN_TEST(gap_slot_rect_vert);
 }

@@ -37,8 +37,8 @@ int main(void) {
                 wlx_layout_end(ctx);
                 wlx_button(ctx, "BUTTON1",.pos = 2, .back_color = GREEN, .align = WLX_CENTER);
             wlx_layout_end(ctx);
-        EndDrawing();
         wlx_end(ctx);
+        EndDrawing();
     }
     CloseWindow();
     wlx_context_destroy(ctx);

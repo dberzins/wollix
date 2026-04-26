@@ -7,6 +7,12 @@ layout library.
 > - `wollix.h` — core library (include with `#define WOLLIX_IMPLEMENTATION` in exactly one translation unit)
 > - `wollix_raylib.h` — Raylib backend adapter
 > - `wollix_sdl3.h` — SDL3 backend adapter
+> - `wollix_wasm.h` — bare WASM32 backend adapter and page-pool allocator helpers
+
+> **Related docs:**
+> - [LAYOUT_MODEL.md](LAYOUT_MODEL.md)
+> - [SENTINEL.md](SENTINEL.md)
+> - [CORE_PATTERNS_GUIDE.md](CORE_PATTERNS_GUIDE.md)
 
 ---
 
@@ -33,20 +39,65 @@ layout library.
 19. [Widget — `wlx_label`](#widget--wlx_label)
 20. [Widget — `wlx_button`](#widget--wlx_button)
 21. [Widget — `wlx_checkbox`](#widget--wlx_checkbox)
-22. [Widget — `wlx_checkbox_tex`](#widget--wlx_checkbox_tex)
-23. [Widget — `wlx_inputbox`](#widget--wlx_inputbox)
-24. [Widget — `wlx_slider`](#widget--wlx_slider)
-25. [Widget — `wlx_scroll_panel`](#widget--wlx_scroll_panel)
-26. [Compound Widget — `wlx_split`](#compound-widget--wlx_split)
-27. [Compound Widget — `wlx_panel`](#compound-widget--wlx_panel)
-28. [Shared Option Field Macros](#shared-option-field-macros)
-29. [Theme Presets](#theme-presets)
-30. [Backend — Raylib](#backend--raylib)
-31. [Backend — SDL3](#backend--sdl3)
+22. [Widget — `wlx_inputbox`](#widget--wlx_inputbox)
+23. [Widget — `wlx_slider`](#widget--wlx_slider)
+24. [Widget — `wlx_separator`](#widget--wlx_separator)
+25. [Widget — `wlx_progress`](#widget--wlx_progress)
+26. [Widget — `wlx_toggle`](#widget--wlx_toggle)
+27. [Widget — `wlx_radio`](#widget--wlx_radio)
+28. [Widget — `wlx_scroll_panel`](#widget--wlx_scroll_panel)
+29. [Compound Widget — `wlx_split`](#compound-widget--wlx_split)
+30. [Compound Widget — `wlx_panel`](#compound-widget--wlx_panel)
+31. [Shared Option Field Macros](#shared-option-field-macros)
+32. [Theme Presets](#theme-presets)
+33. [Backend — Raylib](#backend--raylib)
+34. [Backend — SDL3](#backend--sdl3)
 
 ---
 
 ## Feature Flags
+
+### `WLX_SHORT_NAMES`
+
+```c
+// #define WLX_SHORT_NAMES   // define before including wollix.h
+```
+
+Exposes un-prefixed convenience aliases for the `wlx_*` API. Optional and
+off by default. All public `wlx_*` functions remain available regardless.
+
+| Short alias | Full name |
+|---|---|
+| `layout_begin(...)` | `wlx_layout_begin(...)` |
+| `layout_begin_s(...)` | `wlx_layout_begin_s(...)` |
+| `layout_begin_auto(...)` | `wlx_layout_begin_auto(...)` |
+| `layout_auto_slot(...)` | `wlx_layout_auto_slot(...)` |
+| `layout_auto_slot_px(...)` | `wlx_layout_auto_slot_px(...)` |
+| `layout_end(ctx)` | `wlx_layout_end(ctx)` |
+| `grid_cell(...)` | `wlx_grid_cell(...)` |
+| `grid_begin(...)` | `wlx_grid_begin(...)` |
+| `grid_begin_auto(...)` | `wlx_grid_begin_auto(...)` |
+| `grid_begin_auto_tile(...)` | `wlx_grid_begin_auto_tile(...)` |
+| `grid_end(ctx)` | `wlx_grid_end(ctx)` |
+| `label(...)` | `wlx_label(...)` |
+| `button(...)` | `wlx_button(...)` |
+| `checkbox(...)` | `wlx_checkbox(...)` |
+| `inputbox(...)` | `wlx_inputbox(...)` |
+| `slider(...)` | `wlx_slider(...)` |
+| `separator(...)` | `wlx_separator(...)` |
+| `progress(ctx, value, ...)` | `wlx_progress(ctx, value, ...)` |
+| `toggle(ctx, label, value, ...)` | `wlx_toggle(ctx, label, value, ...)` |
+| `radio(ctx, label, active, index, ...)` | `wlx_radio(ctx, label, active, index, ...)` |
+| `scroll_panel_begin(...)` | `wlx_scroll_panel_begin(...)` |
+| `scroll_panel_end(ctx)` | `wlx_scroll_panel_end(ctx)` |
+| `split_begin(...)` | `wlx_split_begin(...)` |
+| `split_next(...)` | `wlx_split_next(...)` |
+| `split_end(ctx)` | `wlx_split_end(ctx)` |
+| `panel_begin(...)` | `wlx_panel_begin(...)` |
+| `panel_end(ctx)` | `wlx_panel_end(ctx)` |
+| `widget(...)` | `wlx_widget(...)` |
+
+---
 
 ### `WLX_SLOT_MINMAX_REDISTRIBUTE`
 
@@ -473,6 +524,118 @@ typedef struct {
 
 Stack of extra ID values pushed by `wlx_push_id()`. Stored in `ctx->id_stack`.
 
+### `WLX_Allocator`
+
+```c
+typedef struct WLX_Allocator {
+    void *(*alloc)(size_t size, void *user);
+    void *(*realloc)(void *ptr, size_t old_size, size_t new_size, void *user);
+    void  (*free)(void *ptr, size_t size, void *user);
+    void *user;
+} WLX_Allocator;
+```
+
+Optional runtime allocator interface for arena-backed frame buffers. When an
+arena does not have an attached allocator, Wollix continues to use the compile-
+time `wlx_alloc` / `wlx_realloc` / `wlx_free` override path.
+
+### `WLX_Sub_Arena`
+
+```c
+typedef struct {
+    void *items;
+    size_t count;
+    size_t capacity;
+    size_t item_size;
+    size_t high_water;
+    WLX_Allocator *allocator;
+} WLX_Sub_Arena;
+```
+
+Reusable growable buffer abstraction for the in-progress memory-management
+migration. Adds the type and helper operations without yet replacing
+the existing `WLX_Context` frame buffers.
+
+Helper operations:
+- `wlx_sub_arena_init`
+- `wlx_sub_arena_reserve`
+- `wlx_sub_arena_alloc`
+- `wlx_sub_arena_alloc_bytes`
+- `wlx_sub_arena_reset`
+- `wlx_sub_arena_destroy`
+- `wlx_sub_arena_at`
+- `wlx_sub_arena_bytes_at`
+
+### `WLX_Arena_Pool` and `WLX_Arena_Pool_Config`
+
+```c
+typedef struct {
+    WLX_Allocator *contiguous;  // backs flat float offset arrays
+    WLX_Allocator *general;     // backs scratch, commands, layouts, stacks
+} WLX_Arena_Pool_Config;
+```
+
+`WLX_Arena_Pool` owns every per-frame buffer on `WLX_Context` (slot offsets,
+scratch, commands, cmd_ranges, layouts, scroll panel stack, id stack, opacity
+stack). Buffers are grouped into a `contiguous` group (must remain a flat
+array, currently slot offsets) and a `general` group (everything else). When
+either group's allocator is `NULL`, the underlying sub-arenas use the
+compile-time `wlx_realloc` / `wlx_free` macros, preserving zero behavior
+change on desktop.
+
+Pool operations are internal; callers configure the pool via
+`wlx_context_init_ex`.
+
+### `wlx_context_init` and `wlx_context_init_ex`
+
+```c
+void wlx_context_init(WLX_Context *ctx);
+void wlx_context_init_ex(WLX_Context *ctx, const WLX_Arena_Pool_Config *cfg);
+```
+
+`wlx_context_init` is unchanged and equivalent to
+`wlx_context_init_ex(ctx, NULL)`. Pass a non-`NULL` config to attach a
+runtime allocator to either arena group. A zero-initialized `WLX_Context`
+that skips both still works: `wlx_begin` lazily initializes the pool with
+NULL allocators on first use.
+
+### WASM page-pool: `WLX_Wasm_Pool` and `wlx_wasm_allocator`
+
+Defined in `wollix_wasm.h`.
+
+```c
+typedef struct {
+    WLX_Wasm_Block *free_list[WLX_WASM_POOL_CLASSES];
+    size_t alloc_count;
+    size_t reuse_count;
+    size_t free_count;
+    size_t bytes_in_use;
+    size_t high_water;
+} WLX_Wasm_Pool;
+
+WLX_Allocator wlx_wasm_allocator(WLX_Wasm_Pool *pool);
+```
+
+Power-of-two free-list allocator targeted at the bare-WASM backend, where
+the libc shim's `free` is a no-op and every `realloc` would otherwise leak
+the old block. Buckets cover sizes from 256 bytes
+(`WLX_WASM_POOL_MIN_ORDER = 8`) up to 1 MiB
+(`WLX_WASM_POOL_MAX_ORDER = 20`). Typical usage attaches the allocator to
+the `general` group of `WLX_Arena_Pool_Config`:
+
+```c
+static WLX_Wasm_Pool g_pool;
+static WLX_Allocator g_alloc;
+
+g_alloc = wlx_wasm_allocator(&g_pool);
+WLX_Arena_Pool_Config cfg = { .contiguous = NULL, .general = &g_alloc };
+wlx_context_init_ex(ctx, &cfg);
+wlx_context_init_wasm(ctx);
+```
+
+The counters on `WLX_Wasm_Pool` provide the validation hook: in steady
+state `alloc_count` stops growing while `reuse_count` continues to climb.
+
 ---
 
 ## Types — Theme
@@ -609,16 +772,21 @@ void wlx_end(WLX_Context *ctx);
 End the frame. Finalizes interaction state for the next frame. Call after all
 drawing and layout calls.
 
+Because deferred draw commands replay inside `wlx_end()`, keep it inside the
+backend's active frame scope. In Raylib that means calling `wlx_end(ctx)`
+before `EndDrawing()`. See
+[ADR_004_DRAW_COMMAND_REPLAY.md](dev/ADR_004_DRAW_COMMAND_REPLAY.md).
+
 ### Frame Loop Pattern
 
 ```c
 while (!WindowShouldClose()) {
     wlx_begin(ctx, (WLX_Rect){0, 0, w, h}, wlx_process_raylib_input);
-        BeginDrawing();
-            ClearBackground(WLX_BACKGROUND_COLOR);
-            // ... wlx_layout_begin / widgets / wlx_layout_end ...
-        EndDrawing();
-    wlx_end(ctx);
+    BeginDrawing();
+        ClearBackground(WLX_BACKGROUND_COLOR);
+        // ... wlx_layout_begin / widgets / wlx_layout_end ...
+    wlx_end(ctx);  // replays deferred draw commands; must precede EndDrawing
+    EndDrawing();
 }
 ```
 
@@ -650,6 +818,10 @@ parent layout.
 | `overflow` | `bool` | `false` | Allow exceeding slot bounds |
 | `padding` | `float` | `0` | Uniform inset on the slot |
 | `sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `count` slot sizes. `NULL` = equal division |
+| `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every slot |
+| `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every slot |
+| `slot_border_width` | `float` | `0` | Border thickness in pixels (`0` = no border) |
+| `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full layout body. Also keys any container-owned state. `NULL` = no scoping |
 
 ### `wlx_layout_begin_auto`
 
@@ -761,8 +933,20 @@ Push a fixed-size grid layout.
 | `span` | `size_t` | `1` | Slots to occupy in parent |
 | `overflow` | `bool` | `false` | Allow exceeding slot bounds |
 | `padding` | `float` | `0` | Uniform inset on the slot |
+| `back_color` | `WLX_Color` | `{0}` | Background fill drawn behind the whole grid |
+| `border_color` | `WLX_Color` | `{0}` | Border color for the whole grid container |
+| `border_width` | `float` | `0` | Border thickness in pixels for the whole grid container |
+| `roundness` | `float` | `0` | Rounded corner radius factor for the grid container |
+| `rounded_segments` | `int` | `0` | Segment count for rounded corners (`0` = theme default) |
+| `gap` | `float` | `0` | Spacing between adjacent cells |
 | `row_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `rows` row sizes. `NULL` = equal division. Supports `WLX_SLOT_CONTENT` (with min/max) for rows that adapt to the tallest widget per row (one-frame delay). Max 32 CONTENT rows. |
 | `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes. `NULL` = equal division |
+| `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every cell |
+| `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every cell |
+| `slot_border_width` | `float` | `0` | Border thickness in pixels (`0` = no border) |
+| `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full grid body. `NULL` = no scoping |
+
+Use `border_*` to decorate the outer grid rect and `slot_border_*` to decorate each cell independently.
 
 ### `wlx_grid_begin_auto`
 
@@ -786,7 +970,19 @@ Push a dynamic grid whose row count grows as children are added.
 | `span` | `size_t` | `1` | Slots to occupy in parent |
 | `overflow` | `bool` | `false` | Allow exceeding slot bounds |
 | `padding` | `float` | `0` | Uniform inset |
+| `back_color` | `WLX_Color` | `{0}` | Background fill drawn behind the whole grid |
+| `border_color` | `WLX_Color` | `{0}` | Border color for the whole grid container |
+| `border_width` | `float` | `0` | Border thickness in pixels for the whole grid container |
+| `roundness` | `float` | `0` | Rounded corner radius factor for the grid container |
+| `rounded_segments` | `int` | `0` | Segment count for rounded corners (`0` = theme default) |
+| `gap` | `float` | `0` | Spacing between adjacent cells |
 | `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes |
+| `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every cell |
+| `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every cell |
+| `slot_border_width` | `float` | `0` | Border thickness in pixels (`0` = no border) |
+| `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full grid body. `NULL` = no scoping |
+
+Use `border_*` to decorate the outer grid rect and `slot_border_*` to decorate each cell independently.
 
 ### `wlx_grid_begin_auto_tile`
 
@@ -816,12 +1012,46 @@ Override the auto-advance cursor so the **next** child occupies a specific cell.
 | `row` | `int` | Target row index |
 | `col` | `int` | Target column index |
 
-**Options** (`WLX_Grid_Cell_Opt`):
+**Options** (`WLX_Slot_Style_Opt`):
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `row_span` | `size_t` | `1` | Number of rows to span |
 | `col_span` | `size_t` | `1` | Number of columns to span |
+| `back_color` | `WLX_Color` | `{0}` | One-shot background fill for this cell only |
+| `border_color` | `WLX_Color` | `{0}` | One-shot border color for this cell only |
+| `border_width` | `float` | `0` | One-shot border thickness for this cell only |
+
+### `wlx_grid_cell_style`
+
+```c
+#define wlx_grid_cell_style(ctx, ...options)
+```
+
+Set a one-shot style override for the **next** grid cell. Call immediately before
+the widget that should receive the override. The override is consumed and reset
+after that cell's slot rect is computed; subsequent cells revert to the uniform
+decoration (or no decoration if none is set).
+
+**Options** (`WLX_Slot_Style_Opt`): decoration fields only (`row_span`/`col_span` are ignored).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `back_color` | `WLX_Color` | `{0}` | Background fill for this cell |
+| `border_color` | `WLX_Color` | `{0}` | Border color for this cell |
+| `border_width` | `float` | `0` | Border thickness in pixels |
+
+### `wlx_slot_style`
+
+```c
+#define wlx_slot_style(ctx, ...options)
+```
+
+Set a one-shot style override for the **next** slot in the enclosing linear
+layout. Call immediately before the widget that should receive the override.
+The override is consumed and reset after that slot's rect is computed.
+
+**Options** (`WLX_Slot_Style_Opt`): same fields as `wlx_grid_cell_style` (`row_span`/`col_span` are ignored).
 
 ### `wlx_grid_auto_row_px`
 
@@ -949,6 +1179,42 @@ wlx_layout_begin_s(ctx, WLX_HORZ,
 
 ## Interaction & State
 
+### Identity Model
+
+Wollix uses one shared hash formula for all identity purposes:
+
+```
+id = hash(file, line) ^ id_stack_hash
+```
+
+Three conceptual roles map onto this formula:
+
+| Role | What it identifies | How it is set |
+|------|--------------------|---------------|
+| **Widget ID** | A single immediate-mode call site | Derived automatically from `__FILE__`/`__LINE__` inside every widget macro |
+| **State ID** | Key for `wlx_get_state()` persistent data | Same formula; call-site stability keeps data alive across frames |
+| **Scope ID** | Container-level id that disambiguates all descendants | Set via `.id` on container option structs; pushed at begin, popped at end automatically |
+
+**v0.x rule:** container `.id` acts as both Scope ID and State ID for the
+container itself. A separate `.state_id` field is deferred until state and
+scope need to diverge in practice.
+
+**Repeated containers:** Without a `.id`, two instances of the same container
+at the same call site share an id stack context, so descendant widgets from
+identical source lines inside both instances will collide (same ID). Set `.id`
+to a distinct string on each instance to isolate descendants.
+
+```c
+// Two inspector panels with isolated descendant state:
+wlx_panel_begin(&ctx, .id = "inspector_A");
+    wlx_button(&ctx, "Save");   // ID scoped under "inspector_A"
+wlx_panel_end(&ctx);
+
+wlx_panel_begin(&ctx, .id = "inspector_B");
+    wlx_button(&ctx, "Save");   // different ID even from the same source line
+wlx_panel_end(&ctx);
+```
+
 ### `wlx_get_interaction`
 
 ```c
@@ -1003,8 +1269,11 @@ void wlx_push_id(WLX_Context *ctx, size_t id);
 void wlx_pop_id(WLX_Context *ctx);
 ```
 
-Push/pop an extra ID value onto the ID stack. Use inside loops to give each
-iteration a unique stable ID for interaction and persistent state.
+Low-level escape hatch that pushes an arbitrary integer onto the ID stack.
+Prefer setting `.id` on container option structs (Scope ID) for
+container-body disambiguation. Use `wlx_push_id`/`wlx_pop_id` directly only
+for loop-level or reusable-function-level disambiguation that container `.id`
+does not cover.
 
 ```c
 for (int i = 0; i < count; i++) {
@@ -1183,7 +1452,9 @@ background when `show_background = true`.
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *typography* | | | `font`, `font_size`, `spacing`, `align`, `wrap` (default `true`) |
 | *colors* | | | `front_color`, `back_color` |
+| *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
 | `show_background` | `bool` | `false` | Draw filled background behind text |
+| `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
 
@@ -1199,7 +1470,8 @@ brightens it automatically. Returns `true` on the frame the click completes
 (press then release while hovering) or on keyboard activation (Space/Enter
 while hovered).
 
-**Option struct:** `WLX_Button_Opt` — same fields as `WLX_Label_Opt` except\nno `show_background` (button always draws its background).
+**Option struct:** `WLX_Button_Opt` — same fields as `WLX_Label_Opt` except
+no `show_background` (button always draws its background).
 
 ---
 
@@ -1217,34 +1489,23 @@ while hovered).
 
 **Option struct:** `WLX_Checkbox_Opt`
 
+Supports native and texture-backed rendering. When `tex_checked.width > 0`,
+the widget draws textures instead of the default box + check mark. Use
+`wlx_checkbox(..., .tex_checked = ..., .tex_unchecked = ...)` instead of the
+removed `wlx_checkbox_tex` compatibility macro.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | *shared fields* | | | placement, sizing, typography (default `wrap = false`), colors |
-| `show_background` | `bool` | `false` | Draw filled background |
 | `full_slot_hit` | `bool` | `true` | Use the full slot rect for hover/click interaction |
 | `border_color` | `WLX_Color` | `{0}` | Indicator border. `{0}` = theme `checkbox.border` |
+| `border_width` | `float` | `-1` | Indicator border width. `-1` = theme `checkbox.border_width` |
+| `roundness` | `float` | `-1` | Indicator corner roundness. `-1` = theme default |
+| `rounded_segments` | `int` | `-1` | Rounded-corner segment count. `-1` = theme default |
 | `check_color` | `WLX_Color` | `{0}` | Check mark color. `{0}` = theme `checkbox.check` |
-
----
-
-## Widget — `wlx_checkbox_tex`
-
-```c
-#define wlx_checkbox_tex(ctx, text, checked, ...options)
-// Returns: bool — true when toggled
-```
-
-Same as `wlx_checkbox` but renders custom textures instead of the drawn indicator.
-
-**Option struct:** `WLX_Checkbox_Tex_Opt`
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| *shared fields* | | | placement, sizing, typography, colors |
-| `show_background` | `bool` | `false` | Draw filled background |
-| `full_slot_hit` | `bool` | `true` | Use the full slot rect for hover/click interaction |
-| `tex_checked` | `WLX_Texture` | — | Texture when checked |
-| `tex_unchecked` | `WLX_Texture` | — | Texture when unchecked |
+| `tex_checked` | `WLX_Texture` | zero handle | Checked texture. When `width > 0`, the widget uses texture mode |
+| `tex_unchecked` | `WLX_Texture` | zero handle | Unchecked texture paired with `tex_checked` |
+| `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
 
@@ -1271,8 +1532,12 @@ to unfocus.
 | *shared fields* | | | placement, sizing, typography (default `wrap = true`), colors |
 | `content_padding` | `float` | `10` | Horizontal padding inside the editing area |
 | `border_color` | `WLX_Color` | `{0}` | Unfocused border. `{0}` = theme `border` |
+| `border_width` | `float` | `-1` | Border width. `-1` = theme `input.border_width`, then theme `border_width` |
+| `roundness` | `float` | `-1` | Corner roundness. `-1` = theme default |
+| `rounded_segments` | `int` | `-1` | Rounded-corner segment count. `-1` = theme default |
 | `border_focus_color` | `WLX_Color` | `{0}` | Focused border. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Blinking cursor. `{0}` = theme `input.cursor` |
+| `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
 
@@ -1306,13 +1571,130 @@ Horizontal slider. Click/drag the thumb or click the track to jump.
 | `label_color` | `WLX_Color` | `{0}` | Label text. `{0}` = theme `slider.label` |
 | `track_height` | `float` | `0` | Track bar height. `0` = default (6) |
 | `thumb_width` | `float` | `0` | Thumb handle width. `0` = default (14) |
-| `roundness` | `float` | `0` | Corner rounding |
-| `rounded_segments` | `int` | `0` | Segments for rounded drawing |
-| `hover_brightness` | `float` | `0` | Track hover brightness shift |
-| `thumb_hover_brightness` | `float` | `0` | Thumb hover brightness shift |
+| `border_color` | `WLX_Color` | `{0}` | Border color. `{0}` = theme `border` |
+| `border_width` | `float` | `-1` | Border width. `-1` = theme `border_width` |
+| `roundness` | `float` | `-1` | Corner rounding. `-1` = theme default |
+| `rounded_segments` | `int` | `-1` | Segments for rounded drawing. `-1` = theme default |
+| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Track hover brightness shift. Uses `theme->hover_brightness` when unset |
+| `thumb_hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Thumb hover brightness shift. Uses `theme->hover_brightness` when unset |
 | `fill_inactive_brightness` | `float` | `-0.3` | Filled-portion brightness offset |
 | `min_value` | `float` | `0.0` | Minimum slider value |
 | `max_value` | `float` | `1.0` | Maximum slider value |
+| `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
+
+---
+
+## Widget — `wlx_separator`
+
+```c
+#define wlx_separator(ctx, ...options)
+// void — no return value
+```
+
+Non-interactive divider. Draws a horizontal line when the resolved widget rect
+is wider than tall, and a vertical line when it is taller than wide.
+
+**Option struct:** `WLX_Separator_Opt`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
+| *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
+| `color` | `WLX_Color` | `{0}` | Divider color. `{0}` = theme `border` |
+| `thickness` | `float` | `1.0` | Divider thickness in pixels |
+| `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
+
+---
+
+## Widget — `wlx_progress`
+
+```c
+#define wlx_progress(ctx, value, ...options)
+// void — no return value
+```
+
+Non-interactive progress bar. `value` is clamped to the range `[0.0, 1.0]`
+before drawing.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | `float` | Fill ratio. Values below `0` clamp to empty; values above `1` clamp to full |
+
+**Option struct:** `WLX_Progress_Opt`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
+| *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
+| *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
+| `track_color` | `WLX_Color` | `{0}` | Track color. `{0}` = theme `progress.track`, falling back to `slider.track` |
+| `fill_color` | `WLX_Color` | `{0}` | Fill color. `{0}` = theme `progress.fill`, falling back to `accent` |
+| `track_height` | `float` | `0` | Inner bar height. `0` = theme default |
+| `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
+
+---
+
+## Widget — `wlx_toggle`
+
+```c
+#define wlx_toggle(ctx, label, value, ...options)
+// Returns: bool — true when toggled
+```
+
+Switch-style boolean control. Click or keyboard-activate it to flip `*value`.
+The `label` may be `NULL`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `label` | `const char *` | Label text shown beside the switch. May be `NULL` |
+| `value` | `bool *` | Pointer to state — flipped when the toggle is activated |
+
+**Option struct:** `WLX_Toggle_Opt`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
+| *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
+| *typography* | | | `font`, `font_size`, `spacing`, `align`, `wrap` (default `false`) |
+| *colors* | | | `front_color`, `back_color` (`back_color` is currently unused by this widget) |
+| *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
+| `track_color` | `WLX_Color` | `{0}` | Inactive track color. `{0}` = theme `toggle.track`, falling back to `slider.track` |
+| `track_active_color` | `WLX_Color` | `{0}` | Active track color. `{0}` = theme `toggle.track_active`, falling back to `accent` |
+| `thumb_color` | `WLX_Color` | `{0}` | Thumb color. `{0}` = theme `toggle.thumb`, falling back to `foreground` |
+| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness shift. Uses `theme->hover_brightness` when unset |
+| `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
+
+---
+
+## Widget — `wlx_radio`
+
+```c
+#define wlx_radio(ctx, label, active, index, ...options)
+// Returns: bool — true when selected on this frame
+```
+
+Select-one radio control. Activating the widget sets `*active = index`. The
+`label` may be `NULL`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `label` | `const char *` | Label text shown beside the ring. May be `NULL` |
+| `active` | `int *` | Pointer to the currently selected index |
+| `index` | `int` | Index represented by this radio button |
+
+**Option struct:** `WLX_Radio_Opt`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
+| *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
+| *typography* | | | `font`, `font_size`, `spacing`, `align`, `wrap` (default `false`) |
+| *colors* | | | `front_color`, `back_color` (`back_color` is currently unused by this widget) |
+| `ring_color` | `WLX_Color` | `{0}` | Ring color. `{0}` = theme `radio.ring`, falling back to `border` |
+| `fill_color` | `WLX_Color` | `{0}` | Selected fill color. `{0}` = theme `radio.fill`, falling back to `accent` |
+| `ring_border_width` | `float` | `-1` | Ring outline thickness. Uses theme radio/border defaults when unset |
+| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness shift. Uses `theme->hover_brightness` when unset |
+| `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
 
@@ -1337,10 +1719,12 @@ Scrollable container. Used as a begin/end pair with layout content between.
 | *sizing* | | | `widget_align`, `width`, `height`, min/max, `opacity` |
 | `back_color` | `WLX_Color` | `{0}` | Panel background |
 | `scrollbar_color` | `WLX_Color` | `{0}` | Scrollbar thumb color |
-| `scrollbar_hover_brightness` | `float` | `0` | Scrollbar hover brightness shift |
-| `scrollbar_width` | `float` | `0` | Scrollbar width. `0` = default (10) |
+| *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
+| `scrollbar_hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Scrollbar hover brightness shift. Uses `theme->hover_brightness` when unset |
+| `scrollbar_width` | `float` | `-1` | Scrollbar width. `-1` = theme `scrollbar.width` |
 | `wheel_scroll_speed` | `float` | `20.0` | Pixels per wheel tick |
 | `show_scrollbar` | `bool` | `true` | Draw the scrollbar |
+| `id` | `const char *` | `NULL` | Combined State + Scope ID. Keys the panel's own scroll state and scopes all descendant widget and state IDs for the full panel body. `NULL` = auto from call-site (no descendant scoping) |
 
 ---
 
@@ -1364,9 +1748,15 @@ the user creates their own inner layout inside each pane.
 | `first_size` | `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | Width/size of the first (left) pane |
 | `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width/size of the second (right) pane |
 | `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FILL` | Outer wrapper slot size (e.g. `WLX_SLOT_FILL_MIN(400)`) |
-| `padding` | `float` | `4` | Gap between the two panes |
+| `padding` | `float` | `4` | Uniform padding for the inner HORZ split layout |
+| `padding_top` | `float` | `-1` | Top padding override. Negative = inherit `padding` |
+| `padding_right` | `float` | `-1` | Right padding override. Negative = inherit `padding` |
+| `padding_bottom` | `float` | `-1` | Bottom padding override. Negative = inherit `padding` |
+| `padding_left` | `float` | `-1` | Left padding override. Negative = inherit `padding` |
+| `gap` | `float` | `0` | Space between the two pane slots |
 | `first_back_color` | `WLX_Color` | `{0}` | First pane scroll panel background. `{0}` = theme default |
 | `second_back_color` | `WLX_Color` | `{0}` | Second pane scroll panel background. `{0}` = theme default |
+| `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full split body (both panes). `NULL` = no scoping |
 
 **Option struct:** `WLX_Split_Next_Opt` (for `wlx_split_next`)
 
@@ -1377,7 +1767,7 @@ the user creates their own inner layout inside each pane.
 **Internal structure created by split:**
 
 1. Outer VERT layout (1 slot, `fill_size`)
-2. Inner HORZ layout (2 slots: `first_size`, `second_size`, with `padding`)
+2. Inner HORZ layout (2 slots: `first_size`, `second_size`, with padding and `gap`)
 3. First pane: auto-height scroll panel (`content_height = -1`)
 4. *(user code for first pane)*
 5. `wlx_split_next` closes first scroll panel, opens second
@@ -1412,7 +1802,13 @@ impact. Adding or removing child widgets requires no slot-count updates.
 | `title_align` | `WLX_Align` | `WLX_CENTER` | Heading text alignment |
 | `title_back_color` | `WLX_Color` | `{0}` | Heading background color. `{0}` = theme surface |
 | `padding` | `float` | `2` | Inner layout padding |
+| `padding_top` | `float` | `-1` | Top padding override. Negative = inherit `padding` |
+| `padding_right` | `float` | `-1` | Right padding override. Negative = inherit `padding` |
+| `padding_bottom` | `float` | `-1` | Bottom padding override. Negative = inherit `padding` |
+| `padding_left` | `float` | `-1` | Left padding override. Negative = inherit `padding` |
+| `gap` | `float` | `0` | Gap between generated CONTENT slots |
 | `capacity` | `int` | `32` | Maximum number of child widgets (excluding title). Clamped to `WLX_CONTENT_SLOTS_MAX` (64) |
+| `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full panel body. `NULL` = no scoping |
 
 **Internal structure:**
 
@@ -1447,6 +1843,11 @@ Injected fields: `font`, `font_size`, `spacing`, `align`, `wrap`.
 ### `WLX_TEXT_COLOR_FIELDS` / `WLX_TEXT_COLOR_DEFAULTS`
 
 Injected fields: `front_color`, `back_color`.
+
+### `WLX_BORDER_FIELDS` / `WLX_BORDER_DEFAULTS`
+
+Injected fields: `border_color`, `border_width`, `roundness`,
+`rounded_segments`.
 
 ---
 
@@ -1535,8 +1936,8 @@ int main(void) {
             BeginDrawing();
                 ClearBackground((Color){18, 18, 18, 255});
                 // ... widgets ...
+            wlx_end(ctx);
             EndDrawing();
-        wlx_end(ctx);
     }
 
     wlx_context_destroy(ctx);
@@ -1617,8 +2018,8 @@ int main(void) {
             SDL_SetRenderDrawColor(ren, 18, 18, 18, 255);
             SDL_RenderClear(ren);
             // ... widgets ...
-            SDL_RenderPresent(ren);
         wlx_end(ctx);
+            SDL_RenderPresent(ren);
     }
 
     wlx_context_destroy(ctx);

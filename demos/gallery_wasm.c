@@ -53,6 +53,7 @@ static void section_opacity(WLX_Context *ctx, Gallery_State *g);
 static void section_id_stack(WLX_Context *ctx, Gallery_State *g);
 static void section_borders(WLX_Context *ctx, Gallery_State *g);
 static void section_auto_layout(WLX_Context *ctx, Gallery_State *g);
+static void section_progress_toggle_radio(WLX_Context *ctx, Gallery_State *g);
 
 static const Section sections[] = {
     { "Label",          section_label },
@@ -70,6 +71,7 @@ static const Section sections[] = {
     { "ID Stack",       section_id_stack },
     { "Borders",        section_borders },
     { "Auto Layout",    section_auto_layout },
+    { "Progress/Toggle/Radio", section_progress_toggle_radio },
 };
 #define SECTION_COUNT ((int)(sizeof(sections) / sizeof(sections[0])))
 
@@ -161,6 +163,12 @@ struct Gallery_State {
     float auto_item_height;
     float auto_header_pct;
     float auto_sidebar_pct;
+
+    // Progress / Toggle / Radio
+    float progress_value;
+    bool  toggle_a;
+    bool  toggle_b;
+    int   radio_choice;
 };
 
 static Gallery_State g = {
@@ -228,6 +236,11 @@ static Gallery_State g = {
     .auto_item_height = 36.0f,
     .auto_header_pct = 15.0f,
     .auto_sidebar_pct = 30.0f,
+
+    .progress_value = 0.35f,
+    .toggle_a = false,
+    .toggle_b = true,
+    .radio_choice = 0,
 
     .dynamic_panel_count = 3.0f,
     .dynamic_sliders = { 0.2f, 0.4f, 0.6f, 0.8f, 1.0f, 0.3f, 0.5f, 0.7f, 0.9f, 0.1f },
@@ -1805,6 +1818,63 @@ static void section_auto_layout(WLX_Context *ctx, Gallery_State *st) {
 
             wlx_layout_end(ctx);
         }
+
+    wlx_split_end(ctx);
+}
+
+// ---------------------------------------------------------------------------
+// Section: Progress / Toggle / Radio
+// ---------------------------------------------------------------------------
+static void section_progress_toggle_radio(WLX_Context *ctx, Gallery_State *st) {
+    wlx_split_begin(ctx,
+        .first_back_color = heading_color(ctx->theme, 8, 8, 16));
+
+        wlx_panel_begin(ctx, .title = "Options",
+            .title_back_color = heading_color(ctx->theme, 20, 12, 12));
+
+            wlx_slider(ctx, "Progress  ", &st->progress_value,
+                .height = 36, .font_size = 14);
+
+        wlx_panel_end(ctx);
+
+    wlx_split_next(ctx);
+
+        wlx_panel_begin(ctx, .title = "Progress / Toggle / Radio",
+            .title_font_size = 26, .title_height = 48,
+            .title_back_color = heading_color(ctx->theme, 17, 12, 32),
+            .padding = 0);
+
+            wlx_label(ctx, "Phase 2 widgets: progress bar, toggle switch, radio button.",
+                .font_size = 16, .height = 30);
+
+            SUB_HEADING(ctx, "Progress Bar");
+            wlx_progress(ctx, st->progress_value, .height = ROW_H);
+
+            {
+                char buf[64];
+                snprintf(buf, sizeof(buf), "Value: %.0f%%", st->progress_value * 100.0f);
+                wlx_label(ctx, buf, .height = 28, .font_size = 14);
+            }
+
+            wlx_progress(ctx, 0.0f, .height = 28);
+            wlx_progress(ctx, 1.0f, .height = 28);
+
+            SUB_HEADING(ctx, "Toggle Switch");
+            wlx_toggle(ctx, "Enable notifications", &st->toggle_a, .height = ROW_H);
+            wlx_toggle(ctx, "Dark mode", &st->toggle_b, .height = ROW_H);
+
+            SUB_HEADING(ctx, "Radio Buttons");
+            wlx_radio(ctx, "Small",  &st->radio_choice, 0, .height = ROW_H);
+            wlx_radio(ctx, "Medium", &st->radio_choice, 1, .height = ROW_H);
+            wlx_radio(ctx, "Large",  &st->radio_choice, 2, .height = ROW_H);
+
+            {
+                char buf[64];
+                snprintf(buf, sizeof(buf), "Selected: %d", st->radio_choice);
+                wlx_label(ctx, buf, .height = 28, .font_size = 14);
+            }
+
+        wlx_panel_end(ctx);
 
     wlx_split_end(ctx);
 }

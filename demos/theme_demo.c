@@ -21,17 +21,19 @@ typedef struct {
     bool checkbox_a;
     bool checkbox_b;
     float slider_val;
+    float progress_val;
     char input_buf[128];
     int  input_len;
 } App_State;
 
 static App_State app = {
-    .dark_mode   = true,
-    .checkbox_a  = false,
-    .checkbox_b  = true,
-    .slider_val  = 0.5f,
-    .input_buf   = "Hello, themes!",
-    .input_len   = 14,
+    .dark_mode    = true,
+    .checkbox_a   = false,
+    .checkbox_b   = true,
+    .slider_val   = 0.5f,
+    .progress_val = 0.6f,
+    .input_buf    = "Hello, themes!",
+    .input_len    = 14,
 };
 
 int main(void) {
@@ -137,6 +139,13 @@ int main(void) {
                             .min_value = 0.0f, .max_value = 1.0f,
                             .height = 30, .font_size = 14
                         );
+
+                        wlx_label(ctx, "Progress (theme->progress.*)",
+                            .font_size = 14, .align = WLX_LEFT
+                        );
+                        wlx_progress(ctx, app.progress_val,
+                            .height = 16
+                        );
                         wlx_layout_auto_slot_px(ctx, 50.0f);
 
                         wlx_inputbox(ctx, "Text:", app.input_buf,
@@ -150,8 +159,8 @@ int main(void) {
 
             wlx_layout_end(ctx);
 
-        EndDrawing();
         wlx_end(ctx);
+        EndDrawing();
     }
 
     wlx_context_destroy(ctx);

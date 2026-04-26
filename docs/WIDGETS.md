@@ -15,9 +15,9 @@ minimal code example, a full option-field table, and common override patterns.
 
 ## Shared option fields
 
-All widgets embed two groups of shared fields. They appear first in every
-option struct, so the table below applies to **every** widget unless noted
-otherwise.
+All leaf-widget option structs share placement and sizing fields. Many also
+reuse the typography, text-color, and border groups below, so those defaults
+are documented once here.
 
 ### Placement fields (`WLX_LAYOUT_SLOT_FIELDS`)
 
@@ -33,17 +33,17 @@ otherwise.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `widget_align` | `WLX_Align` | `WLX_LEFT` | Where to place the widget inside its slot when it is smaller than the slot |
-| `width` | `int16_t` | `-1` | Widget width in pixels. `-1` = fill parent width |
-| `height` | `int16_t` | `-1` | Widget height in pixels. `-1` = fill parent height |
-| `min_width` | `int16_t` | `0` | Minimum width constraint. `0` = unconstrained |
-| `min_height` | `int16_t` | `0` | Minimum height constraint. `0` = unconstrained |
-| `max_width` | `int16_t` | `0` | Maximum width constraint. `0` = unconstrained |
-| `max_height` | `int16_t` | `0` | Maximum height constraint. `0` = unconstrained |
-| `opacity` | `float` | `0` | Opacity multiplier. `0` = fully opaque (sentinel), `0.0001`–`1.0` = explicit alpha |
+| `width` | `float` | `-1` | Widget width in pixels. `-1` = fill parent width |
+| `height` | `float` | `-1` | Widget height in pixels. `-1` = fill parent height |
+| `min_width` | `float` | `0` | Minimum width constraint. `0` = unconstrained |
+| `min_height` | `float` | `0` | Minimum height constraint. `0` = unconstrained |
+| `max_width` | `float` | `0` | Maximum width constraint. `0` = unconstrained |
+| `max_height` | `float` | `0` | Maximum height constraint. `0` = unconstrained |
+| `opacity` | `float` | `-1` | Opacity multiplier. Negative = inherit theme and opacity stack; `0.0`–`1.0` = explicit alpha |
 
 ### Typography fields (`WLX_TEXT_TYPOGRAPHY_FIELDS`)
 
-Used by `label`, `button`, `checkbox`, `checkbox_tex`, and `inputbox`.
+Used by `label`, `button`, `checkbox`, `inputbox`, `toggle`, and `radio`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -55,20 +55,33 @@ Used by `label`, `button`, `checkbox`, `checkbox_tex`, and `inputbox`.
 
 ### Color fields (`WLX_TEXT_COLOR_FIELDS`)
 
-Used by `label`, `button`, `checkbox`, `checkbox_tex`, and `inputbox`.
+Used by `label`, `button`, `checkbox`, `inputbox`, `toggle`, and `radio`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `front_color` | `WLX_Color` | `{0}` | Text/foreground color. `{0}` = use theme foreground |
 | `back_color` | `WLX_Color` | `{0}` | Background fill color. `{0}` = use theme surface |
 
-### Identity field
+### Border fields (`WLX_BORDER_FIELDS`)
 
-All widget opt structs include an optional identity field:
+Used by `widget`, `label`, `button`, `inputbox`, `slider`, `progress`,
+`toggle`, and `scroll panels`. `checkbox` exposes the same field names
+directly even though it does not use the macro.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `id` | `const char *` | `NULL` | An explicit string ID. When non-NULL, the string is hashed and pushed onto the ID stack for the duration of the widget call, giving it a stable identity independent of call-site order. Useful for widgets created in loops or dynamic lists. See [LAYOUT_MODEL § Explicit String IDs](LAYOUT_MODEL.md) for details. |
+| `border_color` | `WLX_Color` | `{0}` | Border color. `{0}` = theme or widget-specific border fallback |
+| `border_width` | `float` | `-1` | Border width. `-1` = theme/widget default, `0` = no border |
+| `roundness` | `float` | `-1` | Corner roundness. `-1` = theme default |
+| `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
+
+### Identity field
+
+All leaf-widget opt structs include an optional identity field:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | `const char *` | `NULL` | An explicit string ID. When non-NULL, the string is hashed and pushed onto the ID stack for the duration of the widget call, giving it a stable identity independent of call-site order. Useful for widgets created in loops or dynamic lists. Compound widgets that keep their body open document their scope-style `id` behavior in their own sections. See [LAYOUT_MODEL § Explicit String IDs](LAYOUT_MODEL.md) for details. |
 
 ---
 
@@ -97,7 +110,7 @@ wlx_label(ctx, "Hello, world!",
 |-------|------|---------|-------------|
 | `show_background` | `bool` | `false` | Draw a filled background rectangle behind the text |
 
-All shared fields (placement, sizing, typography, color) also apply.
+All shared placement, sizing, typography, color, and border fields also apply.
 
 ### Common overrides
 
@@ -149,7 +162,7 @@ if (wlx_button(ctx, "Click me")) {
 
 No widget-specific options beyond the shared fields.
 
-All shared fields (placement, sizing, typography, color) apply.
+All shared placement, sizing, typography, color, and border fields apply.
 The button always draws a filled `back_color` rectangle — hover brightens it
 automatically using the theme's `hover_brightness`.
 
@@ -181,8 +194,9 @@ if (wlx_button(ctx, "Save", .font_size = 18, .height = 40, .align = WLX_CENTER))
 
 ## `wlx_checkbox`
 
-Toggle checkbox with a text label. Draws a small check-box indicator and the
-label text beside it. Returns `true` on the frame the checked state changes.
+Toggle checkbox with a text label. Draws a square indicator beside the label,
+or uses textures when `tex_checked` / `tex_unchecked` are provided. Returns
+`true` on the frame the checked state changes.
 
 ### Signature
 
@@ -209,13 +223,19 @@ if (wlx_checkbox(ctx, "Dark mode", &dark_mode)) {
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `show_background` | `bool` | `false` | Draw a filled background behind checkbox + label |
 | `full_slot_hit` | `bool` | `true` | Use the full slot rect for hover/click interaction |
-| `border_color` | `WLX_Color` | `{0}` | Border color of the check-box indicator. `{0}` = theme `checkbox.border` |
+| `border_color` | `WLX_Color` | `{0}` | Indicator border color. `{0}` = theme `checkbox.border` |
+| `border_width` | `float` | `-1` | Indicator border width. `-1` = theme `checkbox.border_width` |
+| `roundness` | `float` | `-1` | Indicator corner roundness. `-1` = theme default |
+| `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
 | `check_color` | `WLX_Color` | `{0}` | Color of the check mark. `{0}` = theme `checkbox.check` |
+| `tex_checked` | `WLX_Texture` | zero handle | Texture used for the checked state |
+| `tex_unchecked` | `WLX_Texture` | zero handle | Texture used for the unchecked state |
 
-All shared fields (placement, sizing, typography, color) also apply.
-Default `wrap` is `false` for checkbox.
+All shared placement, sizing, typography, and color fields also apply.
+Default `wrap` is `false` for checkbox. `.back_color` fills the indicator in
+native mode and tints the texture in texture mode; there is no separate
+row-background toggle.
 
 ### Common overrides
 
@@ -230,65 +250,20 @@ if (wlx_checkbox(ctx, "Enable notifications", &notify_enabled,
 }
 ```
 
----
-
-## `wlx_checkbox_tex`
-
-Texture-based checkbox — same behavior as `checkbox` but renders custom
-textures for the checked/unchecked states instead of the default drawn
-indicator. Useful for star ratings, custom toggle icons, etc.
-
-### Signature
+Texture-backed checkbox using the same API:
 
 ```c
-bool wlx_checkbox_tex(WLX_Context *ctx, const char *text, bool *checked, ...options);
-```
-
-| Parameter | Description |
-|-----------|-------------|
-| `text` | Label displayed next to the texture |
-| `checked` | Pointer to a `bool` — toggled automatically on click |
-
-### Minimal example
-
-```c
-static bool favorited = false;
-
-if (wlx_checkbox_tex(ctx, "Favorite", &favorited,
+if (wlx_checkbox(ctx, "Favorite", &favorited,
     .tex_checked   = star_filled_tex,
-    .tex_unchecked = star_empty_tex
+    .tex_unchecked = star_empty_tex,
+    .back_color = (WLX_Color){255, 255, 255, 255}
 )) {
     printf("Favorited: %s\n", favorited ? "yes" : "no");
 }
 ```
 
-### Widget-specific options
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `show_background` | `bool` | `false` | Draw a filled background behind texture + label |
-| `full_slot_hit` | `bool` | `true` | Use the full slot rect for hover/click interaction |
-| `tex_checked` | `WLX_Texture` | — | Texture to display when checked |
-| `tex_unchecked` | `WLX_Texture` | — | Texture to display when unchecked |
-
-All shared fields (placement, sizing, typography, color) also apply.
-
-### Common overrides
-
-Custom styled texture checkbox:
-
-```c
-if (wlx_checkbox_tex(ctx, "Feature A", &feature_a,
-    .tex_checked   = tex_on,
-    .tex_unchecked = tex_off,
-    .font_size = 20,
-    .align = WLX_LEFT,
-    .back_color = (WLX_Color){30, 30, 60, 255},
-    .front_color = (WLX_Color){255, 255, 255, 255}
-)) {
-    toggle_feature_a();
-}
-```
+Use `wlx_checkbox(..., .tex_checked = ..., .tex_unchecked = ...)` instead of
+the removed `wlx_checkbox_tex` compatibility macro.
 
 ---
 
@@ -330,10 +305,13 @@ if (wlx_inputbox(ctx, "Name:", name, sizeof(name), .height = 40)) {
 |-------|------|---------|-------------|
 | `content_padding` | `float` | `10` | Horizontal padding inside the text editing area |
 | `border_color` | `WLX_Color` | `{0}` | Border color in unfocused state. `{0}` = theme `border` |
+| `border_width` | `float` | `-1` | Border width. `-1` = theme `input.border_width`, then theme `border_width` |
+| `roundness` | `float` | `-1` | Corner roundness. `-1` = theme default |
+| `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
 | `border_focus_color` | `WLX_Color` | `{0}` | Border color when focused. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Blinking cursor color. `{0}` = theme `input.cursor` |
 
-All shared fields (placement, sizing, typography, color) also apply.
+All shared placement, sizing, typography, and color fields also apply.
 Default `wrap` is `true` for inputbox.
 
 ### Common overrides
@@ -411,10 +389,12 @@ Slider has its own typography and color fields (not the shared
 | `label_color` | `WLX_Color` | `{0}` | Text label color. `{0}` = theme `slider.label` |
 | `track_height` | `float` | `0` | Height of the track bar. `0` = theme default (6) |
 | `thumb_width` | `float` | `0` | Width of the thumb handle. `0` = theme default (14) |
-| `roundness` | `float` | `0` | Corner rounding for track/fill/thumb |
-| `rounded_segments` | `int` | `0` | Segment count for rounded drawing |
-| `hover_brightness` | `float` | `0` | Brightness shift on track hover |
-| `thumb_hover_brightness` | `float` | `0` | Brightness shift on thumb hover |
+| `border_color` | `WLX_Color` | `{0}` | Border color for track/thumb outlines. `{0}` = theme `border` |
+| `border_width` | `float` | `-1` | Border width. `-1` = theme `border_width` |
+| `roundness` | `float` | `-1` | Corner rounding for track/fill/thumb. `-1` = theme default |
+| `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
+| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Brightness shift on track hover. Unset = theme default |
+| `thumb_hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Brightness shift on thumb hover. Unset = theme default |
 | `fill_inactive_brightness` | `float` | `-0.3` | Brightness offset for the filled portion of the track |
 | `min_value` | `float` | `0.0` | Minimum slider value |
 | `max_value` | `float` | `1.0` | Maximum slider value |
@@ -440,6 +420,234 @@ wlx_slider(ctx, "Speed", &speed,
     .widget_align = WLX_CENTER, .width = 400, .height = 40,
     .min_value = 0.0f, .max_value = 100.0f,
     .font_size = 18
+);
+```
+
+---
+
+## `wlx_separator`
+
+Non-interactive divider line. The separator draws horizontally when its
+resolved rect is wider than it is tall, and vertically otherwise.
+
+### Signature
+
+```c
+void wlx_separator(WLX_Context *ctx, ...options);
+```
+
+### Minimal example
+
+```c
+wlx_separator(ctx, .height = 1);
+```
+
+### Widget-specific options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `color` | `WLX_Color` | `{0}` | Divider color. `{0}` = theme `border` |
+| `thickness` | `float` | `1.0` | Line thickness in pixels |
+
+Shared placement and sizing fields also apply.
+
+### Common overrides
+
+Horizontal rule between controls:
+
+```c
+wlx_separator(ctx,
+    .height = 1,
+    .color = (WLX_Color){70, 70, 70, 255}
+);
+```
+
+Vertical divider inside a horizontal layout:
+
+```c
+wlx_separator(ctx,
+    .width = 1,
+    .height = 48,
+    .thickness = 1.5f
+);
+```
+
+---
+
+## `wlx_progress`
+
+Progress bar for normalized values. The incoming `value` is clamped to the
+range `[0.0f, 1.0f]` before drawing.
+
+### Signature
+
+```c
+void wlx_progress(WLX_Context *ctx, float value, ...options);
+```
+
+### Minimal example
+
+```c
+wlx_progress(ctx, download_progress,
+    .height = 24,
+    .track_height = 10
+);
+```
+
+### Widget-specific options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `track_color` | `WLX_Color` | `{0}` | Track color. `{0}` = theme `progress.track`, then `slider.track` |
+| `fill_color` | `WLX_Color` | `{0}` | Fill color. `{0}` = theme `progress.fill`, then `accent` |
+| `track_height` | `float` | `0` | Centered track height. `0` = theme/default progress height |
+
+Shared placement, sizing, and border fields also apply.
+
+### Common overrides
+
+Thin status bar:
+
+```c
+wlx_progress(ctx, task_progress,
+    .height = 18,
+    .track_height = 6,
+    .fill_color = (WLX_Color){80, 180, 120, 255}
+);
+```
+
+Rounded progress meter:
+
+```c
+wlx_progress(ctx, 0.72f,
+    .height = 28,
+    .track_height = 12,
+    .roundness = 1.0f,
+    .border_width = 1.0f
+);
+```
+
+---
+
+## `wlx_toggle`
+
+On/off switch with an optional text label. Returns `true` on the frame the
+value changes and flips `*value` automatically.
+
+### Signature
+
+```c
+bool wlx_toggle(WLX_Context *ctx, const char *label, bool *value, ...options);
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `label` | Label shown to the right of the switch. Can be `NULL` |
+| `value` | Pointer to a `bool` — toggled automatically on click |
+
+### Minimal example
+
+```c
+static bool autosave = true;
+
+if (wlx_toggle(ctx, "Autosave", &autosave, .height = 34)) {
+    printf("Autosave: %s\n", autosave ? "ON" : "OFF");
+}
+```
+
+### Widget-specific options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `track_color` | `WLX_Color` | `{0}` | Off-state track color. `{0}` = theme `toggle.track`, then `slider.track` |
+| `track_active_color` | `WLX_Color` | `{0}` | On-state track color. `{0}` = theme `toggle.track_active`, then `accent` |
+| `thumb_color` | `WLX_Color` | `{0}` | Thumb color. `{0}` = theme `toggle.thumb`, then `foreground` |
+| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness override. Unset = theme `hover_brightness` |
+
+Shared placement, sizing, typography, text-color, and border fields also
+apply. Default `wrap` is `false`. `front_color` styles the label text;
+`back_color` is currently unused by this widget.
+
+### Common overrides
+
+Compact toolbar toggle:
+
+```c
+wlx_toggle(ctx, "Grid", &show_grid,
+    .font_size = 14,
+    .height = 26,
+    .widget_align = WLX_RIGHT
+);
+```
+
+Accent-colored toggle with rounded outline:
+
+```c
+wlx_toggle(ctx, "Live preview", &live_preview,
+    .track_active_color = (WLX_Color){40, 160, 120, 255},
+    .thumb_color = (WLX_Color){245, 245, 245, 255},
+    .border_width = 1.0f,
+    .roundness = 1.0f
+);
+```
+
+---
+
+## `wlx_radio`
+
+Radio button bound to an integer selection group. Returns `true` on the frame
+the control is clicked and writes `index` into `*active`.
+
+### Signature
+
+```c
+bool wlx_radio(WLX_Context *ctx, const char *label, int *active, int index, ...options);
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `label` | Label shown to the right of the radio control. Can be `NULL` |
+| `active` | Pointer to the currently selected index |
+| `index` | Index associated with this radio option |
+
+### Minimal example
+
+```c
+static int theme_choice = 0;
+
+wlx_radio(ctx, "Dark", &theme_choice, 0);
+wlx_radio(ctx, "Light", &theme_choice, 1);
+wlx_radio(ctx, "Glass", &theme_choice, 2);
+```
+
+### Widget-specific options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `ring_color` | `WLX_Color` | `{0}` | Ring color. `{0}` = theme `radio.ring`, then `border` |
+| `fill_color` | `WLX_Color` | `{0}` | Selected fill color. `{0}` = theme `radio.fill`, then `accent` |
+| `ring_border_width` | `float` | `-1` | Ring outline width. `-1` = theme `radio.border_width`, then theme `border_width` |
+| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness override. Unset = theme `hover_brightness` |
+
+Shared placement, sizing, typography, and text-color fields also apply.
+Default `wrap` is `false`. `front_color` styles the label text; `back_color`
+is currently unused by this widget.
+
+### Common overrides
+
+Radio row in a settings panel:
+
+```c
+wlx_radio(ctx, "CPU", &backend_mode, 0, .height = 30);
+wlx_radio(ctx, "GPU", &backend_mode, 1, .height = 30);
+```
+
+Styled radio with custom ring thickness:
+
+```c
+wlx_radio(ctx, "Outline mode", &render_mode, 2,
+    .ring_border_width = 2.0f,
+    .fill_color = (WLX_Color){220, 180, 80, 255}
 );
 ```
 
@@ -485,12 +693,18 @@ wlx_scroll_panel_end(ctx);
 |-------|------|---------|-------------|
 | `back_color` | `WLX_Color` | `{0}` | Panel background color. `{0}` = theme background |
 | `scrollbar_color` | `WLX_Color` | `{0}` | Scrollbar thumb color. `{0}` = theme `scrollbar.bar` |
-| `scrollbar_hover_brightness` | `float` | `0` | Brightness shift when hovering the scrollbar |
-| `scrollbar_width` | `float` | `0` | Width of the scrollbar. `0` = theme default (10) |
+| `scrollbar_hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Brightness shift when hovering the scrollbar. Unset = theme default |
+| `scrollbar_width` | `float` | `-1` | Width of the scrollbar. `-1` = theme default |
 | `wheel_scroll_speed` | `float` | `20.0` | Pixels scrolled per mouse wheel tick |
 | `show_scrollbar` | `bool` | `true` | Whether to draw the scrollbar |
+| `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = theme `border` |
+| `border_width` | `float` | `-1` | Panel border width. `-1` = theme `border_width` |
+| `roundness` | `float` | `-1` | Panel corner roundness. `-1` = theme default |
+| `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
 
-Shared placement and sizing fields also apply (no typography or color text fields).
+Shared placement and sizing fields also apply (no typography or text-color fields).
+When `.id` is set, that scope stays active for the full scroll-panel body
+until `wlx_scroll_panel_end(ctx)`.
 
 ### Common overrides
 
@@ -579,9 +793,15 @@ wlx_split_end(ctx);
 | `first_size` | `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | Width of the first (left) pane |
 | `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width of the second (right) pane |
 | `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FILL` | Outer wrapper slot size |
-| `padding` | `float` | `4` | Gap between panes |
+| `padding` | `float` | `4` | Uniform padding for the split container |
+| `padding_top` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
+| `padding_right` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
+| `padding_bottom` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
+| `padding_left` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
+| `gap` | `float` | `0` | Space between the two panes |
 | `first_back_color` | `WLX_Color` | `{0}` | First pane background. `{0}` = theme default |
 | `second_back_color` | `WLX_Color` | `{0}` | Second pane background. `{0}` = theme default |
+| `id` | `const char *` | `NULL` | Scope ID applied to the full split body |
 
 ### `wlx_split_next` options (`WLX_Split_Next_Opt`)
 
@@ -643,6 +863,7 @@ wlx_split_end(ctx);
   Scrollbars appear automatically when content exceeds the pane height.
 - The user must create their own inner layout inside each pane.
   The split widget manages only the outer structure (VERT + HORZ + scroll panels).
+- If `.id` is set, it scopes both pane bodies until `wlx_split_end(ctx)`.
 - In loops, wrap each iteration with `wlx_push_id()` / `wlx_pop_id()` as with
   any repeated widget.
 - Do **not** place `wlx_split_begin` inside a dynamic auto layout
@@ -688,7 +909,13 @@ wlx_panel_end(ctx);
 | `title_align` | `WLX_Align` | `WLX_CENTER` | Heading text alignment |
 | `title_back_color` | `WLX_Color` | `{0}` | Heading background color |
 | `padding` | `float` | `2` | Inner layout padding |
+| `padding_top` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
+| `padding_right` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
+| `padding_bottom` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
+| `padding_left` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
+| `gap` | `float` | `0` | Gap between child widgets |
 | `capacity` | `int` | `32` | Max child widgets (excl. title). Clamped to 64. |
+| `id` | `const char *` | `NULL` | Scope ID applied to the full panel body |
 
 ### Common overrides
 
@@ -730,6 +957,7 @@ wlx_panel_end(ctx);
 - The panel creates a single VERT layout with all-CONTENT slots. It does
   **not** create a scroll panel — inside a split pane the scroll panel is
   already provided by the split.
+- If `.id` is set, it scopes all descendants until `wlx_panel_end(ctx)`.
 - For standalone scrollable panels, wrap in
   `wlx_scroll_panel_begin` / `wlx_scroll_panel_end`.
 - Unused CONTENT slots measure 0px — no visual impact from over-allocation.
@@ -742,8 +970,8 @@ wlx_panel_end(ctx);
 
 ## `wlx_widget`
 
-Low-level colored rectangle. Use it for dividers, color swatches, spacers,
-or any situation where you need a simple filled rect without text.
+Low-level colored rectangle or outlined box. Use it for dividers, color
+swatches, spacers, or any situation where you need a simple rect without text.
 
 ### Signature
 
@@ -757,7 +985,7 @@ void wlx_widget(WLX_Context *ctx, ...options);
 |-------|------|---------|-------------|
 | `color` | `WLX_Color` | `{0}` | Fill color of the rectangle |
 
-All shared fields (placement, sizing) also apply.
+All shared placement, sizing, and border fields also apply.
 
 ### Minimal example
 

@@ -89,7 +89,7 @@ TEST(fuzz_offsets_monotonic) {
         }
 
         float offsets[FUZZ_MAX_SLOTS + 1];
-        wlx_compute_offsets(offsets, count, total, total, sizes);
+        wlx_compute_offsets(offsets, count, total, total, sizes, 0.0f);
 
         // Invariant 1: starts at 0
         if (fabsf(offsets[0]) > 0.001f) {
@@ -125,7 +125,7 @@ TEST(fuzz_offsets_equal_split) {
         float total = fuzz_randf(1.0f, 5000.0f);
 
         float offsets[FUZZ_MAX_SLOTS + 1];
-        wlx_compute_offsets(offsets, count, total, total, NULL);
+        wlx_compute_offsets(offsets, count, total, total, NULL, 0.0f);
 
         // offsets[0] == 0
         if (fabsf(offsets[0]) > 0.001f) {
@@ -187,7 +187,7 @@ TEST(fuzz_offsets_minmax_respected) {
         }
 
         float offsets[FUZZ_MAX_SLOTS + 1];
-        wlx_compute_offsets(offsets, count, total, total, sizes);
+        wlx_compute_offsets(offsets, count, total, total, sizes, 0.0f);
 
         for (size_t i = 0; i < count; i++) {
             float slot_size = offsets[i + 1] - offsets[i];
@@ -237,7 +237,7 @@ TEST(fuzz_offsets_nonnegative_sizes) {
         }
 
         float offsets[FUZZ_MAX_SLOTS + 1];
-        wlx_compute_offsets(offsets, count, total, total, sizes);
+        wlx_compute_offsets(offsets, count, total, total, sizes, 0.0f);
 
         for (size_t i = 0; i < count; i++) {
             float slot_size = offsets[i + 1] - offsets[i];
