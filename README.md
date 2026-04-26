@@ -9,6 +9,10 @@
 Wollix is a lightweight, header-only C library for building immediate-mode UI
 layouts. Define rows, columns, and grids — widgets interlock into place.
 
+![Wollix gallery demo](demos/gallery.png)
+
+Live gallery demo: [https://dberzins.github.io/wollix/](https://dberzins.github.io/wollix/)
+
 - Single header: [wollix.h](wollix.h)
 - Zero dependencies in the core library
 - Backend adapters for Raylib, SDL3, and bare WASM32 included
