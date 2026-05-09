@@ -42,7 +42,7 @@ library features. Build all demos with `./build.sh` or compile one directly
 | [nest2_panel.c](nest2_panel.c) | Nested scroll panel variant — outer notes + inner panels with sliders and toggles |
 | [opacity_demo.c](opacity_demo.c) | Per-widget opacity — side-by-side comparison of widgets at different transparency levels |
 | [font_demo.c](font_demo.c) | Loading TTF fonts (DejaVu Sans, Mono, Bold), per-widget and theme-level font assignment |
-| [theme_demo.c](theme_demo.c) | Runtime dark/light theme switching with `wlx_theme_dark` / `wlx_theme_light` |
+| [theme_demo.c](theme_demo.c) | Runtime theme builder with built-in presets, editable custom theme fields, and live widget previews |
 | [sdl3_demo.c](sdl3_demo.c) | SDL3 backend — same widgets (button, checkbox, slider) rendered via `wollix_sdl3.h` instead of Raylib |
 
 ---

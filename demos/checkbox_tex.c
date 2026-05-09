@@ -134,10 +134,10 @@ int main(void) {
 
                         // Title
                         wlx_label(ctx, "Checkbox texure Demo",
-                            .widget_align = WLX_TOP_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .spacing = 2, .align = WLX_TOP_LEFT);
+                            .widget_align = WLX_TOP_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_TOP_LEFT);
                         // Subtitle
                         wlx_label(ctx, "Standard checkboxes with custom textures",
-                            .widget_align = WLX_TOP_LEFT, .height = 40, .font_size = 30, .back_color = WLX_BACKGROUND_COLOR, .spacing = 2, .align = WLX_TOP_LEFT);
+                            .widget_align = WLX_TOP_LEFT, .height = 40, .font_size = 30, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_TOP_LEFT);
 
                         // Texture-based wlx_checkbox options (checkmark style)
                         if (wlx_checkbox(ctx, "Option 1: Enable feature A", &app.option1,

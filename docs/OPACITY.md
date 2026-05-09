@@ -200,13 +200,12 @@ to the renderer. Alpha blending works out of the box.
   non-empty. An unmatched pop will trigger an assertion failure in debug
   builds. Unmatched pushes are harmless within a single frame because the
   stack resets in `wlx_begin`.
-- **`wlx_widget()` (raw rectangle)**: the low-level `wlx_widget` function
-  takes a raw `WLX_Color` and does not go through the resolve pipeline.
-  To apply opacity to a raw widget, reduce the colour alpha manually or use
-  `wlx_color_apply_opacity`:
+- **`wlx_widget()` (raw rectangle)**: `wlx_widget` takes a `WLX_Widget_Opt`
+  and goes through the same `wlx_resolve_opt_widget` pipeline as all other
+  widgets, so all three opacity layers apply automatically. Use `.opacity`
+  or the context stack exactly as with any other widget:
   ```c
-  WLX_Color c = wlx_color_apply_opacity(MY_COLOR, 0.5f);
-  wlx_widget(ctx, c);
+  wlx_widget(ctx, .color = MY_COLOR, .opacity = 0.5f);
   ```
 
 ---

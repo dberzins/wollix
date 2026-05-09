@@ -193,6 +193,7 @@ int main(void) {
 
     wlx_context_destroy(ctx);
     free(ctx);
+    wlx_sdl3_text_cache_clear();
     TTF_CloseFont(font_small);
     TTF_CloseFont(font_body);
     TTF_CloseFont(font_title);

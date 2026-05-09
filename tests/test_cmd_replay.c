@@ -6,6 +6,7 @@
 // ============================================================================
 
 #define CREC_CAP 16384
+#define CREC_TEXT_STORAGE_CAP 64
 
 typedef struct {
     WLX_Cmd_Type type;
@@ -16,6 +17,12 @@ typedef struct {
 } CRec_Entry;
 
 static CRec_Entry _crec_log[CREC_CAP];
+// Per-entry NUL-terminated copy of the bytes passed to crec_draw_text.
+// The recorded scratch in wollix.h no longer carries a trailing NUL, and the
+// dispatcher's legacy fallback uses a per-call stack temp whose lifetime ends
+// when control returns to the dispatch loop. Deep-copying here lets tests
+// inspect captured text via _crec_log[i].text after wlx_end() returns.
+static char _crec_text_storage[CREC_CAP][CREC_TEXT_STORAGE_CAP];
 static size_t _crec_count = 0;
 
 static void crec_reset(void) { _crec_count = 0; }
@@ -67,8 +74,17 @@ static void crec_draw_line(float x1, float y1, float x2, float y2, float thick, 
 static void crec_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
     (void)style;
     WLX_Rect r = { x, y, 0, 0 };
-    if (_crec_count < CREC_CAP)
-        _crec_log[_crec_count++] = (CRec_Entry){ WLX_CMD_TEXT, r, {0}, text, y };
+    if (_crec_count < CREC_CAP) {
+        char *dst = _crec_text_storage[_crec_count];
+        size_t i = 0;
+        if (text != NULL) {
+            for (; i < CREC_TEXT_STORAGE_CAP - 1 && text[i] != '\0'; i++) {
+                dst[i] = text[i];
+            }
+        }
+        dst[i] = '\0';
+        _crec_log[_crec_count++] = (CRec_Entry){ WLX_CMD_TEXT, r, {0}, dst, y };
+    }
 }
 
 static void crec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
@@ -151,8 +167,7 @@ static inline int crec_find_color(WLX_Color c, size_t start) {
 }
 
 // Find first text entry containing `substr` starting from `start`.
-// NOTE: wlx_draw_text_fitted draws per-glyph, so recorded text is usually
-// a single char. Use wlx_draw_text directly for multi-char matching.
+// Substring matching works for both direct draws and fitted whole-run text.
 static inline int crec_find_text(const char *substr, size_t start) {
     for (size_t i = start; i < _crec_count; i++) {
         if (_crec_log[i].type == WLX_CMD_TEXT && _crec_log[i].text != NULL
@@ -427,7 +442,7 @@ TEST(replay_string_lifetime) {
     {
         char buf[64];
         snprintf(buf, sizeof(buf), "Dynamic_%d", 42);
-        WLX_Text_Style ts = { .font_size = 16, .spacing = 2, .color = {255,255,255,255} };
+        WLX_Text_Style ts = { .font_size = 16, .color = {255,255,255,255} };
         wlx_draw_text(&ctx, buf, 10.0f, 10.0f, ts);
         memset(buf, 'X', sizeof(buf));
     }
@@ -610,6 +625,150 @@ TEST(replay_nested_layout_parentage) {
 // Suite
 // ============================================================================
 
+// Slice-aware replay: recorded text commands store byte length and replay
+// prefers draw_text_slice when available.
+// ============================================================================
+
+// Slice-recording backend for replay tests
+static size_t _crec_slice_len_captured = 0;
+static char   _crec_slice_text_captured[128];
+static int    _crec_slice_call_count = 0;
+
+static void crec_draw_text_slice(const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+    (void)x; (void)y; (void)style;
+    _crec_slice_len_captured = len;
+    size_t copy = len < 127 ? len : 127;
+    memcpy(_crec_slice_text_captured, text, copy);
+    _crec_slice_text_captured[copy] = '\0';
+    _crec_slice_call_count++;
+}
+
+static void crec_reset_slice(void) {
+    _crec_slice_len_captured = 0;
+    _crec_slice_text_captured[0] = '\0';
+    _crec_slice_call_count = 0;
+}
+
+// replay_text_cmd_stores_byte_length: deferred text recording stores the exact
+// byte length in the command payload, retrievable from the command buffer.
+TEST(replay_text_cmd_stores_byte_length) {
+    WLX_Context ctx;
+    crec_ctx_init(&ctx, 400, 300);
+
+    crec_frame_begin(&ctx, 0, 0, false, false);
+    WLX_Text_Style ts = { .font_size = 10 };
+    wlx_draw_text(&ctx, "Hello", 0.0f, 0.0f, ts);
+    wlx_end(&ctx);
+
+    // Inspect the raw command buffer recorded during this frame.
+    // After wlx_end, commands have been replayed and the arena is intact.
+    // Re-run a frame to record fresh commands, then inspect before replay.
+    crec_frame_begin(&ctx, 0, 0, false, false);
+    wlx_draw_text(&ctx, "Hello", 0.0f, 0.0f, ts);
+
+    // Inspect commands before calling wlx_end
+    WLX_Cmd *cmds = wlx_pool_commands(&ctx);
+    size_t count = ctx.arena.commands.count;
+    int found = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (cmds[i].type == WLX_CMD_TEXT) {
+            ASSERT_EQ_INT((int)cmds[i].data.text.text_len, 5);
+            found++;
+        }
+    }
+    wlx_end(&ctx);
+
+    ASSERT_TRUE(found >= 1);
+}
+
+// record_text_span_drops_trailing_nul: wlx_cmd_record_text_span consumes
+// exactly `len` scratch bytes (no trailing NUL), the stored text_len matches
+// the input length, and the recorded bytes are byte-equal to the input.
+TEST(record_text_span_drops_trailing_nul) {
+    WLX_Context ctx;
+    crec_ctx_init(&ctx, 400, 300);
+
+    crec_frame_begin(&ctx, 0, 0, false, false);
+    WLX_Text_Style ts = { .font_size = 10 };
+
+    size_t scratch_before = ctx.arena.scratch.count;
+    wlx_draw_text(&ctx, "Hello", 0.0f, 0.0f, ts);
+    size_t scratch_after = ctx.arena.scratch.count;
+
+    // 5 bytes for "Hello", no trailing NUL written into scratch.
+    ASSERT_EQ_INT((int)(scratch_after - scratch_before), 5);
+
+    WLX_Cmd *cmds = wlx_pool_commands(&ctx);
+    size_t count = ctx.arena.commands.count;
+    int found_idx = -1;
+    for (size_t i = 0; i < count; i++) {
+        if (cmds[i].type == WLX_CMD_TEXT) { found_idx = (int)i; break; }
+    }
+    ASSERT_TRUE(found_idx >= 0);
+
+    size_t text_off = cmds[found_idx].data.text.text_off;
+    size_t text_len = cmds[found_idx].data.text.text_len;
+    ASSERT_EQ_INT((int)text_len, 5);
+
+    const char *bytes = (const char *)&wlx_pool_scratch(&ctx)[text_off];
+    ASSERT_EQ_INT(memcmp(bytes, "Hello", 5), 0);
+
+    wlx_end(&ctx);
+}
+
+// record_text_span_empty_text_no_scratch: empty text records a command with
+// text_len=0 and consumes zero scratch bytes (no NUL byte allocated either).
+TEST(record_text_span_empty_text_no_scratch) {
+    WLX_Context ctx;
+    crec_ctx_init(&ctx, 400, 300);
+
+    crec_frame_begin(&ctx, 0, 0, false, false);
+    WLX_Text_Style ts = { .font_size = 10 };
+
+    size_t scratch_before = ctx.arena.scratch.count;
+    wlx_draw_text(&ctx, "", 0.0f, 0.0f, ts);
+    size_t scratch_after = ctx.arena.scratch.count;
+
+    ASSERT_EQ_INT((int)(scratch_after - scratch_before), 0);
+
+    WLX_Cmd *cmds = wlx_pool_commands(&ctx);
+    size_t count = ctx.arena.commands.count;
+    int found_idx = -1;
+    for (size_t i = 0; i < count; i++) {
+        if (cmds[i].type == WLX_CMD_TEXT) { found_idx = (int)i; break; }
+    }
+    ASSERT_TRUE(found_idx >= 0);
+    ASSERT_EQ_INT((int)cmds[found_idx].data.text.text_len, 0);
+
+    wlx_end(&ctx);
+}
+
+// replay_text_cmd_uses_slice_callback: when draw_text_slice is set on the
+// backend, replaying a recorded text command calls that callback with the
+// stored byte length instead of calling draw_text.
+TEST(replay_text_cmd_uses_slice_callback) {
+    WLX_Context ctx;
+    crec_ctx_init(&ctx, 400, 300);
+    crec_reset_slice();
+    crec_reset();
+
+    crec_frame_begin(&ctx, 0, 0, false, false);
+    WLX_Text_Style ts = { .font_size = 10 };
+    wlx_draw_text(&ctx, "World", 0.0f, 0.0f, ts);
+
+    // Set slice callback before replay (wlx_end triggers replay)
+    ctx.backend.draw_text_slice = crec_draw_text_slice;
+    wlx_end(&ctx);
+
+    // draw_text_slice should have been called with len=5
+    ASSERT_EQ_INT(1, _crec_slice_call_count);
+    ASSERT_EQ_INT((int)_crec_slice_len_captured, 5);
+    ASSERT_EQ_STR(_crec_slice_text_captured, "World");
+    // draw_text (crec_draw_text) should not have been called for text
+    int text_idx = crec_find_text("World", 0);
+    ASSERT_EQ_INT(text_idx, -1);
+}
+
 SUITE(cmd_replay) {
     RUN_TEST(replay_frame1_positions);
     RUN_TEST(replay_content_convergence);
@@ -622,4 +781,8 @@ SUITE(cmd_replay) {
     RUN_TEST(replay_optout_parity);
     RUN_TEST(replay_no_range_sentinel);
     RUN_TEST(replay_nested_layout_parentage);
+    RUN_TEST(replay_text_cmd_stores_byte_length);
+    RUN_TEST(record_text_span_drops_trailing_nul);
+    RUN_TEST(record_text_span_empty_text_no_scratch);
+    RUN_TEST(replay_text_cmd_uses_slice_callback);
 }

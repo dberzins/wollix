@@ -34,10 +34,12 @@ static void wgt_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int seg
 }
 
 static int _wgt_draw_circle_count;
+static float _wgt_draw_circle_last_radius;
 
 static void wgt_rec_draw_circle(float cx, float cy, float radius, int segments, WLX_Color c) {
-    (void)cx; (void)cy; (void)radius; (void)segments; (void)c;
+    (void)cx; (void)cy; (void)segments; (void)c;
     _wgt_draw_circle_count++;
+    _wgt_draw_circle_last_radius = radius;
 }
 
 static int _wgt_draw_ring_count;
@@ -52,6 +54,7 @@ static void wgt_rec_reset(void) {
     _wgt_draw_rect_rounded_count = 0;
     _wgt_draw_rect_rounded_lines_count = 0;
     _wgt_draw_circle_count = 0;
+    _wgt_draw_circle_last_radius = 0;
     _wgt_draw_ring_count = 0;
 }
 
@@ -63,6 +66,51 @@ static WLX_Backend wgt_rec_backend(void) {
     b.draw_circle = wgt_rec_draw_circle;
     b.draw_ring = wgt_rec_draw_ring;
     return b;
+}
+
+// ============================================================================
+// Slider tests
+// ============================================================================
+
+TEST(slider_default_thumb_is_compact) {
+    // Dark theme has roundness = 0, so the thumb renders as a rounded rect
+    // (roundness 0), not a circle.
+    wgt_rec_reset();
+    WLX_Context ctx = {0};
+    ctx.backend = wgt_rec_backend();
+    ctx.theme = &wlx_theme_dark;
+    ctx.rect = wlx_rect(0, 0, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    float value = 0.5f;
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_slider(&ctx, NULL, &value, .height = 40, .show_label = false);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    ASSERT_TRUE(_wgt_draw_rect_rounded_count >= 1);
+    ASSERT_EQ_INT(_wgt_draw_circle_count, 0);
+    ASSERT_EQ_F(_wgt_draw_rect_rounded_last_rn, 0.0f, 0.001f);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(slider_explicit_zero_roundness_stays_sharp) {
+    wgt_rec_reset();
+    WLX_Context ctx = {0};
+    ctx.backend = wgt_rec_backend();
+    ctx.theme = &wlx_theme_dark;
+    ctx.rect = wlx_rect(0, 0, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    float value = 0.5f;
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_slider(&ctx, NULL, &value, .height = 40, .show_label = false, .roundness = 0);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT(_wgt_draw_circle_count, 0);
+    ASSERT_EQ_F(_wgt_draw_rect_rounded_last_rn, 0.0f, 0.001f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -694,6 +742,8 @@ TEST(checkbox_border_color_widget_specific_first) {
 // ============================================================================
 
 SUITE(widgets) {
+    RUN_TEST(slider_default_thumb_is_compact);
+    RUN_TEST(slider_explicit_zero_roundness_stays_sharp);
     RUN_TEST(progress_clamps_value);
     RUN_TEST(progress_zero_draws_no_fill);
     RUN_TEST(progress_full_draws_fill);

@@ -182,7 +182,7 @@ function cssColor(rgba) {
             ctx.stroke();
         },
 
-        draw_text(textPtr, x, y, _font, fontSize, _spacing, rgba) {
+        draw_text(textPtr, x, y, _font, fontSize, rgba) {
             if (textPtr === 0) return;
             const text = readCString(textPtr);
             if (text.length === 0) return;
@@ -192,7 +192,7 @@ function cssColor(rgba) {
             ctx.fillText(text, x, y);
         },
 
-        measure_text(textPtr, _font, fontSize, spacing, outWPtr, outHPtr) {
+        measure_text(textPtr, _font, fontSize, outWPtr, outHPtr) {
             const f32 = new Float32Array(memory.buffer);
             const wIdx = outWPtr >> 2; // byte offset to f32 index (divide by 4)
             const hIdx = outHPtr >> 2;
@@ -203,14 +203,34 @@ function cssColor(rgba) {
             }
             const text = readCString(textPtr);
             ctx.font = `${fontSize}px sans-serif`;
+            f32[wIdx] = ctx.measureText(text).width;
+            f32[hIdx] = fontSize > 0 ? fontSize : 16;
+        },
 
-            const metrics = ctx.measureText(text);
-            let w = metrics.width;
-            if (text.length > 1 && spacing > 0) {
-                w += (text.length - 1) * spacing;
+        draw_text_slice(textPtr, len, x, y, _font, fontSize, rgba) {
+            if (textPtr === 0 || len === 0) return;
+            const mem = new Uint8Array(memory.buffer);
+            const text = decoder.decode(mem.subarray(textPtr, textPtr + len));
+            if (text.length === 0) return;
+            ctx.fillStyle = cssColor(rgba);
+            ctx.font = `${fontSize}px sans-serif`;
+            ctx.textBaseline = "top";
+            ctx.fillText(text, x, y);
+        },
+
+        measure_text_slice(textPtr, len, _font, fontSize, outWPtr, outHPtr) {
+            const f32 = new Float32Array(memory.buffer);
+            const wIdx = outWPtr >> 2;
+            const hIdx = outHPtr >> 2;
+            if (textPtr === 0 || len === 0) {
+                f32[wIdx] = 0;
+                f32[hIdx] = fontSize > 0 ? fontSize : 16;
+                return;
             }
-
-            f32[wIdx] = w;
+            const mem = new Uint8Array(memory.buffer);
+            const text = decoder.decode(mem.subarray(textPtr, textPtr + len));
+            ctx.font = `${fontSize}px sans-serif`;
+            f32[wIdx] = ctx.measureText(text).width;
             f32[hIdx] = fontSize > 0 ? fontSize : 16;
         },
 

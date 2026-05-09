@@ -26,6 +26,111 @@ static bool do_inputbox_B(WLX_Context *ctx, char *buf, size_t buf_size) {
         __FILE__, __LINE__);
 }
 
+static int _input_cursor_draw_count = 0;
+static float _input_cursor_x1 = 0.0f;
+static float _input_cursor_y1 = 0.0f;
+static float _input_cursor_x2 = 0.0f;
+static float _input_cursor_y2 = 0.0f;
+static int _input_text_draw_count = 0;
+static char _input_text_draw_text[64];
+
+static void input_capture_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c) {
+    (void)thick;
+    (void)c;
+    _input_cursor_draw_count++;
+    _input_cursor_x1 = x1;
+    _input_cursor_y1 = y1;
+    _input_cursor_x2 = x2;
+    _input_cursor_y2 = y2;
+}
+
+static inline void input_reset_cursor_capture(void) {
+    _input_cursor_draw_count = 0;
+    _input_cursor_x1 = 0.0f;
+    _input_cursor_y1 = 0.0f;
+    _input_cursor_x2 = 0.0f;
+    _input_cursor_y2 = 0.0f;
+}
+
+static void input_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+    (void)x;
+    (void)y;
+    (void)style;
+    _input_text_draw_count++;
+    const char *source = text ? text : "";
+    size_t len = strlen(source);
+    if (len >= sizeof(_input_text_draw_text)) len = sizeof(_input_text_draw_text) - 1;
+    memcpy(_input_text_draw_text, source, len);
+    _input_text_draw_text[len] = '\0';
+}
+
+static inline void input_reset_text_capture(void) {
+    _input_text_draw_count = 0;
+    _input_text_draw_text[0] = '\0';
+}
+
+static void input_measure_tall_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+    int font_size = style.font_size > 0 ? style.font_size : 10;
+    size_t len = text ? strlen(text) : 0;
+    if (out_w) *out_w = (float)len * (float)font_size * 0.5f;
+    if (out_h) *out_h = (float)font_size + 4.0f;
+}
+
+static inline void test_ctx_init_cursor_capture(WLX_Context *ctx, float w, float h) {
+    test_ctx_init(ctx, w, h);
+    ctx->backend.draw_line = input_capture_draw_line;
+}
+
+static inline void test_ctx_init_tall_text_input_capture(WLX_Context *ctx, float w, float h) {
+    test_ctx_init_cursor_capture(ctx, w, h);
+    ctx->backend.draw_text = input_capture_draw_text;
+    ctx->backend.measure_text = input_measure_tall_text;
+}
+
+#define INPUT_CLIP_LOG_CAP 16
+
+typedef struct {
+    int kind;
+    WLX_Rect rect;
+} Input_Clip_Log_Entry;
+
+static Input_Clip_Log_Entry _input_clip_log[INPUT_CLIP_LOG_CAP];
+static size_t _input_clip_count = 0;
+
+static void input_reset_clip_capture(void) {
+    _input_clip_count = 0;
+    memset(_input_clip_log, 0, sizeof(_input_clip_log));
+}
+
+static void input_capture_begin_scissor(WLX_Rect rect) {
+    if (_input_clip_count < INPUT_CLIP_LOG_CAP) {
+        _input_clip_log[_input_clip_count++] = (Input_Clip_Log_Entry){1, rect};
+    }
+}
+
+static void input_capture_end_scissor(void) {
+    if (_input_clip_count < INPUT_CLIP_LOG_CAP) {
+        _input_clip_log[_input_clip_count++] = (Input_Clip_Log_Entry){2, {0}};
+    }
+}
+
+static inline void test_ctx_init_clip_capture(WLX_Context *ctx, float w, float h) {
+    test_ctx_init(ctx, w, h);
+    ctx->backend.begin_scissor = input_capture_begin_scissor;
+    ctx->backend.end_scissor = input_capture_end_scissor;
+}
+
+static inline void test_ctx_init_clip_line_capture(WLX_Context *ctx, float w, float h) {
+    test_ctx_init_clip_capture(ctx, w, h);
+    ctx->backend.draw_line = input_capture_draw_line;
+}
+
+static bool do_inputbox_long_cursor(WLX_Context *ctx, char *buf, size_t buf_size) {
+    return wlx_inputbox_impl(ctx, NULL, buf, buf_size,
+        wlx_default_inputbox_opt(.height = 500, .content_padding = 4, .font_size = 10, .wrap = true, .border_width = 0),
+        __FILE__, __LINE__);
+}
+
 // ============================================================================
 // Focus tests
 // ============================================================================
@@ -381,6 +486,108 @@ TEST(input_no_type_when_unfocused) {
     ASSERT_EQ_STR(buf, "");
 }
 
+TEST(input_cursor_position_uses_full_buffer_layout) {
+    WLX_Context ctx;
+    test_ctx_init_cursor_capture(&ctx, 74, 500);
+    char buf[700];
+    char legacy_prefix[WLX_INPUTBOX_CURSOR_TEMP_SIZE];
+    WLX_Text_Style ts = { .font_size = 10 };
+    WLX_Rect wr = {0, 0, 74, 500};
+    WLX_Rect input_rect = { wr.x + 4, wr.y + 4, wr.w - 8, wr.h - 8 };
+    WLX_Rect text_rect = {
+        .x = input_rect.x + 2,
+        .y = input_rect.y,
+        .w = input_rect.w - 6,
+        .h = input_rect.h,
+    };
+    float expected_x = text_rect.x;
+    float expected_y = text_rect.y;
+    float legacy_x = text_rect.x;
+    float legacy_y = text_rect.y;
+
+    memset(buf, 'A', 520);
+    buf[520] = '\0';
+    input_reset_cursor_capture();
+
+    test_frame_begin(&ctx, 20, 250, true, true);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+    bool focused = do_inputbox_long_cursor(&ctx, buf, sizeof(buf));
+    ASSERT_TRUE(focused);
+
+    ASSERT_TRUE(wlx_calc_cursor_position_for_text(&ctx, text_rect, buf, ts, WLX_TOP_LEFT, true, 520,
+        &expected_x, &expected_y));
+    if (expected_x > text_rect.x) expected_x += WLX_INPUTBOX_CURSOR_PADDING;
+
+    memcpy(legacy_prefix, buf, WLX_INPUTBOX_CURSOR_TEMP_SIZE - 1);
+    legacy_prefix[WLX_INPUTBOX_CURSOR_TEMP_SIZE - 1] = '\0';
+    ASSERT_TRUE(wlx_calc_cursor_position(&ctx, text_rect, legacy_prefix, ts, WLX_TOP_LEFT, true,
+        &legacy_x, &legacy_y));
+    if (legacy_x > text_rect.x) legacy_x += WLX_INPUTBOX_CURSOR_PADDING;
+
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT(1, _input_cursor_draw_count);
+    ASSERT_EQ_F(_input_cursor_x1, expected_x, 0.1f);
+    ASSERT_EQ_F(_input_cursor_y1, expected_y, 0.1f);
+    ASSERT_TRUE(fabsf(expected_x - legacy_x) > 0.1f || fabsf(expected_y - legacy_y) > 0.1f);
+    ASSERT_EQ_F(_input_cursor_x2, expected_x, 0.1f);
+    ASSERT_EQ_F(_input_cursor_y2, expected_y + 10.0f, 0.1f);
+}
+
+TEST(input_text_clip_restores_scroll_panel_clip) {
+    WLX_Context ctx;
+    test_ctx_init_clip_capture(&ctx, 200, 120);
+    char buf[128] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+    input_reset_clip_capture();
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+    wlx_scroll_panel_begin(&ctx, 80, .height = 80, .show_scrollbar = false);
+    wlx_inputbox(&ctx, NULL, buf, sizeof(buf),
+        .height = 30, .content_padding = 4, .font_size = 10,
+        .wrap = true, .border_width = 0);
+    wlx_scroll_panel_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    ASSERT_TRUE(_input_clip_count >= 5);
+    ASSERT_EQ_INT(_input_clip_log[0].kind, 1);
+    ASSERT_EQ_INT(_input_clip_log[1].kind, 1);
+    ASSERT_EQ_INT(_input_clip_log[2].kind, 2);
+    ASSERT_EQ_INT(_input_clip_log[3].kind, 1);
+    ASSERT_EQ_INT(_input_clip_log[4].kind, 2);
+    ASSERT_EQ_RECT(_input_clip_log[3].rect, _input_clip_log[0].rect, 0.1f);
+    ASSERT_TRUE(_input_clip_log[1].rect.w < _input_clip_log[0].rect.w);
+    ASSERT_TRUE(_input_clip_log[1].rect.h < _input_clip_log[0].rect.h);
+}
+
+TEST(inputbox_draws_when_line_height_exceeds_text_rect) {
+    WLX_Context ctx;
+    test_ctx_init_tall_text_input_capture(&ctx, 80, 40);
+    char buf[64] = "abc";
+
+    input_reset_cursor_capture();
+    input_reset_text_capture();
+
+    test_frame_begin(&ctx, 40, 20, true, true);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+    bool focused = wlx_inputbox_impl(&ctx, NULL, buf, sizeof(buf),
+        wlx_default_inputbox_opt(.height = 40, .content_padding = 10,
+            .font_size = 16, .wrap = false, .border_width = 1),
+        __FILE__, __LINE__);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    ASSERT_TRUE(focused);
+    ASSERT_EQ_INT(1, _input_text_draw_count);
+    ASSERT_EQ_STR(_input_text_draw_text, "abc");
+    ASSERT_EQ_INT(1, _input_cursor_draw_count);
+    ASSERT_EQ_F(_input_cursor_x1, 41.0f, 0.1f);
+    ASSERT_EQ_F(_input_cursor_y1, 12.0f, 0.1f);
+}
+
 // ============================================================================
 // UTF-8 typing tests
 // ============================================================================
@@ -659,6 +866,81 @@ TEST(input_utf8_buffer_full) {
 }
 
 // ============================================================================
+// Inputbox cursor scissor coverage
+// ============================================================================
+
+// Fitted text clips only when a drawn run would overflow. The inputbox cursor
+// is a line primitive, so it keeps its own narrow scope whenever it is visible.
+TEST(inputbox_cursor_uses_scissor_scope) {
+    WLX_Context ctx;
+    test_ctx_init_clip_line_capture(&ctx, 400, 60);
+    char buf[64] = "abc";
+
+    input_reset_clip_capture();
+    input_reset_cursor_capture();
+
+    // Frame 1: click to focus so the cursor is drawn on this frame.
+    test_frame_begin(&ctx, 200, 30, true, true);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_inputbox_impl(&ctx, NULL, buf, sizeof(buf),
+        wlx_default_inputbox_opt(.height = 60, .content_padding = 4,
+            .font_size = 10, .wrap = false, .border_width = 0),
+        __FILE__, __LINE__);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    // The cursor blink_time starts at 0 and frame_time is 0 in tests,
+    // so 0 < 0.5 * 1.0: cursor is visible.
+    ASSERT_EQ_INT(_input_cursor_draw_count, 1);
+
+    ASSERT_TRUE(_input_clip_count >= 2);
+
+    int cursor_begin = -1;
+    for (size_t i = 0; i < _input_clip_count; i++) {
+        if (_input_clip_log[i].kind == 1) { cursor_begin = (int)i; break; }
+    }
+    ASSERT_TRUE(cursor_begin >= 0);
+
+    int cursor_end = -1;
+    for (size_t i = (size_t)(cursor_begin + 1); i < _input_clip_count; i++) {
+        if (_input_clip_log[i].kind == 2) { cursor_end = (int)i; break; }
+    }
+    ASSERT_TRUE(cursor_end > cursor_begin);
+}
+
+TEST(inputbox_typing_resets_cursor_blink) {
+    WLX_Context ctx;
+    test_ctx_init_cursor_capture(&ctx, 400, 300);
+    char buf[64] = "";
+
+    test_frame_begin(&ctx, 200, 150, true, true);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    do_inputbox_A(&ctx, buf, sizeof(buf));
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    for (int frame_index = 0; frame_index < 40; frame_index++) {
+        test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
+                             NULL, NULL, NULL);
+        wlx_layout_begin(&ctx, 1, WLX_VERT);
+        do_inputbox_A(&ctx, buf, sizeof(buf));
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+
+    input_reset_cursor_capture();
+    test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
+                         NULL, NULL, "X");
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    do_inputbox_A(&ctx, buf, sizeof(buf));
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_STR(buf, "X");
+    ASSERT_EQ_INT(1, _input_cursor_draw_count);
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
@@ -684,6 +966,13 @@ SUITE(input) {
     // Buffer limits
     RUN_TEST(input_buffer_overflow);
     RUN_TEST(input_no_type_when_unfocused);
+    RUN_TEST(input_cursor_position_uses_full_buffer_layout);
+    RUN_TEST(input_text_clip_restores_scroll_panel_clip);
+    RUN_TEST(inputbox_draws_when_line_height_exceeds_text_rect);
+
+    // Scissor scope structure
+    RUN_TEST(inputbox_cursor_uses_scissor_scope);
+    RUN_TEST(inputbox_typing_resets_cursor_blink);
 
     // UTF-8 typing
     RUN_TEST(input_type_utf8_2byte);

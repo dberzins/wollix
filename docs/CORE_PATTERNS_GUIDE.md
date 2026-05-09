@@ -138,7 +138,7 @@ wlx_scroll_panel_frame_end(ctx, state_sp);  // pops id if pushed
 ```c
 if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
 if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
-wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->spacing, &opt->min_height);
+wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
 wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
 opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
 WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color);
@@ -214,3 +214,56 @@ if (wlx_is_float_unset(opt->hover_brightness))
   negative values are meaningful.
 
 See also: [SENTINEL.md](../../SENTINEL.md)
+
+---
+
+## Text Slice Pattern
+
+**Where it lives:** `wlx_draw_text_slice()`, `wlx_measure_text_slice()`,
+`wlx_draw_text_span()`, and `wlx_span_measure_text()` in `wollix.h`;
+`WLX_Backend.draw_text_slice` / `WLX_Backend.measure_text_slice`.
+
+**What it does:**
+
+- Establishes `(const char *text, size_t len)` byte slices as the canonical
+  internal text type so that substrings can be measured and drawn without
+  allocating NUL-terminated copies.
+- Public C-string helpers (`wlx_draw_text`, `wlx_measure_text`) call `strlen`
+  exactly once and forward to the slice path.
+- Internal code calls `wlx_measure_text_slice` / `wlx_draw_text_span` directly
+  and never re-computes length.
+- New backends implement `draw_text_slice` / `measure_text_slice` first.
+  The core falls back to `draw_text` / `measure_text` via a temporary
+  NUL-terminated copy only when the slice callbacks are absent.
+
+**Canonical usage (internal call site):**
+
+```c
+// Measure a byte span with no extra strlen.
+float w, h;
+wlx_measure_text_slice(ctx, text, len, style, &w, &h);
+
+// Draw a byte span (immediate or deferred).
+wlx_draw_text_span(ctx, text, len, x, y, style);
+```
+
+**Canonical public C-string entry (one-strlen shim):**
+
+```c
+// wlx_measure_text and wlx_draw_text are thin wrappers:
+static inline void wlx_measure_text(WLX_Context *ctx, const char *text,
+        WLX_Text_Style style, float *out_w, float *out_h) {
+    if (text == NULL) text = "";
+    wlx_measure_text_slice(ctx, text, strlen(text), style, out_w, out_h);
+}
+```
+
+**Anti-pattern to avoid:**
+
+- Calling `strlen` more than once per public entry on the same string.
+- Using `wlx_draw_text` / `wlx_measure_text` inside internal helpers where a
+  slice length is already known; use `wlx_draw_text_span` /
+  `wlx_measure_text_slice` instead.
+- Implementing only `draw_text` / `measure_text` in a new backend without also
+  providing `draw_text_slice` / `measure_text_slice`; the slice callbacks are
+  the preferred path and should be set first.

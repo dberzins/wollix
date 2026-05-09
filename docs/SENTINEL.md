@@ -31,7 +31,8 @@ Wollix uses several unset/default patterns depending on the field type and API:
 ### 1. `-1` for fields where negative is never valid
 
 Used for: `border_width`, `roundness`, `scrollbar_width`, `rounded_segments`,
-`width`, `height`, `opacity`, `padding` (panel/split).
+`width`, `height`, `opacity`, `padding` (panel/split), `ring_border_width`
+(radio), `gap` (split).
 
 The widget macro sets the default to `-1`. The resolve function uses
 `wlx_is_negative_unset()` to detect the sentinel and replaces it with the
@@ -48,8 +49,8 @@ if (wlx_is_negative_unset(opt->border_width)) opt->border_width = theme->border_
 `wlx_is_negative_unset(float x)` returns `true` when `x < 0`. Use it in
 resolve functions to signal intent.
 
-> **Deprecated:** `wlx_is_unset()` is a backward-compatible alias for
-> `wlx_is_negative_unset()`. New code should use `wlx_is_negative_unset()`.
+> **Note:** The previously documented `wlx_is_unset()` alias has been removed.
+> Use `wlx_is_negative_unset()` in all new and existing resolve code.
 
 **As a caller:**
 
@@ -96,7 +97,7 @@ wlx_slider(ctx, "Vol", &vol, .hover_brightness = 0.2f); // custom hover
 
 ### 3. `<= 0` for fields where zero is never valid
 
-Used for: `font_size`, `spacing`, `track_height`, `thumb_width`.
+Used for: `font_size`, `track_height`, `thumb_width`.
 
 Zero is never a meaningful value for these fields (zero-size font, zero-width
 thumb, etc.), so the original `<= 0` sentinel is correct and unchanged.
@@ -158,7 +159,7 @@ For split panels, the default macro leaves all three size fields at `{0}` and
 
 ```c
 if (wlx_slot_size_is_zero(opt.fill_size))
-    opt.fill_size = WLX_SLOT_FILL;
+    opt.fill_size = WLX_SLOT_FLEX(1);
 if (wlx_slot_size_is_zero(opt.first_size))
     opt.first_size = WLX_SLOT_PX(280);
 if (wlx_slot_size_is_zero(opt.second_size))
@@ -178,9 +179,6 @@ This is a structural default contract, not theme inheritance.
 | Field uses `-1` sentinel; negative values are never meaningful (border_width, roundness, opacity, padding, scrollbar_width, ...) | `wlx_is_negative_unset(x)` |
 | Field uses `WLX_FLOAT_UNSET` sentinel; negative values are legitimate (hover_brightness, thumb_hover_brightness, scrollbar_hover_brightness) | `wlx_is_float_unset(x)` |
 | Field uses all-zero `WLX_Slot_Size` as an omitted/default marker in a structural option path (currently split sizes) | `wlx_slot_size_is_zero(x)` |
-
-`wlx_is_unset()` is a deprecated alias for `wlx_is_negative_unset()`. It
-remains for backward compatibility but should not be used in new resolve code.
 
 `WLX_ALIGN_NONE` does not have a generic helper-based unset contract. Treat it
 as a real align mode unless a specific field documents that `WLX_ALIGN_NONE`
@@ -216,11 +214,11 @@ wlx_layout_begin(ctx, 3, WLX_VERT, .roundness = 0.3f, .back_color = bg);
 | `thumb_hover_brightness` | `WLX_FLOAT_UNSET` | theme value | no hover effect |
 | `scrollbar_hover_brightness` | `WLX_FLOAT_UNSET` | theme value | no hover effect |
 | `font_size` | `<= 0` | theme value | *(never valid)* |
-| `spacing` | `<= 0` | theme value | *(never valid)* |
 | `track_height` | `<= 0` | theme value | *(never valid)* |
 | `thumb_width` | `<= 0` | theme value | *(never valid)* |
 | colors | `{0,0,0,0}` | theme color | transparent black is not representable in these fields |
 | `title_align` (`WLX_Panel_Opt`) | `WLX_ALIGN_NONE` | `WLX_CENTER` | raw/no alignment in most other paths |
 | `first_size` (`WLX_Split_Opt`) | `{0}` `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | same representation as `WLX_SLOT_AUTO` |
 | `second_size` (`WLX_Split_Opt`) | `{0}` `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | same representation as `WLX_SLOT_AUTO` |
-| `fill_size` (`WLX_Split_Opt`) | `{0}` `WLX_Slot_Size` | `WLX_SLOT_FILL` | same representation as `WLX_SLOT_AUTO` |
+| `fill_size` (`WLX_Split_Opt`) | `{0}` `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | same representation as `WLX_SLOT_AUTO` || `ring_border_width` (`WLX_Radio_Opt`) | `-1` | theme value | no border |
+| `gap` (`WLX_Split_Opt`) | `-1` | `0` (no gap) | *(never valid as negative)* |

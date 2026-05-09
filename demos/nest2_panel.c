@@ -83,7 +83,7 @@ int main(void) {
 
                     wlx_layout_begin(ctx, 2, WLX_VERT);
                         wlx_button(ctx, "MAIN PANEL",
-                            .widget_align = WLX_CENTER, .font_size = 20, .height = 200, .back_color = RED, .spacing = 5, .align = WLX_CENTER
+                            .widget_align = WLX_CENTER, .font_size = 20, .height = 200, .back_color = RED, .align = WLX_CENTER
                         );
                         wlx_scroll_panel_begin(ctx, -1,
                             .back_color = (Color){22, 24, 28, 255},
@@ -91,7 +91,7 @@ int main(void) {
                         );
 
                         wlx_button(ctx, "NESTED PANEL",
-                            .widget_align = WLX_CENTER, .font_size = 20, .height = 200, .back_color = BLUE, .spacing = 5, .align = WLX_CENTER
+                            .widget_align = WLX_CENTER, .font_size = 20, .height = 200, .back_color = BLUE, .align = WLX_CENTER
                         );
                         wlx_scroll_panel_end(ctx);
 
@@ -116,7 +116,7 @@ int main(void) {
                 wlx_scroll_panel_end(ctx);
 
                 wlx_button(ctx, "BOTTOM",
-                    .widget_align = WLX_CENTER, .font_size = 20, .back_color = GREEN, .spacing = 5, .align = WLX_CENTER
+                    .widget_align = WLX_CENTER, .font_size = 20, .back_color = GREEN, .align = WLX_CENTER
                 );
 
                 wlx_layout_end(ctx);

@@ -70,8 +70,24 @@ The **input handler** is a callback that reads platform input and writes it to
 
 ```c
 WLX_Context ctx = {0};              // zero-init once
-wlx_context_init_raylib(&ctx);      // attach backend
+wlx_context_init_raylib(&ctx);      // attach backend (calls wlx_context_init internally)
 ctx.theme = &wlx_theme_dark;        // optional (dark is the default)
+```
+
+`wlx_context_init_raylib` (in `wollix_raylib.h`) populates the backend and
+calls `wlx_context_init` from `wollix.h`. When writing a custom backend, call
+`wlx_context_init` directly after populating `ctx->backend`, or use
+`wlx_context_init_ex` to pass a custom `WLX_Arena_Pool_Config`:
+
+```c
+wlx_context_init(&ctx);          // default allocator settings
+wlx_context_init_ex(&ctx, &cfg); // custom arena/pool sizing
+```
+
+When the context is no longer needed, free its buffers:
+
+```c
+wlx_context_destroy(&ctx);
 ```
 
 `WLX_Context` owns dynamically-growing buffers (layout stack, state pool, scratch
@@ -257,6 +273,9 @@ WLX_SLOT_PX_MINMAX(200, 150, 250) // 200px, clamped to [150, 250]
 WLX_SLOT_PCT_MINMAX(50, 100, 400) // 50%, clamped to [100, 400]
 WLX_SLOT_AUTO_MIN(80)             // auto, at least 80px
 WLX_SLOT_AUTO_MAX(200)            // auto, at most 200px
+WLX_SLOT_FILL_MIN(100)            // fill viewport, at least 100px
+WLX_SLOT_FILL_MAX(400)            // fill viewport, at most 400px
+WLX_SLOT_FILL_MINMAX(100, 400)    // fill viewport, clamped to [100, 400]
 ```
 
 A `0` for min or max means unconstrained.
@@ -504,7 +523,6 @@ All widgets inherit these field groups:
 |-------|---------|-------------|
 | `font` | `WLX_FONT_DEFAULT` | Font handle |
 | `font_size` | `0` | Font size (`0` = use theme) |
-| `spacing` | `0` | Text spacing (`0` = use theme) |
 | `align` | `WLX_LEFT` | Text alignment within widget |
 | `wrap` | varies | Word-wrap long text |
 
@@ -561,8 +579,63 @@ wlx_scroll_panel_begin(ctx, content_height);
 wlx_scroll_panel_end(ctx);
 ```
 
-Pass `content_height = 0` for auto-height mode, where the library measures
+Pass `content_height = -1` for auto-height mode, where the library measures
 content height from the first frame and applies it on subsequent frames.
+
+**`wlx_widget`** — generic custom widget that occupies a slot without any built-in drawing:
+```c
+wlx_widget(ctx, .width = 100, .height = 40);
+// use wlx_get_interaction() after this to handle input
+```
+
+**`wlx_separator`** — horizontal or vertical divider line:
+```c
+wlx_separator(ctx);
+wlx_separator(ctx, .color = WLX_RGBA(100, 100, 100, 255), .thickness = 2.0f);
+```
+
+**`wlx_progress`** — progress bar, value in [0, 1]:
+```c
+wlx_progress(ctx, 0.75f);
+wlx_progress(ctx, value, .fill_color = WLX_RGBA(0, 200, 80, 255), .height = 12);
+```
+
+**`wlx_toggle`** — on/off toggle switch, returns `true` when state changes:
+```c
+bool enabled = false;
+if (wlx_toggle(ctx, "Dark mode", &enabled))
+    apply_theme(enabled);
+```
+
+**`wlx_radio`** — radio button in a group, returns `true` when selected:
+```c
+int selected = 0;
+wlx_radio(ctx, "Option A", &selected, 0);
+wlx_radio(ctx, "Option B", &selected, 1);
+wlx_radio(ctx, "Option C", &selected, 2);
+```
+
+**`wlx_split`** — two-pane split layout with independent scroll panels:
+```c
+wlx_split_begin(ctx, .first_size = WLX_SLOT_PX(240));
+    // first pane content (left / top)
+    wlx_label(ctx, "Sidebar");
+wlx_split_next(ctx);
+    // second pane content (right / bottom)
+    wlx_label(ctx, "Main area");
+wlx_split_end(ctx);
+```
+
+**`wlx_panel`** — titled container that auto-counts its children:
+```c
+wlx_panel_begin(ctx, .title = "Settings", .gap = 8);
+    wlx_checkbox(ctx, "Enable audio", &audio);
+    wlx_slider(ctx, "Volume", &vol);
+wlx_panel_end(ctx);
+```
+
+The panel counts children between `wlx_panel_begin` and `wlx_panel_end`
+automatically, so no slot count is needed.
 
 ---
 
@@ -695,7 +768,7 @@ automatically inside the widget implementation.
 
 ### Theme Struct
 
-A `WLX_Theme` provides default colors, fonts, spacing, and widget-specific
+A `WLX_Theme` provides default colors, fonts, and widget-specific
 overrides for the entire UI. Set it on the context:
 
 ```c
@@ -724,7 +797,6 @@ ctx.theme = &my_theme;
 | `accent` | Active/focused accent color |
 | `font` | Default font handle |
 | `font_size` | Default font size |
-| `spacing` | Default text spacing |
 | `padding` | Default slot padding |
 | `roundness` | Corner radius |
 | `hover_brightness` | Brightness shift on hover |
@@ -759,8 +831,9 @@ graphics libraries.
 
 ### WLX_Backend Function Pointers
 
-`WLX_Backend` currently exposes 13 function pointers: 11 required callbacks
-checked by `wlx_backend_is_ready()`, plus 2 optional native circle helpers.
+`WLX_Backend` currently exposes 15 function pointers: 11 required callbacks
+checked by `wlx_backend_is_ready()`, plus 2 optional native circle helpers and
+2 optional slice-aware text helpers.
 
 | Function | Signature | Required | Purpose |
 |----------|-----------|----------|---------|
@@ -777,6 +850,8 @@ checked by `wlx_backend_is_ready()`, plus 2 optional native circle helpers.
 | `begin_scissor` | `(WLX_Rect)` | Yes | Begin a clip rectangle |
 | `end_scissor` | `(void)` | Yes | End clipping |
 | `get_frame_time` | `(void) -> float` | Yes | Return frame delta time in seconds |
+| `draw_text_slice` | `(const char *text, size_t len, float x, y, WLX_Text_Style)` | No | Render an explicit byte span; `NULL` falls back to `draw_text` |
+| `measure_text_slice` | `(const char *text, size_t len, WLX_Text_Style, float *w, *h)` | No | Measure an explicit byte span; `NULL` falls back to `measure_text` |
 
 All 11 required function pointers must be set before calling `wlx_begin`. The
 library checks this with `wlx_backend_is_ready` and asserts on missing required
@@ -784,10 +859,19 @@ pointers. `draw_circle` and `draw_ring` are optional; if they are `NULL`, the
 core routes circle and ring commands through `draw_rect_rounded` and
 `draw_rect_rounded_lines` using the requested segment count.
 
+The required text callbacks use null-terminated strings and remain the backend
+compatibility floor. Slice callbacks are optional and are used for fitted-text
+ranges and command replay when available; otherwise the core creates a
+temporary null-terminated copy. Draw and measure must agree for the same text
+and style on each backend while preserving native whole-run text rendering.
+Embedded NUL bytes are not supported by the public text model and are
+truncated before dispatch.
+
 ### Writing a New Backend
 
 1. Implement all 11 required functions wrapping your graphics API.
-   Optionally implement `draw_circle` and `draw_ring` for native shape quality.
+    Optionally implement `draw_circle`, `draw_ring`, `draw_text_slice`, and
+    `measure_text_slice` for native shape quality and byte-span text handling.
 2. Write an init function that populates `ctx->backend`.
 3. Write an input handler that reads platform input into `ctx->input`.
 

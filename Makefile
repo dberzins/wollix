@@ -31,21 +31,29 @@ WASM_BARE_CFLAGS = --target=wasm32-unknown-unknown -nostdlib -nostdinc -Wno-init
     -Wl,--allow-undefined
 
 DEMO_DIR = demos
+GALLERY_PERF_HEADER = $(DEMO_DIR)/gallery_perf.h
 RAYLIB_DEMOS = layout button text checkbox checkbox_tex input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo gallery auth
 SDL3_DEMOS = sdl3_demo gallery_sdl3
+PERF_DEMOS = gallery_perf gallery_sdl3_perf
 DEMO_NAMES = $(RAYLIB_DEMOS) $(SDL3_DEMOS)
 TARGETS = $(addprefix $(DEMO_DIR)/,$(DEMO_NAMES))
+PERF_TARGETS = $(addprefix $(DEMO_DIR)/,$(PERF_DEMOS))
 DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
 WASM_SITE_TARGETS = $(WASM_SITE_DIR)/gallery.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js
 
-.PHONY: all clean debug release help test test-demos wasm-bare wasm-site $(DEMO_NAMES)
+.PHONY: all clean debug release help test perf-test test-demos wasm-bare wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
 
 all: $(DEFAULT_TARGETS)
 
 $(DEMO_NAMES): %: $(DEMO_DIR)/%
 
+$(PERF_DEMOS): %: $(DEMO_DIR)/%
+
 $(DEMO_DIR):
 	mkdir -p $@
+
+$(DEMO_DIR)/gallery: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) wollix.h wollix_raylib.h | $(DEMO_DIR)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $< $(LIBS)
 
 $(DEMO_DIR)/%: $(DEMO_DIR)/%.c wollix.h wollix_raylib.h | $(DEMO_DIR)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $< $(LIBS)
@@ -53,8 +61,14 @@ $(DEMO_DIR)/%: $(DEMO_DIR)/%.c wollix.h wollix_raylib.h | $(DEMO_DIR)
 $(DEMO_DIR)/sdl3_demo: $(DEMO_DIR)/sdl3_demo.c wollix.h wollix_sdl3.h | $(DEMO_DIR)
 	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
 
-$(DEMO_DIR)/gallery_sdl3: $(DEMO_DIR)/gallery.c wollix.h wollix_sdl3.h | $(DEMO_DIR)
+$(DEMO_DIR)/gallery_sdl3: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) wollix.h wollix_sdl3.h | $(DEMO_DIR)
 	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -DWLX_GALLERY_SDL3 -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
+
+$(DEMO_DIR)/gallery_perf: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) wollix.h wollix_raylib.h | $(DEMO_DIR)
+	$(CC) $(BASE_CFLAGS) -DWLX_PERF $(INCLUDES) -o $@ $< $(LIBS)
+
+$(DEMO_DIR)/gallery_sdl3_perf: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) wollix.h wollix_sdl3.h | $(DEMO_DIR)
+	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -DWLX_PERF -DWLX_GALLERY_SDL3 -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
 
 # ── Bare WASM ────────────────────────────────────────────────────────────────
 wasm-bare: wasm-site
@@ -64,7 +78,7 @@ wasm-site: $(WASM_SITE_TARGETS)
 $(WASM_SITE_DIR):
 	mkdir -p $@
 
-$(WASM_SITE_DIR)/gallery.wasm: demos/gallery.c $(WASM_SRC_DIR)/wlx_libc_shim.c wollix.h wollix_wasm.h | $(WASM_SITE_DIR)
+$(WASM_SITE_DIR)/gallery.wasm: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) $(WASM_SRC_DIR)/wlx_libc_shim.c wollix.h wollix_wasm.h | $(WASM_SITE_DIR)
 	$(WASM_CC) $(WASM_BARE_CFLAGS) -DWLX_GALLERY_WASM -o $@ demos/gallery.c $(WASM_SRC_DIR)/wlx_libc_shim.c
 
 $(WASM_SITE_DIR)/index.html: $(WASM_SRC_DIR)/wollix_wasm.html | $(WASM_SITE_DIR)
@@ -89,11 +103,19 @@ test: $(TEST_BIN)
 $(TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) wollix.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
 
+PERF_TEST_BIN = $(TEST_DIR)/test_runner_perf
+
+perf-test: $(PERF_TEST_BIN)
+	./$(PERF_TEST_BIN)
+
+$(PERF_TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) wollix.h
+	$(CC) $(BASE_CFLAGS) -DWLX_PERF -I. -o $@ $(TEST_DIR)/test_main.c -lm
+
 test-demos: $(DEFAULT_TARGETS)
 	@echo "All demos built successfully."
 
 clean:
-	rm -f $(TARGETS) $(TEST_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
+	rm -f $(TARGETS) $(PERF_TARGETS) $(TEST_BIN) $(PERF_TEST_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
 	rm -rf $(WASM_SITE_DIR)
 
 # Help target
@@ -106,8 +128,11 @@ help:
 	@echo "  <demo-name>  - Build a specific demo into ./$(DEMO_DIR)/<demo-name>"
 	@echo "  sdl3_demo    - Build the SDL3 backend demo into ./$(DEMO_DIR)/sdl3_demo"
 	@echo "  gallery_sdl3 - Build the SDL3 widget gallery into ./$(DEMO_DIR)/gallery_sdl3"
+	@echo "  gallery_perf - Build the Raylib gallery with WLX_PERF enabled"
+	@echo "  gallery_sdl3_perf - Build the SDL3 gallery with WLX_PERF enabled"
 	@echo "  wasm-site    - Package the bare-wasm gallery demo into ./$(WASM_SITE_DIR)/"
 	@echo "  wasm-bare    - Alias for wasm-site"
 	@echo "  test         - Build and run the unit test suite"
+	@echo "  perf-test    - Build and run tests with WLX_PERF enabled"
 	@echo "  test-demos   - Build all Raylib demos and verify exit codes"
 	@echo "  help         - Show this help message"

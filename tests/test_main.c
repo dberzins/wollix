@@ -56,11 +56,18 @@
 // Two-pass text layout regression (kerning mock)
 #include "test_text_layout.c"
 
+// Text spacing opt-in API: default natural spacing and explicit propagation
+#include "test_text_spacing.c"
+
 // Widget wrapper contract: id stack balance and opacity/hover-brightness coverage
 #include "test_widget_wrapper.c"
 
 // Container Scope ID isolation and no-id collision regression
 #include "test_container_scope.c"
+
+// WLX_PERF instrumentation: disabled-build coverage plus guarded histogram,
+// text counter, arena high-water, timer, and immediate-mode snapshot tests.
+#include "test_perf.c"
 
 int main(void) {
     RUN_SUITE(layout_math);
@@ -85,7 +92,9 @@ int main(void) {
     RUN_SUITE(wasm_pool);
     RUN_SUITE(dyn_offsets);
     RUN_SUITE(text_layout);
+    RUN_SUITE(text_spacing);
     RUN_SUITE(widget_wrapper);
     RUN_SUITE(container_scope);
+    RUN_SUITE(perf);
     return test_summary();
 }

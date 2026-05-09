@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.4.0] - 2026-05-09
+
+### Added
+- **Slice-aware text paths:** added public `wlx_measure_text_slice()` and
+  `wlx_draw_text_slice()` helpers, optional `WLX_Backend.draw_text_slice` /
+  `WLX_Backend.measure_text_slice` callbacks, and slice-first core/replay
+  routing while preserving C-string compatibility.
+- **Performance diagnostics:** added opt-in `WLX_PERF` core and backend
+  snapshots, gallery perf builds with summaries/CSV output, public diagnostics
+  docs, and regression tests.
+- **Backend text caches:** added retained SDL3 `TTF_Text` caching with font
+  variants, flush/lifecycle helpers, and counters; added Raylib text
+  measurement caching with cap-zero disable, generation-bump clearing, and
+  cache stats.
+- **Gallery and design system updates:** added a grouped gallery shell,
+  Overview, Semantic Tokens, Theme Lab, Brand theme preview, responsive section
+  templates, refreshed gallery assets, and public design-system documentation.
+- **Panel and typography options:** added panel body-frame controls on
+  `WLX_Panel_Opt` and restored opt-in `spacing` across text style and widget
+  typography options.
+
+### Changed
+- Reworked fitted text into a UTF-8-safe line/run model with explicit newline
+  handling, shared cursor layout, fewer emitted text commands, and private
+  builder refactors that keep public APIs stable.
+- Updated SDL3 and Raylib text rendering paths for better measurement reuse,
+  coordinate snapping, font scaling, and custom-font spacing behavior.
+- Improved gallery layout behavior around section splits, theme controls,
+  status chrome, semantic colors, and version display.
+- Refined content sizing and vertical parent height accounting for more stable
+  nested layout behavior.
+
+### Fixed
+- Fixed checkbox label width math, slider fill/roundness consistency, missing
+  widget ID scopes, Theme Lab padding/preview sizing, and stale gallery version
+  display.
+- Fixed fitted-text and inputbox clipping so scissor scopes are installed only
+  when needed and cursor clipping remains independent.
+- Hardened SDL3 text cache teardown, renderer-change invalidation,
+  font-variant fallback paths, and text rasterization stability.
+
 ## [0.3.0] - 2026-04-26
 
 ### Added
@@ -41,6 +84,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `gallery.c` is now the main cross-backend gallery source for Raylib, SDL3,
   and WASM, with backend-specific setup moved into platform layers and the
   current demo layout retuned for a wider sidebar.
+- `gallery.c` now derives shared demo chrome from a private gallery semantic
+  helper layer, centralizing elevated surfaces, muted text, selection,
+  border-emphasis, and status or destructive treatment without expanding the
+  public `WLX_Theme` API.
+- The same gallery semantic helpers now drive scroll-panel lists, theme-preview
+  cards, helper metadata, and progress-state badges so the proving surfaces use
+  the private token roles beyond shell chrome.
 - Default rendering is now deferred through a per-frame command buffer
   replayed by `wlx_end`; use `wlx_begin_immediate` to opt out. Public examples
   and docs now consistently call `wlx_end(ctx)` before `EndDrawing()` /

@@ -49,9 +49,25 @@ Used by `label`, `button`, `checkbox`, `inputbox`, `toggle`, and `radio`.
 |-------|------|---------|-------------|
 | `font` | `WLX_Font` | `WLX_FONT_DEFAULT` | Font handle. `0` = backend default / theme font |
 | `font_size` | `int` | `0` | Font size in pixels. `0` = use theme default |
-| `spacing` | `int` | `0` | Extra character spacing. `0` = use theme default |
 | `align` | `WLX_Align` | `WLX_LEFT` | Text alignment within the widget rect |
-| `wrap` | `bool` | varies | Enable word-wrapping for long text |
+| `wrap` | `bool` | varies | Enable fitted multi-line wrapping for long text. Width wrapping stays greedy at UTF-8 codepoint boundaries; explicit `\n`, `\r\n`, and `\r` always break lines |
+| `spacing` | `int` | `0` | Opt-in extra tracking. `0` = natural backend spacing |
+
+Fitted text is measured and drawn as whole visible lines/runs. Horizontal
+alignment is applied per visual line, and wrapped inputbox cursors use the
+same fitted line layout.
+
+Text spacing is backend-dependent. Raylib honors nonzero `.spacing` in both
+draw and measure. SDL3 custom-font spacing remains gated in this slice: the
+installed SDL_ttf exposes `TTF_SetFontCharSpacing`, but the backend still
+keeps natural spacing until safe font-variant handling and explicit SDL3
+spacing support land. SDL3 debug font and WASM ignore spacing in both draw
+and measure.
+
+For backend authors, `draw_text_slice` and `measure_text_slice` are the
+preferred text callbacks. Widgets measure and draw through byte spans
+internally; legacy `draw_text` and `measure_text` remain compatibility
+fallbacks for downstream backends that still expect NUL-terminated text.
 
 ### Color fields (`WLX_TEXT_COLOR_FIELDS`)
 
@@ -88,7 +104,9 @@ All leaf-widget opt structs include an optional identity field:
 ## `wlx_label`
 
 Static text label. Does not return a value and has no interactive behavior
-beyond hover highlighting (when `show_background` is true).
+beyond hover highlighting (when `show_background` is true). Wrapped labels are
+measured and drawn as whole visible lines, and explicit newlines preserve empty
+visual lines.
 
 ### Signature
 
@@ -164,7 +182,9 @@ No widget-specific options beyond the shared fields.
 
 All shared placement, sizing, typography, color, and border fields apply.
 The button always draws a filled `back_color` rectangle — hover brightens it
-automatically using the theme's `hover_brightness`.
+automatically using the theme's `hover_brightness`. Button captions use the
+same fitted line/run layout as `wlx_label`, so centered or wrapped captions
+align per visible line.
 
 ### Common overrides
 
@@ -269,12 +289,13 @@ the removed `wlx_checkbox_tex` compatibility macro.
 
 ## `wlx_inputbox`
 
-Single-line text input field. Click to focus, type to edit, press Enter or
-Escape (or click elsewhere) to unfocus. Returns `true` while the field is
-focused.
+Text input field. Click to focus, type to edit, press Enter or Escape (or
+click elsewhere) to unfocus. Returns `true` while the field is focused.
 
 Uses persistent state internally (`WLX_Inputbox_State`) to track cursor
-position and blink timer across frames.
+position and blink timer across frames. The buffer is edited as one UTF-8 byte
+buffer, but when `wrap` is `true` the visible text can span multiple fitted
+visual lines and the cursor follows that same wrapped layout.
 
 ### Signature
 
@@ -312,7 +333,9 @@ if (wlx_inputbox(ctx, "Name:", name, sizeof(name), .height = 40)) {
 | `cursor_color` | `WLX_Color` | `{0}` | Blinking cursor color. `{0}` = theme `input.cursor` |
 
 All shared placement, sizing, typography, and color fields also apply.
-Default `wrap` is `true` for inputbox.
+Default `wrap` is `true` for inputbox, so long buffers display over multiple
+visual lines inside the widget and cursor placement stays aligned with that
+wrapped rendering.
 
 ### Common overrides
 
@@ -381,8 +404,8 @@ Slider has its own typography and color fields (not the shared
 |-------|------|---------|-------------|
 | `font` | `WLX_Font` | `WLX_FONT_DEFAULT` | Font for label and value text |
 | `font_size` | `int` | `0` | Font size. `0` = use theme default |
-| `spacing` | `int` | `0` | Character spacing. `0` = use theme default |
 | `align` | `WLX_Align` | `WLX_LEFT` | Text alignment for the label |
+| `spacing` | `int` | `0` | Opt-in extra tracking for label and value text. `0` = natural backend spacing |
 | `show_label` | `bool` | `true` | Show the numeric value to the right of the track |
 | `track_color` | `WLX_Color` | `{0}` | Track bar background color. `{0}` = derive from theme `slider.track` |
 | `thumb_color` | `WLX_Color` | `{0}` | Thumb handle color. `{0}` = theme `slider.thumb` |
@@ -792,7 +815,7 @@ wlx_split_end(ctx);
 |-------|------|---------|-------------|
 | `first_size` | `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | Width of the first (left) pane |
 | `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width of the second (right) pane |
-| `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FILL` | Outer wrapper slot size |
+| `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Outer wrapper slot size |
 | `padding` | `float` | `4` | Uniform padding for the split container |
 | `padding_top` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
 | `padding_right` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
@@ -908,13 +931,18 @@ wlx_panel_end(ctx);
 | `title_height` | `float` | `32` | Heading slot height in pixels |
 | `title_align` | `WLX_Align` | `WLX_CENTER` | Heading text alignment |
 | `title_back_color` | `WLX_Color` | `{0}` | Heading background color |
+| `back_color` | `WLX_Color` | `{0}` | Panel body background color. `{0}` = transparent |
+| `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = none |
+| `border_width` | `float` | `0` | Border thickness in pixels. `0` = no border |
+| `roundness` | `float` | `0` | Corner roundness for border/background. `0` = sharp |
+| `clip` | `bool` | `false` | Clip body content to panel bounds |
 | `padding` | `float` | `2` | Inner layout padding |
 | `padding_top` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
 | `padding_right` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
 | `padding_bottom` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
 | `padding_left` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
 | `gap` | `float` | `0` | Gap between child widgets |
-| `capacity` | `int` | `32` | Max child widgets (excl. title). Clamped to 64. |
+| `capacity` | `int` | `32` | Max child widgets (excl. title). Clamped to `WLX_CONTENT_SLOTS_MAX` (32). |
 | `id` | `const char *` | `NULL` | Scope ID applied to the full panel body |
 
 ### Common overrides

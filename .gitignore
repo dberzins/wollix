@@ -1,3 +1,7 @@
+docs/dev
+.rules
+.clinerules
+
 # dev
 .vscode
 .zed
@@ -6,9 +10,9 @@
 .copilot
 .claude
 .venv
-docs/dev
 graphify-out
 compile_commands.json
+
 
 #copilot
 .github/copilot-instructions.md
@@ -47,3 +51,6 @@ demos/auth
 dist/
 CLAUDE.md
 demos/gallery_sdl3
+tests/test_runner_perf
+demos/gallery_perf
+demos/gallery_sdl3_perf

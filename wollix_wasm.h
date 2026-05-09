@@ -51,6 +51,42 @@ static inline uint32_t wlx_wasm_pack_color(WLX_Color c) {
 #define WLX_WASM_POOL_MAX_ORDER  20
 #define WLX_WASM_POOL_CLASSES    (WLX_WASM_POOL_MAX_ORDER - WLX_WASM_POOL_MIN_ORDER + 1)
 
+#ifdef WLX_PERF
+typedef struct {
+    uint64_t frame_index;
+    bool timer_available;
+    uint64_t draw_text_calls;
+    uint64_t measure_text_calls;
+    uint64_t draw_rect_calls;
+    uint64_t draw_rect_lines_calls;
+    uint64_t draw_rect_rounded_calls;
+    uint64_t draw_rect_rounded_lines_calls;
+    uint64_t draw_circle_calls;
+    uint64_t draw_ring_calls;
+    uint64_t draw_line_calls;
+    uint64_t draw_texture_calls;
+    uint64_t begin_scissor_calls;
+    uint64_t end_scissor_calls;
+    uint64_t geometry_submit_calls;
+    uint64_t clip_change_calls;
+    uint64_t text_draw_ns;
+    uint64_t text_measure_ns;
+    uint64_t geometry_ns;
+    uint64_t scissor_ns;
+    uint64_t texture_ns;
+    uint64_t present_ns;
+} WLX_Perf_Wasm_Frame;
+
+typedef struct {
+    WLX_Perf_Wasm_Frame current;
+    WLX_Perf_Wasm_Frame last;
+    uint64_t present_start_ns;
+    bool capturing;
+} WLX_Perf_Wasm_State;
+
+static WLX_Perf_Wasm_State wlx_perf_wasm_state = {0};
+#endif
+
 typedef struct WLX_Wasm_Block {
     struct WLX_Wasm_Block *next;
 } WLX_Wasm_Block;
@@ -209,11 +245,21 @@ extern void wlx_wasm_import_draw_line(
 WLX_WASM_IMPORT("draw_text")
 extern void wlx_wasm_import_draw_text(
     const char *text, float x, float y, uintptr_t font, int font_size,
-    int spacing, uint32_t rgba);
+    uint32_t rgba);
 
 WLX_WASM_IMPORT("measure_text")
 extern void wlx_wasm_import_measure_text(
-    const char *text, uintptr_t font, int font_size, int spacing,
+    const char *text, uintptr_t font, int font_size,
+    float *out_w, float *out_h);
+
+WLX_WASM_IMPORT("draw_text_slice")
+extern void wlx_wasm_import_draw_text_slice(
+    const char *text, uint32_t len, float x, float y, uintptr_t font,
+    int font_size, uint32_t rgba);
+
+WLX_WASM_IMPORT("measure_text_slice")
+extern void wlx_wasm_import_measure_text_slice(
+    const char *text, uint32_t len, uintptr_t font, int font_size,
     float *out_w, float *out_h);
 
 WLX_WASM_IMPORT("draw_texture")
@@ -231,79 +277,290 @@ extern void wlx_wasm_import_end_scissor(void);
 WLX_WASM_IMPORT("get_frame_time")
 extern float wlx_wasm_import_get_frame_time(void);
 
+#if defined(WLX_PERF) && defined(WLX_WASM_PERF_TIMESTAMP)
+WLX_WASM_IMPORT("perf_now_ns")
+extern uint64_t wlx_wasm_import_perf_now_ns(void);
+#endif
+
 #undef WLX_WASM_IMPORT
+
+#ifdef WLX_PERF
+static inline bool wlx_perf_wasm_timer_available(void) {
+#ifdef WLX_WASM_PERF_TIMESTAMP
+    return true;
+#else
+    return false;
+#endif
+}
+
+static inline uint64_t wlx_perf_wasm_timestamp(void *user) {
+    WLX_UNUSED(user);
+#ifdef WLX_WASM_PERF_TIMESTAMP
+    return wlx_wasm_import_perf_now_ns();
+#else
+    return 0;
+#endif
+}
+
+static inline void wlx_perf_wasm_install_timer(WLX_Context *ctx) {
+#ifdef WLX_WASM_PERF_TIMESTAMP
+    wlx_perf_set_timer(ctx, wlx_perf_wasm_timestamp, NULL);
+#else
+    WLX_UNUSED(ctx);
+#endif
+}
+
+static inline void wlx_perf_wasm_begin_frame(uint64_t frame_index) {
+    wlx_zero_struct(wlx_perf_wasm_state.current);
+    wlx_perf_wasm_state.current.frame_index = frame_index;
+    wlx_perf_wasm_state.current.timer_available = wlx_perf_wasm_timer_available();
+    wlx_perf_wasm_state.present_start_ns = 0;
+    wlx_perf_wasm_state.capturing = true;
+}
+
+static inline void wlx_perf_wasm_end_frame(uint64_t frame_index) {
+    if (!wlx_perf_wasm_state.capturing) return;
+    if (frame_index != 0) wlx_perf_wasm_state.current.frame_index = frame_index;
+    wlx_perf_wasm_state.last = wlx_perf_wasm_state.current;
+    wlx_perf_wasm_state.capturing = false;
+    wlx_perf_wasm_state.present_start_ns = 0;
+}
+
+static inline void wlx_perf_wasm_reset(void) {
+    wlx_zero_struct(wlx_perf_wasm_state);
+}
+
+static inline const WLX_Perf_Wasm_Frame *wlx_perf_wasm_get_last_frame(void) {
+    return &wlx_perf_wasm_state.last;
+}
+
+static inline void wlx_perf_wasm_inc(uint64_t *counter) {
+    if (!wlx_perf_wasm_state.capturing) return;
+    (*counter)++;
+}
+
+static inline uint64_t wlx_perf_wasm_time_begin(void) {
+    if (!wlx_perf_wasm_state.capturing || !wlx_perf_wasm_state.current.timer_available) return 0;
+    return wlx_perf_wasm_timestamp(NULL);
+}
+
+static inline void wlx_perf_wasm_time_end(uint64_t start_ns, uint64_t *total_ns) {
+    uint64_t end_ns;
+
+    if (!wlx_perf_wasm_state.capturing || !wlx_perf_wasm_state.current.timer_available) return;
+    end_ns = wlx_perf_wasm_timestamp(NULL);
+    if (end_ns >= start_ns) *total_ns += end_ns - start_ns;
+}
+
+static inline void wlx_perf_wasm_present_begin(void) {
+    wlx_perf_wasm_state.present_start_ns = wlx_perf_wasm_time_begin();
+}
+
+static inline void wlx_perf_wasm_present_end(void) {
+    wlx_perf_wasm_time_end(wlx_perf_wasm_state.present_start_ns,
+        &wlx_perf_wasm_state.current.present_ns);
+    wlx_perf_wasm_state.present_start_ns = 0;
+}
+
+#define WLX_WASM_PERF_INC(field) \
+    wlx_perf_wasm_inc(&wlx_perf_wasm_state.current.field)
+#else
+#define WLX_WASM_PERF_INC(field) ((void)0)
+#endif
 
 // ============================================================================
 // Backend callback wrappers
 // ============================================================================
 
 static inline void wlx_wasm_draw_rect(WLX_Rect r, WLX_Color c) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(draw_rect_calls);
+    WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_rect(r.x, r.y, r.w, r.h, wlx_wasm_pack_color(c));
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
+#endif
 }
 
 static inline void wlx_wasm_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(draw_rect_lines_calls);
+    WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_rect_lines(
         r.x, r.y, r.w, r.h, thick, wlx_wasm_pack_color(c));
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
+#endif
 }
 
 static inline void wlx_wasm_draw_rect_rounded(
         WLX_Rect r, float roundness, int segments, WLX_Color c) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(draw_rect_rounded_calls);
+    WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_rect_rounded(
         r.x, r.y, r.w, r.h, roundness, segments, wlx_wasm_pack_color(c));
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
+#endif
 }
 
 static inline void wlx_wasm_draw_rect_rounded_lines(
         WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(draw_rect_rounded_lines_calls);
+    WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_rect_rounded_lines(
         r.x, r.y, r.w, r.h, roundness, segments, thick, wlx_wasm_pack_color(c));
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
+#endif
 }
 
 static inline void wlx_wasm_draw_circle(
         float cx, float cy, float radius, int segments, WLX_Color c) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(draw_circle_calls);
+    WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_circle(
         cx, cy, radius, segments, wlx_wasm_pack_color(c));
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
+#endif
 }
 
 static inline void wlx_wasm_draw_ring(
         float cx, float cy, float inner_r, float outer_r, int segments,
         WLX_Color c) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(draw_ring_calls);
+    WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_ring(
         cx, cy, inner_r, outer_r, segments, wlx_wasm_pack_color(c));
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
+#endif
 }
 
 static inline void wlx_wasm_draw_line(
         float x1, float y1, float x2, float y2, float thick, WLX_Color c) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(draw_line_calls);
+    WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_line(x1, y1, x2, y2, thick, wlx_wasm_pack_color(c));
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
+#endif
 }
 
 static inline void wlx_wasm_draw_text(
         const char *text, float x, float y, WLX_Text_Style style) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(draw_text_calls);
     wlx_wasm_import_draw_text(
-        text, x, y, style.font, style.font_size, style.spacing,
+        text, x, y, style.font, style.font_size,
         wlx_wasm_pack_color(style.color));
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.text_draw_ns);
+#endif
 }
 
 static inline void wlx_wasm_measure_text(
         const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(measure_text_calls);
     wlx_wasm_import_measure_text(
-        text, style.font, style.font_size, style.spacing, out_w, out_h);
+        text, style.font, style.font_size, out_w, out_h);
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.text_measure_ns);
+#endif
+}
+
+static inline void wlx_wasm_draw_text_slice(
+        const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(draw_text_calls);
+    wlx_wasm_import_draw_text_slice(
+        text, (uint32_t)len, x, y, style.font, style.font_size,
+        wlx_wasm_pack_color(style.color));
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.text_draw_ns);
+#endif
+}
+
+static inline void wlx_wasm_measure_text_slice(
+        const char *text, size_t len, WLX_Text_Style style,
+        float *out_w, float *out_h) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(measure_text_calls);
+    wlx_wasm_import_measure_text_slice(
+        text, (uint32_t)len, style.font, style.font_size,
+        out_w, out_h);
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.text_measure_ns);
+#endif
 }
 
 static inline void wlx_wasm_draw_texture(
         WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(draw_texture_calls);
     wlx_wasm_import_draw_texture(
         tex.handle,
         src.x, src.y, src.w, src.h,
         dst.x, dst.y, dst.w, dst.h,
         wlx_wasm_pack_color(tint));
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.texture_ns);
+#endif
 }
 
 static inline void wlx_wasm_begin_scissor(WLX_Rect r) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(begin_scissor_calls);
+    WLX_WASM_PERF_INC(clip_change_calls);
     wlx_wasm_import_begin_scissor(r.x, r.y, r.w, r.h);
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.scissor_ns);
+#endif
 }
 
 static inline void wlx_wasm_end_scissor(void) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(end_scissor_calls);
+    WLX_WASM_PERF_INC(clip_change_calls);
     wlx_wasm_import_end_scissor();
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.scissor_ns);
+#endif
 }
 
 static inline float wlx_wasm_get_frame_time(void) {
@@ -329,6 +586,8 @@ static inline WLX_Backend wlx_backend_wasm(void) {
         .begin_scissor     = wlx_wasm_begin_scissor,
         .end_scissor       = wlx_wasm_end_scissor,
         .get_frame_time    = wlx_wasm_get_frame_time,
+        .draw_text_slice    = wlx_wasm_draw_text_slice,
+        .measure_text_slice = wlx_wasm_measure_text_slice,
     };
 }
 
@@ -357,6 +616,11 @@ static inline void wlx_process_wasm_input(WLX_Context *ctx) {
 static inline void wlx_context_init_wasm(WLX_Context *ctx) {
     assert(ctx != NULL);
     ctx->backend = wlx_backend_wasm();
+#ifdef WLX_PERF
+    wlx_perf_wasm_install_timer(ctx);
+#endif
 }
+
+#undef WLX_WASM_PERF_INC
 
 #endif // WOLLIX_WASM_H_

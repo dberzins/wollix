@@ -1,7 +1,7 @@
 /*
  * wollix.h - Woven layouts for C.
  *
- * Version: 0.3.0  (WOLLIX_VERSION / WLX_VERSION)
+ * Version: 0.4.0  (WOLLIX_VERSION / WLX_VERSION)
  *
  * Copyright (c) 2026 Dainis Berzins
  * Licensed under the MIT License. See LICENSE file for full text.
@@ -94,15 +94,11 @@
  *     Stack scratch limit for min/max redistribution; larger layouts fall
  *     back to heap-backed scratch buffers.
  *
- * WLX_INPUTBOX_CURSOR_TEMP_SIZE  (default 512)
- *     Temporary UTF-8 buffer size used while computing input-box cursor
- *     positions.
- *
  * WLX_DA_INIT_CAP  (default 256)
  *     Initial capacity for internal dynamic arrays.
  *
- * WLX_TEXT_RUN_MAX_GLYPHS  (default 512)
- *     Maximum glyphs processed in a single text-layout run.
+ * WLX_TEXT_RUN_MAX_UNITS  (default 512)
+ *     Maximum text units (codepoints or fallback bytes) processed in a single text-layout run.
  *
  * WLX_STYLE_ROW_HEIGHT / WLX_STYLE_BUTTON_HEIGHT / WLX_STYLE_INPUT_HEIGHT
  * WLX_STYLE_HEADING_FONT_SIZE / WLX_STYLE_BORDER_WIDTH
@@ -143,7 +139,7 @@
 #ifndef WOLLIX_H_
 #define WOLLIX_H_
 
-#define WOLLIX_VERSION "0.3.0"
+#define WOLLIX_VERSION "0.4.0"
 #define WLX_VERSION WOLLIX_VERSION
 
 #include <stdint.h>
@@ -161,6 +157,45 @@
 //   #define WLXDEF static
 #ifndef WLXDEF
 #define WLXDEF
+#endif
+
+#ifdef WLX_PERF
+typedef uint64_t (*WLX_Perf_Timestamp_Fn)(void *user);
+
+typedef struct {
+    uint64_t alloc_calls;
+    uint64_t calloc_calls;
+    uint64_t realloc_calls;
+    uint64_t free_calls;
+    uint64_t alloc_bytes;
+    uint64_t calloc_bytes;
+    uint64_t realloc_bytes;
+} WLX_Perf_Allocator_Stats;
+
+static WLX_Perf_Allocator_Stats *wlx_perf_allocator_sink = NULL;
+
+static inline void wlx_perf_note_alloc(size_t size) {
+    if (!wlx_perf_allocator_sink) return;
+    wlx_perf_allocator_sink->alloc_calls++;
+    wlx_perf_allocator_sink->alloc_bytes += (uint64_t)size;
+}
+
+static inline void wlx_perf_note_calloc(size_t count, size_t size) {
+    if (!wlx_perf_allocator_sink) return;
+    wlx_perf_allocator_sink->calloc_calls++;
+    wlx_perf_allocator_sink->calloc_bytes += (uint64_t)(count * size);
+}
+
+static inline void wlx_perf_note_realloc(size_t size) {
+    if (!wlx_perf_allocator_sink) return;
+    wlx_perf_allocator_sink->realloc_calls++;
+    wlx_perf_allocator_sink->realloc_bytes += (uint64_t)size;
+}
+
+static inline void wlx_perf_note_free(void *ptr) {
+    if (!wlx_perf_allocator_sink || ptr == NULL) return;
+    wlx_perf_allocator_sink->free_calls++;
+}
 #endif
 
 // ============================================================================
@@ -219,8 +254,11 @@ typedef struct {
 // Counts above this fall back to heap allocation.
 #define WLX_OFFSET_STACK_LIMIT 64
 
-// Temporary buffer size for cursor position calculation in inputbox.
-#define WLX_INPUTBOX_CURSOR_TEMP_SIZE 512
+// Stack buffer capacity for temporary null-terminated span copies in fallback
+// paths. Spans larger than this are heap-allocated. Overridable before include.
+#ifndef WLX_TEXT_RANGE_STACK_CAP
+#define WLX_TEXT_RANGE_STACK_CAP 1024
+#endif
 
 #define WLX_UNUSED(value) (void)(value)
 #define WLX_TODO(message) do { fprintf(stderr, "%s:%d: TODO: %s\n", __FILE__, __LINE__, message); abort(); } while(0)
@@ -233,6 +271,9 @@ typedef struct {
 #define wlx_alloc(size) wlx_alloc_impl(size, __FILE__, __LINE__, __FUNCTION__)
 static inline void* wlx_alloc_impl(size_t size, const char *file, int line, const char *func) {
     void *ptr = malloc(size);
+    #ifdef WLX_PERF
+        wlx_perf_note_alloc(size);
+    #endif
     #ifdef WLX_MEMORY_DEBUG
         printf("%s:%d: Allocated = %s, %p [%li bytes]\n", file, line, func, ptr, size);
     #else
@@ -244,6 +285,9 @@ static inline void* wlx_alloc_impl(size_t size, const char *file, int line, cons
 #define wlx_calloc(count, size) wlx_calloc_impl(count, size, __FILE__, __LINE__, __FUNCTION__)
 static inline void* wlx_calloc_impl(size_t count, size_t size, const char *file, int line, const char *func) {
     void *ptr = calloc(count, size);
+    #ifdef WLX_PERF
+        wlx_perf_note_calloc(count, size);
+    #endif
     #ifdef WLX_MEMORY_DEBUG
         printf("%s:%d: Callocated = %s, %p [%zu x %li bytes]\n", file, line, func, ptr, count, size);
     #else
@@ -256,6 +300,9 @@ static inline void* wlx_calloc_impl(size_t count, size_t size, const char *file,
 static inline void* wlx_realloc_impl(void* ptr, size_t size, const char *file, int line, const char *func) {
     void *new_ptr = realloc(ptr, size);
     if (new_ptr) {
+        #ifdef WLX_PERF
+            wlx_perf_note_realloc(size);
+        #endif
         #ifdef WLX_MEMORY_DEBUG
             printf("%s:%d: Deallocated = %s, %p\n", file, line, func, ptr);
             printf("%s:%d: Reallocated = %s, %p [%li bytes]\n", file, line, func, new_ptr, size);
@@ -268,6 +315,9 @@ static inline void* wlx_realloc_impl(void* ptr, size_t size, const char *file, i
 
 #define wlx_free(pointer) wlx_free_impl(pointer, __FILE__, __LINE__, __FUNCTION__)
 static inline void wlx_free_impl(void* ptr, const char *file, int line, const char *func) {
+    #ifdef WLX_PERF
+        wlx_perf_note_free(ptr);
+    #endif
     #ifdef WLX_MEMORY_DEBUG
         printf("%s:%d: Deallocated = %s, %p\n", file, line, func, ptr);
     #else
@@ -314,16 +364,16 @@ typedef uintptr_t WLX_Font;
 #define WLX_FONT_DEFAULT ((WLX_Font)0)
 
 // Bundled text rendering parameters - replaces loose
-// (font_size, spacing, color) arguments in backend callbacks and text helpers.
+// (font_size, color) arguments in backend callbacks and text helpers.
 typedef struct {
     WLX_Font  font;      // 0 -> backend default font
     int      font_size;  // 0 -> resolve from theme
-    int      spacing;    // 0 -> resolve from theme
     WLX_Color color;     // {0,0,0,0} -> resolve from theme foreground
+    int      spacing;    // 0 -> natural backend spacing; nonzero = opt-in extra tracking
 } WLX_Text_Style;
 
 #define WLX_TEXT_STYLE_DEFAULT \
-    ((WLX_Text_Style){ .font = WLX_FONT_DEFAULT, .font_size = 0, .spacing = 0, .color = {0} })
+    ((WLX_Text_Style){ .font = WLX_FONT_DEFAULT, .font_size = 0, .color = {0}, .spacing = 0 })
 
 typedef struct {
     void (*draw_rect)(WLX_Rect rect, WLX_Color color);
@@ -333,6 +383,18 @@ typedef struct {
     void (*draw_circle)(float cx, float cy, float radius, int segments, WLX_Color color); /* optional: NULL falls back to draw_rect_rounded */
     void (*draw_ring)(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color); /* optional: NULL falls back to draw_rect_rounded_lines */
     void (*draw_line)(float x1, float y1, float x2, float y2, float thick, WLX_Color color);
+    // Text callbacks.
+    //
+    // draw_text / measure_text accept NUL-terminated text. They are required
+    // for backend readiness and remain available for downstream backends that
+    // have not implemented the slice callbacks below.
+    //
+    // draw_text_slice / measure_text_slice accept (text, len) byte spans and
+    // are the preferred path: all in-tree backends (Raylib, SDL3, WASM)
+    // implement them and the core text pipeline routes through them by
+    // default. New backends SHOULD implement the slice callbacks; the
+    // NUL-terminated callbacks then receive only synthetic NUL-terminated
+    // input via the core fallback (rare, off the hot path).
     void (*draw_text)(const char *text, float x, float y, WLX_Text_Style style);
     void (*measure_text)(const char *text, WLX_Text_Style style, float *out_w, float *out_h);
     void (*draw_texture)(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint);
@@ -342,6 +404,8 @@ typedef struct {
     void (*begin_scissor)(WLX_Rect rect);
     void (*end_scissor)(void);
     float (*get_frame_time)(void);
+    void (*draw_text_slice)(const char *text, size_t len, float x, float y, WLX_Text_Style style);
+    void (*measure_text_slice)(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h);
 } WLX_Backend;
 
 // ============================================================================
@@ -498,6 +562,7 @@ typedef struct WLX_Layout {
     float viewport;  // viewport dimension along orient axis (for WLX_SIZE_FILL)
     int cmd_range_idx;     // command range table index for this layout (-1 = none)
     bool pushed_scope_id;  // true when a scope id was pushed at begin and must be popped at end
+    bool clip_active;      // true when wlx_panel_begin set up a scissor that wlx_panel_end must release
 
     // Content-fit tracking (NULL when no CONTENT slots)
     const WLX_Slot_Size *content_sizes;     // original sizes array (for kind check in layout_end)
@@ -631,14 +696,26 @@ static inline void wlx_sub_arena_reserve(WLX_Sub_Arena *sa, size_t needed) {
     if (sa->allocator != NULL) {
         if (sa->items == NULL && sa->allocator->alloc != NULL) {
             new_items = sa->allocator->alloc(new_bytes, sa->allocator->user);
+            #ifdef WLX_PERF
+                if (new_items != NULL) wlx_perf_note_alloc(new_bytes);
+            #endif
         } else if (sa->allocator->realloc != NULL) {
             new_items = sa->allocator->realloc(sa->items, old_bytes, new_bytes,
                 sa->allocator->user);
+            #ifdef WLX_PERF
+                if (new_items != NULL) wlx_perf_note_realloc(new_bytes);
+            #endif
         } else if (sa->allocator->alloc != NULL) {
             new_items = sa->allocator->alloc(new_bytes, sa->allocator->user);
+            #ifdef WLX_PERF
+                if (new_items != NULL) wlx_perf_note_alloc(new_bytes);
+            #endif
             if (new_items != NULL && sa->items != NULL && old_bytes > 0) {
                 memcpy(new_items, sa->items, old_bytes);
                 if (sa->allocator->free != NULL) {
+                    #ifdef WLX_PERF
+                        wlx_perf_note_free(sa->items);
+                    #endif
                     sa->allocator->free(sa->items, old_bytes, sa->allocator->user);
                 }
             }
@@ -744,10 +821,25 @@ typedef struct {
     X(id_stack,          sizeof(size_t),                   gen)    \
     X(opacity_stack,     sizeof(float),                    gen)
 
+#ifdef WLX_PERF
+typedef enum {
+    WLX_ARENA_SLOT_SIZE_OFFSETS,
+    WLX_ARENA_DYN_OFFSETS,
+    WLX_ARENA_SCRATCH,
+    WLX_ARENA_COMMANDS,
+    WLX_ARENA_CMD_RANGES,
+    WLX_ARENA_LAYOUTS,
+    WLX_ARENA_SCROLL_PANELS,
+    WLX_ARENA_ID_STACK,
+    WLX_ARENA_OPACITY_STACK,
+    WLX_ARENA_GROUP_COUNT,
+} WLX_Arena_Group;
+#endif
+
 typedef struct {
-#define WLX__ARENA_FIELD(name, item_size, alloc_group) WLX_Sub_Arena name;
-    WLX_ARENA_POOL_FIELDS(WLX__ARENA_FIELD)
-#undef WLX__ARENA_FIELD
+#define WLX_ARENA_FIELD(name, item_size, alloc_group) WLX_Sub_Arena name;
+    WLX_ARENA_POOL_FIELDS(WLX_ARENA_FIELD)
+#undef WLX_ARENA_FIELD
 } WLX_Arena_Pool;
 
 // Typed views into the pool sub-arenas. Each helper re-derives the typed
@@ -787,7 +879,55 @@ typedef enum {
     WLX_CMD_TEXTURE,
     WLX_CMD_SCISSOR_BEGIN,
     WLX_CMD_SCISSOR_END,
+    WLX_CMD_TYPE_COUNT,
 } WLX_Cmd_Type;
+
+#ifdef WLX_PERF
+typedef struct {
+    uint64_t total_ns;
+    uint64_t begin_ns;
+    uint64_t input_ns;
+    uint64_t user_build_ns;
+    uint64_t end_ns;
+    uint64_t range_accum_ns;
+    uint64_t offset_lookup_ns;
+    uint64_t dispatch_ns;
+    uint64_t backend_callback_ns;
+} WLX_Perf_Phase_Timings;
+
+typedef struct {
+    uint64_t total_commands;
+    uint64_t command_ranges;
+    uint64_t by_type[WLX_CMD_TYPE_COUNT];
+} WLX_Perf_Command_Stats;
+
+typedef struct {
+    uint64_t measure_calls;
+    uint64_t measured_bytes;
+    uint64_t emitted_text_commands;
+    uint64_t emitted_text_bytes;
+    uint64_t fitted_text_runs;
+} WLX_Perf_Text_Stats;
+
+typedef struct {
+    size_t count;
+    size_t capacity;
+    size_t high_water;
+    size_t grow_count;
+    size_t bytes_used;
+    size_t bytes_capacity;
+} WLX_Perf_Arena_Stats;
+
+typedef struct {
+    uint64_t frame_index;
+    bool timer_available;
+    WLX_Perf_Phase_Timings timings;
+    WLX_Perf_Command_Stats commands;
+    WLX_Perf_Text_Stats text;
+    WLX_Perf_Arena_Stats arena[WLX_ARENA_GROUP_COUNT];
+    WLX_Perf_Allocator_Stats allocator;
+} WLX_Perf_Frame;
+#endif
 
 typedef struct WLX_Cmd {
     WLX_Cmd_Type type;
@@ -799,7 +939,7 @@ typedef struct WLX_Cmd {
         struct { float cx; float cy; float radius; int segments; WLX_Color color; } circle;
         struct { float cx; float cy; float inner_r; float outer_r; int segments; WLX_Color color; } ring;
         struct { float x1; float y1; float x2; float y2; float thick; WLX_Color color; } line;
-        struct { size_t text_off; float x; float y; WLX_Text_Style style; } text;
+        struct { size_t text_off; size_t text_len; float x; float y; WLX_Text_Style style; } text;
         struct { WLX_Texture texture; WLX_Rect src; WLX_Rect dst; WLX_Color tint; } texture;
         struct { WLX_Rect rect; } scissor_begin;
     } data;
@@ -907,23 +1047,23 @@ static inline void wlx_arena_pool_init(WLX_Arena_Pool *pool,
     WLX_Allocator *contig = cfg ? cfg->contiguous : NULL;
     WLX_Allocator *gen    = cfg ? cfg->general    : NULL;
     assert(pool != NULL);
-#define WLX__ARENA_INIT(name, item_size, alloc_group) wlx_sub_arena_init(&pool->name, (item_size), (alloc_group));
-    WLX_ARENA_POOL_FIELDS(WLX__ARENA_INIT)
-#undef WLX__ARENA_INIT
+#define WLX_ARENA_INIT(name, item_size, alloc_group) wlx_sub_arena_init(&pool->name, (item_size), (alloc_group));
+    WLX_ARENA_POOL_FIELDS(WLX_ARENA_INIT)
+#undef WLX_ARENA_INIT
 }
 
 static inline void wlx_arena_pool_reset(WLX_Arena_Pool *pool) {
     assert(pool != NULL);
-#define WLX__ARENA_RESET(name, item_size, alloc_group) wlx_sub_arena_reset(&pool->name);
-    WLX_ARENA_POOL_FIELDS(WLX__ARENA_RESET)
-#undef WLX__ARENA_RESET
+#define WLX_ARENA_RESET(name, item_size, alloc_group) wlx_sub_arena_reset(&pool->name);
+    WLX_ARENA_POOL_FIELDS(WLX_ARENA_RESET)
+#undef WLX_ARENA_RESET
 }
 
 static inline void wlx_arena_pool_destroy(WLX_Arena_Pool *pool) {
     assert(pool != NULL);
-#define WLX__ARENA_DESTROY(name, item_size, alloc_group) wlx_sub_arena_destroy(&pool->name);
-    WLX_ARENA_POOL_FIELDS(WLX__ARENA_DESTROY)
-#undef WLX__ARENA_DESTROY
+#define WLX_ARENA_DESTROY(name, item_size, alloc_group) wlx_sub_arena_destroy(&pool->name);
+    WLX_ARENA_POOL_FIELDS(WLX_ARENA_DESTROY)
+#undef WLX_ARENA_DESTROY
 }
 
 // ============================================================================
@@ -943,6 +1083,10 @@ static inline void wlx_arena_pool_destroy(WLX_Arena_Pool *pool) {
 #endif
 #ifndef WLX_STYLE_HEADING_FONT_SIZE
 #define WLX_STYLE_HEADING_FONT_SIZE 20
+#endif
+
+#ifndef WLX_SCISSOR_STACK_MAX
+#define WLX_SCISSOR_STACK_MAX 64
 #endif
 #ifndef WLX_STYLE_BORDER_WIDTH
 #define WLX_STYLE_BORDER_WIDTH      1.0f
@@ -971,7 +1115,6 @@ typedef struct {
     // ── Text ────────────────────────────────────────────────────────
     WLX_Font font;               // default font for all widgets (0 = backend default)
     int   font_size;            // default font size for all widgets
-    int   spacing;              // default text spacing
 
     // ── Geometry ────────────────────────────────────────────────────
     float padding;              // default inner padding for layout slots
@@ -997,7 +1140,7 @@ typedef struct {
         WLX_Color thumb;         // {0} -> use foreground
         WLX_Color label;         // {0} -> use foreground
         float    track_height;  // 0 -> default (6)
-        float    thumb_width;   // 0 -> default (14)
+        float    thumb_width;   // 0 -> default (14); also default visual height
     } slider;
 
     struct {
@@ -1088,12 +1231,19 @@ typedef struct WLX_Context {
     int current_range_idx;     // active range during recording, -1 when none
     bool immediate_mode;       // true = dispatch directly (today's behavior)
 
+    WLX_Rect scissor_stack[WLX_SCISSOR_STACK_MAX];
+    size_t scissor_stack_count;
+
     // Theme - NULL means use &wlx_theme_dark (set automatically in wlx_begin)
     const WLX_Theme *theme;
 
     // Debug context - heap-allocated under WLX_DEBUG, NULL in release builds.
     // See the debug implementation section at the end of this file.
     struct WLX_Debug_Context *dbg;
+
+    // Perf context - heap-allocated under WLX_PERF, NULL otherwise.
+    // See the perf implementation section at the end of this file.
+    struct WLX_Perf_Context *perf;
 } WLX_Context;
 
 // Accessors that derive WLX_Layout offset pointers from the slot_size_offsets
@@ -1131,6 +1281,12 @@ static inline float *wlx_grid_row_content_heights(const WLX_Context *ctx, const 
   #define WLX_DBG(fn, ...) wlx_dbg_##fn(__VA_ARGS__)
 #else
   #define WLX_DBG(fn, ...) ((void)0)
+#endif
+
+#ifdef WLX_PERF
+    #define WLX_PERF_HOOK(fn, ...) wlx_perf_##fn(__VA_ARGS__)
+#else
+    #define WLX_PERF_HOOK(fn, ...) ((void)0)
 #endif
 
 // ============================================================================
@@ -1263,6 +1419,12 @@ WLXDEF void wlx_end(WLX_Context *ctx);
 WLXDEF void wlx_context_init(WLX_Context *ctx);
 WLXDEF void wlx_context_init_ex(WLX_Context *ctx, const WLX_Arena_Pool_Config *cfg);
 WLXDEF void wlx_context_destroy(WLX_Context *ctx);
+
+#ifdef WLX_PERF
+WLXDEF void wlx_perf_set_timer(WLX_Context *ctx, WLX_Perf_Timestamp_Fn timestamp_fn, void *user);
+WLXDEF const WLX_Perf_Frame *wlx_perf_get_last_frame(const WLX_Context *ctx);
+WLXDEF void wlx_perf_reset(WLX_Context *ctx);
+#endif
 
 // ============================================================================
 // Layout API
@@ -1414,8 +1576,8 @@ WLXDEF void wlx_layout_begin_impl(WLX_Context *ctx, size_t count, WLX_Orient ori
 //
 // Uses double-expansion so WLX_SIZES is expanded before argument counting.
 #define wlx_layout_begin_s(ctx, orient, ...) \
-    WLX__LAYOUT_BEGIN_S_EXPAND(ctx, orient, __VA_ARGS__)
-#define WLX__LAYOUT_BEGIN_S_EXPAND(ctx, orient, count_val, sizes_ptr, ...) \
+    WLX_LAYOUT_BEGIN_S_EXPAND(ctx, orient, __VA_ARGS__)
+#define WLX_LAYOUT_BEGIN_S_EXPAND(ctx, orient, count_val, sizes_ptr, ...) \
     wlx_layout_begin_impl((ctx), (count_val), (orient), \
         wlx_default_layout_opt(.sizes = (sizes_ptr), __VA_ARGS__), __FILE__, __LINE__)
 
@@ -1503,12 +1665,12 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
 #define WLX_TEXT_TYPOGRAPHY_FIELDS \
     WLX_Font font; \
     int font_size; \
-    int spacing; \
     WLX_Align align; \
-    bool wrap
+    bool wrap; \
+    int spacing
 
 #define WLX_TEXT_TYPOGRAPHY_DEFAULTS \
-    .font = WLX_FONT_DEFAULT, .font_size = 0, .spacing = 0, .align = WLX_LEFT
+    .font = WLX_FONT_DEFAULT, .font_size = 0, .align = WLX_LEFT, .spacing = 0
 
 #define WLX_TEXT_COLOR_FIELDS \
     WLX_Color front_color; \
@@ -1750,8 +1912,8 @@ typedef struct {
     // Typography
     WLX_Font font;
     int font_size;
-    int spacing;
     WLX_Align align;
+    int spacing;
     bool show_label;      // show value label next to slider
 
     // Styles
@@ -1759,7 +1921,7 @@ typedef struct {
     WLX_Color thumb_color;
     WLX_Color label_color;
     float track_height;   // height of the track bar
-    float thumb_width;    // width of the thumb handle
+    float thumb_width;    // width of the thumb handle; also its default visual height
     float hover_brightness;
     float thumb_hover_brightness;
     float fill_inactive_brightness;
@@ -1783,8 +1945,8 @@ typedef struct {
         /* Typography */ \
         .font = WLX_FONT_DEFAULT, \
         .font_size = 0, \
-        .spacing = 0, \
         .align = WLX_LEFT, \
+        .spacing = 0, \
         .show_label = true, \
         /* Styles */ \
         .track_color = {0}, \
@@ -1966,7 +2128,7 @@ WLXDEF void wlx_scroll_panel_end(WLX_Context *ctx);
 typedef struct {
     WLX_Slot_Size first_size;       // default: WLX_SLOT_PX(280)
     WLX_Slot_Size second_size;      // default: WLX_SLOT_FLEX(1)
-    WLX_Slot_Size fill_size;        // default: WLX_SLOT_FILL
+    WLX_Slot_Size fill_size;        // default: WLX_SLOT_FLEX(1) (fills parent slot)
     WLX_PADDING_FIELDS;
     float gap;                      // inter-pane spacing (default: -1 sentinel -> 0)
     WLX_Color first_back_color;     // first pane scroll panel bg (default: theme)
@@ -2016,6 +2178,13 @@ typedef struct {
     WLX_Align title_align;           // default: WLX_CENTER
     WLX_Color title_back_color;      // default: {0} (theme surface)
 
+    // Body frame options (all opt-in; defaults keep existing behaviour)
+    WLX_Color back_color;            // panel background. {0} = transparent
+    WLX_Color border_color;          // panel border. {0} = none
+    float     border_width;          // border thickness in pixels. 0 = none
+    float     roundness;             // corner roundness for border/background. 0 = sharp
+    bool      clip;                  // clip body content to panel bounds. false = no clip
+
     // Layout options
     WLX_PADDING_FIELDS;
     float gap;                       // inter-slot spacing (default: 0)
@@ -2032,6 +2201,11 @@ typedef struct {
         .title_height     = 0, \
         .title_align      = 0, \
         .title_back_color = {0}, \
+        .back_color       = {0}, \
+        .border_color     = {0}, \
+        .border_width     = 0.0f, \
+        .roundness        = 0.0f, \
+        .clip             = false, \
         WLX_PADDING_DEFAULTS, \
         .gap              = 0.0f, \
         .capacity         = 0, \
@@ -2104,6 +2278,28 @@ static inline void wlx_dbg_split_next(WLX_Context *ctx);
 static inline void wlx_dbg_split_end(WLX_Context *ctx);
 #endif // WLX_DEBUG
 
+#ifdef WLX_PERF
+static inline void wlx_perf_frame_begin(WLX_Context *ctx);
+static inline void wlx_perf_input_begin(WLX_Context *ctx);
+static inline void wlx_perf_input_end(WLX_Context *ctx);
+static inline void wlx_perf_begin_end(WLX_Context *ctx);
+static inline void wlx_perf_end_begin(WLX_Context *ctx);
+static inline void wlx_perf_range_begin(WLX_Context *ctx);
+static inline void wlx_perf_range_end(WLX_Context *ctx);
+static inline void wlx_perf_offset_begin(WLX_Context *ctx);
+static inline void wlx_perf_offset_end(WLX_Context *ctx);
+static inline void wlx_perf_dispatch_begin(WLX_Context *ctx);
+static inline void wlx_perf_dispatch_end(WLX_Context *ctx);
+static inline void wlx_perf_backend_callback_begin(WLX_Context *ctx, WLX_Cmd_Type type);
+static inline void wlx_perf_backend_callback_end(WLX_Context *ctx, WLX_Cmd_Type type);
+static inline void wlx_perf_command_record(WLX_Context *ctx, WLX_Cmd_Type type);
+static inline void wlx_perf_text_measure(WLX_Context *ctx, size_t bytes);
+static inline void wlx_perf_text_command(WLX_Context *ctx, size_t bytes);
+static inline void wlx_perf_text_run(WLX_Context *ctx, size_t bytes);
+static inline void wlx_perf_frame_publish(WLX_Context *ctx);
+static inline void wlx_perf_destroy(WLX_Context *ctx);
+#endif
+
 
 
 // ============================================================================
@@ -2119,7 +2315,6 @@ const WLX_Theme wlx_theme_dark = {
     .accent           = { 90, 140, 210, 255},
     .font              = WLX_FONT_DEFAULT,
     .font_size        = 16,
-    .spacing          = 2,
     .padding          = 0,
     .roundness        = 0,
     .rounded_segments = 0,
@@ -2175,7 +2370,6 @@ const WLX_Theme wlx_theme_light = {
     .accent           = { 55,  80, 190, 255},
     .font              = WLX_FONT_DEFAULT,
     .font_size        = 16,
-    .spacing          = 2,
     .padding          = 0,
     .roundness        = 0,
     .rounded_segments = 0,
@@ -2231,7 +2425,6 @@ const WLX_Theme wlx_theme_glass = {
     .accent           = { 90, 110, 200, 255},
     .font             = WLX_FONT_DEFAULT,
     .font_size        = 16,
-    .spacing          = 2,
     .padding          = 0,
     .roundness        = 0,
     .rounded_segments = 0,
@@ -2331,12 +2524,14 @@ static inline void *wlx_scratch_alloc_bytes(WLX_Context *ctx, size_t size, size_
 #define WLX_CMD_RECORD(ctx, cmd_type, payload_field, ...) do {                     \
     WLX_Cmd _cmd = { .type = (cmd_type), .data.payload_field = { __VA_ARGS__ } }; \
     wlx_pool_push(&(ctx)->arena.commands, WLX_Cmd, _cmd);                         \
+    WLX_PERF_HOOK(command_record, (ctx), (cmd_type));                              \
 } while (0)
 
 // Variant for commands that carry no payload data (e.g. WLX_CMD_SCISSOR_END).
 #define WLX_CMD_RECORD_BARE(ctx, cmd_type) do {               \
     WLX_Cmd _cmd = { .type = (cmd_type) };                    \
     wlx_pool_push(&(ctx)->arena.commands, WLX_Cmd, _cmd);     \
+    WLX_PERF_HOOK(command_record, (ctx), (cmd_type));          \
 } while (0)
 
 static inline void wlx_cmd_record_rect(WLX_Context *ctx, WLX_Rect rect, WLX_Color color) {
@@ -2367,12 +2562,20 @@ static inline void wlx_cmd_record_line(WLX_Context *ctx, float x1, float y1, flo
     WLX_CMD_RECORD(ctx, WLX_CMD_LINE, line, x1, y1, x2, y2, thick, color);
 }
 
+static inline void wlx_cmd_record_text_span(WLX_Context *ctx, const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+    size_t off = 0;
+    if (len > 0) {
+        char *copy = (char *)wlx_scratch_alloc_bytes(ctx, len, 1);
+        memcpy(copy, text, len);
+        off = (size_t)(copy - (char *)wlx_pool_scratch(ctx));
+    }
+    WLX_PERF_HOOK(text_command, ctx, len);
+    WLX_CMD_RECORD(ctx, WLX_CMD_TEXT, text, off, len, x, y, style);
+}
+
 static inline void wlx_cmd_record_text(WLX_Context *ctx, const char *text, float x, float y, WLX_Text_Style style) {
-    size_t len = strlen(text) + 1;
-    char *copy = (char *)wlx_scratch_alloc_bytes(ctx, len, 1);
-    memcpy(copy, text, len);
-    size_t off = (size_t)(copy - (char *)wlx_pool_scratch(ctx));
-    WLX_CMD_RECORD(ctx, WLX_CMD_TEXT, text, off, x, y, style);
+    if (text == NULL) text = "";
+    wlx_cmd_record_text_span(ctx, text, strlen(text), x, y, style);
 }
 
 static inline void wlx_cmd_record_texture(WLX_Context *ctx, WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
@@ -2420,18 +2623,117 @@ static inline int wlx_cmd_open_range(WLX_Context *ctx) {
 // Implementation: backend wrappers
 // ============================================================================
 
+// Private: measure a byte span (text, len).
+// Prefers measure_text_slice when available; falls back to the required
+// measure_text callback via a temporary null-terminated copy when needed.
+// NULL text is normalized to an empty string.
+static inline void wlx_span_measure_text(WLX_Context *ctx,
+        const char *text, size_t len,
+        WLX_Text_Style style, float *out_w, float *out_h) {
+    if (text == NULL) { text = ""; len = 0; }
+
+    if (ctx->backend.measure_text_slice != NULL) {
+        ctx->backend.measure_text_slice(text, len, style, out_w, out_h);
+        return;
+    }
+
+    // Fallback: if already null-terminated at len, call directly.
+    if (text[len] == '\0') {
+        ctx->backend.measure_text(text, style, out_w, out_h);
+        return;
+    }
+
+    char stack_buf[WLX_TEXT_RANGE_STACK_CAP];
+    char *buf = stack_buf;
+    bool heap_buf = false;
+    if (len + 1 > sizeof(stack_buf)) {
+        buf = (char *)wlx_alloc(len + 1);
+        if (buf == NULL) {
+            if (out_w) *out_w = 0.0f;
+            if (out_h) *out_h = 0.0f;
+            return;
+        }
+        heap_buf = true;
+    }
+    memcpy(buf, text, len);
+    buf[len] = '\0';
+    ctx->backend.measure_text(buf, style, out_w, out_h);
+    if (heap_buf) wlx_free(buf);
+}
+
+// Private: draw a byte span in immediate mode.
+// Prefers draw_text_slice when available; falls back to draw_text via a
+// temporary null-terminated copy when needed.
+static inline void wlx_draw_text_span_immediate(WLX_Context *ctx,
+        const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+    if (text == NULL) { text = ""; len = 0; }
+
+    if (ctx->backend.draw_text_slice != NULL) {
+        ctx->backend.draw_text_slice(text, len, x, y, style);
+        return;
+    }
+
+    if (text[len] == '\0') {
+        ctx->backend.draw_text(text, x, y, style);
+        return;
+    }
+
+    char stack_buf[WLX_TEXT_RANGE_STACK_CAP];
+    char *buf = stack_buf;
+    bool heap_buf = false;
+    if (len + 1 > sizeof(stack_buf)) {
+        buf = (char *)wlx_alloc(len + 1);
+        if (buf == NULL) return;
+        heap_buf = true;
+    }
+    memcpy(buf, text, len);
+    buf[len] = '\0';
+    ctx->backend.draw_text(buf, x, y, style);
+    if (heap_buf) wlx_free(buf);
+}
+
+// Private: draw-or-record a byte span (immediate or deferred).
+static inline void wlx_draw_text_span(WLX_Context *ctx,
+        const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+    if (text == NULL) { text = ""; len = 0; }
+    if (ctx->immediate_mode) {
+        wlx_draw_text_span_immediate(ctx, text, len, x, y, style);
+    } else {
+        wlx_cmd_record_text_span(ctx, text, len, x, y, style);
+    }
+}
+
+// Public: measure a byte span. This is the canonical slice-based entry; the
+// C-string wlx_measure_text is a one-strlen shim around this helper. NULL
+// text is normalized to an empty span.
+static inline void wlx_measure_text_slice(WLX_Context *ctx,
+        const char *text, size_t len,
+        WLX_Text_Style style, float *out_w, float *out_h) {
+    assert((ctx->backend.measure_text != NULL || ctx->backend.measure_text_slice != NULL) && "WLX_Backend.measure_text or measure_text_slice must be set");
+    if (text == NULL) { text = ""; len = 0; }
+    WLX_PERF_HOOK(text_measure, ctx, len);
+    wlx_span_measure_text(ctx, text, len, style, out_w, out_h);
+}
+
+// Public: draw a byte span (immediate or deferred). C-string wlx_draw_text is
+// a one-strlen shim around this helper.
+static inline void wlx_draw_text_slice(WLX_Context *ctx,
+        const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+    if (ctx->immediate_mode) {
+        assert(ctx->backend.draw_text != NULL || ctx->backend.draw_text_slice && "WLX_Backend.draw_text or draw_text_slice must be set");
+    }
+    if (text == NULL) { text = ""; len = 0; }
+    wlx_draw_text_span(ctx, text, len, x, y, style);
+}
+
 static inline void wlx_measure_text(WLX_Context *ctx, const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
-    assert(ctx->backend.measure_text != NULL && "WLX_Backend.measure_text must be set");
-    ctx->backend.measure_text(text, style, out_w, out_h);
+    if (text == NULL) text = "";
+    wlx_measure_text_slice(ctx, text, strlen(text), style, out_w, out_h);
 }
 
 static inline void wlx_draw_text(WLX_Context *ctx, const char *text, float x, float y, WLX_Text_Style style) {
-    if (ctx->immediate_mode) {
-        assert(ctx->backend.draw_text != NULL && "WLX_Backend.draw_text must be set");
-        ctx->backend.draw_text(text, x, y, style);
-    } else {
-        wlx_cmd_record_text(ctx, text, x, y, style);
-    }
+    if (text == NULL) text = "";
+    wlx_draw_text_slice(ctx, text, strlen(text), x, y, style);
 }
 
 static inline void wlx_draw_rect(WLX_Context *ctx, WLX_Rect rect, WLX_Color color) {
@@ -2772,7 +3074,7 @@ static inline WLX_Widget_Frame wlx_widget_frame_begin(
     WLX_Context *ctx, const char *id, WLX_Widget_Layout ly,
     const char *file, int line)
 {
-    WLX_UNUSED(file); 
+    WLX_UNUSED(file);
     WLX_UNUSED(line);
 
     if (id) wlx_push_id(ctx, wlx_hash_string(id));
@@ -2809,6 +3111,59 @@ WLXDEF WLX_Rect wlx_rect_intersect(WLX_Rect a, WLX_Rect b) {
     };
 }
 
+typedef struct {
+    bool parent_active;
+    WLX_Rect parent_rect;
+} WLX_Scissor_Scope;
+
+static inline bool wlx_active_scissor_rect(const WLX_Context *ctx, WLX_Rect *out_rect) {
+    bool active = false;
+    WLX_Rect clip = {0};
+
+    if (ctx->scissor_stack_count > 0) {
+        if (out_rect != NULL) *out_rect = ctx->scissor_stack[ctx->scissor_stack_count - 1];
+        return true;
+    }
+
+    for (size_t i = 0; i < ctx->arena.scroll_panels.count; i++) {
+        WLX_Scroll_Panel_State *state = wlx_pool_scroll_panels(ctx)[i];
+        if (state == NULL) continue;
+        clip = active ? wlx_rect_intersect(clip, state->panel_rect) : state->panel_rect;
+        active = true;
+    }
+
+    for (size_t i = 0; i < ctx->arena.layouts.count; i++) {
+        const WLX_Layout *layout = &wlx_pool_layouts(ctx)[i];
+        if (!layout->clip_active) continue;
+        clip = active ? wlx_rect_intersect(clip, layout->rect) : layout->rect;
+        active = true;
+    }
+
+    if (active && out_rect != NULL) *out_rect = clip;
+    return active;
+}
+
+static inline WLX_Scissor_Scope wlx_scissor_scope_begin(WLX_Context *ctx, WLX_Rect rect) {
+    WLX_Scissor_Scope scope = {0};
+    WLX_Rect clip = rect;
+
+    assert(ctx->scissor_stack_count < WLX_SCISSOR_STACK_MAX && "WLX scissor scope stack overflow");
+
+    scope.parent_active = wlx_active_scissor_rect(ctx, &scope.parent_rect);
+    if (scope.parent_active) clip = wlx_rect_intersect(clip, scope.parent_rect);
+
+    ctx->scissor_stack[ctx->scissor_stack_count++] = clip;
+    wlx_begin_scissor(ctx, clip);
+    return scope;
+}
+
+static inline void wlx_scissor_scope_end(WLX_Context *ctx, WLX_Scissor_Scope scope) {
+    assert(ctx->scissor_stack_count > 0 && "wlx_scissor_scope_end without matching begin");
+    if (ctx->scissor_stack_count > 0) ctx->scissor_stack_count--;
+    wlx_end_scissor(ctx);
+    if (scope.parent_active) wlx_begin_scissor(ctx, scope.parent_rect);
+}
+
 // Reserve `n` floats from the context slot sizes buffer, returning a pointer
 // to the first element. The buffer grows as needed but is never freed -
 // it is simply reset (count = 0) each frame in wlx_begin().
@@ -2819,6 +3174,8 @@ static inline float *wlx_scratch_alloc(WLX_Context *ctx, size_t n) {
     wlx_sub_arena_reserve(&ctx->arena.slot_size_offsets, ctx->arena.slot_size_offsets.count + n);
     float *ptr = &wlx_pool_slot_size_offsets(ctx)[ctx->arena.slot_size_offsets.count];
     ctx->arena.slot_size_offsets.count += n;
+    if (ctx->arena.slot_size_offsets.count > ctx->arena.slot_size_offsets.high_water)
+        ctx->arena.slot_size_offsets.high_water = ctx->arena.slot_size_offsets.count;
     return ptr;
 }
 
@@ -2832,6 +3189,8 @@ static inline float *wlx_dyn_scratch_alloc(WLX_Context *ctx, size_t n) {
     wlx_sub_arena_reserve(&ctx->arena.dyn_offsets, ctx->arena.dyn_offsets.count + n);
     float *ptr = &wlx_pool_dyn_offsets(ctx)[ctx->arena.dyn_offsets.count];
     ctx->arena.dyn_offsets.count += n;
+    if (ctx->arena.dyn_offsets.count > ctx->arena.dyn_offsets.high_water)
+        ctx->arena.dyn_offsets.high_water = ctx->arena.dyn_offsets.count;
     return ptr;
 }
 
@@ -2845,6 +3204,8 @@ static inline void *wlx_scratch_alloc_bytes(WLX_Context *ctx, size_t size, size_
     wlx_sub_arena_reserve(&ctx->arena.scratch, needed);
     void *ptr = &wlx_pool_scratch(ctx)[aligned];
     ctx->arena.scratch.count = needed;
+    if (ctx->arena.scratch.count > ctx->arena.scratch.high_water)
+        ctx->arena.scratch.high_water = ctx->arena.scratch.count;
     return ptr;
 }
 
@@ -3070,6 +3431,8 @@ WLXDEF WLX_Layout wlx_create_layout_auto(WLX_Context *ctx, WLX_Rect r, WLX_Orien
     wlx_sub_arena_reserve(&ctx->arena.dyn_offsets, base + 1);
     wlx_pool_dyn_offsets(ctx)[base] = 0.0f;
     ctx->arena.dyn_offsets.count = base + 1;
+    if (ctx->arena.dyn_offsets.count > ctx->arena.dyn_offsets.high_water)
+        ctx->arena.dyn_offsets.high_water = ctx->arena.dyn_offsets.count;
 
     WLX_Layout l = {
         .kind         = WLX_LAYOUT_LINEAR,
@@ -3136,6 +3499,8 @@ WLXDEF WLX_Layout wlx_create_grid_auto(WLX_Context *ctx, WLX_Rect r,
     wlx_sub_arena_reserve(&ctx->arena.dyn_offsets, row_base + 1);
     wlx_pool_dyn_offsets(ctx)[row_base] = 0.0f;
     ctx->arena.dyn_offsets.count = row_base + 1;
+    if (ctx->arena.dyn_offsets.count > ctx->arena.dyn_offsets.high_water)
+        ctx->arena.dyn_offsets.high_water = ctx->arena.dyn_offsets.count;
 
     return (WLX_Layout){
         .kind  = WLX_LAYOUT_GRID,
@@ -3255,6 +3620,8 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
                 l->grid.next_row_size = 0.0f;
             }
             ctx->arena.dyn_offsets.count = needed;
+            if (ctx->arena.dyn_offsets.count > ctx->arena.dyn_offsets.high_water)
+                ctx->arena.dyn_offsets.high_water = ctx->arena.dyn_offsets.count;
             l->grid.rows = new_total;
             l->count = l->grid.rows * l->grid.cols;
         }
@@ -3310,6 +3677,8 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
             offsets[l->count + 1 + s] = floorf(offsets[l->count + s] + effective + gap_add + 0.5f);
         }
         ctx->arena.dyn_offsets.count = needed;
+        if (ctx->arena.dyn_offsets.count > ctx->arena.dyn_offsets.high_water)
+            ctx->arena.dyn_offsets.high_water = ctx->arena.dyn_offsets.count;
         l->count += span;
     } else {
         assert(pos < (int)l->count);
@@ -3361,7 +3730,10 @@ WLXDEF void wlx_context_init_ex(WLX_Context *ctx, const WLX_Arena_Pool_Config *c
 WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler) {
     wlx_assert_backend_ready(ctx);
     assert(input_handler != NULL && "WLX input handler must not be NULL");
+    WLX_PERF_HOOK(frame_begin, ctx);
+    WLX_PERF_HOOK(input_begin, ctx);
     input_handler(ctx);
+    WLX_PERF_HOOK(input_end, ctx);
     ctx->interaction.hot_id = 0;
     ctx->interaction.active_id_seen = false;
     // Lazy pool init: callers that zero-init WLX_Context and skip
@@ -3371,10 +3743,12 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
     }
     wlx_arena_pool_reset(&ctx->arena);
     ctx->current_range_idx = -1;
+    ctx->scissor_stack_count = 0;
     ctx->immediate_mode = false;
     ctx->rect = r;
     if (ctx->theme == NULL) ctx->theme = &wlx_theme_dark;
     WLX_DBG(frame_begin, ctx);
+    WLX_PERF_HOOK(begin_end, ctx);
 }
 
 WLXDEF void wlx_begin_immediate(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler) {
@@ -3383,22 +3757,29 @@ WLXDEF void wlx_begin_immediate(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler 
 }
 
 WLXDEF void wlx_end(WLX_Context *ctx) {
+    WLX_PERF_HOOK(end_begin, ctx);
     if (ctx->interaction.active_id != 0 && !ctx->interaction.active_id_seen) {
         ctx->interaction.active_id = 0;
     }
 
-    if (ctx->immediate_mode || ctx->arena.commands.count == 0) return;
+    if (ctx->immediate_mode || ctx->arena.commands.count == 0) {
+        WLX_PERF_HOOK(frame_publish, ctx);
+        return;
+    }
 
     // Accumulate nested offsets: parents appear before children by construction.
+    WLX_PERF_HOOK(range_begin, ctx);
     for (size_t i = 0; i < ctx->arena.cmd_ranges.count; i++) {
         int p = wlx_pool_cmd_ranges(ctx)[i].parent_range_idx;
         if (p != WLX_NO_RANGE) {
             wlx_pool_cmd_ranges(ctx)[i].dy_offset += wlx_pool_cmd_ranges(ctx)[(size_t)p].dy_offset;
         }
     }
+    WLX_PERF_HOOK(range_end, ctx);
 
     // Build per-command offset lookup: children overwrite parent entries,
     // so each command gets the deepest (most specific) accumulated offset.
+    WLX_PERF_HOOK(offset_begin, ctx);
     float *cmd_dy = (float *)wlx_scratch_alloc_bytes(ctx,
         ctx->arena.commands.count * sizeof(float), _Alignof(float));
     wlx_zero_array(ctx->arena.commands.count, cmd_dy);
@@ -3408,93 +3789,150 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
             cmd_dy[ci] = r->dy_offset;
         }
     }
+    WLX_PERF_HOOK(offset_end, ctx);
 
     // Dispatch loop: translate y-coordinates and call backend.
+    WLX_PERF_HOOK(dispatch_begin, ctx);
     for (size_t i = 0; i < ctx->arena.commands.count; i++) {
         WLX_Cmd *c = &wlx_pool_commands(ctx)[i];
         float dy = cmd_dy[i];
 
         switch (c->type) {
         case WLX_CMD_RECT:
+            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_rect(
                 (WLX_Rect){c->data.rect.rect.x, c->data.rect.rect.y + dy,
                            c->data.rect.rect.w, c->data.rect.rect.h},
                 c->data.rect.color);
+            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_RECT_LINES:
+            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_rect_lines(
                 (WLX_Rect){c->data.rect_lines.rect.x, c->data.rect_lines.rect.y + dy,
                            c->data.rect_lines.rect.w, c->data.rect_lines.rect.h},
                 c->data.rect_lines.thick, c->data.rect_lines.color);
+            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_RECT_ROUNDED:
+            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_rect_rounded(
                 (WLX_Rect){c->data.rect_rounded.rect.x, c->data.rect_rounded.rect.y + dy,
                            c->data.rect_rounded.rect.w, c->data.rect_rounded.rect.h},
                 c->data.rect_rounded.roundness, c->data.rect_rounded.segments,
                 c->data.rect_rounded.color);
+            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_RECT_ROUNDED_LINES:
+            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_rect_rounded_lines(
                 (WLX_Rect){c->data.rect_rounded_lines.rect.x, c->data.rect_rounded_lines.rect.y + dy,
                            c->data.rect_rounded_lines.rect.w, c->data.rect_rounded_lines.rect.h},
                 c->data.rect_rounded_lines.roundness, c->data.rect_rounded_lines.segments,
                 c->data.rect_rounded_lines.thick, c->data.rect_rounded_lines.color);
+            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_CIRCLE:
+            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_circle(
                 c->data.circle.cx, c->data.circle.cy + dy,
                 c->data.circle.radius, c->data.circle.segments,
                 c->data.circle.color);
+            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_RING:
+            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_ring(
                 c->data.ring.cx, c->data.ring.cy + dy,
                 c->data.ring.inner_r, c->data.ring.outer_r,
                 c->data.ring.segments, c->data.ring.color);
+            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_LINE:
+            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_line(
                 c->data.line.x1, c->data.line.y1 + dy,
                 c->data.line.x2, c->data.line.y2 + dy,
                 c->data.line.thick, c->data.line.color);
+            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_TEXT:
-            ctx->backend.draw_text(
-                (const char *)&wlx_pool_scratch(ctx)[c->data.text.text_off],
-                c->data.text.x, c->data.text.y + dy,
-                c->data.text.style);
+            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
+            if (ctx->backend.draw_text_slice != NULL) {
+                ctx->backend.draw_text_slice(
+                    (const char *)&wlx_pool_scratch(ctx)[c->data.text.text_off],
+                    c->data.text.text_len,
+                    c->data.text.x, c->data.text.y + dy,
+                    c->data.text.style);
+            } else {
+                // Legacy draw_text expects NUL-terminated input; the recorded
+                // scratch span carries only `text_len` bytes so synthesise a
+                // NUL-terminated copy on demand. Stack buffer for short text;
+                // heap fallback for the rare long-string case.
+                const char *bytes = (const char *)&wlx_pool_scratch(ctx)[c->data.text.text_off];
+                size_t text_len = c->data.text.text_len;
+                char stack_buf[WLX_TEXT_RANGE_STACK_CAP];
+                char *buf = stack_buf;
+                bool heap_buf = false;
+                if (text_len + 1 > sizeof(stack_buf)) {
+                    buf = (char *)wlx_alloc(text_len + 1);
+                    if (buf == NULL) {
+                        WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
+                        break;
+                    }
+                    heap_buf = true;
+                }
+                if (text_len > 0) memcpy(buf, bytes, text_len);
+                buf[text_len] = '\0';
+                ctx->backend.draw_text(buf,
+                    c->data.text.x, c->data.text.y + dy,
+                    c->data.text.style);
+                if (heap_buf) wlx_free(buf);
+            }
+            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_TEXTURE:
+            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_texture(
                 c->data.texture.texture, c->data.texture.src,
                 (WLX_Rect){c->data.texture.dst.x, c->data.texture.dst.y + dy,
                            c->data.texture.dst.w, c->data.texture.dst.h},
                 c->data.texture.tint);
+            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_SCISSOR_BEGIN:
+            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.begin_scissor(
                 (WLX_Rect){c->data.scissor_begin.rect.x, c->data.scissor_begin.rect.y + dy,
                            c->data.scissor_begin.rect.w, c->data.scissor_begin.rect.h});
+            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_SCISSOR_END:
+            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.end_scissor();
+            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
+            break;
+
+        case WLX_CMD_TYPE_COUNT:
             break;
         }
     }
+    WLX_PERF_HOOK(dispatch_end, ctx);
+    WLX_PERF_HOOK(frame_publish, ctx);
 }
 
 WLXDEF void wlx_context_destroy(WLX_Context *ctx) {
+    WLX_PERF_HOOK(destroy, ctx);
     // Free state map data entries
     for (size_t i = 0; i < ctx->states.capacity; i++) {
         if (ctx->states.slots[i].id != 0) {
@@ -3700,7 +4138,7 @@ static inline bool wlx_prepare_content_sizes(
     if (!wlx_has_content_sizes(sizes, count)) return false;
 
     assert(count <= WLX_CONTENT_SLOTS_MAX && "CONTENT slots exceed WLX_CONTENT_SLOTS_MAX");
-    
+
     WLX_State persistant = wlx_get_state_impl(ctx, sizeof(WLX_Content_Slot_State), file, line);
     WLX_Content_Slot_State *state = (WLX_Content_Slot_State *)persistant.data;
     *out_state = state;
@@ -3719,7 +4157,7 @@ static inline bool wlx_prepare_content_sizes(
 
     memcpy(sizes_copy, sizes, count * sizeof(WLX_Slot_Size));
     *out_sizes_copy = sizes_copy;
-    
+
     return true;
 }
 
@@ -3978,7 +4416,36 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
             if (child_h > parent->accumulated_content_height)
                 parent->accumulated_content_height = child_h;
         } else {
-            parent->accumulated_content_height += child_h;
+            // For VERT linear parents with explicitly-sized slots (PX or
+            // CONTENT), the child occupies exactly the slot's allocated
+            // height in the parent rect, regardless of how tall the child
+            // actually rendered. Use the slot height as the contribution
+            // so siblings placed in fixed-size slots that render shorter
+            // than their slot do not undercount the parent's total content
+            // height (which the auto-height scroll panel uses to compute
+            // max_scroll), and so children that overflow their slot do
+            // not overcount it (overflow is overdraw, not extra content).
+            // Skip for FLEX/FILL slots (size depends on parent rect, would
+            // create runaway feedback inside auto-height scroll panels).
+            float contrib = child_h;
+            if (parent->kind == WLX_LAYOUT_LINEAR
+                && parent->linear.orient == WLX_VERT
+                && parent->content_sizes != NULL
+                && parent->index > 0 && parent->index <= parent->count) {
+                WLX_Size_Kind k = parent->content_sizes[parent->index - 1].kind;
+                if (k == WLX_SIZE_PIXELS || k == WLX_SIZE_CONTENT) {
+                    const float *poff = wlx_layout_offsets(ctx, parent);
+                    float slot_h = poff[parent->index] - poff[parent->index - 1];
+                    // wlx_compute_offsets stores boundary positions, so the
+                    // delta between adjacent boundaries includes the trailing
+                    // inter-slot gap for non-last slots. Strip it here - the
+                    // parent adds total_gap once via the gap accumulation
+                    // step above (l->gap * (l->index - 1)).
+                    if (parent->index < parent->count) slot_h -= parent->gap;
+                    contrib = slot_h;
+                }
+            }
+            parent->accumulated_content_height += contrib;
         }
     }
 
@@ -4588,6 +5055,17 @@ static inline size_t wlx_utf8_strlen(const char *s) {
     return count;
 }
 
+// Count codepoints in a UTF-8 slice.
+static inline size_t wlx_utf8_slicelen(const char *s, size_t len) {
+    size_t count = 0;
+    size_t i = 0;
+    while (i < len) {
+        i += wlx_utf8_char_len(s + i);
+        count++;
+    }
+    return count;
+}
+
 // Move byte position backward to the previous codepoint boundary.
 // Returns new byte position (0 if already at start).
 static inline size_t wlx_utf8_prev(const char *s, size_t byte_pos) {
@@ -4609,130 +5087,582 @@ static inline size_t wlx_utf8_next(const char *s, size_t byte_pos, size_t len) {
     return byte_pos;
 }
 
-#ifndef WLX_TEXT_RUN_MAX_GLYPHS
-#define WLX_TEXT_RUN_MAX_GLYPHS 512
+#ifndef WLX_TEXT_RUN_MAX_UNITS
+#define WLX_TEXT_RUN_MAX_UNITS 512
 #endif
-#define WLX_TEXT_RUN_MAX_LINES_ 128
+#define WLX_TEXT_RUN_MAX_LINES 128
 
-static bool wlx_layout_text_run(WLX_Context *ctx, WLX_Rect rect, const char *text, WLX_Text_Style style, WLX_Align align, bool wrap,
-    bool draw, float *out_end_x, float *out_end_y) {
+typedef struct WLX_Text_Line_Record {
+    size_t source_start;
+    size_t source_end;
+    size_t visible_start;
+    size_t visible_end;
+    size_t cursor_start;
+    size_t cursor_end;
+    size_t separator_start;
+    size_t separator_end;
+    float advance_w;
+    float measured_w;
+    float measured_h;
+    float origin_x;
+    float origin_y;
+    float line_h;
+    bool ended_by_newline;
+    bool empty_visual;
+} WLX_Text_Line_Record;
 
-    if (style.font_size <= 0) return false;
-    if (text == NULL) text = "";
-    size_t length = strlen(text);
+typedef struct WLX_Text_Line_Record_Opt {
+    size_t source_start;
+    size_t visible_start;
+    size_t visible_end;
+    size_t separator_start;
+    size_t separator_end;
+    float measured_w;
+    float measured_h;
+    bool has_measurement;
+    float line_h;
+    WLX_Text_Style style;
+    bool ended_by_newline;
+} WLX_Text_Line_Record_Opt;
 
-    float ref_w = 0, glyph_h = 0;
-    wlx_measure_text(ctx, " ", style, &ref_w, &glyph_h);
-    if (glyph_h <= 0) glyph_h = (float)style.font_size;
-    if (glyph_h > rect.h) return false;
+typedef struct WLX_Text_Build_Inputs {
+    WLX_Context *ctx;
+    const char *text;
+    size_t length;
+    WLX_Text_Style style;
+    WLX_Rect rect;
+    bool wrap;
+    float line_h;
+    size_t text_unit_cap;
+} WLX_Text_Build_Inputs;
 
-    if (length == 0) {
-        WLX_Rect tr = wlx_get_align_rect(rect, 0, glyph_h, align);
-        if (out_end_x) *out_end_x = tr.x;
-        if (out_end_y) *out_end_y = tr.y;
-        return true;
+typedef struct WLX_Text_Build_Cursor {
+    size_t text_unit_count;
+} WLX_Text_Build_Cursor;
+
+typedef struct {
+    WLX_Text_Line_Record line;
+    size_t next_offset;
+    bool   produced;
+    bool   stop_after_line;
+    bool   append_trailing_empty_line;
+} WLX_Text_Build_Step;
+
+typedef struct WLX_Text_Line_Array_Result {
+    size_t text_length;
+    size_t line_count;
+    float line_h;
+} WLX_Text_Line_Array_Result;
+
+static inline bool wlx_text_utf8_is_continuation(unsigned char c) {
+    return (c & 0xC0u) == 0x80u;
+}
+
+// Returns true only when off starts a valid 2-4 byte UTF-8 sequence fully
+// contained in the range. ASCII and malformed bytes fall back to one-byte
+// handling in the caller.
+static inline bool wlx_text_utf8_sequence_at(const char *text, size_t length, size_t off, size_t *out_len) {
+    if (text == NULL || off >= length) return false;
+    size_t char_len = wlx_utf8_char_len(text + off);
+    if (char_len <= 1 || off + char_len > length) return false;
+    for (size_t i = 1; i < char_len; i++) {
+        if (!wlx_text_utf8_is_continuation((unsigned char)text[off + i])) return false;
     }
-
-    float spacing = style.spacing;
-
-    // --- Pass 1: measure glyphs, determine line breaks ---
-
-    struct { size_t off; size_t len; float adv; } gs[WLX_TEXT_RUN_MAX_GLYPHS];
-    struct { size_t start; size_t count; float w; } ls[WLX_TEXT_RUN_MAX_LINES_];
-    size_t ng = 0, nl = 0;
-    size_t line_start = 0;
-    float line_w = 0;
-
-    for (size_t i = 0; i < length;) {
-        if (ng >= WLX_TEXT_RUN_MAX_GLYPHS) break;
-
-        size_t char_len = wlx_utf8_char_len(&text[i]);
-        if (i + char_len > length) char_len = 1;
-
-        char glyph[8] = {0};
-        memcpy(glyph, &text[i], char_len);
-        glyph[char_len] = '\0';
-
-        float gw = 0, gh = 0;
-        wlx_measure_text(ctx, glyph, style, &gw, &gh);
-
-        if (line_w + gw > rect.w && ng > line_start) {
-            if (!wrap) break;
-            if (nl >= WLX_TEXT_RUN_MAX_LINES_ - 1) break;
-            ls[nl].start = line_start;
-            ls[nl].count = ng - line_start;
-            ls[nl].w = line_w - spacing;
-            nl++;
-            line_start = ng;
-            line_w = 0;
-        }
-
-        gs[ng].off = i;
-        gs[ng].len = char_len;
-        gs[ng].adv = gw;
-        ng++;
-        line_w += gw + spacing;
-        i += char_len;
-    }
-
-    if (ng > line_start && nl < WLX_TEXT_RUN_MAX_LINES_) {
-        ls[nl].start = line_start;
-        ls[nl].count = ng - line_start;
-        ls[nl].w = line_w - spacing;
-        nl++;
-    }
-
-    if (nl == 0) {
-        if (out_end_x) *out_end_x = rect.x;
-        if (out_end_y) *out_end_y = rect.y;
-        return true;
-    }
-
-    // --- Pass 2: align and draw/measure per line ---
-
-    float total_h = (float)nl * glyph_h;
-    WLX_Rect vert = wlx_get_align_rect(rect, -1, total_h, align);
-    float cy = vert.y;
-    float end_x = rect.x, end_y = cy;
-
-    for (size_t li = 0; li < nl; li++) {
-        if (cy + glyph_h > rect.y + rect.h) break;
-
-        WLX_Rect lr = { rect.x, cy, rect.w, glyph_h };
-        WLX_Rect aligned = wlx_get_align_rect(lr, ls[li].w, glyph_h, align);
-        float gx = aligned.x;
-
-        size_t gend = ls[li].start + ls[li].count;
-        for (size_t gi = ls[li].start; gi < gend; gi++) {
-            if (draw) {
-                char glyph[8] = {0};
-                memcpy(glyph, &text[gs[gi].off], gs[gi].len);
-                glyph[gs[gi].len] = '\0';
-                WLX_Text_Style glyph_style = style;
-                glyph_style.spacing = 0;
-                wlx_draw_text(ctx, glyph, gx, cy, glyph_style);
-            }
-            gx += gs[gi].adv;
-            if (gi + 1 < gend) gx += spacing;
-        }
-
-        end_x = gx;
-        end_y = cy;
-        cy += glyph_h;
-    }
-
-    if (out_end_x) *out_end_x = end_x;
-    if (out_end_y) *out_end_y = end_y;
+    if (out_len) *out_len = char_len;
     return true;
 }
 
-WLXDEF bool wlx_draw_text_fitted(WLX_Context *ctx, WLX_Rect rect, const char *text, WLX_Text_Style style, WLX_Align align, bool wrap) {
-    return wlx_layout_text_run(ctx, rect, text, style, align, wrap, true, NULL, NULL);
+// Advances to the next UTF-8 boundary when a valid multibyte sequence exists;
+// otherwise advances one byte so malformed input still makes progress.
+static inline size_t wlx_text_utf8_next(const char *text, size_t length, size_t off) {
+    if (off >= length) return length;
+    size_t char_len = 1;
+    size_t seq_len = 0;
+    if (wlx_text_utf8_sequence_at(text, length, off, &seq_len)) char_len = seq_len;
+    if (off + char_len > length) return length;
+    return off + char_len;
+}
+
+// A valid split point must not fall inside a valid UTF-8 multibyte sequence.
+// Invalid bytes remain one-byte fallback units for layout progress.
+static inline bool wlx_text_utf8_boundary(const char *text, size_t length, size_t off) {
+    if (text == NULL) return off == 0;
+    if (off > length) return false;
+    if (off == 0 || off == length) return true;
+    if (!wlx_text_utf8_is_continuation((unsigned char)text[off])) return true;
+
+    for (size_t back = 1; back <= 3 && back <= off; back++) {
+        size_t lead = off - back;
+        size_t seq_len = 0;
+        if (wlx_text_utf8_sequence_at(text, length, lead, &seq_len) && lead + seq_len > off) return false;
+    }
+
+    return true;
+}
+
+static inline bool wlx_text_range_is_utf8_safe(const char *text, size_t length, size_t start, size_t end) {
+    if (start > end || end > length) return false;
+    return wlx_text_utf8_boundary(text, length, start) && wlx_text_utf8_boundary(text, length, end);
+}
+
+static inline bool wlx_measure_text_range(WLX_Context *ctx, const char *text, size_t length, size_t start, size_t end,
+    WLX_Text_Style style, float *out_w, float *out_h) {
+    if (out_w) *out_w = 0.0f;
+    if (out_h) *out_h = 0.0f;
+    if (ctx == NULL) return false;
+    if (text == NULL) {
+        text = "";
+        length = 0;
+        start = 0;
+        end = 0;
+    }
+    if (!wlx_text_range_is_utf8_safe(text, length, start, end)) return false;
+
+    wlx_span_measure_text(ctx, text + start, end - start, style, out_w, out_h);
+    return true;
+}
+
+static inline bool wlx_draw_text_range(WLX_Context *ctx, const char *text, size_t length, size_t start, size_t end,
+    float x, float y, WLX_Text_Style style) {
+    if (ctx == NULL) return false;
+    if (text == NULL) {
+        text = "";
+        length = 0;
+        start = 0;
+        end = 0;
+    }
+    if (!wlx_text_range_is_utf8_safe(text, length, start, end)) return false;
+
+    size_t range_len = end - start;
+    if (range_len == 0) return true;
+
+    wlx_draw_text_span(ctx, text + start, range_len, x, y, style);
+    return true;
+}
+
+static inline size_t wlx_text_normalize_cursor_offset(const char *text, size_t length, size_t cursor_offset) {
+    if (text == NULL) return 0;
+    if (cursor_offset > length) cursor_offset = length;
+    while (cursor_offset > 0 && !wlx_text_utf8_boundary(text, length, cursor_offset)) {
+        size_t prev = wlx_utf8_prev(text, cursor_offset);
+        if (prev >= cursor_offset) break;
+        cursor_offset = prev;
+    }
+    if (cursor_offset > length) cursor_offset = length;
+    return cursor_offset;
+}
+
+static inline bool wlx_text_cursor_is_on_line(const WLX_Text_Line_Record *line, size_t cursor_offset) {
+    if (line == NULL) return false;
+    if (cursor_offset < line->source_start) return false;
+    if (line->ended_by_newline) return cursor_offset < line->separator_end;
+    return cursor_offset <= line->visible_end;
+}
+
+static inline bool wlx_text_newline_at(const char *text, size_t length, size_t off, size_t *out_separator_end) {
+    if (text == NULL || off >= length) return false;
+    if (text[off] == '\n') {
+        if (out_separator_end) *out_separator_end = off + 1;
+        return true;
+    }
+    if (text[off] == '\r') {
+        size_t separator_end = (off + 1 < length && text[off + 1] == '\n') ? off + 2 : off + 1;
+        if (out_separator_end) *out_separator_end = separator_end;
+        return true;
+    }
+    return false;
+}
+
+static inline void wlx_text_line_record_from_range(WLX_Context *ctx, WLX_Text_Line_Record *line, const char *text,
+    size_t length, WLX_Text_Line_Record_Opt opt) {
+    assert(line != NULL);
+    wlx_zero_struct(*line);
+    line->source_start = opt.source_start;
+    line->separator_start = opt.separator_start;
+    line->separator_end = opt.separator_end;
+    line->line_h = opt.line_h;
+    line->ended_by_newline = opt.ended_by_newline;
+
+    line->visible_start = opt.visible_start;
+    line->visible_end = opt.visible_end;
+
+    line->source_end = opt.ended_by_newline ? opt.separator_end : line->visible_end;
+    line->cursor_start = line->source_start;
+    line->cursor_end = line->visible_end;
+    line->empty_visual = (line->visible_start == line->visible_end);
+
+    if (!line->empty_visual) {
+        if (opt.has_measurement) {
+            line->measured_w = opt.measured_w;
+            line->measured_h = opt.measured_h;
+        } else {
+            bool measured = wlx_measure_text_range(ctx, text, length, line->visible_start, line->visible_end, opt.style,
+                &line->measured_w, &line->measured_h);
+            if (!measured) {
+                line->measured_w = 0.0f;
+                line->measured_h = opt.line_h;
+            }
+        }
+    } else {
+        line->measured_w = 0.0f;
+        line->measured_h = opt.line_h;
+    }
+
+    if (line->measured_h <= 0.0f) line->measured_h = opt.line_h;
+    line->advance_w = line->measured_w;
+}
+
+static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inputs,
+    WLX_Text_Build_Cursor *cursor, size_t source_offset, bool trailing_empty_line)
+{
+    WLX_Text_Build_Step step = {0};
+
+    if (inputs == NULL || cursor == NULL) return step;
+
+    const char *text = inputs->text ? inputs->text : "";
+    size_t length = inputs->length;
+
+    if (trailing_empty_line) {
+        if (source_offset > length) return step;
+        wlx_text_line_record_from_range(inputs->ctx, &step.line, text, length, (WLX_Text_Line_Record_Opt){
+            .source_start    = source_offset,
+            .visible_start   = source_offset,
+            .visible_end     = source_offset,
+            .separator_start = source_offset,
+            .separator_end   = source_offset,
+            .measured_w      = 0.0f,
+            .measured_h      = inputs->line_h,
+            .has_measurement = false,
+            .line_h          = inputs->line_h,
+            .style           = inputs->style,
+            .ended_by_newline = false,
+        });
+        step.next_offset = source_offset;
+        step.append_trailing_empty_line = false;
+        step.produced = true;
+        return step;
+    }
+
+    if (source_offset >= length) return step;
+
+    size_t separator_end = 0;
+    if (wlx_text_newline_at(text, length, source_offset, &separator_end)) {
+        if (source_offset > length || separator_end > length) return step;
+        wlx_text_line_record_from_range(inputs->ctx, &step.line, text, length, (WLX_Text_Line_Record_Opt){
+            .source_start    = source_offset,
+            .visible_start   = source_offset,
+            .visible_end     = source_offset,
+            .separator_start = source_offset,
+            .separator_end   = separator_end,
+            .measured_w      = 0.0f,
+            .measured_h      = inputs->line_h,
+            .has_measurement = false,
+            .line_h          = inputs->line_h,
+            .style           = inputs->style,
+            .ended_by_newline = true,
+        });
+        step.next_offset = separator_end;
+        step.append_trailing_empty_line = (separator_end == length);
+        step.produced = true;
+        return step;
+    }
+
+    size_t visible_end = source_offset;
+    size_t sep_end = source_offset;
+    float measured_w = 0.0f;
+    float measured_h = inputs->line_h;
+    bool ended_by_newline = false;
+    bool have_line = false;
+    size_t scan_unit_count = 0;
+
+    size_t scan_pos = source_offset;
+    while (scan_pos < length) {
+        if (wlx_text_newline_at(text, length, scan_pos, &sep_end)) {
+            ended_by_newline = true;
+            break;
+        }
+
+        if (cursor->text_unit_count + scan_unit_count >= inputs->text_unit_cap) {
+            break;
+        }
+
+        size_t next = wlx_text_utf8_next(text, length, scan_pos);
+        if (next <= scan_pos) next = scan_pos + 1;
+        if (next > length) next = length;
+
+        float text_range_w = 0.0f;
+        float text_range_h = inputs->line_h;
+        bool measured = wlx_measure_text_range(inputs->ctx, text, length, source_offset, next, inputs->style,
+            &text_range_w, &text_range_h);
+        if (!measured) {
+            text_range_w = 0.0f;
+            text_range_h = inputs->line_h;
+        }
+
+        if (text_range_w <= inputs->rect.w || !have_line) {
+            visible_end = next;
+            measured_w = text_range_w;
+            measured_h = text_range_h;
+            have_line = true;
+            scan_pos = next;
+            scan_unit_count++;
+            if (text_range_w > inputs->rect.w) break;
+            continue;
+        }
+
+        break;
+    }
+
+    if (!have_line) return step;
+    if (scan_unit_count == 0 && visible_end > source_offset) return step;
+
+    if (!ended_by_newline) {
+        size_t separator_after = 0;
+        if (wlx_text_newline_at(text, length, visible_end, &separator_after)) {
+            ended_by_newline = true;
+            sep_end = separator_after;
+        } else {
+            sep_end = visible_end;
+        }
+    }
+
+    cursor->text_unit_count += scan_unit_count;
+
+    wlx_text_line_record_from_range(inputs->ctx, &step.line, text, length, (WLX_Text_Line_Record_Opt){
+        .source_start    = source_offset,
+        .visible_start   = source_offset,
+        .visible_end     = visible_end,
+        .separator_start = visible_end,
+        .separator_end   = sep_end,
+        .measured_w      = measured_w,
+        .measured_h      = measured_h,
+        .has_measurement = true,
+        .line_h          = inputs->line_h,
+        .style           = inputs->style,
+        .ended_by_newline = ended_by_newline,
+    });
+
+    step.next_offset = ended_by_newline ? sep_end : visible_end;
+    step.append_trailing_empty_line = ended_by_newline && step.next_offset == length;
+    step.stop_after_line = !inputs->wrap && !ended_by_newline && step.next_offset < length;
+    step.produced = true;
+    return step;
+}
+
+static size_t wlx_text_build_lines(const WLX_Text_Build_Inputs *inputs, WLX_Text_Build_Cursor *cursor,
+    WLX_Text_Line_Record *lines, size_t line_cap) {
+    if (inputs == NULL || cursor == NULL || lines == NULL || line_cap == 0) return 0;
+
+    size_t line_count = 0;
+    size_t line_offset = 0;
+    bool append_trailing_empty_line = false;
+
+    while (line_count < line_cap) {
+        WLX_Text_Build_Step step = wlx_text_build_step(inputs, cursor, line_offset, append_trailing_empty_line);
+        if (!step.produced) break;
+        lines[line_count++] = step.line;
+        line_offset = step.next_offset;
+        append_trailing_empty_line = step.append_trailing_empty_line;
+        if (step.stop_after_line) break;
+    }
+
+    return line_count;
+}
+
+static void wlx_text_align_lines(WLX_Rect rect, WLX_Align align, float line_h,
+    WLX_Text_Line_Record *lines, size_t line_count) {
+
+    if (lines == NULL || line_count == 0) return;
+
+    float total_h = (float)line_count * line_h;
+    WLX_Rect vert = wlx_get_align_rect(rect, -1, total_h, align);
+    float line_y = vert.y;
+
+    for (size_t line_index = 0; line_index < line_count; line_index++) {
+        WLX_Rect line_rect = { rect.x, line_y, rect.w, line_h };
+        WLX_Rect aligned = wlx_get_align_rect(line_rect, lines[line_index].advance_w, line_h, align);
+        lines[line_index].origin_x = aligned.x;
+        lines[line_index].origin_y = line_y;
+        line_y += line_h;
+    }
+}
+
+static bool wlx_text_emit_lines(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length,
+    WLX_Text_Style style, const WLX_Text_Line_Record *lines, size_t line_count) {
+
+    if (lines == NULL && line_count > 0) return false;
+
+    for (size_t line_index = 0; line_index < line_count; line_index++) {
+        const WLX_Text_Line_Record *line = &lines[line_index];
+        float line_top = line->origin_y;
+        float line_bottom = line_top + line->line_h;
+
+        if (line_bottom > rect.y && line_top < rect.y + rect.h && !line->empty_visual) {
+            bool drew_line = wlx_draw_text_range(ctx, text, length, line->visible_start, line->visible_end,
+                line->origin_x, line->origin_y, style);
+            if (!drew_line) return false;
+        }
+    }
+
+    return true;
+}
+
+static bool wlx_text_lines_need_scissor(WLX_Rect rect, const WLX_Text_Line_Record *lines, size_t line_count) {
+    if (lines == NULL && line_count > 0) return false;
+
+    for (size_t line_index = 0; line_index < line_count; line_index++) {
+        const WLX_Text_Line_Record *line = &lines[line_index];
+        float line_top = line->origin_y;
+        float line_bottom = line_top + line->line_h;
+
+        if (line->empty_visual) continue;
+        if (!(line_bottom > rect.y && line_top < rect.y + rect.h)) continue;
+
+        if (line->origin_x < rect.x) return true;
+        if (line->origin_x + line->measured_w > rect.x + rect.w) return true;
+        if (line_top < rect.y) return true;
+        if (line_bottom > rect.y + rect.h) return true;
+    }
+
+    return false;
+}
+
+static bool wlx_text_resolve_cursor_from_lines(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length,
+    WLX_Text_Style style, const WLX_Text_Line_Record *lines, size_t line_count, size_t cursor_offset,
+    float *out_x, float *out_y) {
+
+    if (lines == NULL && line_count > 0) return false;
+
+    if (line_count == 0) {
+        if (out_x) *out_x = rect.x;
+        if (out_y) *out_y = rect.y;
+        return true;
+    }
+
+    for (size_t i = 0; i < line_count; i++) {
+        const WLX_Text_Line_Record *line = &lines[i];
+        if (wlx_text_cursor_is_on_line(line, cursor_offset)) {
+            float prefix_w = 0.0f;
+            if (!line->empty_visual) {
+                if (cursor_offset >= line->visible_end) {
+                    prefix_w = line->measured_w;
+                } else if (cursor_offset > line->visible_start) {
+                    float prefix_h = 0.0f;
+                    bool measured = wlx_measure_text_range(ctx, text, length, line->visible_start, cursor_offset, style,
+                        &prefix_w, &prefix_h);
+                    if (!measured) prefix_w = 0.0f;
+                }
+            }
+
+            if (out_x) *out_x = line->origin_x + prefix_w;
+            if (out_y) *out_y = line->origin_y;
+            return true;
+        }
+    }
+
+    const WLX_Text_Line_Record *last_line = &lines[line_count - 1];
+    if (out_x) *out_x = last_line->origin_x + last_line->measured_w;
+    if (out_y) *out_y = last_line->origin_y;
+    return true;
+}
+
+static bool wlx_text_prepare_lines_slice(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length, WLX_Text_Style style,
+    WLX_Align align, bool wrap, WLX_Text_Line_Record *lines, size_t line_cap, WLX_Text_Line_Array_Result *out_result) {
+
+    if (lines == NULL || out_result == NULL) return false;
+    wlx_zero_struct(*out_result);
+
+    if (style.font_size <= 0) return false;
+    WLX_PERF_HOOK(text_run, ctx, length);
+
+    float ref_w = 0.0f;
+    float line_h = 0.0f;
+    wlx_measure_text_slice(ctx, " ", 1, style, &ref_w, &line_h);
+    if (line_h <= 0.0f) line_h = (float)style.font_size;
+
+    out_result->text_length = length;
+    out_result->line_h = line_h;
+
+    if (length == 0) return true;
+
+    WLX_Text_Build_Inputs inputs = {
+        .ctx = ctx,
+        .text = text,
+        .length = length,
+        .style = style,
+        .rect = rect,
+        .wrap = wrap,
+        .line_h = line_h,
+        .text_unit_cap = WLX_TEXT_RUN_MAX_UNITS,
+    };
+    WLX_Text_Build_Cursor cursor = { .text_unit_count = 0 };
+
+    out_result->line_count = wlx_text_build_lines(&inputs, &cursor, lines, line_cap);
+    wlx_text_align_lines(rect, align, line_h, lines, out_result->line_count);
+    return true;
+}
+
+static bool wlx_text_prepare_lines(WLX_Context *ctx, WLX_Rect rect, const char *text, WLX_Text_Style style,
+    WLX_Align align, bool wrap, WLX_Text_Line_Record *lines, size_t line_cap, WLX_Text_Line_Array_Result *out_result) {
+    return wlx_text_prepare_lines_slice(ctx, rect, text, strlen(text), style, align, wrap, lines, line_cap, out_result);
+}
+
+static bool wlx_calc_cursor_position_for_text(WLX_Context *ctx, WLX_Rect rect, const char *text, WLX_Text_Style style,
+    WLX_Align align, bool wrap, size_t cursor_offset, float *cursor_x, float *cursor_y) {
+
+    if (!text) text = "";
+    WLX_Text_Line_Record lines[WLX_TEXT_RUN_MAX_LINES];
+    WLX_Text_Line_Array_Result line_array;
+
+    if (!wlx_text_prepare_lines(ctx, rect, text, style, align, wrap, lines, WLX_TEXT_RUN_MAX_LINES, &line_array)) {
+        return false;
+    }
+
+    cursor_offset = wlx_text_normalize_cursor_offset(text, line_array.text_length, cursor_offset);
+
+    if (line_array.text_length == 0) {
+        WLX_Rect aligned = wlx_get_align_rect(rect, 0.0f, line_array.line_h, align);
+        if (cursor_x) *cursor_x = aligned.x;
+        if (cursor_y) *cursor_y = aligned.y;
+        return true;
+    }
+
+    return wlx_text_resolve_cursor_from_lines(ctx, rect, text, line_array.text_length, style,
+        lines, line_array.line_count, cursor_offset, cursor_x, cursor_y);
+}
+
+static bool wlx_draw_text_fitted_slice(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length, WLX_Text_Style style,
+    WLX_Align align, bool wrap) {
+
+    if (!text) { text = ""; length = 0; }
+    WLX_Text_Line_Record lines[WLX_TEXT_RUN_MAX_LINES];
+    WLX_Text_Line_Array_Result line_array;
+
+    if (!wlx_text_prepare_lines_slice(ctx, rect, text, length, style, align, wrap, lines, WLX_TEXT_RUN_MAX_LINES, &line_array)) {
+        return false;
+    }
+
+    if (line_array.text_length == 0 || line_array.line_count == 0) return true;
+    if (wlx_text_lines_need_scissor(rect, lines, line_array.line_count)) {
+        WLX_Scissor_Scope sc = wlx_scissor_scope_begin(ctx, rect);
+        bool ok = wlx_text_emit_lines(ctx, rect, text, line_array.text_length, style, lines, line_array.line_count);
+        wlx_scissor_scope_end(ctx, sc);
+        return ok;
+    }
+
+    return wlx_text_emit_lines(ctx, rect, text, line_array.text_length, style, lines, line_array.line_count);
+}
+
+static bool wlx_draw_text_fitted(WLX_Context *ctx, WLX_Rect rect, const char *text, WLX_Text_Style style,
+    WLX_Align align, bool wrap) {
+    if (!text) text = "";
+    return wlx_draw_text_fitted_slice(ctx, rect, text, strlen(text), style, align, wrap);
 }
 
 WLXDEF bool wlx_calc_cursor_position(WLX_Context *ctx, WLX_Rect rect, const char *text, WLX_Text_Style style, WLX_Align align, bool wrap,
     float *cursor_x, float *cursor_y) {
-    return wlx_layout_text_run(ctx, rect, text, style, align, wrap, false, cursor_x, cursor_y);
+    size_t cursor_offset = text ? strlen(text) : 0;
+    return wlx_calc_cursor_position_for_text(ctx, rect, text, style, align, wrap, cursor_offset, cursor_x, cursor_y);
 }
 
 
@@ -4747,6 +5677,10 @@ static const float WLX_CHECKBOX_CHECK_PADDING_RATIO = 0.2f;
 static const float WLX_CHECKBOX_CHECK_THICKNESS_RATIO = 0.12f;
 static const float WLX_CHECKBOX_CHECK_GLOW_RATIO = 0.2f;
 static const float WLX_CHECKBOX_CHECK_GLOW_ALPHA = 0.25f;
+
+#ifndef WLX_INPUTBOX_CURSOR_TEMP_SIZE
+#define WLX_INPUTBOX_CURSOR_TEMP_SIZE 512
+#endif
 
 static const float WLX_INPUTBOX_CURSOR_WIDTH = 2.0f;
 static const float WLX_INPUTBOX_CURSOR_PADDING = 2.0f;
@@ -4784,11 +5718,10 @@ static inline void wlx_resolve_roundness(const WLX_Theme *theme,
 // Resolve common text/font fields against theme defaults.
 // min_height is set to font_size if still unset after font_size resolution.
 static inline void wlx_resolve_typography(const WLX_Theme *theme,
-    WLX_Font *font, int *font_size, int *spacing, float *min_height)
+    WLX_Font *font, int *font_size, float *min_height)
 {
     if (*font      == WLX_FONT_DEFAULT) *font      = theme->font;
     if (*font_size <= 0)                *font_size = theme->font_size;
-    if (*spacing   <= 0)                *spacing   = theme->spacing;
     if (*min_height <= 0)               *min_height = (float)*font_size;
 }
 
@@ -4814,7 +5747,7 @@ static void wlx_resolve_opt_label(const WLX_Context *ctx, WLX_Label_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
     if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
-    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->spacing, &opt->min_height);
+    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
     WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color);
@@ -4848,7 +5781,7 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
         });
     }
 
-    wlx_draw_text_fitted(ctx, wr, text, (WLX_Text_Style){ .font = opt.font, .font_size = opt.font_size, .spacing = opt.spacing, .color = opt.front_color }, opt.align, opt.wrap);
+    wlx_draw_text_fitted(ctx, wr, text, (WLX_Text_Style){ .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing }, opt.align, opt.wrap);
 
     // Epilogue: close widget frame
     wlx_widget_frame_end(ctx, frame);
@@ -4858,7 +5791,7 @@ static void wlx_resolve_opt_button(const WLX_Context *ctx, WLX_Button_Opt *opt) 
     const WLX_Theme *theme = ctx->theme;
     if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
-    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->spacing, &opt->min_height);
+    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
     WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color);
@@ -4890,7 +5823,7 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
         .rounded_segments = opt.rounded_segments,
     });
 
-    wlx_draw_text_fitted(ctx, wr, text, (WLX_Text_Style){ .font = opt.font, .font_size = opt.font_size, .spacing = opt.spacing, .color = opt.front_color }, opt.align, opt.wrap);
+    wlx_draw_text_fitted(ctx, wr, text, (WLX_Text_Style){ .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing }, opt.align, opt.wrap);
 
     // Epilogue: close widget frame
     wlx_widget_frame_end(ctx, frame);
@@ -4906,7 +5839,7 @@ static void wlx_resolve_opt_checkbox(const WLX_Context *ctx, WLX_Checkbox_Opt *o
     // Widget-specific border fallbacks before common helper
     if (wlx_color_is_zero(opt->border_color))         opt->border_color = theme->checkbox.border;
     if (wlx_is_negative_unset(opt->border_width)) opt->border_width = theme->checkbox.border_width;
-    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->spacing, &opt->min_height);
+    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
     WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color, &opt->check_color);
@@ -4924,8 +5857,9 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
     float checkbox_size = (wr.h > opt.font_size) ? opt.font_size : wr.h * WLX_CHECKBOX_SIZE_RATIO;
     float text_w = 0;
     float text_h = 0;
-    WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .spacing = opt.spacing, .color = opt.front_color };
-    wlx_measure_text(ctx, text, ts, &text_w, &text_h);
+    WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing };
+    size_t text_len = (text != NULL) ? strlen(text) : 0;
+    wlx_measure_text_slice(ctx, text, text_len, ts, &text_w, &text_h);
     float padding = opt.font_size * WLX_CHECKBOX_LABEL_PADDING_FACTOR;
 
     float height = text_h > checkbox_size ? text_h : checkbox_size;
@@ -4991,10 +5925,10 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
     WLX_Rect text_rect = {
       .x = acr.x + checkbox_size + padding,
       .y = acr.y,
-      .w = acr.w - checkbox_size + padding,
+      .w = acr.w - checkbox_size - padding,
       .h = wr.y + wr.h - acr.y
     };
-    wlx_draw_text_fitted(ctx, text_rect, text, ts, WLX_ALIGN_NONE, opt.wrap);
+    wlx_draw_text_fitted_slice(ctx, text_rect, text, text_len, ts, WLX_ALIGN_NONE, opt.wrap);
 
     // Epilogue: close widget frame
     wlx_widget_frame_end(ctx, frame);
@@ -5010,7 +5944,7 @@ static void wlx_resolve_opt_inputbox(const WLX_Context *ctx, WLX_Inputbox_Opt *o
     if (wlx_is_negative_unset(opt->border_width))   opt->border_width       = theme->input.border_width;
     if (wlx_color_is_zero(opt->border_focus_color)) opt->border_focus_color = theme->input.border_focus;
     if (wlx_color_is_zero(opt->cursor_color))       opt->cursor_color       = theme->input.cursor;
-    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->spacing, &opt->min_height);
+    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
     WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color,
@@ -5023,6 +5957,7 @@ static void wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state
                                       char *buffer, size_t buffer_size, bool just_focused)
 {
     size_t current_len = strlen(buffer);
+    bool changed_cursor_or_text = false;
 
     // Initialize cursor position when first focused
     if (just_focused) {
@@ -5037,12 +5972,20 @@ static void wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state
 
     // Handle left arrow - move cursor left (by one codepoint)
     if (wlx_is_key_pressed(ctx, WLX_KEY_LEFT) && state->cursor_pos > 0) {
-        state->cursor_pos = wlx_utf8_prev(buffer, state->cursor_pos);
+        size_t next_pos = wlx_utf8_prev(buffer, state->cursor_pos);
+        if (next_pos != state->cursor_pos) {
+            state->cursor_pos = next_pos;
+            changed_cursor_or_text = true;
+        }
     }
 
     // Handle right arrow - move cursor right (by one codepoint)
     if (wlx_is_key_pressed(ctx, WLX_KEY_RIGHT) && state->cursor_pos < current_len) {
-        state->cursor_pos = wlx_utf8_next(buffer, state->cursor_pos, current_len);
+        size_t next_pos = wlx_utf8_next(buffer, state->cursor_pos, current_len);
+        if (next_pos != state->cursor_pos) {
+            state->cursor_pos = next_pos;
+            changed_cursor_or_text = true;
+        }
     }
 
     // Add typed characters (whole codepoints) at cursor position
@@ -5064,6 +6007,7 @@ static void wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state
             memcpy(&buffer[state->cursor_pos], &ctx->input.text_input[i], char_len);
             state->cursor_pos += char_len;
             current_len += char_len;
+            changed_cursor_or_text = true;
 
             i += char_len;
         }
@@ -5076,8 +6020,15 @@ static void wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state
         memmove(&buffer[prev_pos],
                 &buffer[state->cursor_pos],
                 current_len - state->cursor_pos + 1);
+        current_len -= state->cursor_pos - prev_pos;
         state->cursor_pos = prev_pos;
+        changed_cursor_or_text = true;
     }
+
+    size_t normalized_pos = wlx_text_normalize_cursor_offset(buffer, current_len, state->cursor_pos);
+    if (normalized_pos != state->cursor_pos) changed_cursor_or_text = true;
+    state->cursor_pos = normalized_pos;
+    if (changed_cursor_or_text) state->cursor_blink_time = 0.0f;
 }
 
 WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_size, WLX_Inputbox_Opt opt, const char *file, int line) {
@@ -5121,11 +6072,12 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
     }
 
     float label_width = 0;
-    WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .spacing = opt.spacing, .color = opt.front_color };
+    WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing };
     // Draw label if provided
     if (label != NULL && opt.font_size > 0) {
+        size_t label_len = strlen(label);
         float label_h = 0;
-        wlx_measure_text(ctx, label, ts, &label_width, &label_h);
+        wlx_measure_text_slice(ctx, label, label_len, ts, &label_width, &label_h);
         label_width += opt.content_padding;
 
         float label_x = wr.x + opt.content_padding;
@@ -5148,7 +6100,7 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
             .w = label_width,
             .h = label_h,
         };
-        wlx_draw_text_fitted(ctx, label_rect, label, ts, opt.align, opt.wrap);
+        wlx_draw_text_fitted_slice(ctx, label_rect, label, label_len, ts, opt.align, opt.wrap);
 
     }
 
@@ -5195,16 +6147,13 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
         float cursor_x = text_rect.x;
         float cursor_y = text_rect.y;
 
-        // Render text up to cursor position to get cursor coordinates
+        // Measure cursor position against the full text layout so it stays in
+        // sync with wrapped lines, explicit newlines, and long buffers.
         if (inter.focused) {
-            char temp[WLX_INPUTBOX_CURSOR_TEMP_SIZE];
-            size_t copy_len = state->cursor_pos < sizeof(temp) - 1 ? state->cursor_pos : sizeof(temp) - 1;
-            strncpy(temp, buffer, copy_len);
-            temp[copy_len] = '\0';
-            wlx_calc_cursor_position(ctx, text_rect, temp, ts, WLX_TOP_LEFT, opt.wrap, &cursor_x, &cursor_y);
+            wlx_calc_cursor_position_for_text(ctx, text_rect, buffer, ts, WLX_TOP_LEFT, opt.wrap,
+                state->cursor_pos, &cursor_x, &cursor_y);
         }
 
-        // Render full text
         wlx_draw_text_fitted(ctx, text_rect, buffer, ts, WLX_TOP_LEFT, opt.wrap);
 
         if (cursor_x > text_rect.x)
@@ -5218,8 +6167,9 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
         // Draw cursor if focused and fits in text rect
         if (inter.focused && cursor_x < (text_rect.x + text_rect.w) && (cursor_y + cursor_height) <= (text_rect.y + text_rect.h + 1.0f)) {
             if (fmodf(state->cursor_blink_time, WLX_INPUTBOX_CURSOR_BLINK_PERIOD) < (WLX_INPUTBOX_CURSOR_BLINK_PERIOD * WLX_INPUTBOX_CURSOR_VISIBLE_FRACTION)) {
-
+                WLX_Scissor_Scope cursor_clip = wlx_scissor_scope_begin(ctx, text_rect);
                 wlx_draw_line(ctx, cursor_x, cursor_y, cursor_x, cursor_y + cursor_height, WLX_INPUTBOX_CURSOR_WIDTH, opt.cursor_color);
+                wlx_scissor_scope_end(ctx, cursor_clip);
             }
         }
     }
@@ -5231,19 +6181,21 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
 
 static void wlx_resolve_opt_slider(const WLX_Context *ctx, WLX_Slider_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
-    if (wlx_color_is_zero(opt->track_color))  opt->track_color            = theme->slider.track;
-    if (wlx_color_is_zero(opt->thumb_color))  opt->thumb_color            = theme->slider.thumb;
-    if (wlx_color_is_zero(opt->label_color))  opt->label_color            = theme->slider.label;
-    if (wlx_color_is_zero(opt->border_color))           opt->border_color           = theme->border;
-    if (wlx_is_negative_unset(opt->border_width))    opt->border_width           = theme->border_width;
-    if (opt->font == WLX_FONT_DEFAULT)               opt->font                   = theme->font;
-    if (opt->font_size              <= 0)             opt->font_size              = theme->font_size;
-    if (opt->spacing                <= 0)             opt->spacing                = theme->spacing;
-    if (opt->track_height           <= 0)             opt->track_height           = theme->slider.track_height;
-    if (opt->thumb_width            <= 0)             opt->thumb_width            = theme->slider.thumb_width;
-    if (opt->min_height             <= 0)             opt->min_height             = (float)opt->font_size;
-    if (wlx_is_negative_unset(opt->roundness))       opt->roundness              = theme->roundness;
-    if (opt->rounded_segments       < 0)      opt->rounded_segments       = theme->rounded_segments;
+    if (wlx_color_is_zero(opt->track_color))        opt->track_color            = theme->slider.track;
+    if (wlx_color_is_zero(opt->thumb_color))        opt->thumb_color            = theme->slider.thumb;
+    if (wlx_color_is_zero(opt->label_color))        opt->label_color            = theme->slider.label;
+    if (wlx_color_is_zero(opt->border_color))       opt->border_color           = theme->border;
+    if (wlx_is_negative_unset(opt->border_width))   opt->border_width           = theme->border_width;
+    if (opt->font == WLX_FONT_DEFAULT)              opt->font                   = theme->font;
+    if (opt->font_size              <= 0)           opt->font_size              = theme->font_size;
+    if (opt->track_height           <= 0)           opt->track_height           = theme->slider.track_height;
+    if (opt->thumb_width            <= 0)           opt->thumb_width            = theme->slider.thumb_width;
+    if (opt->min_height             <= 0)           opt->min_height             = (float)opt->font_size;
+    if (wlx_is_negative_unset(opt->roundness))      opt->roundness              = theme->roundness;
+    if (wlx_is_negative_unset(opt->rounded_segments)) opt->rounded_segments     = theme->rounded_segments;
+
+
+    if (opt->rounded_segments < ctx->theme->min_rounded_segments) opt->rounded_segments = ctx->theme->min_rounded_segments;
     if (wlx_is_float_unset(opt->hover_brightness))       opt->hover_brightness       = theme->hover_brightness;
     if (wlx_is_float_unset(opt->thumb_hover_brightness)) opt->thumb_hover_brightness = opt->hover_brightness * 0.5f;
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
@@ -5265,11 +6217,12 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
     float label_width = 0;
     float value_text_width = 0;
     float padding = opt.font_size / 2.0f;
-    WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .spacing = opt.spacing, .color = opt.label_color };
+    WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .color = opt.label_color, .spacing = opt.spacing };
 
+    size_t label_len = (label != NULL) ? strlen(label) : 0;
     if (label != NULL && opt.font_size > 0) {
         float label_h = 0;
-        wlx_measure_text(ctx, label, ts, &label_width, &label_h);
+        wlx_measure_text_slice(ctx, label, label_len, ts, &label_width, &label_h);
         label_width += padding;
     }
 
@@ -5311,7 +6264,13 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
     float t = (*value - opt.min_value) / range;
 
     float thumb_cx = roundf(usable_x + t * usable_w);
-    float thumb_h = wr.h * 0.7f;
+    float thumb_min_h = opt.track_height + 4.0f;
+    float thumb_max_h = wr.h - 4.0f;
+    if (thumb_max_h < opt.track_height) thumb_max_h = opt.track_height;
+    float thumb_h = opt.thumb_width;
+    if (thumb_h < thumb_min_h) thumb_h = thumb_min_h;
+    if (thumb_h > thumb_max_h) thumb_h = thumb_max_h;
+    if (thumb_h < 1.0f) thumb_h = 1.0f;
     float thumb_y = roundf(wr.y + (wr.h - thumb_h) / 2.0f);
 
     // Interaction via unified handler (drag mode for continuous value updates)
@@ -5346,7 +6305,7 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
     // Draw label
     if (label != NULL && opt.font_size > 0) {
         WLX_Rect label_rect = { wr.x, wr.y, label_width, wr.h };
-        wlx_draw_text_fitted(ctx, label_rect, label, ts, WLX_LEFT, false);
+        wlx_draw_text_fitted_slice(ctx, label_rect, label, label_len, ts, WLX_LEFT, false);
     }
 
     // Draw track
@@ -5356,14 +6315,14 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
 
     // Draw track border
     if (opt.border_width > 0) {
-        wlx_draw_rect_lines(ctx, track_rect, opt.border_width, opt.border_color);
+        wlx_draw_rect_rounded_lines(ctx, track_rect, opt.roundness, opt.rounded_segments, opt.border_width, opt.border_color);
     }
 
     // Draw filled portion of track (extends under the thumb so the
     // rounded right corner is hidden; the thumb is taller than the track)
     float fill_w = thumb_cx - track_x;
     if (fill_w > 0) {
-        WLX_Color fill_color = is_active ? opt.thumb_color : wlx_color_brightness(opt.thumb_color, opt.fill_inactive_brightness);
+        WLX_Color fill_color = wlx_color_brightness(opt.thumb_color, opt.fill_inactive_brightness);
         WLX_Rect fill_rect = { track_x, track_y, fill_w, opt.track_height };
         wlx_draw_rect_rounded(ctx, fill_rect, opt.roundness, opt.rounded_segments, fill_color);
     }
@@ -5429,7 +6388,7 @@ static void wlx_resolve_opt_progress(const WLX_Context *ctx, WLX_Progress_Opt *o
 
 WLXDEF void wlx_progress_impl(WLX_Context *ctx, float value, WLX_Progress_Opt opt, const char *file, int line) {
     assert(ctx != NULL);
-    
+
     wlx_resolve_opt_progress(ctx, &opt);
 
     // Prologue: compute widget frame (no interaction for progress bar)
@@ -5470,7 +6429,7 @@ static void wlx_resolve_opt_toggle(const WLX_Context *ctx, WLX_Toggle_Opt *opt) 
     opt->thumb_color        = wlx_color_or(opt->thumb_color,        wlx_color_or(theme->toggle.thumb, theme->foreground));
     if (wlx_color_is_zero(opt->front_color))       opt->front_color      = theme->foreground;
     if (wlx_is_float_unset(opt->hover_brightness))  opt->hover_brightness = theme->hover_brightness;
-    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->spacing, &opt->min_height);
+    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
     WLX_APPLY_OPACITY(opt->opacity, &opt->track_color, &opt->track_active_color, &opt->thumb_color,
@@ -5480,7 +6439,7 @@ static void wlx_resolve_opt_toggle(const WLX_Context *ctx, WLX_Toggle_Opt *opt) 
 WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WLX_Toggle_Opt opt, const char *file, int line) {
     assert(ctx != NULL);
     assert(value != NULL && "toggle value pointer must not be NULL");
-    
+
     wlx_resolve_opt_toggle(ctx, &opt);
 
     // Prologue: determine geometry of toggle components (track, thumb, label) and interaction state
@@ -5495,9 +6454,10 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
 
     float label_w = 0, label_h = 0;
     WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size,
-                           .spacing = opt.spacing, .color = opt.front_color };
+                           .color = opt.front_color, .spacing = opt.spacing };
+    size_t label_len = (label != NULL) ? strlen(label) : 0;
     if (label != NULL && opt.font_size > 0) {
-        wlx_measure_text(ctx, label, ts, &label_w, &label_h);
+        wlx_measure_text_slice(ctx, label, label_len, ts, &label_w, &label_h);
     }
 
     float content_w = track_w + (label_w > 0.0f ? padding + label_w : 0.0f);
@@ -5551,7 +6511,7 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
             acr.x + track_w + padding, acr.y,
             acr.w - track_w - padding, acr.h
         };
-        wlx_draw_text_fitted(ctx, text_rect, label, ts, WLX_ALIGN_NONE, false);
+        wlx_draw_text_fitted_slice(ctx, text_rect, label, label_len, ts, WLX_ALIGN_NONE, false);
     }
 
     // Epilogue: close widget frame
@@ -5570,7 +6530,7 @@ static void wlx_resolve_opt_radio(const WLX_Context *ctx, WLX_Radio_Opt *opt) {
     if (wlx_is_negative_unset(opt->ring_border_width)) opt->ring_border_width = theme->border_width;
     if (wlx_is_float_unset(opt->hover_brightness))
                                               opt->hover_brightness  = theme->hover_brightness;
-    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->spacing, &opt->min_height);
+    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
     WLX_APPLY_OPACITY(opt->opacity, &opt->ring_color, &opt->fill_color, &opt->front_color);
 }
@@ -5578,9 +6538,9 @@ static void wlx_resolve_opt_radio(const WLX_Context *ctx, WLX_Radio_Opt *opt) {
 WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int index, WLX_Radio_Opt opt, const char *file, int line) {
     assert(ctx != NULL);
     assert(active != NULL && "radio active pointer must not be NULL");
-    
+
     wlx_resolve_opt_radio(ctx, &opt);
-    
+
     // Prologue: determine geometry of radio components (ring, fill, label) and interaction state
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
@@ -5592,9 +6552,10 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
 
     float label_w = 0, label_h = 0;
     WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size,
-                           .spacing = opt.spacing, .color = opt.front_color };
+                           .color = opt.front_color, .spacing = opt.spacing };
+    size_t label_len = (label != NULL) ? strlen(label) : 0;
     if (label != NULL && opt.font_size > 0) {
-        wlx_measure_text(ctx, label, ts, &label_w, &label_h);
+        wlx_measure_text_slice(ctx, label, label_len, ts, &label_w, &label_h);
     }
 
     WLX_Interaction inter = wlx_get_interaction(
@@ -5643,7 +6604,7 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
             acr.x + circle_size + padding, acr.y,
             acr.w - circle_size - padding, acr.h
         };
-        wlx_draw_text_fitted(ctx, text_rect, label, ts, WLX_ALIGN_NONE, false);
+        wlx_draw_text_fitted_slice(ctx, text_rect, label, label_len, ts, WLX_ALIGN_NONE, false);
     }
 
     // Epilogue: close widget frame
@@ -5668,7 +6629,8 @@ static void wlx_resolve_opt_scroll_panel(const WLX_Context *ctx, WLX_Scroll_Pane
     if (wlx_is_negative_unset(opt->scrollbar_width))       opt->scrollbar_width            = theme->scrollbar.width;
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
     WLX_APPLY_OPACITY(opt->opacity, &opt->back_color, &opt->scrollbar_color, &opt->border_color);
-    wlx_resolve_roundness(theme, &opt->roundness, &opt->rounded_segments);
+    opt->roundness        = 0.0f;
+    opt->rounded_segments = 0;
 }
 
 // Helper: resolve cell rect and widget rect for a scroll panel.
@@ -6007,7 +6969,7 @@ WLXDEF void wlx_split_begin_impl(WLX_Context *ctx, WLX_Split_Opt opt,
                                   const char *file, int line) {
     // Resolve sentinel defaults
     if (wlx_slot_size_is_zero(opt.fill_size))
-        opt.fill_size = WLX_SLOT_FILL;
+        opt.fill_size = WLX_SLOT_FLEX(1);
     if (wlx_slot_size_is_zero(opt.first_size))
         opt.first_size = WLX_SLOT_PX(280);
     if (wlx_slot_size_is_zero(opt.second_size))
@@ -6096,13 +7058,26 @@ WLXDEF void wlx_panel_begin_impl(WLX_Context *ctx, WLX_Panel_Opt opt,
         sizes[i] = (WLX_Slot_Size){ .kind = WLX_SIZE_CONTENT };
     }
 
-    // Create VERT layout with all-CONTENT slots
+    // Create VERT layout with all-CONTENT slots, forwarding body frame options.
     wlx_layout_begin_impl(ctx, (size_t)total, WLX_VERT,
         wlx_default_layout_opt(.sizes = sizes, .padding = opt.padding,
             .padding_top = opt.padding_top, .padding_right = opt.padding_right,
             .padding_bottom = opt.padding_bottom, .padding_left = opt.padding_left,
-            .gap = opt.gap, .id = opt.id),
+            .gap = opt.gap, .id = opt.id,
+            .back_color = opt.back_color,
+            .border_color = opt.border_color,
+            .border_width = opt.border_width,
+            .roundness = opt.roundness),
         file, line);
+
+    // Activate scissor clipping when requested. The top layout rect is the
+    // post-padding inner rect, which is the correct clip boundary: content
+    // stays within the padded content area and does not overlap the border.
+    if (opt.clip) {
+        WLX_Layout *top = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+        top->clip_active = true;
+        wlx_begin_scissor(ctx, top->rect);
+    }
 
     // Emit heading label if title is provided
     if (opt.title != NULL) {
@@ -6118,8 +7093,311 @@ WLXDEF void wlx_panel_begin_impl(WLX_Context *ctx, WLX_Panel_Opt opt,
 }
 
 WLXDEF void wlx_panel_end(WLX_Context *ctx) {
+    bool clip = (ctx->arena.layouts.count > 0) &&
+                wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].clip_active;
     wlx_layout_end(ctx);
+    if (clip) wlx_end_scissor(ctx);
 }
+
+// ============================================================================
+// Perf implementation (WLX_PERF only)
+// ============================================================================
+#ifdef WLX_PERF
+
+typedef struct WLX_Perf_Context {
+    WLX_Perf_Timestamp_Fn timestamp_fn;
+    void *timer_user;
+    WLX_Perf_Frame current;
+    WLX_Perf_Frame last;
+    uint64_t frame_start_ns;
+    uint64_t begin_start_ns;
+    uint64_t input_start_ns;
+    uint64_t build_start_ns;
+    uint64_t end_start_ns;
+    uint64_t range_start_ns;
+    uint64_t offset_start_ns;
+    uint64_t dispatch_start_ns;
+    uint64_t callback_start_ns;
+    size_t frame_start_capacity[WLX_ARENA_GROUP_COUNT];
+    bool capturing;
+} WLX_Perf_Context;
+
+static inline uint64_t wlx_perf_now(WLX_Context *ctx) {
+    if (!ctx || !ctx->perf || !ctx->perf->timestamp_fn) return 0;
+    return ctx->perf->timestamp_fn(ctx->perf->timer_user);
+}
+
+static inline uint64_t wlx_perf_elapsed(uint64_t start, uint64_t end) {
+    return (end >= start) ? (end - start) : 0;
+}
+
+static inline void wlx_perf_init(WLX_Context *ctx) {
+    WLX_Perf_Allocator_Stats *saved_sink;
+
+    if (!ctx || ctx->perf) return;
+    saved_sink = wlx_perf_allocator_sink;
+    wlx_perf_allocator_sink = NULL;
+    ctx->perf = (WLX_Perf_Context *)wlx_calloc(1, sizeof(WLX_Perf_Context));
+    wlx_perf_allocator_sink = saved_sink;
+}
+
+static inline void wlx_perf_set_start_capacity(WLX_Perf_Context *perf,
+    WLX_Arena_Group group, const WLX_Sub_Arena *arena)
+{
+    perf->frame_start_capacity[group] = arena->capacity;
+}
+
+static inline void wlx_perf_capture_start_capacities(WLX_Context *ctx) {
+    WLX_Perf_Context *perf = (WLX_Perf_Context *)ctx->perf;
+    wlx_perf_set_start_capacity(perf, WLX_ARENA_SLOT_SIZE_OFFSETS, &ctx->arena.slot_size_offsets);
+    wlx_perf_set_start_capacity(perf, WLX_ARENA_DYN_OFFSETS, &ctx->arena.dyn_offsets);
+    wlx_perf_set_start_capacity(perf, WLX_ARENA_SCRATCH, &ctx->arena.scratch);
+    wlx_perf_set_start_capacity(perf, WLX_ARENA_COMMANDS, &ctx->arena.commands);
+    wlx_perf_set_start_capacity(perf, WLX_ARENA_CMD_RANGES, &ctx->arena.cmd_ranges);
+    wlx_perf_set_start_capacity(perf, WLX_ARENA_LAYOUTS, &ctx->arena.layouts);
+    wlx_perf_set_start_capacity(perf, WLX_ARENA_SCROLL_PANELS, &ctx->arena.scroll_panels);
+    wlx_perf_set_start_capacity(perf, WLX_ARENA_ID_STACK, &ctx->arena.id_stack);
+    wlx_perf_set_start_capacity(perf, WLX_ARENA_OPACITY_STACK, &ctx->arena.opacity_stack);
+}
+
+static inline size_t wlx_perf_capacity_grow_count(size_t start_capacity, size_t end_capacity) {
+    size_t count = 0;
+    size_t cap = start_capacity;
+
+    if (end_capacity <= start_capacity) return 0;
+    if (cap == 0) {
+        count++;
+        cap = WLX_DA_INIT_CAP;
+    }
+    while (cap < end_capacity) {
+        assert(cap <= SIZE_MAX / 2 && "size_t overflow in perf arena growth count");
+        cap *= 2;
+        count++;
+    }
+    return count;
+}
+
+static inline void wlx_perf_snapshot_arena(WLX_Perf_Arena_Stats *out,
+    const WLX_Sub_Arena *arena, size_t start_capacity)
+{
+    out->count = arena->count;
+    out->capacity = arena->capacity;
+    out->high_water = arena->high_water;
+    out->grow_count = wlx_perf_capacity_grow_count(start_capacity, arena->capacity);
+    out->bytes_used = arena->count * arena->item_size;
+    out->bytes_capacity = arena->capacity * arena->item_size;
+}
+
+static inline void wlx_perf_capture_arenas(WLX_Context *ctx) {
+    WLX_Perf_Context *perf = (WLX_Perf_Context *)ctx->perf;
+    wlx_perf_snapshot_arena(&perf->current.arena[WLX_ARENA_SLOT_SIZE_OFFSETS],
+        &ctx->arena.slot_size_offsets, perf->frame_start_capacity[WLX_ARENA_SLOT_SIZE_OFFSETS]);
+    wlx_perf_snapshot_arena(&perf->current.arena[WLX_ARENA_DYN_OFFSETS],
+        &ctx->arena.dyn_offsets, perf->frame_start_capacity[WLX_ARENA_DYN_OFFSETS]);
+    wlx_perf_snapshot_arena(&perf->current.arena[WLX_ARENA_SCRATCH],
+        &ctx->arena.scratch, perf->frame_start_capacity[WLX_ARENA_SCRATCH]);
+    wlx_perf_snapshot_arena(&perf->current.arena[WLX_ARENA_COMMANDS],
+        &ctx->arena.commands, perf->frame_start_capacity[WLX_ARENA_COMMANDS]);
+    wlx_perf_snapshot_arena(&perf->current.arena[WLX_ARENA_CMD_RANGES],
+        &ctx->arena.cmd_ranges, perf->frame_start_capacity[WLX_ARENA_CMD_RANGES]);
+    wlx_perf_snapshot_arena(&perf->current.arena[WLX_ARENA_LAYOUTS],
+        &ctx->arena.layouts, perf->frame_start_capacity[WLX_ARENA_LAYOUTS]);
+    wlx_perf_snapshot_arena(&perf->current.arena[WLX_ARENA_SCROLL_PANELS],
+        &ctx->arena.scroll_panels, perf->frame_start_capacity[WLX_ARENA_SCROLL_PANELS]);
+    wlx_perf_snapshot_arena(&perf->current.arena[WLX_ARENA_ID_STACK],
+        &ctx->arena.id_stack, perf->frame_start_capacity[WLX_ARENA_ID_STACK]);
+    wlx_perf_snapshot_arena(&perf->current.arena[WLX_ARENA_OPACITY_STACK],
+        &ctx->arena.opacity_stack, perf->frame_start_capacity[WLX_ARENA_OPACITY_STACK]);
+}
+
+WLXDEF void wlx_perf_set_timer(WLX_Context *ctx, WLX_Perf_Timestamp_Fn timestamp_fn, void *user) {
+    assert(ctx != NULL);
+    wlx_perf_init(ctx);
+    if (!ctx->perf) return;
+    ctx->perf->timestamp_fn = timestamp_fn;
+    ctx->perf->timer_user = user;
+}
+
+WLXDEF const WLX_Perf_Frame *wlx_perf_get_last_frame(const WLX_Context *ctx) {
+    if (!ctx || !ctx->perf) return NULL;
+    return &ctx->perf->last;
+}
+
+WLXDEF void wlx_perf_reset(WLX_Context *ctx) {
+    WLX_Perf_Context *perf;
+    WLX_Perf_Timestamp_Fn timestamp_fn;
+    void *timer_user;
+
+    assert(ctx != NULL);
+    if (!ctx->perf) return;
+
+    perf = (WLX_Perf_Context *)ctx->perf;
+    timestamp_fn = perf->timestamp_fn;
+    timer_user = perf->timer_user;
+    if (wlx_perf_allocator_sink == &perf->current.allocator) {
+        wlx_perf_allocator_sink = NULL;
+    }
+    wlx_zero_struct(*perf);
+    perf->timestamp_fn = timestamp_fn;
+    perf->timer_user = timer_user;
+}
+
+static inline void wlx_perf_frame_begin(WLX_Context *ctx) {
+    WLX_Perf_Context *perf;
+    uint64_t frame_index;
+
+    wlx_perf_init(ctx);
+    if (!ctx->perf) return;
+
+    perf = (WLX_Perf_Context *)ctx->perf;
+    frame_index = perf->last.frame_index + 1;
+    wlx_zero_struct(perf->current);
+    perf->current.frame_index = frame_index;
+    perf->current.timer_available = (perf->timestamp_fn != NULL);
+    perf->capturing = true;
+    wlx_perf_allocator_sink = &perf->current.allocator;
+    wlx_perf_capture_start_capacities(ctx);
+    perf->frame_start_ns = wlx_perf_now(ctx);
+    perf->begin_start_ns = perf->frame_start_ns;
+}
+
+static inline void wlx_perf_input_begin(WLX_Context *ctx) {
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    ctx->perf->input_start_ns = wlx_perf_now(ctx);
+}
+
+static inline void wlx_perf_input_end(WLX_Context *ctx) {
+    uint64_t now;
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    now = wlx_perf_now(ctx);
+    ctx->perf->current.timings.input_ns += wlx_perf_elapsed(ctx->perf->input_start_ns, now);
+}
+
+static inline void wlx_perf_begin_end(WLX_Context *ctx) {
+    uint64_t now;
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    now = wlx_perf_now(ctx);
+    ctx->perf->current.timings.begin_ns = wlx_perf_elapsed(ctx->perf->begin_start_ns, now);
+    ctx->perf->build_start_ns = now;
+}
+
+static inline void wlx_perf_end_begin(WLX_Context *ctx) {
+    uint64_t now;
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    now = wlx_perf_now(ctx);
+    ctx->perf->end_start_ns = now;
+    ctx->perf->current.timings.user_build_ns = wlx_perf_elapsed(ctx->perf->build_start_ns, now);
+}
+
+static inline void wlx_perf_range_begin(WLX_Context *ctx) {
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    ctx->perf->range_start_ns = wlx_perf_now(ctx);
+}
+
+static inline void wlx_perf_range_end(WLX_Context *ctx) {
+    uint64_t now;
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    now = wlx_perf_now(ctx);
+    ctx->perf->current.timings.range_accum_ns += wlx_perf_elapsed(ctx->perf->range_start_ns, now);
+}
+
+static inline void wlx_perf_offset_begin(WLX_Context *ctx) {
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    ctx->perf->offset_start_ns = wlx_perf_now(ctx);
+}
+
+static inline void wlx_perf_offset_end(WLX_Context *ctx) {
+    uint64_t now;
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    now = wlx_perf_now(ctx);
+    ctx->perf->current.timings.offset_lookup_ns += wlx_perf_elapsed(ctx->perf->offset_start_ns, now);
+}
+
+static inline void wlx_perf_dispatch_begin(WLX_Context *ctx) {
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    ctx->perf->dispatch_start_ns = wlx_perf_now(ctx);
+}
+
+static inline void wlx_perf_dispatch_end(WLX_Context *ctx) {
+    uint64_t now;
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    now = wlx_perf_now(ctx);
+    ctx->perf->current.timings.dispatch_ns += wlx_perf_elapsed(ctx->perf->dispatch_start_ns, now);
+}
+
+static inline void wlx_perf_backend_callback_begin(WLX_Context *ctx, WLX_Cmd_Type type) {
+    WLX_UNUSED(type);
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    ctx->perf->callback_start_ns = wlx_perf_now(ctx);
+}
+
+static inline void wlx_perf_backend_callback_end(WLX_Context *ctx, WLX_Cmd_Type type) {
+    uint64_t now;
+    WLX_UNUSED(type);
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    now = wlx_perf_now(ctx);
+    ctx->perf->current.timings.backend_callback_ns += wlx_perf_elapsed(ctx->perf->callback_start_ns, now);
+}
+
+static inline void wlx_perf_command_record(WLX_Context *ctx, WLX_Cmd_Type type) {
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    if (type >= 0 && type < WLX_CMD_TYPE_COUNT) {
+        ctx->perf->current.commands.by_type[type]++;
+    }
+    ctx->perf->current.commands.total_commands++;
+}
+
+static inline void wlx_perf_text_measure(WLX_Context *ctx, size_t bytes) {
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    ctx->perf->current.text.measure_calls++;
+    ctx->perf->current.text.measured_bytes += (uint64_t)bytes;
+}
+
+static inline void wlx_perf_text_command(WLX_Context *ctx, size_t bytes) {
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    ctx->perf->current.text.emitted_text_commands++;
+    ctx->perf->current.text.emitted_text_bytes += (uint64_t)bytes;
+}
+
+static inline void wlx_perf_text_run(WLX_Context *ctx, size_t bytes) {
+    WLX_UNUSED(bytes);
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    ctx->perf->current.text.fitted_text_runs++;
+}
+
+static inline void wlx_perf_frame_publish(WLX_Context *ctx) {
+    WLX_Perf_Context *perf;
+    uint64_t now;
+
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    perf = (WLX_Perf_Context *)ctx->perf;
+    now = wlx_perf_now(ctx);
+    perf->current.timings.end_ns = wlx_perf_elapsed(perf->end_start_ns, now);
+    perf->current.timings.total_ns = wlx_perf_elapsed(perf->frame_start_ns, now);
+    perf->current.commands.command_ranges = ctx->arena.cmd_ranges.count;
+    wlx_perf_capture_arenas(ctx);
+    perf->last = perf->current;
+    perf->capturing = false;
+    if (wlx_perf_allocator_sink == &perf->current.allocator) {
+        wlx_perf_allocator_sink = NULL;
+    }
+}
+
+static inline void wlx_perf_destroy(WLX_Context *ctx) {
+    WLX_Perf_Allocator_Stats *saved_sink;
+
+    if (!ctx || !ctx->perf) return;
+    saved_sink = wlx_perf_allocator_sink;
+    if (saved_sink == &ctx->perf->current.allocator) {
+        saved_sink = NULL;
+    }
+    wlx_perf_allocator_sink = NULL;
+    wlx_free(ctx->perf);
+    ctx->perf = NULL;
+    wlx_perf_allocator_sink = saved_sink;
+}
+
+#endif // WLX_PERF
 
 // ============================================================================
 // Debug implementation (WLX_DEBUG only)
@@ -6295,9 +7573,7 @@ static inline void wlx_dbg_layout_begin(WLX_Context *ctx, int vb_force,
     if (!ctx->dbg) return;
     size_t idx = ctx->arena.layouts.count - 1;
     if (idx >= wlx_array_len(ctx->dbg->layout_shadow)) return;
-    
-    
-    
+
     // --- Compute vert_bounded ---
     bool vb;
     if (vb_force >= 0) {
@@ -6395,9 +7671,9 @@ static inline void wlx_dbg_layout_begin(WLX_Context *ctx, int vb_force,
 
 static inline WLX_Debug_Content_Slot_State *wlx_dbg_get_companion(
     WLX_Context *ctx, WLX_Content_Slot_State *key) {
-    
+
     WLX_Debug_Companion *comps = ctx->dbg->content_companions;
-    
+
     // Linear scan - content-state instances are rare (<=10 typical)
     for (int i = 0; i < ctx->dbg->content_companions_count; i++) {
         if (comps[i].key == key)
@@ -6530,7 +7806,7 @@ static inline void wlx_dbg_split_begin(WLX_Context *ctx) {
     if (!split_explained) {
         fprintf(stderr,
             "wollix [DEBUG]: wlx_split_begin creates:\n"
-            "  [1] outer VERT layout (fill_size, default=FILL)\n"
+            "  [1] outer VERT layout (fill_size, default=FLEX(1))\n"
             "  [2] inner HORZ layout (first_size + second_size)\n"
             "  [3] auto-height scroll panel per pane\n"
             "  Do not add your own scroll panels unless nesting is intended.\n");

@@ -13,6 +13,7 @@ layout library.
 > - [LAYOUT_MODEL.md](LAYOUT_MODEL.md)
 > - [SENTINEL.md](SENTINEL.md)
 > - [CORE_PATTERNS_GUIDE.md](CORE_PATTERNS_GUIDE.md)
+> - [PERFORMANCE_DIAGNOSTICS.md](PERFORMANCE_DIAGNOSTICS.md)
 
 ---
 
@@ -52,6 +53,7 @@ layout library.
 32. [Theme Presets](#theme-presets)
 33. [Backend — Raylib](#backend--raylib)
 34. [Backend — SDL3](#backend--sdl3)
+35. [Performance Diagnostics](#performance-diagnostics)
 
 ---
 
@@ -111,6 +113,29 @@ unfrozen siblings so that `offsets[count] == total` (no gaps or overflow).
 
 **Default (undefined):** single-pass clamp — simpler, O(n), but may leave a
 gap or overflow when min/max constraints fire.
+
+---
+
+### `WLX_PERF`
+
+```c
+// #define WLX_PERF   // define before including wollix.h
+```
+
+Enables the opt-in performance diagnostics API.
+
+When defined, Wollix emits:
+
+- `WLX_Perf_*` core snapshot types in `wollix.h`
+- `wlx_perf_set_timer`, `wlx_perf_get_last_frame`, and `wlx_perf_reset`
+- backend-specific snapshot types in `wollix_raylib.h`, `wollix_sdl3.h`, and
+    `wollix_wasm.h`
+
+If no timer is installed, timing fields remain zero and `timer_available` is
+`false`, but command, text, arena, and allocator counters still work.
+
+For benchmark commands and metric interpretation, see
+[PERFORMANCE_DIAGNOSTICS.md](PERFORMANCE_DIAGNOSTICS.md).
 
 ---
 
@@ -199,56 +224,92 @@ default font, or the theme's font if set.
 
 ```c
 typedef struct {
-    WLX_Font  font;       // 0 → backend default font
-    int      font_size;  // 0 → resolve from theme
-    int      spacing;    // 0 → resolve from theme
-    WLX_Color color;      // {0} → resolve from theme foreground
+    WLX_Font  font;      // 0 -> backend default font
+    int      font_size;  // 0 -> resolve from theme
+    WLX_Color color;     // {0} -> resolve from theme foreground
+    int      spacing;    // 0 -> natural backend spacing
 } WLX_Text_Style;
 ```
 
 Bundled text rendering parameters passed to backend `draw_text` and
-`measure_text` callbacks.
+`measure_text` callbacks. `spacing = 0` means natural backend spacing;
+nonzero values are opt-in extra tracking. Fitted text helpers measure and emit
+whole visible line/run ranges. When a backend provides the optional slice
+callbacks, those ranges are passed as `(text, len)` byte spans; otherwise the
+core falls back to temporary null-terminated strings.
 
 ### `WLX_TEXT_STYLE_DEFAULT`
 
 ```c
 #define WLX_TEXT_STYLE_DEFAULT \
-    ((WLX_Text_Style){ .font = WLX_FONT_DEFAULT, .font_size = 0, .spacing = 0, .color = {0} })
+    ((WLX_Text_Style){ .font = WLX_FONT_DEFAULT, .font_size = 0, .color = {0}, .spacing = 0 })
 ```
+
+Text spacing support matrix for this slice:
+
+| Backend / path | Status | Behavior |
+|----------------|--------|----------|
+| Raylib | Supported | `DrawTextEx` and `MeasureTextEx` both honor `style.spacing` |
+| SDL3 custom fonts | Supported on variant path | Backend-owned font variants apply `TTF_SetFontCharSpacing` once per `(font, size, spacing)` tuple. If variant creation fails and the backend falls back to the shared base font, spacing is ignored. |
+| SDL3 debug font | Unsupported | Ignores spacing in both draw and measure |
+| WASM | Unsupported | Ignores spacing in both draw and measure |
 
 ### `WLX_Backend`
 
 ```c
 typedef struct {
-    void  (*draw_rect)(WLX_Rect rect, WLX_Color color);
-    void  (*draw_rect_lines)(WLX_Rect rect, float thick, WLX_Color color);
-    void  (*draw_rect_rounded)(WLX_Rect rect, float roundness, int segments, WLX_Color color);
-    void  (*draw_line)(float x1, float y1, float x2, float y2, float thick, WLX_Color color);
-    void  (*draw_text)(const char *text, float x, float y, WLX_Text_Style style);
-    void  (*measure_text)(const char *text, WLX_Text_Style style, float *out_w, float *out_h);
-    void  (*draw_texture)(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint);
-    void  (*begin_scissor)(WLX_Rect rect);
-    void  (*end_scissor)(void);
+    void (*draw_rect)(WLX_Rect rect, WLX_Color color);
+    void (*draw_rect_lines)(WLX_Rect rect, float thick, WLX_Color color);
+    void (*draw_rect_rounded)(WLX_Rect rect, float roundness, int segments, WLX_Color color);
+    void (*draw_rect_rounded_lines)(WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color);
+    void (*draw_circle)(float cx, float cy, float radius, int segments, WLX_Color color);
+    void (*draw_ring)(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color);
+    void (*draw_line)(float x1, float y1, float x2, float y2, float thick, WLX_Color color);
+    void (*draw_text)(const char *text, float x, float y, WLX_Text_Style style);
+    void (*measure_text)(const char *text, WLX_Text_Style style, float *out_w, float *out_h);
+    void (*draw_texture)(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint);
+    void (*begin_scissor)(WLX_Rect rect);
+    void (*end_scissor)(void);
     float (*get_frame_time)(void);
+    void (*draw_text_slice)(const char *text, size_t len, float x, float y, WLX_Text_Style style);
+    void (*measure_text_slice)(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h);
 } WLX_Backend;
 ```
 
 Function-pointer table that the library calls to perform all rendering and
-time queries. Every pointer must be non-NULL — use `wlx_backend_is_ready()` to
-verify.
+time queries. All required pointers must be non-NULL; use
+`wlx_backend_is_ready()` to verify the required set. Optional pointers may be
+left as `NULL`.
 
 | Callback | Purpose |
 |----------|---------|
 | `draw_rect` | Fill a rectangle with a solid color |
 | `draw_rect_lines` | Draw a rectangle outline with given thickness. Sub-pixel values (`thick < 1`) are rendered as 1px with alpha scaled proportionally (e.g. 0.3 → 1px at 30% opacity) |
 | `draw_rect_rounded` | Fill a rounded rectangle |
+| `draw_rect_rounded_lines` | Draw a rounded rectangle outline |
+| `draw_circle` | Optional native circle fill; `NULL` falls back through rounded-rect drawing |
+| `draw_ring` | Optional native ring draw; `NULL` falls back through rounded-outline drawing |
 | `draw_line` | Draw a line segment |
-| `draw_text` | Render text at a position with the given style |
-| `measure_text` | Measure text dimensions (writes to `out_w`, `out_h`) |
+| `draw_text` | Compatibility path: render a complete null-terminated text string at a position with the given style; spacing behavior follows the support matrix above |
+| `measure_text` | Compatibility path: measure a complete null-terminated text string (writes to `out_w`, `out_h`); spacing behavior follows the support matrix above |
 | `draw_texture` | Draw a texture from `src` rect to `dst` rect with a tint |
 | `begin_scissor` | Begin a rectangular clip region |
 | `end_scissor` | End the current clip region |
 | `get_frame_time` | Return elapsed time since last frame in seconds |
+| `draw_text_slice` | Preferred text-rendering callback: render an explicit byte span; `NULL` falls back to `draw_text` with a temporary null-terminated copy |
+| `measure_text_slice` | Preferred text-measure callback: measure an explicit byte span; `NULL` falls back to `measure_text` with a temporary null-terminated copy |
+
+The C-string callbacks remain the compatibility floor and are the only text
+callbacks checked by `wlx_backend_is_ready()`. Slice callbacks are the
+preferred contract for new backends, are appended to the struct for
+designated-initializer compatibility, and are used whenever both the core path
+and the backend provide them. Recorded text commands store only `(bytes, len)`;
+Wollix materializes a temporary null-terminated copy only when dispatching
+through the legacy `draw_text` / `measure_text` fallback. For text without
+embedded NUL bytes, slice and C-string callbacks should produce equivalent
+draw/measure results for the same backend. Embedded NUL bytes are unsupported
+in the public text model; spans are truncated at the first NUL before backend
+dispatch.
 
 ### `wlx_backend_is_ready`
 
@@ -256,7 +317,9 @@ verify.
 static inline bool wlx_backend_is_ready(const WLX_Context *ctx);
 ```
 
-Returns `true` if `ctx` is non-NULL and all backend function pointers are set.
+Returns `true` if `ctx` is non-NULL and all required backend function pointers
+are set. Optional callbacks such as `draw_circle`, `draw_ring`,
+`draw_text_slice`, and `measure_text_slice` are not required for readiness.
 
 ---
 
@@ -654,7 +717,6 @@ typedef struct {
     // Text
     WLX_Font font;               // Default font (0 = backend default)
     int     font_size;          // Default font size
-    int     spacing;            // Default text spacing
 
     // Geometry
     float   padding;            // Default inner padding
@@ -762,6 +824,19 @@ defaults to `&wlx_theme_dark`.
 | `ctx` | The UI context |
 | `r` | Root rect (typically the full window: `{0, 0, width, height}`) |
 | `input_handler` | Callback that fills `ctx->input` (e.g. `wlx_process_raylib_input`) |
+
+### `wlx_begin_immediate`
+
+```c
+void wlx_begin_immediate(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler);
+```
+
+Same as `wlx_begin`, but sets immediate-draw mode: draw commands execute
+directly through the backend during the frame rather than being buffered for
+deferred replay. `wlx_end()` skips the replay step when immediate mode is
+active. Use this when integrating Wollix into a renderer that already manages
+its own draw ordering and does not need the opacity / scroll-panel offset pass
+provided by deferred replay.
 
 ### `wlx_end`
 
@@ -1283,6 +1358,32 @@ for (int i = 0; i < count; i++) {
 }
 ```
 
+### `wlx_push_opacity` / `wlx_pop_opacity` / `wlx_get_opacity`
+
+```c
+void  wlx_push_opacity(WLX_Context *ctx, float opacity);
+void  wlx_pop_opacity(WLX_Context *ctx);
+float wlx_get_opacity(const WLX_Context *ctx);
+```
+
+Region-level opacity stack. `wlx_push_opacity` multiplies `opacity` with the
+current stack top and pushes the product. `wlx_pop_opacity` restores the
+previous level. `wlx_get_opacity` returns the current effective opacity from
+the stack (independent of `theme->opacity`).
+
+The effective opacity applied to a draw command is the product of
+`widget.opacity × theme.opacity × stack_opacity`. Every `push` must be
+paired with a matching `pop` before the enclosing frame ends.
+
+```c
+wlx_push_opacity(ctx, 0.4f);
+    wlx_label(ctx, "Dimmed section", .font_size = 14);
+    wlx_button(ctx, "Disabled-looking");
+wlx_pop_opacity(ctx);
+```
+
+See [OPACITY.md](OPACITY.md) for the full opacity model and more examples.
+
 ---
 
 ## Input Queries
@@ -1335,7 +1436,7 @@ dimensions if they don't overlap.
 ### `wlx_get_align_rect`
 
 ```c
-WLX_Rect wlx_get_align_rect(WLX_Rect parent_rect, int width, int height, WLX_Align align);
+WLX_Rect wlx_get_align_rect(WLX_Rect parent_rect, float width, float height, WLX_Align align);
 ```
 
 Compute a sub-rect of `parent_rect` positioned according to `align`. Used
@@ -1356,12 +1457,12 @@ These create `WLX_Layout` values without pushing them onto the stack. Rarely
 needed — prefer the `wlx_layout_begin` / `wlx_grid_begin` macros.
 
 ```c
-WLX_Layout wlx_create_layout(WLX_Context *ctx, WLX_Rect r, size_t count, WLX_Orient orient);
+WLX_Layout wlx_create_layout(WLX_Context *ctx, WLX_Rect r, size_t count, WLX_Orient orient, float gap);
 WLX_Layout wlx_create_layout_auto(WLX_Context *ctx, WLX_Rect r, WLX_Orient orient, float slot_px);
 WLX_Layout wlx_create_grid(WLX_Context *ctx, WLX_Rect r, size_t rows, size_t cols,
-                           const WLX_Slot_Size *row_sizes, const WLX_Slot_Size *col_sizes);
+                           const WLX_Slot_Size *row_sizes, const WLX_Slot_Size *col_sizes, float gap);
 WLX_Layout wlx_create_grid_auto(WLX_Context *ctx, WLX_Rect r,
-                                size_t cols, float row_px, const WLX_Slot_Size *col_sizes);
+                                size_t cols, float row_px, const WLX_Slot_Size *col_sizes, float gap);
 ```
 
 ### `wlx_get_slot_rect`
@@ -1411,6 +1512,80 @@ static inline float wlx_get_available_height(WLX_Context *ctx);
 Convenience wrappers around `wlx_get_parent_rect()`. Return the width or
 height of the innermost layout rect.
 
+### `wlx_measure_text_slice`
+
+```c
+static inline void wlx_measure_text_slice(WLX_Context *ctx,
+    const char *text, size_t len,
+    WLX_Text_Style style, float *out_w, float *out_h);
+```
+
+Measure an explicit byte span. This is the canonical public text-measure entry
+for callers that already know the byte length. `NULL` text is normalized to an
+empty span. Wollix routes through `WLX_Backend.measure_text_slice` when the
+backend provides it; otherwise it synthesizes a temporary null-terminated copy
+and falls back to `measure_text`.
+
+### `wlx_draw_text_slice`
+
+```c
+static inline void wlx_draw_text_slice(WLX_Context *ctx,
+    const char *text, size_t len,
+    float x, float y, WLX_Text_Style style);
+```
+
+Draw an explicit byte span. In immediate mode Wollix routes through
+`WLX_Backend.draw_text_slice` when available and falls back to a temporary
+null-terminated copy for legacy `draw_text` callbacks when needed. In deferred
+mode the command buffer records only the span bytes plus `text_len`; scratch
+storage is not NUL-terminated.
+
+### `wlx_measure_text`
+
+```c
+static inline void wlx_measure_text(WLX_Context *ctx,
+    const char *text, WLX_Text_Style style,
+    float *out_w, float *out_h);
+```
+
+Convenience shim for NUL-terminated C strings. `NULL` is normalized to `""`.
+The helper computes `strlen(text)` once and forwards to
+`wlx_measure_text_slice()`.
+
+### `wlx_draw_text`
+
+```c
+static inline void wlx_draw_text(WLX_Context *ctx,
+    const char *text, float x, float y, WLX_Text_Style style);
+```
+
+Convenience shim for NUL-terminated C strings. `NULL` is normalized to `""`.
+The helper computes `strlen(text)` once and forwards to
+`wlx_draw_text_slice()`.
+
+### `wlx_calc_cursor_position`
+
+```c
+bool wlx_calc_cursor_position(WLX_Context *ctx, WLX_Rect rect, const char *text,
+    WLX_Text_Style style, WLX_Align align, bool wrap,
+    float *cursor_x, float *cursor_y);
+```
+
+Compute the screen position of the text cursor placed at the end of `text`
+within `rect`, using the same fitted-line layout as `wlx_label` and
+`wlx_inputbox`. Writes the cursor coordinates to `*cursor_x` and `*cursor_y`.
+Returns `true` on success.
+
+| Parameter | Description |
+|-----------|-------------|
+| `ctx` | The UI context |
+| `rect` | The widget rect in which text is laid out |
+| `text` | The full text buffer (cursor is placed after the last byte) |
+| `style` | Text style used for measurement |
+| `align` | Alignment used during line layout |
+| `wrap` | Whether lines wrap within `rect.w` |
+| `cursor_x`, `cursor_y` | Output screen coordinates of the cursor |
+
 ---
 
 ## Widget — `wlx_widget`
@@ -1450,11 +1625,15 @@ background when `show_background = true`.
 |-------|------|---------|-------------|
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
-| *typography* | | | `font`, `font_size`, `spacing`, `align`, `wrap` (default `true`) |
+| *typography* | | | `font`, `font_size`, `align`, `wrap` (default `true`) |
 | *colors* | | | `front_color`, `back_color` |
 | *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
 | `show_background` | `bool` | `false` | Draw filled background behind text |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
+
+Wrapped fitted labels break greedily at UTF-8 codepoint boundaries, honor
+explicit `\n`, `\r\n`, and `\r` separators, and emit one backend text draw per
+visible line.
 
 ---
 
@@ -1472,6 +1651,9 @@ while hovered).
 
 **Option struct:** `WLX_Button_Opt` — same fields as `WLX_Label_Opt` except
 no `show_background` (button always draws its background).
+
+Button captions follow the same fitted line/run layout and per-line alignment
+behavior as labels.
 
 ---
 
@@ -1516,8 +1698,10 @@ removed `wlx_checkbox_tex` compatibility macro.
 // Returns: bool — true while focused
 ```
 
-Single-line text input. Click to focus, type to edit, Enter/Escape/click-away
-to unfocus.
+UTF-8 text input. Click to focus, type to edit, Enter/Escape/click-away to
+unfocus. The buffer stays one byte buffer, but when `wrap` is enabled the
+visible text and cursor are laid out over fitted visual lines using the same
+line/run measurement path as labels and buttons.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -1538,6 +1722,10 @@ to unfocus.
 | `border_focus_color` | `WLX_Color` | `{0}` | Focused border. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Blinking cursor. `{0}` = theme `input.cursor` |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
+
+Default `wrap = true`. Long buffers and existing newline bytes can therefore
+produce multiple visual lines, and cursor placement resolves from the same
+fitted line records used for rendering.
 
 ---
 
@@ -1563,17 +1751,17 @@ Horizontal slider. Click/drag the thumb or click the track to jump.
 | *sizing* | | | `widget_align`, `width`, `height`, min/max, `opacity` |
 | `font` | `WLX_Font` | `WLX_FONT_DEFAULT` | Font for label/value text |
 | `font_size` | `int` | `0` | Font size |
-| `spacing` | `int` | `0` | Character spacing |
 | `align` | `WLX_Align` | `WLX_LEFT` | Label text alignment |
+| `spacing` | `int` | `0` | Opt-in extra tracking for label/value text. `0` = natural backend spacing |
 | `show_label` | `bool` | `true` | Show numeric value beside the track |
 | `track_color` | `WLX_Color` | `{0}` | Track background. `{0}` = theme `slider.track` |
 | `thumb_color` | `WLX_Color` | `{0}` | Thumb handle. `{0}` = theme `slider.thumb` |
 | `label_color` | `WLX_Color` | `{0}` | Label text. `{0}` = theme `slider.label` |
 | `track_height` | `float` | `0` | Track bar height. `0` = default (6) |
-| `thumb_width` | `float` | `0` | Thumb handle width. `0` = default (14) |
+| `thumb_width` | `float` | `0` | Thumb handle width and default visual height. `0` = default (14) |
 | `border_color` | `WLX_Color` | `{0}` | Border color. `{0}` = theme `border` |
 | `border_width` | `float` | `-1` | Border width. `-1` = theme `border_width` |
-| `roundness` | `float` | `-1` | Corner rounding. `-1` = theme default |
+| `roundness` | `float` | `-1` | Corner rounding. `-1` = theme default, or pill ends when the theme is sharp |
 | `rounded_segments` | `int` | `-1` | Segments for rounded drawing. `-1` = theme default |
 | `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Track hover brightness shift. Uses `theme->hover_brightness` when unset |
 | `thumb_hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Thumb hover brightness shift. Uses `theme->hover_brightness` when unset |
@@ -1655,7 +1843,7 @@ The `label` may be `NULL`.
 |-------|------|---------|-------------|
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
-| *typography* | | | `font`, `font_size`, `spacing`, `align`, `wrap` (default `false`) |
+| *typography* | | | `font`, `font_size`, `align`, `wrap` (default `false`) |
 | *colors* | | | `front_color`, `back_color` (`back_color` is currently unused by this widget) |
 | *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
 | `track_color` | `WLX_Color` | `{0}` | Inactive track color. `{0}` = theme `toggle.track`, falling back to `slider.track` |
@@ -1688,7 +1876,7 @@ Select-one radio control. Activating the widget sets `*active = index`. The
 |-------|------|---------|-------------|
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
-| *typography* | | | `font`, `font_size`, `spacing`, `align`, `wrap` (default `false`) |
+| *typography* | | | `font`, `font_size`, `align`, `wrap` (default `false`) |
 | *colors* | | | `front_color`, `back_color` (`back_color` is currently unused by this widget) |
 | `ring_color` | `WLX_Color` | `{0}` | Ring color. `{0}` = theme `radio.ring`, falling back to `border` |
 | `fill_color` | `WLX_Color` | `{0}` | Selected fill color. `{0}` = theme `radio.fill`, falling back to `accent` |
@@ -1801,6 +1989,11 @@ impact. Adding or removing child widgets requires no slot-count updates.
 | `title_height` | `float` | `32` | Heading slot height in pixels |
 | `title_align` | `WLX_Align` | `WLX_CENTER` | Heading text alignment |
 | `title_back_color` | `WLX_Color` | `{0}` | Heading background color. `{0}` = theme surface |
+| `back_color` | `WLX_Color` | `{0}` | Panel background color drawn behind the full panel area. `{0}` = transparent (surrounding container surface shows through) |
+| `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = no border |
+| `border_width` | `float` | `0` | Panel border thickness in pixels. `0` = no border |
+| `roundness` | `float` | `0` | Corner roundness for the panel background and border. `0` = sharp corners |
+| `clip` | `bool` | `false` | Clip panel content to the post-padding inner rect. Use when children might overflow the panel bounds |
 | `padding` | `float` | `2` | Inner layout padding |
 | `padding_top` | `float` | `-1` | Top padding override. Negative = inherit `padding` |
 | `padding_right` | `float` | `-1` | Right padding override. Negative = inherit `padding` |
@@ -1812,9 +2005,13 @@ impact. Adding or removing child widgets requires no slot-count updates.
 
 **Internal structure:**
 
-1. VERT layout with `capacity` (+ 1 if title) CONTENT slots
+1. VERT layout with `capacity` (+ 1 if title) CONTENT slots; `back_color`,
+   `border_color`, `border_width`, and `roundness` are forwarded to the layout
+   background draw pass
 2. Optional heading label in the first slot
-3. `wlx_panel_end` closes the layout
+3. If `clip = true`, a scissor rect is installed for the post-padding inner
+   rect before children begin drawing
+4. `wlx_panel_end` closes the layout and releases the scissor if `clip` was set
 
 The panel does **not** create a scroll panel. Inside a split pane, the scroll
 panel is already provided by `wlx_split_begin`. For standalone scrollable
@@ -1838,7 +2035,9 @@ Injected fields: `widget_align`, `width`, `height`, `min_width`, `min_height`,
 
 ### `WLX_TEXT_TYPOGRAPHY_FIELDS` / `WLX_TEXT_TYPOGRAPHY_DEFAULTS`
 
-Injected fields: `font`, `font_size`, `spacing`, `align`, `wrap`.
+Injected fields: `font`, `font_size`, `align`, `wrap`, `spacing`.
+
+`spacing` defaults to `0`, which means natural backend spacing.
 
 ### `WLX_TEXT_COLOR_FIELDS` / `WLX_TEXT_COLOR_DEFAULTS`
 
@@ -1912,6 +2111,86 @@ options or theme fields:
 Font my_font = LoadFontEx("myfont.ttf", 24, NULL, 0);
 ctx->theme_copy.font = wlx_font_from_raylib(&my_font);
 ```
+
+### `WLX_RAYLIB_TEXT_CACHE_CAP`
+
+```c
+// #define WLX_RAYLIB_TEXT_CACHE_CAP 2048
+```
+
+Set the fixed capacity of the Raylib backend's measurement cache before
+including `wollix_raylib.h`. The default is `2048`. Initially
+suggested `256` based on the analysis estimate of 100–300 unique
+`(font, font_size, spacing, text)` tuples per frame; Validation
+captured ~1700 unique tuples on the warmed Theme Lab Dark workload at
+1920×1080 (the same working-set surprise that raised the SDL3 default from
+`256` to `1024` during validation), so the Raylib default has
+been raised to `2048` to keep steady-state hit rate above the 95 % target.
+
+Setting the cap to `0` disables the cache; the public surface remains and
+behavior matches the pre-cache path. The `text_cache_*` perf counters report
+zero in cap-zero builds. Mirrors the SDL3 `WLX_SDL3_TEXT_CACHE_CAP = 0`
+disable contract.
+
+The table is sized to the smallest power of two strictly greater than
+`CAP × 5/3` (load factor below 0.6 at full cap; default `2048` → `4096`
+slots). Probe walks visit at most `WLX_RAYLIB_TEXT_CACHE_PROBE_LIMIT` slots
+before declaring a miss.
+
+### `WLX_RAYLIB_TEXT_CACHE_PROBE_LIMIT`
+
+```c
+// #define WLX_RAYLIB_TEXT_CACHE_PROBE_LIMIT 8
+```
+
+Linear-probe window length for the open-addressed Raylib measurement cache.
+Default `8`. Lookups walk up to this many slots starting at
+`text_hash & (slots - 1)` before declaring a miss.
+
+### `wlx_raylib_text_cache_clear`
+
+```c
+static inline void wlx_raylib_text_cache_clear(void);
+```
+
+Flush backend-owned Raylib measurement-cache state. Implementation is
+constant-time: every cache entry stores its generation at write time, and
+the flush bumps a backend-local generation counter so all stored entries
+become stale on the next lookup. The static table is never scanned at flush
+time; the next store into a stale slot displaces it transparently. The
+`text_cache_*` perf counters are also reset.
+
+Auto-called from `wlx_context_init_raylib`. Callers **must** invoke this
+before `UnloadFont()` on any Raylib `Font` previously passed to the backend:
+cached measurements are keyed by the `Font *` address and a freshly-loaded
+font reusing that address would produce wrong cached widths. The auto-call
+covers the typical lifecycle, and the generation-bump cost is constant-time,
+so calling defensively is cheap.
+
+Cache key shape: `(font_handle, font_size_bits, spacing_bits, text_len,
+text_hash)` where the float fields are bit-cast 32-bit reinterpretations and
+`text_hash` is a 64-bit FNV-1a over the byte range. Color is **not** part of
+the key; color is applied per draw via `style.color` on the unchanged
+`wlx_raylib_draw_text` passthrough to `DrawTextEx`. Cache hits never call
+`MeasureTextEx`; misses call it once and store the result.
+
+Whole-string `wlx_raylib_measure_text` and slice-aware
+`wlx_raylib_measure_text_slice` share the same cache and key semantics.
+
+### `wlx_raylib_measure_text_slice`
+
+```c
+static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_len,
+        WLX_Text_Style style, float *out_w, float *out_h);
+```
+
+Slice-aware measure: accepts an explicit byte length so `wlx_span_measure_text`
+takes the slice fast path without allocating a temporary null-terminated copy
+on every internal measurement. Exposed via the
+`WLX_Backend.measure_text_slice` callback. Cache lookup happens before any
+copy work; only on miss does the fallback copy a non-null-terminated slice
+into a 256-byte stack buffer (or `wlx_alloc` for longer slices) before
+calling `MeasureTextEx`.
 
 ### Raylib Setup Pattern
 
@@ -1988,6 +2267,140 @@ static inline WLX_Texture wlx_texture_from_sdl3(SDL_Texture *texture, int width,
 
 Convert an SDL3 texture to a `WLX_Texture` handle.
 
+### `wlx_font_from_sdl3`
+
+```c
+static inline WLX_Font wlx_font_from_sdl3(TTF_Font *font);
+```
+
+Convert a pointer to an SDL_ttf `TTF_Font` into a `WLX_Font` handle. The
+helper is emitted when SDL_ttf is available at include time. Pass the returned
+handle to widget options or theme fields:
+
+```c
+TTF_Font *font = TTF_OpenFont("myfont.ttf", 18.0f);
+ctx->theme_copy.font = wlx_font_from_sdl3(font);
+```
+
+### `WLX_SDL3_FONT_VARIANT_CAP`
+
+```c
+// #define WLX_SDL3_FONT_VARIANT_CAP 64
+```
+
+Set the fixed capacity of the SDL3 backend's effective-font variant table
+before including `wollix_sdl3.h`. The default is `32`. Each live entry owns a
+`TTF_CopyFont`-derived `TTF_Font *` keyed by the base `TTF_Font *`, font size,
+spacing, and the base font generation snapshot. When the table is full, Wollix
+evicts the least-recently-used variant and closes it synchronously with
+`TTF_CloseFont`. Variant eviction first cascade-evicts every retained
+`TTF_Text` entry that referenced the variant, so retained text cannot dangle
+past its variant's lifetime.
+
+### `WLX_SDL3_TEXT_CACHE_CAP`
+
+```c
+// #define WLX_SDL3_TEXT_CACHE_CAP 2048
+```
+
+Set the fixed capacity of the SDL3 backend's retained `TTF_Text` cache before
+including `wollix_sdl3.h`. The default is `1024`, sized to the measured
+gallery working set with comfortable margin. Each live entry owns a
+`TTF_CreateText`-derived `TTF_Text *` keyed by `(variant, slice_len,
+fnv1a64(text bytes))` with stored `text_len` plus the bytes themselves for
+collision-rejecting hit verification. Setting the cap to `0` disables retention
+at compile time; every measurement and draw then falls back to the Stage 1
+per-call `TTF_CreateText` path against the resolved variant. The retained cache
+also depends on backend-owned font variants — if `WLX_SDL3_FONT_VARIANT_CAP` is
+`0`, retention is automatically disabled regardless of `WLX_SDL3_TEXT_CACHE_CAP`.
+
+### `WLX_SDL3_TEXT_INLINE_CAP`
+
+```c
+// #define WLX_SDL3_TEXT_INLINE_CAP 96
+```
+
+Set the maximum text length, in bytes, that the SDL3 backend stores inline in a
+retained `TTF_Text` cache entry before including `wollix_sdl3.h`. The default
+is `64`. Strings longer than this threshold are heap-allocated via Wollix's
+`wlx_alloc` for byte-exact collision verification; the heap allocation is freed
+when the entry is evicted or destroyed. Heap activity is exposed by the
+`text_cache_heap_allocs` and `text_cache_heap_frees` perf counters.
+
+### `wlx_sdl3_text_cache_clear`
+
+```c
+static inline void wlx_sdl3_text_cache_clear(void);
+```
+
+Flush backend-owned SDL3 text state. The teardown order is fixed:
+
+1. Destroy every retained `TTF_Text *` and free any heap-owned text bytes
+   (depends on the renderer text engine and on backend-owned font variants).
+2. Close every live backend-owned font variant with `TTF_CloseFont` and reset
+   variant LRU bookkeeping (depends on user-owned base fonts).
+3. Destroy the lazily-created SDL_ttf renderer text engine and reset the
+   renderer-identity / failure-latch fields used to detect renderer changes.
+
+Safe to call before the first text draw, between frames, and around
+`SDL_Renderer` replacement; on builds where SDL_ttf is unavailable the call is
+a no-op. On renderer change, the backend internally evicts retained text before
+destroying the old engine without requiring an explicit flush call from the
+host.
+
+Custom-font measurement and draw resolve a backend-owned effective-font variant
+before touching SDL_ttf. Variants are created lazily from the user-provided
+base `TTF_Font *`, keyed by `(base_font, font_size, spacing, base_generation)`,
+bounded by `WLX_SDL3_FONT_VARIANT_CAP`, and invalidated when
+`TTF_GetFontGeneration(base_font)` no longer matches the stored snapshot. On
+the variant path, SDL3 custom fonts honor `style.spacing` for both measurement
+and draw because spacing is applied once when the variant is published.
+
+When the renderer text engine is available, custom-font draws and
+measurements go through a backend-owned retained `TTF_Text` cache layered on
+top of the variant cache:
+
+- Cache entries are keyed by `(variant, slice_len, fnv1a64(text bytes))`. Color
+  is **not** part of the key — `TTF_SetTextColor` is applied per draw with a
+  `last_color_rgba32` redundancy skip when the requested color matches the
+  last applied color.
+- Measurement (`wlx_sdl3_measure_text(_slice)`) returns the cached
+  `TTF_GetTextSize` dimensions, warming the draw cache from build phase so
+  steady-state draw is a hash lookup plus `TTF_DrawRendererText` against an
+  already-rasterized atlas.
+- Draw (`wlx_sdl3_draw_text(_slice)`) reuses the retained `TTF_Text *` across
+  frames; per-frame `TTF_CreateText` / `TTF_DestroyText` cost approaches the
+  count of newly observed strings rather than the count of draw commands.
+- Retention is bounded by `WLX_SDL3_TEXT_CACHE_CAP`. When the table fills, the
+  least-recently-used entry is destroyed synchronously with `TTF_DestroyText`.
+- Hash collisions are detected by storing `text_len` and the original bytes;
+  on collision the entry is evicted and treated as a miss.
+- Variant eviction (LRU or `TTF_GetFontGeneration` change) cascade-evicts every
+  retained entry that referenced the variant before the variant `TTF_Font *`
+  is closed.
+- Renderer change destroys retained text before the renderer text engine, so
+  retained `TTF_Text` objects cannot outlive the engine they depend on.
+
+If variant creation fails, the backend falls back to the shared base font with
+the legacy `TTF_SetFontSize` path, and SDL3 custom-font spacing is ignored on
+that fallback. If retained-cache resolution fails (helper returns NULL), the
+backend falls back to the Stage 1 per-call `TTF_CreateText` path against the
+variant. The deepest fallback remains `TTF_RenderText_Blended` /
+`SDL_CreateTextureFromSurface`, which runs only when the renderer text engine
+itself is unavailable.
+
+Stage 2 validation evidence for the variant cache and spacing path is recorded
+in `docs/dev/infra/SDL3_CACHE_PHASE_2_VALIDATION.md`. Stage 3 validation
+evidence for the retained `TTF_Text` cache is recorded in
+`docs/dev/infra/SDL3_CACHE_PHASE_3_VALIDATION.md`, including the default-cap
+selection rationale (`WLX_SDL3_TEXT_CACHE_CAP = 1024`) based on the measured
+gallery working set.
+
+Callers that close SDL_ttf fonts directly must call
+`wlx_sdl3_text_cache_clear()` before `TTF_CloseFont()` on any base font handle
+previously passed to the SDL3 backend, since backend-owned variants are derived
+from those base fonts and retained `TTF_Text` entries reference those variants.
+
 ### SDL3 Setup Pattern
 
 ```c
@@ -2029,3 +2442,125 @@ int main(void) {
     SDL_Quit();
 }
 ```
+
+---
+
+## Performance Diagnostics
+
+These APIs are available only when `WLX_PERF` is defined.
+
+For the gallery benchmark protocol and output interpretation guide, see
+[PERFORMANCE_DIAGNOSTICS.md](PERFORMANCE_DIAGNOSTICS.md).
+
+### `WLX_Perf_Timestamp_Fn`
+
+```c
+typedef uint64_t (*WLX_Perf_Timestamp_Fn)(void *user);
+```
+
+Monotonic timestamp callback used by the core perf collector. Return values
+are interpreted as nanoseconds.
+
+### `WLX_Perf_Frame`
+
+```c
+typedef struct {
+        uint64_t frame_index;
+        bool timer_available;
+        WLX_Perf_Phase_Timings timings;
+        WLX_Perf_Command_Stats commands;
+        WLX_Perf_Text_Stats text;
+        WLX_Perf_Arena_Stats arena[WLX_ARENA_GROUP_COUNT];
+        WLX_Perf_Allocator_Stats allocator;
+} WLX_Perf_Frame;
+```
+
+Core frame snapshot published after each completed `wlx_end()`.
+
+- `timings` stores nanosecond totals for `wlx_begin`, input, user build,
+    `wlx_end`, range accumulation, offset lookup, dispatch, and backend callback
+    time.
+- `commands` stores the total command count, command-range count, and the
+    `WLX_CMD_*` histogram.
+- `text` stores text-measure, emitted-text, and fitted-run counters.
+- `arena` stores per-arena count, capacity, high-water, grow-count, and byte
+    usage snapshots.
+- `allocator` stores `wlx_malloc` / `wlx_calloc` / `wlx_realloc` / `wlx_free`
+    counters and byte totals.
+
+Supporting core sub-structs:
+
+- `WLX_Perf_Phase_Timings`
+- `WLX_Perf_Command_Stats`
+- `WLX_Perf_Text_Stats`
+- `WLX_Perf_Arena_Stats`
+- `WLX_Perf_Allocator_Stats`
+
+### `wlx_perf_set_timer`
+
+```c
+WLXDEF void wlx_perf_set_timer(WLX_Context *ctx, WLX_Perf_Timestamp_Fn timestamp_fn, void *user);
+```
+
+Install or replace the timestamp callback used for core timings.
+
+`wlx_context_init_raylib()` and `wlx_context_init_sdl3()` install backend
+timers automatically. `wlx_context_init_wasm()` installs a timer only when
+`WLX_WASM_PERF_TIMESTAMP` is defined.
+
+### `wlx_perf_get_last_frame`
+
+```c
+WLXDEF const WLX_Perf_Frame *wlx_perf_get_last_frame(const WLX_Context *ctx);
+```
+
+Return the last completed core perf snapshot. Read this after `wlx_end()`.
+
+### `wlx_perf_reset`
+
+```c
+WLXDEF void wlx_perf_reset(WLX_Context *ctx);
+```
+
+Reset the perf collector state and discard previous snapshots. Useful before a
+measured benchmark window.
+
+### Backend snapshots
+
+The backend adapters expose matching last-frame accessors.
+
+Raylib:
+
+```c
+static inline const WLX_Perf_Raylib_Frame *wlx_perf_raylib_get_last_frame(void);
+```
+
+SDL3:
+
+```c
+static inline const WLX_Perf_SDL3_Frame *wlx_perf_sdl3_get_last_frame(void);
+```
+
+WASM:
+
+```c
+static inline const WLX_Perf_Wasm_Frame *wlx_perf_wasm_get_last_frame(void);
+```
+
+All three backend snapshot types share the same high-level shape:
+
+- `frame_index`
+- `timer_available`
+- draw and measure counters for text, rectangles, rounded rectangles, circles,
+    rings, lines, textures, scissor begin/end, geometry submits, and clip
+    changes
+- timing totals for backend text, text measure, geometry, scissor, texture,
+    and present work
+
+`WLX_Perf_SDL3_Frame` adds SDL3-specific counters for TTF size queries, text
+surface renders, renderer text-engine activity, font-variant lookups and
+lifecycle events, retained `TTF_Text` cache lookups/hits/misses/creates/
+destroys/evictions/collision-rejections/heap allocations and frees/color
+mutations and skips/variant-invalidation evictions/fallback resolutions,
+texture creation and destruction, render calls, clip changes, blend-mode
+changes, font-size changes, and font char-spacing changes.
