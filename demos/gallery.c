@@ -69,8 +69,13 @@ typedef struct {
     WLX_Texture unchecked;
 } Gallery_Checkbox_Textures;
 
+typedef struct {
+    WLX_Texture landscape;  // {0} when the platform cannot synthesize one
+} Gallery_Image_Asset;
+
 static bool gallery_has_texture_assets(void);
 static Gallery_Checkbox_Textures gallery_texture_checkbox_assets(void);
+static Gallery_Image_Asset gallery_image_asset(void);
 
 #define ROW_H 40
 
@@ -114,6 +119,7 @@ typedef struct {
 static void section_label(WLX_Context *ctx, Gallery_State *g);
 static void section_button(WLX_Context *ctx, Gallery_State *g);
 static void section_checkbox(WLX_Context *ctx, Gallery_State *g);
+static void section_image(WLX_Context *ctx, Gallery_State *g);
 static void section_slider(WLX_Context *ctx, Gallery_State *g);
 static void section_inputbox(WLX_Context *ctx, Gallery_State *g);
 static void section_scroll_panel(WLX_Context *ctx, Gallery_State *g);
@@ -132,6 +138,7 @@ static const Section section_tokens_entry = { "Semantic Tokens", section_tokens 
 static const Section section_label_entry = { "Label", section_label };
 static const Section section_button_entry = { "Button", section_button };
 static const Section section_checkbox_entry = { "Checkbox", section_checkbox };
+static const Section section_image_entry = { "Image", section_image };
 static const Section section_slider_entry = { "Slider", section_slider };
 static const Section section_inputbox_entry = { "Input Box", section_inputbox };
 static const Section section_scroll_panel_entry = { "Scroll Panel", section_scroll_panel };
@@ -161,8 +168,8 @@ static const Group groups[] = {
     { "Overview",   { NULL }, 0, 0 },
     { "Tokens",     { &section_tokens_entry }, 1, 0 },
     { "Components", { &section_label_entry, &section_button_entry, &section_checkbox_entry,
-                      &section_slider_entry, &section_inputbox_entry, &section_widget_entry,
-                      &section_progress_toggle_radio_entry }, 7, 0 },
+                      &section_image_entry, &section_slider_entry, &section_inputbox_entry,
+                      &section_widget_entry, &section_progress_toggle_radio_entry }, 8, 0 },
     { "Layouts",    { &section_layout_linear_entry, &section_layout_grid_entry,
                       &section_layout_flex_entry, &section_auto_layout_entry }, 4, 0 },
     { "Patterns",   { &section_scroll_panel_entry, &section_id_stack_entry,
@@ -814,6 +821,59 @@ static void section_checkbox(WLX_Context *ctx, Gallery_State *st) {
         wlx_panel_end(ctx);
 
     wlx_split_end(ctx);
+}
+
+// ---------------------------------------------------------------------------
+// Section: Image
+// ---------------------------------------------------------------------------
+static void section_image(WLX_Context *ctx, Gallery_State *st) {
+    (void)st;
+    wlx_panel_begin(ctx, .title = "Image",
+        PANEL_TITLE_DEFAULTS,
+        .title_back_color = SECTION_BG(ctx));
+
+    wlx_label(ctx,
+        "wlx_image renders a WLX_Texture inside a layout slot. Four scale modes:",
+        .height = DESC_H);
+
+    Gallery_Image_Asset asset = gallery_image_asset();
+    if (asset.landscape.width <= 0) {
+        wlx_label(ctx, "Image asset unavailable on this platform.",
+            .height = ROW_H,
+            .show_background = true,
+            .back_color = GALLERY_ROLE(ctx, color_surface_2),
+            .front_color = GALLERY_ROLE(ctx, color_text_2));
+        wlx_panel_end(ctx);
+        return;
+    }
+
+    static const struct {
+        const char       *label;
+        WLX_Image_Scale   scale;
+    } modes[] = {
+        { "STRETCH", WLX_IMAGE_SCALE_STRETCH },
+        { "FIT",     WLX_IMAGE_SCALE_FIT },
+        { "FILL",    WLX_IMAGE_SCALE_FILL },
+        { "NONE",    WLX_IMAGE_SCALE_NONE },
+    };
+    const int mode_count = (int)(sizeof(modes) / sizeof(modes[0]));
+
+    wlx_layout_begin(ctx, mode_count, WLX_HORZ, .padding = 4, .gap = 6);
+    for (int i = 0; i < mode_count; i++) {
+        wlx_push_id(ctx, (size_t)(i + 1));
+        wlx_layout_begin(ctx, 2, WLX_VERT,
+            .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(20), WLX_SLOT_FLEX(1) },
+            .padding = 2);
+            wlx_label(ctx, modes[i].label,
+                .font_size = 13, .align = WLX_CENTER);
+            wlx_image(ctx, asset.landscape,
+                .scale = modes[i].scale, .align = WLX_CENTER);
+        wlx_layout_end(ctx);
+        wlx_pop_id(ctx);
+    }
+    wlx_layout_end(ctx);
+
+    wlx_panel_end(ctx);
 }
 
 // ---------------------------------------------------------------------------
@@ -3067,6 +3127,8 @@ static WLX_Context *g_raylib_ctx = NULL;
 static bool         g_raylib_checkbox_textures_ready;
 static WLX_Texture  g_raylib_checkbox_tex_on;
 static WLX_Texture  g_raylib_checkbox_tex_off;
+static bool         g_raylib_image_asset_ready;
+static WLX_Texture  g_raylib_image_landscape;
 
 static WLX_Text_Style gallery_raylib_scaled_text_style(WLX_Text_Style style) {
     if (style.font_size > 0) {
@@ -3106,6 +3168,28 @@ static Gallery_Checkbox_Textures gallery_texture_checkbox_assets(void) {
     textures.checked = g_raylib_checkbox_tex_on;
     textures.unchecked = g_raylib_checkbox_tex_off;
     return textures;
+}
+
+static Gallery_Image_Asset gallery_image_asset(void) {
+    Gallery_Image_Asset asset = {0};
+    if (g_raylib_image_asset_ready) asset.landscape = g_raylib_image_landscape;
+    return asset;
+}
+
+static Texture2D gallery_raylib_make_landscape_texture(void) {
+    int w = 96, h = 48;
+    Image img = GenImageColor(w, h, (Color){30, 60, 110, 255});
+    ImageDrawRectangle(&img, 0, 0, w, 3, (Color){255, 200, 60, 255});
+    ImageDrawRectangle(&img, 0, h - 3, w, 3, (Color){255, 200, 60, 255});
+    ImageDrawRectangle(&img, 0, 0, 3, h, (Color){255, 200, 60, 255});
+    ImageDrawRectangle(&img, w - 3, 0, 3, h, (Color){255, 200, 60, 255});
+    for (int i = -h; i < w; i += 10) {
+        ImageDrawLine(&img, i, 0, i + h, h, (Color){90, 130, 200, 255});
+    }
+    ImageDrawCircle(&img, w / 2, h / 2, 6, (Color){240, 240, 240, 255});
+    Texture2D tex = LoadTextureFromImage(img);
+    UnloadImage(img);
+    return tex;
 }
 
 static bool gallery_platform_init(Gallery_State *gs) {
@@ -3160,6 +3244,15 @@ static bool gallery_platform_init(Gallery_State *gs) {
         }
     }
 
+    {
+        g_raylib_image_landscape = gallery_raylib_make_landscape_texture();
+        g_raylib_image_asset_ready = g_raylib_image_landscape.width > 0;
+        if (!g_raylib_image_asset_ready) {
+            g_raylib_image_landscape = (WLX_Texture){0};
+            printf("WARNING: could not create image gallery texture; section will show fallback\n");
+        }
+    }
+
     for (int i = 0; i < 10; i++) {
         snprintf(gs->dynamic_names[i], sizeof(gs->dynamic_names[i]), "Panel %d", i + 1);
     }
@@ -3174,6 +3267,11 @@ static void gallery_platform_shutdown(Gallery_State *gs) {
         g_raylib_checkbox_tex_on = (WLX_Texture){0};
         g_raylib_checkbox_tex_off = (WLX_Texture){0};
         g_raylib_checkbox_textures_ready = false;
+    }
+    if (g_raylib_image_asset_ready) {
+        UnloadTexture(g_raylib_image_landscape);
+        g_raylib_image_landscape = (WLX_Texture){0};
+        g_raylib_image_asset_ready = false;
     }
     if (g_raylib_font_ok) UnloadFont(g_raylib_font);
     if (g_raylib_ctx) {
@@ -3268,6 +3366,8 @@ static WLX_Context  *g_sdl3_ctx;
 static bool          g_sdl3_checkbox_textures_ready;
 static WLX_Texture   g_sdl3_checkbox_tex_on;
 static WLX_Texture   g_sdl3_checkbox_tex_off;
+static bool          g_sdl3_image_asset_ready;
+static WLX_Texture   g_sdl3_image_landscape;
 
 static Uint64        g_sdl3_frame_start;
 static int           g_sdl3_fps;
@@ -3286,6 +3386,12 @@ static Gallery_Checkbox_Textures gallery_texture_checkbox_assets(void) {
     textures.checked = g_sdl3_checkbox_tex_on;
     textures.unchecked = g_sdl3_checkbox_tex_off;
     return textures;
+}
+
+static Gallery_Image_Asset gallery_image_asset(void) {
+    Gallery_Image_Asset asset = {0};
+    if (g_sdl3_image_asset_ready) asset.landscape = g_sdl3_image_landscape;
+    return asset;
 }
 
 static SDL_Texture *sdl3_gen_solid_texture(int w, int h, WLX_Color c) {
@@ -3381,6 +3487,16 @@ static bool gallery_platform_init(Gallery_State *gs) {
         }
     }
 
+    {
+        SDL_Texture *land = sdl3_gen_solid_texture(96, 48, GALLERY_BLUE);
+        g_sdl3_image_asset_ready = (land != NULL);
+        if (g_sdl3_image_asset_ready) {
+            g_sdl3_image_landscape = (WLX_Texture){ .handle = (uintptr_t)land, .width = 96, .height = 48 };
+        } else {
+            printf("WARNING: could not create image gallery texture; section will show fallback\n");
+        }
+    }
+
     for (int i = 0; i < 10; i++) {
         snprintf(gs->dynamic_names[i], sizeof(gs->dynamic_names[i]), "Panel %d", i + 1);
     }
@@ -3398,6 +3514,11 @@ static void gallery_platform_shutdown(Gallery_State *gs) {
         SDL_DestroyTexture((SDL_Texture *)(uintptr_t)g_sdl3_checkbox_tex_on.handle);
         SDL_DestroyTexture((SDL_Texture *)(uintptr_t)g_sdl3_checkbox_tex_off.handle);
         g_sdl3_checkbox_textures_ready = false;
+    }
+    if (g_sdl3_image_asset_ready) {
+        SDL_DestroyTexture((SDL_Texture *)(uintptr_t)g_sdl3_image_landscape.handle);
+        g_sdl3_image_landscape = (WLX_Texture){0};
+        g_sdl3_image_asset_ready = false;
     }
     if (g_sdl3_ctx) {
         wlx_context_destroy(g_sdl3_ctx);
@@ -3524,6 +3645,11 @@ static bool gallery_has_texture_assets(void) {
 static Gallery_Checkbox_Textures gallery_texture_checkbox_assets(void) {
     Gallery_Checkbox_Textures textures = {0};
     return textures;
+}
+
+static Gallery_Image_Asset gallery_image_asset(void) {
+    Gallery_Image_Asset asset = {0};
+    return asset;
 }
 
 static bool gallery_platform_init(Gallery_State *gs) {

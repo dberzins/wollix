@@ -2013,6 +2013,43 @@ typedef struct {
 WLXDEF void wlx_progress_impl(WLX_Context *ctx, float value, WLX_Progress_Opt opt, const char *file, int line);
 #define wlx_progress(ctx, value, ...) wlx_progress_impl((ctx), (value), wlx_default_progress_opt(__VA_ARGS__), __FILE__, __LINE__)
 
+// Scale modes for wlx_image. STRETCH matches the raw draw_texture behavior;
+// FIT preserves aspect with letterbox/pillarbox; FILL preserves aspect by
+// cropping the source rect; NONE renders 1:1 pixels anchored by `align`.
+typedef enum {
+    WLX_IMAGE_SCALE_STRETCH = 0,
+    WLX_IMAGE_SCALE_FIT,
+    WLX_IMAGE_SCALE_FILL,
+    WLX_IMAGE_SCALE_NONE,
+} WLX_Image_Scale;
+
+typedef struct {
+    WLX_LAYOUT_SLOT_FIELDS;
+    WLX_WIDGET_SIZING_FIELDS;
+
+    WLX_Image_Scale scale;   // default WLX_IMAGE_SCALE_STRETCH
+    WLX_Align       align;   // default WLX_CENTER (positions/crops the image inside the widget rect)
+    WLX_Color       tint;    // {0} -> WLX_WHITE
+    WLX_Rect        src;     // src.w <= 0 -> full texture
+
+    const char *id;
+} WLX_Image_Opt;
+
+#define wlx_default_image_opt(...) \
+    (WLX_Image_Opt) { \
+        WLX_LAYOUT_SLOT_DEFAULTS, \
+        WLX_WIDGET_SIZING_DEFAULTS, \
+        .scale = WLX_IMAGE_SCALE_STRETCH, \
+        .align = WLX_CENTER, \
+        .tint  = {0}, \
+        .src   = {0}, \
+        __VA_ARGS__ \
+    }
+
+WLXDEF void wlx_image_impl(WLX_Context *ctx, WLX_Texture texture, WLX_Image_Opt opt, const char *file, int line);
+#define wlx_image(ctx, texture, ...) \
+    wlx_image_impl((ctx), (texture), wlx_default_image_opt(__VA_ARGS__), __FILE__, __LINE__)
+
 typedef struct {
     WLX_LAYOUT_SLOT_FIELDS;
     WLX_WIDGET_SIZING_FIELDS;
@@ -6418,6 +6455,105 @@ WLXDEF void wlx_progress_impl(WLX_Context *ctx, float value, WLX_Progress_Opt op
             .rounded_segments = opt.rounded_segments,
         });
     }
+
+    wlx_widget_frame_end(ctx, frame);
+}
+
+static void wlx_resolve_opt_image(const WLX_Context *ctx, WLX_Image_Opt *opt) {
+    if (wlx_color_is_zero(opt->tint)) opt->tint = WLX_WHITE;
+    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
+    WLX_APPLY_OPACITY(opt->opacity, &opt->tint);
+}
+
+WLXDEF void wlx_image_impl(WLX_Context *ctx, WLX_Texture texture, WLX_Image_Opt opt, const char *file, int line) {
+    assert(ctx != NULL);
+
+    wlx_resolve_opt_image(ctx, &opt);
+
+    WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
+    WLX_Rect wr = frame.rect;
+
+    // Empty / unloaded texture: assert under WLX_DEBUG, no-op the draw in
+    // release. The frame still closes so layout indices and IDs stay
+    // consistent for subsequent widgets. Tests that intentionally exercise
+    // the no-op path may pre-define WLX_IMAGE_ASSERT_TEXTURE_VALID as a noop.
+    #ifndef WLX_IMAGE_ASSERT_TEXTURE_VALID
+    #define WLX_IMAGE_ASSERT_TEXTURE_VALID(tex) \
+        assert((tex).width > 0 && (tex).height > 0 \
+               && "wlx_image: texture appears unloaded (width/height <= 0)")
+    #endif
+    WLX_IMAGE_ASSERT_TEXTURE_VALID(texture);
+    if (texture.width <= 0 || texture.height <= 0) {
+        wlx_widget_frame_end(ctx, frame);
+        return;
+    }
+
+    WLX_Rect s = opt.src;
+    if (s.w <= 0 || s.h <= 0) {
+        s = (WLX_Rect){ 0, 0, (float)texture.width, (float)texture.height };
+    }
+
+    WLX_Rect dst = wr;
+    switch (opt.scale) {
+        case WLX_IMAGE_SCALE_STRETCH:
+            dst = wr;
+            break;
+
+        case WLX_IMAGE_SCALE_NONE:
+            dst = wlx_get_align_rect(wr, s.w, s.h, opt.align);
+            break;
+
+        case WLX_IMAGE_SCALE_FIT: {
+            float sx = wr.w / s.w;
+            float sy = wr.h / s.h;
+            float k  = sx < sy ? sx : sy;
+            dst = wlx_get_align_rect(wr, s.w * k, s.h * k, opt.align);
+            break;
+        }
+
+        case WLX_IMAGE_SCALE_FILL: {
+            // Narrow s to match wr's aspect; align selects which edge survives.
+            if (wr.h > 0 && s.h > 0) {
+                float wr_aspect = wr.w / wr.h;
+                float s_aspect  = s.w  / s.h;
+                if (s_aspect > wr_aspect) {
+                    float new_w = s.h * wr_aspect;
+                    switch (opt.align) {
+                        case WLX_LEFT: case WLX_TOP_LEFT: case WLX_BOTTOM_LEFT:
+                            break;
+                        case WLX_RIGHT: case WLX_TOP_RIGHT: case WLX_BOTTOM_RIGHT:
+                            s.x += (s.w - new_w);
+                            break;
+                        default:
+                            s.x += (s.w - new_w) * 0.5f;
+                            break;
+                    }
+                    s.w = new_w;
+                } else if (s_aspect < wr_aspect) {
+                    float new_h = s.w / wr_aspect;
+                    switch (opt.align) {
+                        case WLX_TOP: case WLX_TOP_LEFT: case WLX_TOP_RIGHT: case WLX_TOP_CENTER:
+                            break;
+                        case WLX_BOTTOM: case WLX_BOTTOM_LEFT: case WLX_BOTTOM_RIGHT: case WLX_BOTTOM_CENTER:
+                            s.y += (s.h - new_h);
+                            break;
+                        default:
+                            s.y += (s.h - new_h) * 0.5f;
+                            break;
+                    }
+                    s.h = new_h;
+                }
+            }
+            assert(s.x >= 0.0f && s.y >= 0.0f
+                   && s.x + s.w <= (float)texture.width  + 0.5f
+                   && s.y + s.h <= (float)texture.height + 0.5f
+                   && "wlx_image: FILL crop produced out-of-bounds src rect");
+            dst = wr;
+            break;
+        }
+    }
+
+    wlx_draw_texture(ctx, texture, s, dst, opt.tint);
 
     wlx_widget_frame_end(ctx, frame);
 }

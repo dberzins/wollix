@@ -2,6 +2,9 @@
 // Single-TU build: all test files are #included here.
 
 #define WLX_DEBUG
+// Disable the wlx_image empty-texture assert so test_image can exercise the
+// safe no-op fallback path without aborting the runner.
+#define WLX_IMAGE_ASSERT_TEXTURE_VALID(tex) ((void)(tex))
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
 
@@ -69,6 +72,9 @@
 // text counter, arena high-water, timer, and immediate-mode snapshot tests.
 #include "test_perf.c"
 
+// wlx_image scale modes, alignment anchors, src defaults, tint + opacity
+#include "test_image.c"
+
 int main(void) {
     RUN_SUITE(layout_math);
     RUN_SUITE(color);
@@ -96,5 +102,6 @@ int main(void) {
     RUN_SUITE(widget_wrapper);
     RUN_SUITE(container_scope);
     RUN_SUITE(perf);
+    RUN_SUITE(image);
     return test_summary();
 }

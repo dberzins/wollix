@@ -32,7 +32,7 @@ WASM_BARE_CFLAGS = --target=wasm32-unknown-unknown -nostdlib -nostdinc -Wno-init
 
 DEMO_DIR = demos
 GALLERY_PERF_HEADER = $(DEMO_DIR)/gallery_perf.h
-RAYLIB_DEMOS = layout button text checkbox checkbox_tex input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo gallery auth
+RAYLIB_DEMOS = layout button text checkbox checkbox_tex image input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo gallery auth
 SDL3_DEMOS = sdl3_demo gallery_sdl3
 PERF_DEMOS = gallery_perf gallery_sdl3_perf
 DEMO_NAMES = $(RAYLIB_DEMOS) $(SDL3_DEMOS)

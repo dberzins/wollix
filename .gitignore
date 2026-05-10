@@ -10,6 +10,7 @@ docs/dev
 .copilot
 .claude
 .venv
+CLAUDE.md
 graphify-out
 compile_commands.json
 
@@ -48,9 +49,10 @@ demos/gallery
 tests/test_runner
 demos/border_demo
 demos/auth
-dist/
-CLAUDE.md
 demos/gallery_sdl3
 tests/test_runner_perf
 demos/gallery_perf
 demos/gallery_sdl3_perf
+demos/image
+
+dist/
