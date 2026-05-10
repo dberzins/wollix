@@ -78,7 +78,7 @@ wasm-site: $(WASM_SITE_TARGETS)
 $(WASM_SITE_DIR):
 	mkdir -p $@
 
-$(WASM_SITE_DIR)/gallery.wasm: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) $(WASM_SRC_DIR)/wlx_libc_shim.c wollix.h wollix_wasm.h | $(WASM_SITE_DIR)
+$(WASM_SITE_DIR)/gallery.wasm: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) $(WASM_SRC_DIR)/wlx_libc_shim.c $(WASM_SRC_DIR)/wlx_libc_shim.h wollix.h wollix_wasm.h | $(WASM_SITE_DIR)
 	$(WASM_CC) $(WASM_BARE_CFLAGS) -DWLX_GALLERY_WASM -o $@ demos/gallery.c $(WASM_SRC_DIR)/wlx_libc_shim.c
 
 $(WASM_SITE_DIR)/index.html: $(WASM_SRC_DIR)/wollix_wasm.html | $(WASM_SITE_DIR)

@@ -334,6 +334,12 @@ function createTextureCanvas(width, height) {
             throw new Error("wasm abort");
         },
 
+        puts(strPtr) {
+            if (strPtr === 0) return 0;
+            console.log(readCString(strPtr));
+            return 0;
+        },
+
         roundf(x) {
             const floorValue = Math.floor(x);
             const diff = x - floorValue;
