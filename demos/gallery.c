@@ -3638,17 +3638,94 @@ static const WLX_Theme *g_wasm_themes[GALLERY_THEME_COUNT];
 static WLX_Wasm_Pool g_wasm_pool;
 static WLX_Allocator g_wasm_alloc;
 
+static bool         g_wasm_image_asset_ready;
+static WLX_Texture  g_wasm_image_landscape;
+static bool         g_wasm_checkbox_textures_ready;
+static WLX_Texture  g_wasm_checkbox_tex_on;
+static WLX_Texture  g_wasm_checkbox_tex_off;
+
+static void gallery_wasm_set_pixel(uint8_t *buf, int w, int h,
+                                   int x, int y, WLX_Color c) {
+    int i;
+    if (x < 0 || x >= w || y < 0 || y >= h) return;
+    i = (y * w + x) * 4;
+    buf[i + 0] = c.r;
+    buf[i + 1] = c.g;
+    buf[i + 2] = c.b;
+    buf[i + 3] = c.a;
+}
+
+static void gallery_wasm_fill_solid(uint8_t *buf, int w, int h, WLX_Color c) {
+    for (int i = 0; i < w * h; i++) {
+        buf[i * 4 + 0] = c.r;
+        buf[i * 4 + 1] = c.g;
+        buf[i * 4 + 2] = c.b;
+        buf[i * 4 + 3] = c.a;
+    }
+}
+
+static void gallery_wasm_fill_rect(uint8_t *buf, int w, int h,
+                                   int rx, int ry, int rw, int rh, WLX_Color c) {
+    for (int y = ry; y < ry + rh; y++) {
+        for (int x = rx; x < rx + rw; x++) {
+            gallery_wasm_set_pixel(buf, w, h, x, y, c);
+        }
+    }
+}
+
+// 45-degree segment used for the landscape's diagonal stripes.
+static void gallery_wasm_draw_diag(uint8_t *buf, int w, int h,
+                                   int x0, int y0, int len, WLX_Color c) {
+    for (int t = 0; t < len; t++) {
+        gallery_wasm_set_pixel(buf, w, h, x0 + t, y0 + t, c);
+    }
+}
+
+static void gallery_wasm_fill_disc(uint8_t *buf, int w, int h,
+                                   int cx, int cy, int radius, WLX_Color c) {
+    int r2 = radius * radius;
+    for (int y = cy - radius; y <= cy + radius; y++) {
+        for (int x = cx - radius; x <= cx + radius; x++) {
+            int dx = x - cx;
+            int dy = y - cy;
+            if (dx * dx + dy * dy <= r2) {
+                gallery_wasm_set_pixel(buf, w, h, x, y, c);
+            }
+        }
+    }
+}
+
+static void gallery_wasm_make_landscape(uint8_t *buf, int w, int h) {
+    WLX_Color bg     = WLX_RGBA(30, 60, 110, 255);
+    WLX_Color border = WLX_RGBA(255, 200, 60, 255);
+    WLX_Color stripe = WLX_RGBA(90, 130, 200, 255);
+    WLX_Color dot    = WLX_RGBA(240, 240, 240, 255);
+    gallery_wasm_fill_solid(buf, w, h, bg);
+    gallery_wasm_fill_rect(buf, w, h, 0, 0, w, 3, border);
+    gallery_wasm_fill_rect(buf, w, h, 0, h - 3, w, 3, border);
+    gallery_wasm_fill_rect(buf, w, h, 0, 0, 3, h, border);
+    gallery_wasm_fill_rect(buf, w, h, w - 3, 0, 3, h, border);
+    for (int i = -h; i < w; i += 10) {
+        gallery_wasm_draw_diag(buf, w, h, i, 0, h, stripe);
+    }
+    gallery_wasm_fill_disc(buf, w, h, w / 2, h / 2, 6, dot);
+}
+
 static bool gallery_has_texture_assets(void) {
-    return false;
+    return g_wasm_checkbox_textures_ready;
 }
 
 static Gallery_Checkbox_Textures gallery_texture_checkbox_assets(void) {
     Gallery_Checkbox_Textures textures = {0};
+    if (!g_wasm_checkbox_textures_ready) return textures;
+    textures.checked = g_wasm_checkbox_tex_on;
+    textures.unchecked = g_wasm_checkbox_tex_off;
     return textures;
 }
 
 static Gallery_Image_Asset gallery_image_asset(void) {
     Gallery_Image_Asset asset = {0};
+    if (g_wasm_image_asset_ready) asset.landscape = g_wasm_image_landscape;
     return asset;
 }
 
@@ -3678,6 +3755,46 @@ static bool gallery_platform_init(Gallery_State *gs) {
     wlx_context_init_ex(g_wasm_ctx, &cfg);
     wlx_context_init_wasm(g_wasm_ctx);
 
+    {
+        const int lw = 96, lh = 48;
+        size_t bytes = (size_t)lw * (size_t)lh * 4;
+        uint8_t *pixels = malloc(bytes);
+        if (pixels) {
+            gallery_wasm_make_landscape(pixels, lw, lh);
+            g_wasm_image_landscape = wlx_wasm_texture_create(pixels, lw, lh);
+            g_wasm_image_asset_ready = g_wasm_image_landscape.width > 0;
+            free(pixels);
+        }
+        if (!g_wasm_image_asset_ready) {
+            printf("WARNING: could not create image gallery texture; section will show fallback\n");
+        }
+    }
+
+    {
+        const int cw = 24, ch = 24;
+        size_t bytes = (size_t)cw * (size_t)ch * 4;
+        uint8_t *on  = malloc(bytes);
+        uint8_t *off = malloc(bytes);
+        if (on && off) {
+            gallery_wasm_fill_solid(on,  cw, ch, GALLERY_GREEN);
+            gallery_wasm_fill_solid(off, cw, ch, WLX_RGBA(80, 80, 80, 255));
+            g_wasm_checkbox_tex_on  = wlx_wasm_texture_create(on,  cw, ch);
+            g_wasm_checkbox_tex_off = wlx_wasm_texture_create(off, cw, ch);
+            g_wasm_checkbox_textures_ready =
+                g_wasm_checkbox_tex_on.width > 0
+                && g_wasm_checkbox_tex_off.width > 0;
+        }
+        if (on)  free(on);
+        if (off) free(off);
+        if (!g_wasm_checkbox_textures_ready) {
+            wlx_wasm_texture_destroy(g_wasm_checkbox_tex_on);
+            wlx_wasm_texture_destroy(g_wasm_checkbox_tex_off);
+            g_wasm_checkbox_tex_on = (WLX_Texture){0};
+            g_wasm_checkbox_tex_off = (WLX_Texture){0};
+            printf("WARNING: could not create checkbox texture assets; using fallback label\n");
+        }
+    }
+
     for (int i = 0; i < 10; i++) {
         snprintf(gs->dynamic_names[i], sizeof(gs->dynamic_names[i]), "Panel %d", i + 1);
     }
@@ -3686,6 +3803,18 @@ static bool gallery_platform_init(Gallery_State *gs) {
 
 static void gallery_platform_shutdown(Gallery_State *gs) {
     (void)gs;
+    if (g_wasm_checkbox_textures_ready) {
+        wlx_wasm_texture_destroy(g_wasm_checkbox_tex_on);
+        wlx_wasm_texture_destroy(g_wasm_checkbox_tex_off);
+        g_wasm_checkbox_tex_on = (WLX_Texture){0};
+        g_wasm_checkbox_tex_off = (WLX_Texture){0};
+        g_wasm_checkbox_textures_ready = false;
+    }
+    if (g_wasm_image_asset_ready) {
+        wlx_wasm_texture_destroy(g_wasm_image_landscape);
+        g_wasm_image_landscape = (WLX_Texture){0};
+        g_wasm_image_asset_ready = false;
+    }
     if (g_wasm_ctx) {
         wlx_context_destroy(g_wasm_ctx);
         free(g_wasm_ctx);

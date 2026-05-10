@@ -14,6 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   folding), and a standalone `demos/image` demo exercising all four scale
   modes, alignment variants, and an opacity-fade pane. Gallery panel added
   under the Components group.
+- **WASM texture support:** bare-WASM backend now provides texture
+  authoring through new `create_texture` / `destroy_texture` host imports
+  and `wlx_wasm_texture_create` / `wlx_wasm_texture_destroy` C helpers.
+  The JavaScript host owns a per-texture `OffscreenCanvas` registry (with
+  detached `<canvas>` fallback for older Safari) and copies RGBA pixel
+  data out of WASM memory at upload time so memory-growth events do not
+  invalidate stored textures. The WASM gallery now renders a procedural
+  landscape image in all four `wlx_image` scale modes and the texture-mode
+  checkbox sample, both backed by C-side RGBA generators.
+
+### Limitations
+- **WASM tint is alpha-only.** Texture tint on the bare-WASM backend
+  honours the alpha channel via Canvas `globalAlpha`; non-white RGB tint
+  channels are ignored and emit a one-shot console warning. Full RGB
+  modulation is deferred (see ADR 014).
 
 ## [0.4.0] - 2026-05-09
 
