@@ -862,7 +862,7 @@ static void section_image(WLX_Context *ctx, Gallery_State *st) {
     for (int i = 0; i < mode_count; i++) {
         wlx_push_id(ctx, (size_t)(i + 1));
         wlx_layout_begin(ctx, 2, WLX_VERT,
-            .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(20), WLX_SLOT_FLEX(1) },
+            .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(20), WLX_SLOT_PX(PREVIEW_H) },
             .padding = 2);
             wlx_label(ctx, modes[i].label,
                 .font_size = 13, .align = WLX_CENTER);
