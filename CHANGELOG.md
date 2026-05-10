@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Image widget:** new `wlx_image` widget with `WLX_Image_Scale` enum
+  (`STRETCH`, `FIT`, `FILL`, `NONE`), `WLX_Image_Opt` option struct
+  (scale mode, image-content alignment, tint, source sub-rect, opacity
+  folding), and a standalone `demos/image` demo exercising all four scale
+  modes, alignment variants, and an opacity-fade pane. Gallery panel added
+  under the Components group.
+
 ## [0.4.0] - 2026-05-09
 
 ### Added

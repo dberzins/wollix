@@ -1026,6 +1026,120 @@ wlx_widget(ctx,
 
 ---
 
+## `wlx_image`
+
+Displays a `WLX_Texture` inside a layout slot. Supports four scale modes
+(`STRETCH`, `FIT`, `FILL`, `NONE`) and an image-content alignment independent
+of the slot alignment. The tint color's alpha channel is multiplied by the
+active opacity stack, so `wlx_push_opacity` / `wlx_pop_opacity` regions work
+transparently.
+
+### Signature
+
+```c
+void wlx_image(WLX_Context *ctx, WLX_Texture texture, ...options);
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `texture` | A `WLX_Texture` supplied by the host application. Must have `width > 0` and `height > 0`. |
+
+### Minimal example
+
+```c
+wlx_image(ctx, my_texture,
+    .width = 128, .height = 128
+);
+```
+
+### Scale modes
+
+| `WLX_Image_Scale` | Behavior |
+|-------------------|----------|
+| `WLX_IMAGE_SCALE_STRETCH` | Stretches the texture to fill the entire widget rect (default). |
+| `WLX_IMAGE_SCALE_FIT` | Scales uniformly so the image fits entirely within the widget rect, preserving aspect ratio. Letterbox / pillarbox space is transparent. |
+| `WLX_IMAGE_SCALE_FILL` | Crops the source rect so the visible area fills the widget rect completely, preserving aspect ratio. No transparent borders. |
+| `WLX_IMAGE_SCALE_NONE` | Draws the image at its natural source size. Clips to the widget rect if the image is larger. |
+
+### Widget-specific options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_STRETCH` | How the texture is scaled inside the slot (see table above). |
+| `align` | `WLX_Align` | `WLX_CENTER` | Positions the image content within the slot for `FIT` and `NONE`; selects the crop anchor for `FILL`. Has no effect for `STRETCH`. |
+| `tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE` (no tint). The alpha component is multiplied by the opacity stack. |
+| `src` | `WLX_Rect` | `{0}` | Source sub-rect within the texture. `{0}` (or `src.w <= 0`) means the full texture. Use this for spritesheet cells. |
+| `id` | `const char *` | `NULL` | Optional widget ID for persistent state and scoping. |
+
+Shared placement, sizing (`widget_align`, `width`, `height`, etc.), and border
+fields also apply.
+
+> **`widget_align` vs. `align`**: `widget_align` positions the *widget slot*
+> within the parent layout (e.g. center a 100px slot inside a 300px column).
+> `align` positions the *image content* within that widget slot (e.g. pin a
+> natural-size image to the top-left corner of the slot). They are independent.
+
+### Common overrides
+
+Fit a portrait photo inside a landscape card, centered:
+
+```c
+wlx_image(ctx, portrait_photo,
+    .width = 200, .height = 150,
+    .scale = WLX_IMAGE_SCALE_FIT,
+    .align = WLX_CENTER
+);
+```
+
+Fill a thumbnail slot, crop from the left edge:
+
+```c
+wlx_image(ctx, banner_texture,
+    .width = 80, .height = 80,
+    .scale = WLX_IMAGE_SCALE_FILL,
+    .align = WLX_LEFT
+);
+```
+
+Draw a spritesheet cell at natural size, pinned to the top-left:
+
+```c
+wlx_image(ctx, spritesheet,
+    .scale = WLX_IMAGE_SCALE_NONE,
+    .align = WLX_TOP_LEFT,
+    .src   = (WLX_Rect){ 0, 0, 32, 32 }
+);
+```
+
+Semi-transparent icon using tint alpha (also affected by the opacity stack):
+
+```c
+wlx_image(ctx, icon_texture,
+    .width = 32, .height = 32,
+    .tint  = (WLX_Color){ 255, 255, 255, 128 }
+);
+```
+
+### Notes
+
+- **Empty texture**: if `texture.width <= 0` or `texture.height <= 0`, no draw
+  command is emitted and the widget frame still closes cleanly so subsequent
+  widgets in the layout receive the correct slots. Under `-DWLX_DEBUG` an
+  assertion fires to catch unloaded textures early.
+- **Full texture by default**: `src.w <= 0` (including a zero-initialized `src`)
+  means "use the entire texture". Set `src` only when you need a sub-region.
+- **Spritesheet pattern**: combine `scale = WLX_IMAGE_SCALE_NONE` with a `src`
+  cell rect to stamp a fixed-size sprite at its natural pixel size, aligned
+  within the slot.
+- **Opacity stack**: `wlx_push_opacity(ctx, 0.5f)` before `wlx_image` halves
+  the effective alpha of `tint`. This matches the behavior of every other
+  Wollix widget that carries an alpha channel.
+- Texture loading is out of scope. Pass a `Texture2D` from
+  `LoadTexture()` (Raylib), a `SDL_Texture *` from `IMG_LoadTexture()` (SDL3),
+  or the equivalent for your backend. Wollix never performs I/O.
+
+---
+
 ## Theme integration
 
 All `{0}` color defaults resolve through the active theme at render time.
