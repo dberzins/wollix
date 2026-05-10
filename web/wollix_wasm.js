@@ -78,6 +78,20 @@ function cssColor(rgba) {
     return `rgba(${c.r},${c.g},${c.b},${c.a / 255})`;
 }
 
+// OffscreenCanvas is missing on Safari < 16.4. Fall back to a detached
+// <canvas> element with the same draw semantics.
+const HAS_OFFSCREEN_CANVAS = typeof OffscreenCanvas !== "undefined";
+
+function createTextureCanvas(width, height) {
+    if (HAS_OFFSCREEN_CANVAS) {
+        return new OffscreenCanvas(width, height);
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+}
+
 // ============================================================================
 // Boot
 // ============================================================================
@@ -107,6 +121,12 @@ function cssColor(rgba) {
     let targetInterval = TARGET_FPS > 0 ? 1000 / TARGET_FPS : 0;
     let lastRenderedTime = 0;
 
+    // Texture registry: maps handle -> { canvas, w, h }. Handle 0 is reserved
+    // as invalid so the C side can short-circuit on a zeroed WLX_Texture.
+    const textures = new Map();
+    let nextTextureHandle = 1;
+    let warnedNonWhiteTint = false;
+
     // ========================================================================
     // Read a NUL-terminated C string from wasm memory
     // ========================================================================
@@ -125,7 +145,8 @@ function cssColor(rgba) {
     let scissorActive = false;
 
     // ========================================================================
-    // "wlx" module imports — 10 rendering callbacks
+    // "wlx" module imports — rendering callbacks, texture registry,
+    // scissor stack, and frame-time accessor.
     // ========================================================================
     const wlxImports = {
         draw_rect(x, y, w, h, rgba) {
@@ -234,9 +255,51 @@ function cssColor(rgba) {
             f32[hIdx] = fontSize > 0 ? fontSize : 16;
         },
 
-        draw_texture(_handle, _sx, _sy, _sw, _sh,
-                     _dx, _dy, _dw, _dh, _tint) {
-            // Texture support is a stub for now
+        create_texture(rgbaPtr, width, height) {
+            if (rgbaPtr === 0 || width <= 0 || height <= 0) return 0;
+            const byteCount = width * height * 4;
+            const bufLen = memory.buffer.byteLength;
+            if (rgbaPtr < 0 || rgbaPtr + byteCount > bufLen) return 0;
+
+            // slice() copies the bytes so the registry never references
+            // memory.buffer (which detaches when WASM memory grows).
+            const src = new Uint8Array(memory.buffer, rgbaPtr, byteCount);
+            const pixels = new Uint8ClampedArray(byteCount);
+            pixels.set(src);
+
+            const imgData = new ImageData(pixels, width, height);
+            const canvas = createTextureCanvas(width, height);
+            const tctx = canvas.getContext("2d");
+            if (!tctx) return 0;
+            tctx.putImageData(imgData, 0, 0);
+
+            const handle = nextTextureHandle++;
+            textures.set(handle, { canvas, w: width, h: height });
+            return handle;
+        },
+
+        destroy_texture(handle) {
+            if (handle === 0) return;
+            textures.delete(handle);
+        },
+
+        draw_texture(handle, sx, sy, sw, sh, dx, dy, dw, dh, tint) {
+            const entry = textures.get(handle);
+            if (!entry) return;
+            const a = (tint >>> 0) & 0xFF;
+            if (a === 0) return;
+            const r = (tint >>> 24) & 0xFF;
+            const g = (tint >>> 16) & 0xFF;
+            const b = (tint >>>  8) & 0xFF;
+            if ((r !== 255 || g !== 255 || b !== 255) && !warnedNonWhiteTint) {
+                console.warn(
+                    "wollix_wasm: non-white RGB tint is ignored; v1 honours alpha only");
+                warnedNonWhiteTint = true;
+            }
+            const prevAlpha = ctx.globalAlpha;
+            ctx.globalAlpha = a / 255;
+            ctx.drawImage(entry.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+            ctx.globalAlpha = prevAlpha;
         },
 
         begin_scissor(x, y, w, h) {
