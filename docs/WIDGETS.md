@@ -161,6 +161,8 @@ wlx_label(ctx, status_text,
 
 Clickable button. Returns `true` on the frame the user clicks (press then
 release while hovering) or activates via keyboard (Space/Enter when hovered).
+Supports three content modes through the same call: text-only, image-only,
+and image + text.
 
 ### Signature
 
@@ -176,19 +178,54 @@ if (wlx_button(ctx, "Click me")) {
 }
 ```
 
+### Content modes
+
+| Mode | Trigger |
+|------|---------|
+| Text-only | `text` is non-empty, no `texture` (or `texture.width <= 0`) |
+| Image-only | `texture.width > 0`, `text` is `""` (or `NULL`) |
+| Image + text | both `texture` valid and `text` non-empty |
+
+Mode is selected purely by the inputs — there is no separate `wlx_image_button`
+function or option struct.
+
 ### Widget-specific options
 
-No widget-specific options beyond the shared fields.
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `texture` | `WLX_Texture` | zero handle | Optional image content. `width <= 0` or `height <= 0` means no image. |
+| `texture_src` | `WLX_Rect` | `{0}` | Source sub-rect. `w <= 0` or `h <= 0` means full texture. |
+| `texture_scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_FIT` | How the texture fits its image rect (same modes as `wlx_image`). |
+| `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`. The alpha is multiplied by the opacity stack. |
+| `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Where the image sits relative to text (`LEFT`, `RIGHT`, `TOP`, `BOTTOM`). |
+| `image_size` | `float` | `0` | Reserved square size for the image. `<= 0` is automatic: derived from `font_size` for image+text, or full button rect for image-only. |
+| `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
 
-All shared placement, sizing, typography, color, and border fields apply.
+Shared placement, sizing, typography, color, and border fields also apply.
 The button always draws a filled `back_color` rectangle — hover brightens it
 automatically using the theme's `hover_brightness`. Button captions use the
 same fitted line/run layout as `wlx_label`, so centered or wrapped captions
 align per visible line.
 
+### Content rules
+
+- **Empty texture + non-empty text** → behaves exactly like a text-only
+  button (no texture draw is emitted).
+- **Empty texture + empty text** → only the chrome is drawn; the button still
+  returns the click contract.
+- **`align` vs. `image_placement`** are independent:
+  `image_placement` controls *which side* of the text the image sits on (image
+  is always on the LEFT/RIGHT/TOP/BOTTOM of the text within the combined block);
+  `align` then positions the *combined block* inside the button rect for
+  image+text mode, or the image rect itself for image-only mode when
+  `image_size > 0`.
+- The texture is always centered inside its reserved image rect; hover
+  feedback applies to the chrome background only — texture tint is not
+  modulated by hover.
+
 ### Common overrides
 
-Centered fixed-size button with custom color:
+Text-only button with custom color:
 
 ```c
 if (wlx_button(ctx, "Submit",
@@ -202,12 +239,61 @@ if (wlx_button(ctx, "Submit",
 }
 ```
 
-Full-width button in a vertical layout:
+Image-only icon button (full button rect as image target):
 
 ```c
-if (wlx_button(ctx, "Save", .font_size = 18, .height = 40, .align = WLX_CENTER)) {
+if (wlx_button(ctx, "",
+    .width = 48, .height = 48,
+    .texture = save_icon, .align = WLX_CENTER
+)) {
     save_data();
 }
+```
+
+Image-only with explicit square size, anchored via `align`:
+
+```c
+if (wlx_button(ctx, "",
+    .height = 48,
+    .texture = save_icon, .image_size = 32, .align = WLX_CENTER
+)) {
+    save_data();
+}
+```
+
+Image + text with default LEFT placement:
+
+```c
+if (wlx_button(ctx, "Save",
+    .height = 40, .font_size = 18, .align = WLX_CENTER,
+    .texture = save_icon
+)) {
+    save_data();
+}
+```
+
+Image + text with image stacked on top:
+
+```c
+if (wlx_button(ctx, "Save",
+    .height = 64, .font_size = 14, .align = WLX_CENTER,
+    .texture = save_icon,
+    .image_placement = WLX_IMAGE_PLACEMENT_TOP,
+    .image_size = 28, .image_text_gap = 6
+)) {
+    save_data();
+}
+```
+
+Tinted icon, fades with the opacity stack:
+
+```c
+wlx_push_opacity(ctx, 0.5f);
+    wlx_button(ctx, "",
+        .texture = save_icon,
+        .texture_tint = (WLX_Color){200, 220, 255, 255},
+        .image_size = 32, .align = WLX_CENTER);
+wlx_pop_opacity(ctx);
 ```
 
 ---

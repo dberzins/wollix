@@ -404,6 +404,36 @@ typedef enum {
 } WLX_Layout_Kind;
 ```
 
+### `WLX_Image_Scale`
+
+```c
+typedef enum {
+    WLX_IMAGE_SCALE_STRETCH = 0,
+    WLX_IMAGE_SCALE_FIT,
+    WLX_IMAGE_SCALE_FILL,
+    WLX_IMAGE_SCALE_NONE,
+} WLX_Image_Scale;
+```
+
+How a texture is fitted into a target rect. Used by `wlx_image` and image-capable
+`wlx_button`. `STRETCH` distorts the image to the target; `FIT` preserves
+aspect with letterbox/pillarbox; `FILL` preserves aspect by cropping the
+source; `NONE` renders 1:1 pixels anchored by the alignment.
+
+### `WLX_Image_Placement`
+
+```c
+typedef enum {
+    WLX_IMAGE_PLACEMENT_LEFT = 0,
+    WLX_IMAGE_PLACEMENT_RIGHT,
+    WLX_IMAGE_PLACEMENT_TOP,
+    WLX_IMAGE_PLACEMENT_BOTTOM,
+} WLX_Image_Placement;
+```
+
+Where an image sits relative to text inside an image-capable widget. Used by
+image+text `wlx_button`.
+
 ---
 
 ## Types — Input
@@ -1649,11 +1679,37 @@ brightens it automatically. Returns `true` on the frame the click completes
 (press then release while hovering) or on keyboard activation (Space/Enter
 while hovered).
 
-**Option struct:** `WLX_Button_Opt` — same fields as `WLX_Label_Opt` except
-no `show_background` (button always draws its background).
+The same call supports text-only, image-only, and image+text content modes
+through `WLX_Button_Opt` — there is no separate `wlx_image_button` function.
+Mode is selected by the inputs:
+
+- `text` non-empty, no `texture` → text-only.
+- `texture` valid, `text` is `""` → image-only.
+- both valid → image+text.
+
+**Option struct:** `WLX_Button_Opt`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| *shared fields* | | | placement, sizing, typography (default `wrap = true`), colors, border |
+| `texture` | `WLX_Texture` | zero handle | Optional image content. `width/height <= 0` means no image. |
+| `texture_src` | `WLX_Rect` | `{0}` | Source sub-rect. `w/h <= 0` means the full texture. |
+| `texture_scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_FIT` | How the texture fits its image rect. |
+| `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`; alpha multiplied by the opacity stack. |
+| `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Image position relative to text in image+text mode. |
+| `image_size` | `float` | `0` | Reserved square size. `<= 0` derives from `font_size` (image+text) or uses the full button rect (image-only). |
+| `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
+| `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site. |
 
 Button captions follow the same fitted line/run layout and per-line alignment
-behavior as labels.
+behavior as labels. Hover modulates only the chrome background — the texture
+tint is not double-modulated by hover.
+
+`align` positions the combined image+text block inside the button rect (or
+the image-only sub-rect when `image_size > 0`); `image_placement` controls
+which side of the text the image sits on. The two are independent.
+
+See also: [`WLX_Image_Scale`](#wlx_image_scale), [`WLX_Image_Placement`](#wlx_image_placement).
 
 ---
 

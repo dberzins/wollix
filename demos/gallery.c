@@ -739,6 +739,40 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
             st->button_click_count++;
         }
 
+        SUB_HEADING(ctx, "Image-Capable Buttons");
+
+        if (gallery_has_texture_assets()) {
+            Gallery_Checkbox_Textures icons = gallery_texture_checkbox_assets();
+
+            wlx_layout_begin(ctx, 3, WLX_HORZ, .gap = 8);
+                if (wlx_button(ctx, "",
+                    .height = bh, .align = WLX_CENTER,
+                    .texture = icons.checked, .image_size = (float)bh - 16.0f)) {
+                    st->button_click_count++;
+                }
+                if (wlx_button(ctx, "Confirm",
+                    .height = bh, .align = WLX_CENTER, .font_size = fs,
+                    .texture = icons.checked,
+                    .image_placement = WLX_IMAGE_PLACEMENT_LEFT,
+                    .image_size = (float)bh - 16.0f)) {
+                    st->button_click_count++;
+                }
+                if (wlx_button(ctx, "Stacked",
+                    .height = bh, .align = WLX_CENTER, .font_size = fs,
+                    .texture = icons.checked,
+                    .image_placement = WLX_IMAGE_PLACEMENT_TOP,
+                    .image_size = (float)bh * 0.5f)) {
+                    st->button_click_count++;
+                }
+            wlx_layout_end(ctx);
+        } else {
+            wlx_label(ctx, "Texture assets unavailable on this host yet.",
+                .height = ROW_H, .font_size = fs,
+                .show_background = true,
+                .back_color = GALLERY_ROLE(ctx, color_surface_2),
+                .front_color = GALLERY_ROLE(ctx, color_text_2));
+        }
+
         char click_buf[64];
         snprintf(click_buf, sizeof(click_buf), "Click count: %d", st->button_click_count);
         wlx_label(ctx, click_buf,

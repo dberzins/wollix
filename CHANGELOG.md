@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Image-capable button:** `wlx_button` now supports text-only, image-only,
+  and image + text content modes through new `WLX_Button_Opt` fields
+  (`texture`, `texture_src`, `texture_scale`, `texture_tint`,
+  `image_placement`, `image_size`, `image_text_gap`). Mode is selected by
+  the inputs — there is no separate `wlx_image_button` function or option
+  struct. New public `WLX_Image_Placement` enum
+  (`LEFT`/`RIGHT`/`TOP`/`BOTTOM`) controls image position relative to text;
+  `align` continues to position the combined block. The shared
+  source/destination fitting math is now a private helper used by both
+  `wlx_image` and `wlx_button`. Texture tint folds through the opacity
+  stack; hover modulates only the chrome background. New
+  `demos/button_image` Raylib demo and a gallery row in the Button section
+  exercise all three modes, four placements, and four scale modes.
 - **Image widget:** new `wlx_image` widget with `WLX_Image_Scale` enum
   (`STRETCH`, `FIT`, `FILL`, `NONE`), `WLX_Image_Opt` option struct
   (scale mode, image-content alignment, tint, source sub-rect, opacity

@@ -75,6 +75,10 @@
 // wlx_image scale modes, alignment anchors, src defaults, tint + opacity
 #include "test_image.c"
 
+// Image-capable wlx_button: text-only regression, image-only, image + text,
+// placement, scale parity, empty fallbacks, opacity, hover, slot consumption
+#include "test_button_image.c"
+
 int main(void) {
     RUN_SUITE(layout_math);
     RUN_SUITE(color);
@@ -103,5 +107,6 @@ int main(void) {
     RUN_SUITE(container_scope);
     RUN_SUITE(perf);
     RUN_SUITE(image);
+    RUN_SUITE(button_image);
     return test_summary();
 }

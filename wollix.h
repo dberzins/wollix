@@ -1764,6 +1764,25 @@ typedef struct {
 WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt, const char *file, int line);
 #define wlx_label(ctx, text, ...) wlx_label_impl((ctx), (text), wlx_default_label_opt(__VA_ARGS__), __FILE__, __LINE__)
 
+// Shared image public types. Used by image-capable widgets such as wlx_image
+// and wlx_button. STRETCH matches the raw draw_texture behavior; FIT preserves
+// aspect with letterbox/pillarbox; FILL preserves aspect by cropping the
+// source rect; NONE renders 1:1 pixels anchored by `align`.
+typedef enum {
+    WLX_IMAGE_SCALE_STRETCH = 0,
+    WLX_IMAGE_SCALE_FIT,
+    WLX_IMAGE_SCALE_FILL,
+    WLX_IMAGE_SCALE_NONE,
+} WLX_Image_Scale;
+
+// Where an image sits relative to text inside an image-capable widget.
+typedef enum {
+    WLX_IMAGE_PLACEMENT_LEFT = 0,
+    WLX_IMAGE_PLACEMENT_RIGHT,
+    WLX_IMAGE_PLACEMENT_TOP,
+    WLX_IMAGE_PLACEMENT_BOTTOM,
+} WLX_Image_Placement;
+
 typedef struct {
     // Placement
     WLX_LAYOUT_SLOT_FIELDS;
@@ -1779,6 +1798,15 @@ typedef struct {
 
     // Border
     WLX_BORDER_FIELDS;
+
+    // Optional image content. .texture = {0} means text-only.
+    WLX_Texture         texture;
+    WLX_Rect            texture_src;     // src.w <= 0 -> full texture
+    WLX_Image_Scale     texture_scale;   // default WLX_IMAGE_SCALE_FIT
+    WLX_Color           texture_tint;    // {0} -> WLX_WHITE
+    WLX_Image_Placement image_placement; // default WLX_IMAGE_PLACEMENT_LEFT
+    float               image_size;      // <= 0 -> automatic
+    float               image_text_gap;  // < 0 -> font-derived
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
@@ -1797,6 +1825,14 @@ typedef struct {
         WLX_TEXT_COLOR_DEFAULTS, \
         /* Border */ \
         WLX_BORDER_DEFAULTS, \
+        /* Image content (inert by default) */ \
+        .texture = {0}, \
+        .texture_src = {0}, \
+        .texture_scale = WLX_IMAGE_SCALE_FIT, \
+        .texture_tint = {0}, \
+        .image_placement = WLX_IMAGE_PLACEMENT_LEFT, \
+        .image_size = 0, \
+        .image_text_gap = -1, \
         __VA_ARGS__ \
     }
 
@@ -2012,16 +2048,6 @@ typedef struct {
 
 WLXDEF void wlx_progress_impl(WLX_Context *ctx, float value, WLX_Progress_Opt opt, const char *file, int line);
 #define wlx_progress(ctx, value, ...) wlx_progress_impl((ctx), (value), wlx_default_progress_opt(__VA_ARGS__), __FILE__, __LINE__)
-
-// Scale modes for wlx_image. STRETCH matches the raw draw_texture behavior;
-// FIT preserves aspect with letterbox/pillarbox; FILL preserves aspect by
-// cropping the source rect; NONE renders 1:1 pixels anchored by `align`.
-typedef enum {
-    WLX_IMAGE_SCALE_STRETCH = 0,
-    WLX_IMAGE_SCALE_FIT,
-    WLX_IMAGE_SCALE_FILL,
-    WLX_IMAGE_SCALE_NONE,
-} WLX_Image_Scale;
 
 typedef struct {
     WLX_LAYOUT_SLOT_FIELDS;
@@ -5824,14 +5850,200 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
     wlx_widget_frame_end(ctx, frame);
 }
 
+// Resolve drawing rects for an image fitted into a target rect using the
+// given scale mode and alignment. Inputs: target rect to fit into and a
+// normalized source rect (w, h > 0). Outputs: source rect to sample (FILL
+// may crop) and destination rect to draw into. Shared between wlx_image
+// and the image branch of wlx_button.
+static void wlx_resolve_image_fit(
+    WLX_Rect target, 
+    WLX_Rect src, 
+    WLX_Image_Scale scale, 
+    WLX_Align align,
+    WLX_Rect *out_src, 
+    WLX_Rect *out_dst) 
+{
+
+    WLX_Rect s = src;
+    WLX_Rect dst = target;
+    switch (scale) {
+        case WLX_IMAGE_SCALE_STRETCH:
+            dst = target;
+            break;
+
+        case WLX_IMAGE_SCALE_NONE:
+            dst = wlx_get_align_rect(target, s.w, s.h, align);
+            break;
+
+        case WLX_IMAGE_SCALE_FIT: {
+            float sx = target.w / s.w;
+            float sy = target.h / s.h;
+            float k  = sx < sy ? sx : sy;
+            dst = wlx_get_align_rect(target, s.w * k, s.h * k, align);
+            break;
+        }
+
+        case WLX_IMAGE_SCALE_FILL: {
+            // Narrow s to match target's aspect; align selects which edge survives.
+            if (target.h > 0 && s.h > 0) {
+                float t_aspect = target.w / target.h;
+                float s_aspect = s.w  / s.h;
+                if (s_aspect > t_aspect) {
+                    float new_w = s.h * t_aspect;
+                    switch (align) {
+                        case WLX_LEFT: case WLX_TOP_LEFT: case WLX_BOTTOM_LEFT:
+                            break;
+                        case WLX_RIGHT: case WLX_TOP_RIGHT: case WLX_BOTTOM_RIGHT:
+                            s.x += (s.w - new_w);
+                            break;
+                        default:
+                            s.x += (s.w - new_w) * 0.5f;
+                            break;
+                    }
+                    s.w = new_w;
+                } else if (s_aspect < t_aspect) {
+                    float new_h = s.w / t_aspect;
+                    switch (align) {
+                        case WLX_TOP: case WLX_TOP_LEFT: case WLX_TOP_RIGHT: case WLX_TOP_CENTER:
+                            break;
+                        case WLX_BOTTOM: case WLX_BOTTOM_LEFT: case WLX_BOTTOM_RIGHT: case WLX_BOTTOM_CENTER:
+                            s.y += (s.h - new_h);
+                            break;
+                        default:
+                            s.y += (s.h - new_h) * 0.5f;
+                            break;
+                    }
+                    s.h = new_h;
+                }
+            }
+            dst = target;
+            break;
+        }
+    }
+    *out_src = s;
+    *out_dst = dst;
+}
+
+// True when a button option carries a drawable texture.
+static inline bool wlx_button_has_image(const WLX_Button_Opt *opt) {
+    return opt->texture.width > 0 && opt->texture.height > 0;
+}
+
+// Resolve a button's image source rect. An unset texture_src (w/h <= 0)
+// means use the full texture.
+static inline WLX_Rect wlx_button_image_src(const WLX_Button_Opt *opt) {
+    WLX_Rect s = opt->texture_src;
+    if (s.w <= 0 || s.h <= 0) {
+        s = (WLX_Rect){ 0, 0, (float)opt->texture.width, (float)opt->texture.height };
+    }
+    return s;
+}
+
+// Compute a reserved square size for a button's image content.
+//   image_size > 0      -> caller-specified, used as-is.
+//   has_text + horiz    -> derived from font_size, clamped to button height.
+//   has_text + vert     -> derived from font_size, clamped to button width.
+//   image-only          -> smaller of button width/height.
+static inline float wlx_button_auto_image_size(
+    const WLX_Button_Opt *opt,
+    WLX_Rect button_rect, 
+    float font_size, 
+    bool has_text) 
+{
+    if (opt->image_size > 0) return opt->image_size;
+    
+    if (!has_text) {
+        float m = button_rect.w < button_rect.h ? button_rect.w : button_rect.h;
+        return m > 0 ? m : 0;
+    }
+    float s = font_size * 1.5f;
+    
+    bool horizontal = (opt->image_placement == WLX_IMAGE_PLACEMENT_LEFT || opt->image_placement == WLX_IMAGE_PLACEMENT_RIGHT);
+    
+    float clamp = horizontal ? button_rect.h : button_rect.w;
+    if (clamp > 0 && s > clamp) s = clamp;
+    
+    return s > 0 ? s : 0;
+}
+
+// Compute image and text rects for an image+text button. The combined block
+// (image + gap + text) is aligned inside button_rect using `align`; the
+// reserved image rect is square (image_size x image_size) and centered on
+// the cross axis within the block.
+static inline void wlx_button_layout_mixed(
+    WLX_Rect button_rect, 
+    WLX_Image_Placement placement,
+    float image_size,
+    float gap,
+    float text_w,
+    float text_h,
+    WLX_Align align,
+    WLX_Rect *out_image_rect,
+    WLX_Rect *out_text_rect) 
+{
+    bool horizontal = (placement == WLX_IMAGE_PLACEMENT_LEFT || placement == WLX_IMAGE_PLACEMENT_RIGHT);
+
+    float block_w, block_h;
+    if (horizontal) {
+        block_w = image_size + gap + text_w;
+        block_h = image_size > text_h ? image_size : text_h;
+    } else {
+        block_w = image_size > text_w ? image_size : text_w;
+        block_h = image_size + gap + text_h;
+    }
+    if (block_w > button_rect.w) block_w = button_rect.w;
+    if (block_h > button_rect.h) block_h = button_rect.h;
+    if (block_w < 0) block_w = 0;
+    if (block_h < 0) block_h = 0;
+
+    WLX_Rect block = wlx_get_align_rect(button_rect, block_w, block_h, align);
+
+    WLX_Rect img, txt;
+    if (horizontal) {
+        float img_y = block.y + (block.h - image_size) * 0.5f;
+        if (img_y < block.y) img_y = block.y;
+        float available_text_w = block.w - image_size - gap;
+        if (available_text_w < 0) available_text_w = 0;
+        if (placement == WLX_IMAGE_PLACEMENT_LEFT) {
+            img = (WLX_Rect){ block.x, img_y, image_size, image_size };
+            txt = (WLX_Rect){ block.x + image_size + gap, block.y, available_text_w, block.h };
+        } else {
+            txt = (WLX_Rect){ block.x, block.y, available_text_w, block.h };
+            img = (WLX_Rect){ block.x + available_text_w + gap, img_y, image_size, image_size };
+        }
+    } else {
+        float img_x = block.x + (block.w - image_size) * 0.5f;
+        if (img_x < block.x) img_x = block.x;
+        float available_text_h = block.h - image_size - gap;
+        if (available_text_h < 0) available_text_h = 0;
+        if (placement == WLX_IMAGE_PLACEMENT_TOP) {
+            img = (WLX_Rect){ img_x, block.y, image_size, image_size };
+            txt = (WLX_Rect){ block.x, block.y + image_size + gap, block.w, available_text_h };
+        } else {
+            txt = (WLX_Rect){ block.x, block.y, block.w, available_text_h };
+            img = (WLX_Rect){ img_x, block.y + available_text_h + gap, image_size, image_size };
+        }
+    }
+
+    *out_image_rect = img;
+    *out_text_rect = txt;
+}
+
 static void wlx_resolve_opt_button(const WLX_Context *ctx, WLX_Button_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
+
     if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
+
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
+
+    if (wlx_color_is_zero(opt->texture_tint)) opt->texture_tint = WLX_WHITE;
+    if (opt->image_text_gap < 0)              opt->image_text_gap = opt->font_size * 0.5f;
+    // image_size <= 0 stays unresolved; resolved against the frame rect later.
+
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color);
+    WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color, &opt->texture_tint);
 }
 
 WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt opt, const char *file, int line)
@@ -5860,7 +6072,44 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
         .rounded_segments = opt.rounded_segments,
     });
 
-    wlx_draw_text_fitted(ctx, wr, text, (WLX_Text_Style){ .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing }, opt.align, opt.wrap);
+    size_t text_len = (text != NULL) ? strlen(text) : 0;
+    bool   has_text  = text_len > 0;
+    bool   has_image = wlx_button_has_image(&opt);
+    WLX_Text_Style ts = {
+        .font      = opt.font,
+        .font_size = opt.font_size,
+        .color     = opt.front_color,
+        .spacing   = opt.spacing,
+    };
+
+    if (has_image && has_text) {
+        float text_w = 0.0f, text_h = 0.0f;
+        wlx_measure_text_slice(ctx, text, text_len, ts, &text_w, &text_h);
+
+        float image_size = wlx_button_auto_image_size(&opt, wr, opt.font_size, true);
+
+        WLX_Rect image_rect, text_rect;
+        wlx_button_layout_mixed(wr, opt.image_placement, image_size, opt.image_text_gap,
+            text_w, text_h, opt.align, &image_rect, &text_rect);
+
+        WLX_Rect src = wlx_button_image_src(&opt);
+        WLX_Rect tex_src, tex_dst;
+        wlx_resolve_image_fit(image_rect, src, opt.texture_scale, WLX_CENTER, &tex_src, &tex_dst);
+        wlx_draw_texture(ctx, opt.texture, tex_src, tex_dst, opt.texture_tint);
+
+        wlx_draw_text_fitted_slice(ctx, text_rect, text, text_len, ts, opt.align, opt.wrap);
+    } else if (has_image) {
+        WLX_Rect target = (opt.image_size > 0)
+            ? wlx_get_align_rect(wr, opt.image_size, opt.image_size, opt.align)
+            : wr;
+        WLX_Rect src = wlx_button_image_src(&opt);
+        WLX_Rect tex_src, tex_dst;
+        wlx_resolve_image_fit(target, src, opt.texture_scale, opt.align, &tex_src, &tex_dst);
+        wlx_draw_texture(ctx, opt.texture, tex_src, tex_dst, opt.texture_tint);
+    } else if (has_text) {
+        wlx_draw_text_fitted_slice(ctx, wr, text, text_len, ts, opt.align, opt.wrap);
+    }
+    // No text and no image: chrome-only; click contract preserved.
 
     // Epilogue: close widget frame
     wlx_widget_frame_end(ctx, frame);
@@ -5870,14 +6119,17 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
 
 static void wlx_resolve_opt_checkbox(const WLX_Context *ctx, WLX_Checkbox_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
+    
     if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
     if (wlx_color_is_zero(opt->check_color)) opt->check_color = theme->checkbox.check;
     // Widget-specific border fallbacks before common helper
     if (wlx_color_is_zero(opt->border_color))         opt->border_color = theme->checkbox.border;
     if (wlx_is_negative_unset(opt->border_width)) opt->border_width = theme->checkbox.border_width;
+    
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
+    
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
     WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color, &opt->check_color);
 }
@@ -5975,23 +6227,26 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
 
 static void wlx_resolve_opt_inputbox(const WLX_Context *ctx, WLX_Inputbox_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
+   
     if (wlx_color_is_zero(opt->front_color))        opt->front_color        = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))         opt->back_color         = theme->surface;
     // Widget-specific border_width fallback before common helper
     if (wlx_is_negative_unset(opt->border_width))   opt->border_width       = theme->input.border_width;
     if (wlx_color_is_zero(opt->border_focus_color)) opt->border_focus_color = theme->input.border_focus;
     if (wlx_color_is_zero(opt->cursor_color))       opt->cursor_color       = theme->input.cursor;
+   
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
+   
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
     WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color,
-                      &opt->border_focus_color, &opt->cursor_color);
+        &opt->border_focus_color, &opt->cursor_color);
 }
 
 // Handle keyboard input for an active inputbox: cursor movement, text insertion,
 // and backspace deletion. Called each frame while the inputbox is focused.
 static void wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state,
-                                      char *buffer, size_t buffer_size, bool just_focused)
+    char *buffer, size_t buffer_size, bool just_focused)
 {
     size_t current_len = strlen(buffer);
     bool changed_cursor_or_text = false;
@@ -6068,7 +6323,9 @@ static void wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state
     if (changed_cursor_or_text) state->cursor_blink_time = 0.0f;
 }
 
-WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_size, WLX_Inputbox_Opt opt, const char *file, int line) {
+WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_size, 
+    WLX_Inputbox_Opt opt, const char *file, int line) 
+{
     assert(ctx != NULL);
     assert(buffer != NULL && "inputbox buffer must not be NULL");
     assert(buffer_size >= 2 && "buffer_size must hold at least 1 char + null terminator");
@@ -6218,6 +6475,7 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
 
 static void wlx_resolve_opt_slider(const WLX_Context *ctx, WLX_Slider_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
+    
     if (wlx_color_is_zero(opt->track_color))        opt->track_color            = theme->slider.track;
     if (wlx_color_is_zero(opt->thumb_color))        opt->thumb_color            = theme->slider.thumb;
     if (wlx_color_is_zero(opt->label_color))        opt->label_color            = theme->slider.label;
@@ -6235,6 +6493,7 @@ static void wlx_resolve_opt_slider(const WLX_Context *ctx, WLX_Slider_Opt *opt) 
     if (opt->rounded_segments < ctx->theme->min_rounded_segments) opt->rounded_segments = ctx->theme->min_rounded_segments;
     if (wlx_is_float_unset(opt->hover_brightness))       opt->hover_brightness       = theme->hover_brightness;
     if (wlx_is_float_unset(opt->thumb_hover_brightness)) opt->thumb_hover_brightness = opt->hover_brightness * 0.5f;
+    
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
     WLX_APPLY_OPACITY(opt->opacity, &opt->track_color, &opt->thumb_color, &opt->label_color, &opt->border_color);
 }
@@ -6493,65 +6752,13 @@ WLXDEF void wlx_image_impl(WLX_Context *ctx, WLX_Texture texture, WLX_Image_Opt 
         s = (WLX_Rect){ 0, 0, (float)texture.width, (float)texture.height };
     }
 
-    WLX_Rect dst = wr;
-    switch (opt.scale) {
-        case WLX_IMAGE_SCALE_STRETCH:
-            dst = wr;
-            break;
+    WLX_Rect dst;
+    wlx_resolve_image_fit(wr, s, opt.scale, opt.align, &s, &dst);
 
-        case WLX_IMAGE_SCALE_NONE:
-            dst = wlx_get_align_rect(wr, s.w, s.h, opt.align);
-            break;
-
-        case WLX_IMAGE_SCALE_FIT: {
-            float sx = wr.w / s.w;
-            float sy = wr.h / s.h;
-            float k  = sx < sy ? sx : sy;
-            dst = wlx_get_align_rect(wr, s.w * k, s.h * k, opt.align);
-            break;
-        }
-
-        case WLX_IMAGE_SCALE_FILL: {
-            // Narrow s to match wr's aspect; align selects which edge survives.
-            if (wr.h > 0 && s.h > 0) {
-                float wr_aspect = wr.w / wr.h;
-                float s_aspect  = s.w  / s.h;
-                if (s_aspect > wr_aspect) {
-                    float new_w = s.h * wr_aspect;
-                    switch (opt.align) {
-                        case WLX_LEFT: case WLX_TOP_LEFT: case WLX_BOTTOM_LEFT:
-                            break;
-                        case WLX_RIGHT: case WLX_TOP_RIGHT: case WLX_BOTTOM_RIGHT:
-                            s.x += (s.w - new_w);
-                            break;
-                        default:
-                            s.x += (s.w - new_w) * 0.5f;
-                            break;
-                    }
-                    s.w = new_w;
-                } else if (s_aspect < wr_aspect) {
-                    float new_h = s.w / wr_aspect;
-                    switch (opt.align) {
-                        case WLX_TOP: case WLX_TOP_LEFT: case WLX_TOP_RIGHT: case WLX_TOP_CENTER:
-                            break;
-                        case WLX_BOTTOM: case WLX_BOTTOM_LEFT: case WLX_BOTTOM_RIGHT: case WLX_BOTTOM_CENTER:
-                            s.y += (s.h - new_h);
-                            break;
-                        default:
-                            s.y += (s.h - new_h) * 0.5f;
-                            break;
-                    }
-                    s.h = new_h;
-                }
-            }
-            assert(s.x >= 0.0f && s.y >= 0.0f
-                   && s.x + s.w <= (float)texture.width  + 0.5f
-                   && s.y + s.h <= (float)texture.height + 0.5f
-                   && "wlx_image: FILL crop produced out-of-bounds src rect");
-            dst = wr;
-            break;
-        }
-    }
+    assert(s.x >= 0.0f && s.y >= 0.0f
+           && s.x + s.w <= (float)texture.width  + 0.5f
+           && s.y + s.h <= (float)texture.height + 0.5f
+           && "wlx_image: FILL crop produced out-of-bounds src rect");
 
     wlx_draw_texture(ctx, texture, s, dst, opt.tint);
 
