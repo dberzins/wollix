@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Image-capable label:** `wlx_label` now supports text-only and
+  text + image content modes through the existing `wlx_label(ctx, text, ...)`
+  call, with image-only as a supported edge case (use `wlx_image` for pure
+  image content). New `WLX_Label_Opt` fields mirror the button surface
+  (`texture`, `texture_src`, `texture_scale`, `texture_tint`,
+  `image_placement`, `image_size`, `image_text_gap`). No separate
+  `wlx_image_label` / `wlx_label_image` function or option struct is
+  introduced. Labels remain non-interactive: hover-brightness still applies
+  only to the optional background when `show_background = true`, and
+  texture tint folds through the opacity stack but is never modulated by
+  hover. The private image content helpers used by `wlx_button` were
+  renamed to widget-neutral names (`wlx_widget_has_image`,
+  `wlx_widget_image_src`, `wlx_widget_auto_image_size`,
+  `wlx_widget_layout_image_text`) and now back both widgets without
+  option-struct coupling. New `demos/label_image` Raylib demo and a
+  gallery row in the Label section exercise text-only, text + image,
+  image-only, four placements, four scale modes, and a row with
+  `show_background = true`.
 - **Image-capable button:** `wlx_button` now supports text-only, image-only,
   and image + text content modes through new `WLX_Button_Opt` fields
   (`texture`, `texture_src`, `texture_scale`, `texture_tint`,

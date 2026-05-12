@@ -415,10 +415,11 @@ typedef enum {
 } WLX_Image_Scale;
 ```
 
-How a texture is fitted into a target rect. Used by `wlx_image` and image-capable
-`wlx_button`. `STRETCH` distorts the image to the target; `FIT` preserves
-aspect with letterbox/pillarbox; `FILL` preserves aspect by cropping the
-source; `NONE` renders 1:1 pixels anchored by the alignment.
+How a texture is fitted into a target rect. Used by `wlx_image` and the
+image-capable `wlx_button` / `wlx_label`. `STRETCH` distorts the image to the
+target; `FIT` preserves aspect with letterbox/pillarbox; `FILL` preserves
+aspect by cropping the source; `NONE` renders 1:1 pixels anchored by the
+alignment.
 
 ### `WLX_Image_Placement`
 
@@ -432,7 +433,7 @@ typedef enum {
 ```
 
 Where an image sits relative to text inside an image-capable widget. Used by
-image+text `wlx_button`.
+image+text `wlx_button` and image+text `wlx_label`.
 
 ---
 
@@ -1646,8 +1647,19 @@ wlx_widget(ctx,
 // void — no return value
 ```
 
-Static text label. Renders text fitted within its slot rect. Optional filled
-background when `show_background = true`.
+Static text label. Non-interactive regardless of content mode. Renders text
+fitted within its slot rect; optional filled background when
+`show_background = true` (which is the only place hover-brightness is
+applied).
+
+The same call supports text-only and text + image content modes through
+`WLX_Label_Opt` — there is no separate `wlx_image_label` or `wlx_label_image`
+function. Image-only is supported as an edge case; for pure image content
+prefer [`wlx_image`](#widget--wlx_image). Mode is selected by the inputs:
+
+- `text` non-empty, no `texture` → text-only.
+- both valid → text + image.
+- `texture` valid, `text` is `""` → image-only (edge case).
 
 **Option struct:** `WLX_Label_Opt`
 
@@ -1658,12 +1670,29 @@ background when `show_background = true`.
 | *typography* | | | `font`, `font_size`, `align`, `wrap` (default `true`) |
 | *colors* | | | `front_color`, `back_color` |
 | *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
-| `show_background` | `bool` | `false` | Draw filled background behind text |
+| `show_background` | `bool` | `false` | Draw filled background behind content. Hover brightens the fill only when this is `true`. |
+| `texture` | `WLX_Texture` | zero handle | Optional image content. `width/height <= 0` means no image. |
+| `texture_src` | `WLX_Rect` | `{0}` | Source sub-rect. `w/h <= 0` means the full texture. |
+| `texture_scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_FIT` | How the texture fits its image rect. |
+| `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`; alpha multiplied by the opacity stack. |
+| `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Image position relative to text in text + image mode. |
+| `image_size` | `float` | `0` | Reserved square size. `<= 0` derives from `font_size` (text + image) or uses the full label rect (image-only). |
+| `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 Wrapped fitted labels break greedily at UTF-8 codepoint boundaries, honor
 explicit `\n`, `\r\n`, and `\r` separators, and emit one backend text draw per
-visible line.
+visible line. Labels are non-interactive: hover modulates only the optional
+background, never the texture tint, and labels never consume clicks from
+other widgets.
+
+`align` positions the combined image+text block inside the label rect (or
+the image-only sub-rect when `image_size > 0`); `image_placement` controls
+which side of the text the image sits on. The two are independent.
+
+See also: [`wlx_button`](#widget--wlx_button) for the parallel image-capable
+button surface, [`WLX_Image_Scale`](#wlx_image_scale),
+[`WLX_Image_Placement`](#wlx_image_placement).
 
 ---
 
@@ -1709,7 +1738,9 @@ tint is not double-modulated by hover.
 the image-only sub-rect when `image_size > 0`); `image_placement` controls
 which side of the text the image sits on. The two are independent.
 
-See also: [`WLX_Image_Scale`](#wlx_image_scale), [`WLX_Image_Placement`](#wlx_image_placement).
+See also: [`wlx_label`](#widget--wlx_label) for the parallel non-interactive
+label surface, [`WLX_Image_Scale`](#wlx_image_scale),
+[`WLX_Image_Placement`](#wlx_image_placement).
 
 ---
 

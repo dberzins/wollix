@@ -676,6 +676,35 @@ static void section_label(WLX_Context *ctx, Gallery_State *st) {
             }
         wlx_layout_end(ctx);
 
+        SUB_HEADING(ctx, "Image-Capable Labels");
+
+        if (gallery_has_texture_assets()) {
+            Gallery_Checkbox_Textures icons = gallery_texture_checkbox_assets();
+
+            wlx_layout_begin(ctx, 3, WLX_HORZ, .gap = 8);
+                wlx_label(ctx, "Saved",
+                    .height = ROW_H, .align = WLX_CENTER, .font_size = fs,
+                    .texture = icons.checked, .image_size = (float)ROW_H - 16.0f);
+
+                wlx_label(ctx, "Reminder",
+                    .height = ROW_H, .align = WLX_CENTER, .font_size = fs,
+                    .texture = icons.checked,
+                    .image_placement = WLX_IMAGE_PLACEMENT_RIGHT,
+                    .image_size = (float)ROW_H - 16.0f);
+
+                // Image-only edge case; prefer wlx_image for pure image content.
+                wlx_label(ctx, "",
+                    .height = ROW_H, .align = WLX_CENTER,
+                    .texture = icons.checked, .image_size = (float)ROW_H - 16.0f);
+            wlx_layout_end(ctx);
+        } else {
+            wlx_label(ctx, "Texture assets unavailable on this host yet.",
+                .height = ROW_H, .font_size = fs,
+                .show_background = true,
+                .back_color = GALLERY_ROLE(ctx, color_surface_2),
+                .front_color = GALLERY_ROLE(ctx, color_text_2));
+        }
+
         wlx_panel_end(ctx);
 
     wlx_split_end(ctx);

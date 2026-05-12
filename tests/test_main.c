@@ -79,6 +79,11 @@
 // placement, scale parity, empty fallbacks, opacity, hover, slot consumption
 #include "test_button_image.c"
 
+// Image-capable wlx_label: text-only regression (no chrome by default),
+// image-only edge case, image + text, placement, scale parity with wlx_image,
+// empty fallbacks, opacity, hover, slot consumption, non-interactive contract
+#include "test_label_image.c"
+
 int main(void) {
     RUN_SUITE(layout_math);
     RUN_SUITE(color);
@@ -108,5 +113,6 @@ int main(void) {
     RUN_SUITE(perf);
     RUN_SUITE(image);
     RUN_SUITE(button_image);
+    RUN_SUITE(label_image);
     return test_summary();
 }

@@ -103,10 +103,15 @@ All leaf-widget opt structs include an optional identity field:
 
 ## `wlx_label`
 
-Static text label. Does not return a value and has no interactive behavior
-beyond hover highlighting (when `show_background` is true). Wrapped labels are
-measured and drawn as whole visible lines, and explicit newlines preserve empty
-visual lines.
+Static text label. Does not return a value and is non-interactive regardless
+of content mode — the only hover behavior is brightening the optional
+background fill (when `show_background` is true). Wrapped labels are measured
+and drawn as whole visible lines, and explicit newlines preserve empty visual
+lines.
+
+The same call supports text-only and text + image content through the same
+options. Image-only labels are supported as an edge case; for pure
+non-interactive image rendering prefer [`wlx_image`](#wlx_image).
 
 ### Signature
 
@@ -122,13 +127,52 @@ wlx_label(ctx, "Hello, world!",
 );
 ```
 
+### Content modes
+
+| Mode | Trigger |
+|------|---------|
+| Text-only | `text` is non-empty, no `texture` (or `texture.width <= 0`) |
+| Text + image | both `texture` valid and `text` non-empty |
+| Image-only (edge case) | `texture.width > 0`, `text` is `""` (or `NULL`) — prefer `wlx_image` for pure image content |
+
+Mode is selected purely by the inputs — there is no separate
+`wlx_image_label` or `wlx_label_image` function or option struct.
+
 ### Widget-specific options
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `show_background` | `bool` | `false` | Draw a filled background rectangle behind the text |
+| `show_background` | `bool` | `false` | Draw a filled background rectangle behind the content. When `true`, hover brightens the fill using the theme's `hover_brightness`. |
+| `texture` | `WLX_Texture` | zero handle | Optional image content. `width <= 0` or `height <= 0` means no image. |
+| `texture_src` | `WLX_Rect` | `{0}` | Source sub-rect. `w <= 0` or `h <= 0` means full texture. |
+| `texture_scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_FIT` | How the texture fits its image rect (same modes as `wlx_image`). |
+| `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`. The alpha is multiplied by the opacity stack. |
+| `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Where the image sits relative to text (`LEFT`, `RIGHT`, `TOP`, `BOTTOM`). |
+| `image_size` | `float` | `0` | Reserved square size for the image. `<= 0` is automatic: derived from `font_size` for text + image, or the full label rect for image-only. |
+| `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
 
 All shared placement, sizing, typography, color, and border fields also apply.
+Label content uses the same fitted line/run layout as `wlx_button`, so
+centered or wrapped captions align per visible line. See the matching
+[`wlx_button` image content section](#wlx_button) for the parallel button
+surface — the two widgets share the same image content options and
+fitting helpers.
+
+### Content rules
+
+- **Empty texture + non-empty text** → behaves exactly like a text-only label
+  (no texture draw is emitted).
+- **Empty texture + empty text** → no content is drawn; the chrome (background
+  and/or border) still draws when configured.
+- **`align` vs. `image_placement`** are independent:
+  `image_placement` controls *which side* of the text the image sits on
+  (`LEFT`/`RIGHT`/`TOP`/`BOTTOM` of the text within the combined block);
+  `align` then positions the *combined block* inside the label rect for
+  text + image mode, or the image rect itself for image-only mode when
+  `image_size > 0`.
+- The texture is always centered inside its reserved image rect. Hover
+  feedback applies to the optional background only — texture tint is not
+  modulated by hover, and labels never intercept clicks.
 
 ### Common overrides
 
@@ -153,6 +197,64 @@ wlx_label(ctx, status_text,
     .height = 30,
     .front_color = (WLX_Color){150, 150, 150, 255}
 );
+```
+
+Text + image with default LEFT placement:
+
+```c
+wlx_label(ctx, "Saved",
+    .height = 32, .font_size = 18, .align = WLX_CENTER,
+    .texture = check_icon
+);
+```
+
+Text + image with image stacked on top:
+
+```c
+wlx_label(ctx, "Saved",
+    .height = 56, .font_size = 14, .align = WLX_CENTER,
+    .texture = check_icon,
+    .image_placement = WLX_IMAGE_PLACEMENT_TOP,
+    .image_size = 24, .image_text_gap = 6
+);
+```
+
+Text + image with `RIGHT` and `BOTTOM` placement:
+
+```c
+wlx_label(ctx, "Reminder",
+    .height = 32, .font_size = 16, .align = WLX_CENTER,
+    .texture = info_icon,
+    .image_placement = WLX_IMAGE_PLACEMENT_RIGHT,
+    .image_size = 20
+);
+
+wlx_label(ctx, "Saved",
+    .height = 56, .font_size = 14, .align = WLX_CENTER,
+    .texture = check_icon,
+    .image_placement = WLX_IMAGE_PLACEMENT_BOTTOM,
+    .image_size = 24, .image_text_gap = 6
+);
+```
+
+Image-only label (edge case — prefer `wlx_image` for non-interactive image
+rendering):
+
+```c
+wlx_label(ctx, "",
+    .texture = check_icon, .image_size = 32, .align = WLX_CENTER
+);
+```
+
+Tinted icon, fades with the opacity stack:
+
+```c
+wlx_push_opacity(ctx, 0.5f);
+    wlx_label(ctx, "Saved",
+        .texture = check_icon,
+        .texture_tint = (WLX_Color){200, 220, 255, 255},
+        .image_size = 24, .font_size = 14, .align = WLX_CENTER);
+wlx_pop_opacity(ctx);
 ```
 
 ---
