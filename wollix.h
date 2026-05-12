@@ -1876,9 +1876,17 @@ typedef struct {
     int       rounded_segments;
     WLX_Color check_color;
 
-    // Texture mode (when tex_checked.width > 0, uses texture rendering)
+    // Texture mode: active only when both tex_checked and tex_unchecked
+    // are drawable. Each state has its own source rect and tint, matching
+    // the image-capable label/button/image contract.
+    //   tex_*_src  {0} -> full selected texture
+    //   tex_*_tint {0} -> WLX_WHITE
     WLX_Texture tex_checked;
     WLX_Texture tex_unchecked;
+    WLX_Rect    tex_checked_src;
+    WLX_Rect    tex_unchecked_src;
+    WLX_Color   tex_checked_tint;
+    WLX_Color   tex_unchecked_tint;
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
@@ -1901,6 +1909,10 @@ typedef struct {
         .roundness = -1, \
         .rounded_segments = -1, \
         .check_color = {0}, \
+        .tex_checked_src = {0}, \
+        .tex_unchecked_src = {0}, \
+        .tex_checked_tint = {0}, \
+        .tex_unchecked_tint = {0}, \
         __VA_ARGS__ \
     }
 
@@ -6000,6 +6012,13 @@ static inline bool wlx_widget_has_image(WLX_Texture texture) {
     return texture.width > 0 && texture.height > 0;
 }
 
+// True when both checkbox state textures are drawable. Texture mode is
+// gated on this so a half-configured checkbox cannot draw a partial
+// texture path; if either state is missing, the native path runs instead.
+static inline bool wlx_checkbox_texture_mode_active(WLX_Texture checked, WLX_Texture unchecked) {
+    return wlx_widget_has_image(checked) && wlx_widget_has_image(unchecked);
+}
+
 // Resolve a widget's image source rect. An unset texture_src (w/h <= 0)
 // means use the full texture.
 static inline WLX_Rect wlx_widget_image_src(WLX_Texture texture, WLX_Rect texture_src) {
@@ -6191,19 +6210,23 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
 
 static void wlx_resolve_opt_checkbox(const WLX_Context *ctx, WLX_Checkbox_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
-    
+
     if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
     if (wlx_color_is_zero(opt->check_color)) opt->check_color = theme->checkbox.check;
+    if (wlx_color_is_zero(opt->tex_checked_tint))   opt->tex_checked_tint   = WLX_WHITE;
+    if (wlx_color_is_zero(opt->tex_unchecked_tint)) opt->tex_unchecked_tint = WLX_WHITE;
     // Widget-specific border fallbacks before common helper
     if (wlx_color_is_zero(opt->border_color))         opt->border_color = theme->checkbox.border;
     if (wlx_is_negative_unset(opt->border_width)) opt->border_width = theme->checkbox.border_width;
-    
+
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-    
+
     opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color, &opt->check_color);
+    WLX_APPLY_OPACITY(opt->opacity,
+        &opt->front_color, &opt->back_color, &opt->border_color, &opt->check_color,
+        &opt->tex_checked_tint, &opt->tex_unchecked_tint);
 }
 
 WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked, WLX_Checkbox_Opt opt, const char *file, int line)
@@ -6242,15 +6265,18 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
 
     WLX_Color checkbox_bg = inter.hover ? wlx_color_brightness(opt.back_color, ctx->theme->hover_brightness) : opt.back_color;
 
-    if (opt.tex_checked.width > 0) {
-        // Texture mode - draw checked/unchecked texture
-        WLX_Texture current_tex = (checked != NULL && *checked) ? opt.tex_checked : opt.tex_unchecked;
+    if (wlx_checkbox_texture_mode_active(opt.tex_checked, opt.tex_unchecked)) {
+        bool        is_checked   = (checked != NULL && *checked);
+        WLX_Texture current_tex  = is_checked ? opt.tex_checked      : opt.tex_unchecked;
+        WLX_Rect    current_src  = is_checked ? opt.tex_checked_src  : opt.tex_unchecked_src;
+        WLX_Color   current_tint = is_checked ? opt.tex_checked_tint : opt.tex_unchecked_tint;
+        WLX_Rect    src          = wlx_widget_image_src(current_tex, current_src);
         wlx_draw_texture(
             ctx,
             current_tex,
-            (WLX_Rect){0, 0, (float)current_tex.width, (float)current_tex.height},
+            src,
             (WLX_Rect){checkbox_rect.x, checkbox_rect.y, checkbox_rect.w, checkbox_rect.h},
-            checkbox_bg
+            current_tint
         );
     } else {
         // Native mode - draw box + checkmark lines

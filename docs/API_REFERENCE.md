@@ -1758,10 +1758,15 @@ label surface, [`WLX_Image_Scale`](#wlx_image_scale),
 
 **Option struct:** `WLX_Checkbox_Opt`
 
-Supports native and texture-backed rendering. When `tex_checked.width > 0`,
-the widget draws textures instead of the default box + check mark. Use
-`wlx_checkbox(..., .tex_checked = ..., .tex_unchecked = ...)` instead of the
-removed `wlx_checkbox_tex` compatibility macro.
+Supports native and texture-backed rendering. Texture mode activates only
+when **both** `tex_checked` and `tex_unchecked` are drawable; otherwise both
+states fall back to native rendering. The texture path follows the same
+source-rect and tint contract as `wlx_label`, `wlx_button`, and `wlx_image`:
+an unset source rect uses the full texture, an unset tint resolves to
+`WLX_WHITE`, both tints participate in opacity resolution, and hover
+brightness does not modulate texture tint. `check_color` only affects native
+rendering. Use `wlx_checkbox(..., .tex_checked = ..., .tex_unchecked = ...)`
+instead of the removed `wlx_checkbox_tex` compatibility macro.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -1771,9 +1776,13 @@ removed `wlx_checkbox_tex` compatibility macro.
 | `border_width` | `float` | `-1` | Indicator border width. `-1` = theme `checkbox.border_width` |
 | `roundness` | `float` | `-1` | Indicator corner roundness. `-1` = theme default |
 | `rounded_segments` | `int` | `-1` | Rounded-corner segment count. `-1` = theme default |
-| `check_color` | `WLX_Color` | `{0}` | Check mark color. `{0}` = theme `checkbox.check` |
-| `tex_checked` | `WLX_Texture` | zero handle | Checked texture. When `width > 0`, the widget uses texture mode |
-| `tex_unchecked` | `WLX_Texture` | zero handle | Unchecked texture paired with `tex_checked` |
+| `check_color` | `WLX_Color` | `{0}` | Checkmark color (native mode only). `{0}` = theme `checkbox.check` |
+| `tex_checked` | `WLX_Texture` | zero handle | Checked-state texture; both `tex_checked` and `tex_unchecked` must be drawable to activate texture mode |
+| `tex_unchecked` | `WLX_Texture` | zero handle | Unchecked-state texture; required alongside `tex_checked` for texture mode |
+| `tex_checked_src` | `WLX_Rect` | `{0}` | Source rect within `tex_checked`. `{0}` (or `w <= 0 \|\| h <= 0`) = full texture |
+| `tex_unchecked_src` | `WLX_Rect` | `{0}` | Source rect within `tex_unchecked`. `{0}` = full texture |
+| `tex_checked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_checked`. `{0}` = `WLX_WHITE` |
+| `tex_unchecked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_unchecked`. `{0}` = `WLX_WHITE` |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---

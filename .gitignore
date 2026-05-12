@@ -55,5 +55,6 @@ demos/gallery_perf
 demos/gallery_sdl3_perf
 demos/image
 demos/button_image
+demos/label_image
 
 dist/

@@ -84,6 +84,12 @@
 // empty fallbacks, opacity, hover, slot consumption, non-interactive contract
 #include "test_label_image.c"
 
+// Image-capable wlx_checkbox texture mode: per-state src and tint, white
+// default tint with opacity folding, both-textures-required activation,
+// fallback to native when either state texture is missing, hover and
+// check_color isolation, layout slot consumption.
+#include "test_checkbox_texture.c"
+
 int main(void) {
     RUN_SUITE(layout_math);
     RUN_SUITE(color);
@@ -114,5 +120,6 @@ int main(void) {
     RUN_SUITE(image);
     RUN_SUITE(button_image);
     RUN_SUITE(label_image);
+    RUN_SUITE(checkbox_texture);
     return test_summary();
 }

@@ -402,9 +402,10 @@ wlx_pop_opacity(ctx);
 
 ## `wlx_checkbox`
 
-Toggle checkbox with a text label. Draws a square indicator beside the label,
-or uses textures when `tex_checked` / `tex_unchecked` are provided. Returns
-`true` on the frame the checked state changes.
+Toggle checkbox with a text label. Draws a square indicator beside the label
+(native mode), or replaces the indicator with a texture per state when both
+`tex_checked` and `tex_unchecked` are provided (texture mode). Returns `true`
+on the frame the checked state changes.
 
 ### Signature
 
@@ -436,18 +437,42 @@ if (wlx_checkbox(ctx, "Dark mode", &dark_mode)) {
 | `border_width` | `float` | `-1` | Indicator border width. `-1` = theme `checkbox.border_width` |
 | `roundness` | `float` | `-1` | Indicator corner roundness. `-1` = theme default |
 | `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
-| `check_color` | `WLX_Color` | `{0}` | Color of the check mark. `{0}` = theme `checkbox.check` |
+| `check_color` | `WLX_Color` | `{0}` | Checkmark color (native mode only). `{0}` = theme `checkbox.check` |
 | `tex_checked` | `WLX_Texture` | zero handle | Texture used for the checked state |
 | `tex_unchecked` | `WLX_Texture` | zero handle | Texture used for the unchecked state |
+| `tex_checked_src` | `WLX_Rect` | `{0}` | Source rect within `tex_checked`. `{0}` = full texture |
+| `tex_unchecked_src` | `WLX_Rect` | `{0}` | Source rect within `tex_unchecked`. `{0}` = full texture |
+| `tex_checked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_checked`. `{0}` = `WLX_WHITE` |
+| `tex_unchecked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_unchecked`. `{0}` = `WLX_WHITE` |
 
 All shared placement, sizing, typography, and color fields also apply.
 Default `wrap` is `false` for checkbox. `.back_color` fills the indicator in
-native mode and tints the texture in texture mode; there is no separate
-row-background toggle.
+native mode only; it is not used in texture mode.
+
+### Texture mode
+
+Texture mode activates only when **both** `tex_checked` and `tex_unchecked`
+are drawable. If either is missing, the widget falls back to native rendering
+for both states; this avoids half-configured checkboxes where one state
+silently disappears.
+
+When active, texture mode follows the same contract as `wlx_label`,
+`wlx_button`, and `wlx_image`:
+
+- An unset source rect (`w <= 0 || h <= 0`) resolves to the full selected
+  texture.
+- An unset tint (`{0}`) resolves to `WLX_WHITE`.
+- Texture tints participate in opacity resolution alongside other resolved
+  colors.
+- Hover brightness does **not** modulate texture tint. Hover feedback
+  remains a native-mode concern; texture tint is caller-controlled.
+- `check_color` only affects native rendering and is ignored in texture mode.
+- No native chrome (background, border, checkmark) is drawn while texture
+  mode is active — the texture is the full replacement.
 
 ### Common overrides
 
-Styled checkbox with custom font size:
+Styled checkbox with custom font size (native mode):
 
 ```c
 if (wlx_checkbox(ctx, "Enable notifications", &notify_enabled,
@@ -458,17 +483,37 @@ if (wlx_checkbox(ctx, "Enable notifications", &notify_enabled,
 }
 ```
 
-Texture-backed checkbox using the same API:
+Texture-backed checkbox with two separate per-state textures (default white
+tint draws the textures at their authored colors):
 
 ```c
 if (wlx_checkbox(ctx, "Favorite", &favorited,
     .tex_checked   = star_filled_tex,
-    .tex_unchecked = star_empty_tex,
-    .back_color = (WLX_Color){255, 255, 255, 255}
+    .tex_unchecked = star_empty_tex
 )) {
     printf("Favorited: %s\n", favorited ? "yes" : "no");
 }
 ```
+
+Shared atlas using per-state source rects and semantic tints (one texture,
+two cells, two roles):
+
+```c
+WLX_Rect src_unchecked = (WLX_Rect){ 0, 0, 64, 64};
+WLX_Rect src_checked   = (WLX_Rect){64, 0, 64, 64};
+
+wlx_checkbox(ctx, "Sync over cellular", &sync_enabled,
+    .tex_checked        = icon_atlas,
+    .tex_unchecked      = icon_atlas,
+    .tex_checked_src    = src_checked,
+    .tex_unchecked_src  = src_unchecked,
+    .tex_checked_tint   = semantic.color_accent,
+    .tex_unchecked_tint = semantic.color_border_strong);
+```
+
+Texture mode shares the source-rect and tint contract with
+[`wlx_label`](#wlx_label), [`wlx_button`](#wlx_button), and
+[`wlx_image`](#wlx_image).
 
 Use `wlx_checkbox(..., .tex_checked = ..., .tex_unchecked = ...)` instead of
 the removed `wlx_checkbox_tex` compatibility macro.

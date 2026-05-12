@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Image-capable checkbox texture mode:** `wlx_checkbox` texture mode now
+  supports per-state source rects and per-state tints through four new
+  `WLX_Checkbox_Opt` fields: `tex_checked_src`, `tex_unchecked_src`,
+  `tex_checked_tint`, and `tex_unchecked_tint`. Unset source rects fall back
+  to the full selected texture; unset tints resolve to `WLX_WHITE`. Both
+  tints participate in opacity resolution alongside the existing colors. This
+  brings checkbox texture mode in line with the `wlx_label`, `wlx_button`,
+  and `wlx_image` source-rect and tint contract, and enables a single shared
+  icon atlas to drive both states. New `demos/checkbox_tex` rows exercise the
+  shared-atlas path with semantic per-state tints.
 - **Image-capable label:** `wlx_label` now supports text-only and
   text + image content modes through the existing `wlx_label(ctx, text, ...)`
   call, with image-only as a supported edge case (use `wlx_image` for pure
@@ -54,6 +64,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   invalidate stored textures. The WASM gallery now renders a procedural
   landscape image in all four `wlx_image` scale modes and the texture-mode
   checkbox sample, both backed by C-side RGBA generators.
+
+### Changed
+- **Checkbox texture-mode activation now requires both state textures.**
+  Texture mode previously activated whenever `tex_checked.width > 0`, so a
+  checkbox with `tex_checked` set but `tex_unchecked` unset would draw an
+  empty texture in the unchecked state. Texture mode now activates only when
+  **both** `tex_checked` and `tex_unchecked` are drawable; if either is
+  missing, both states fall back to the native indicator. This prevents
+  half-configured checkboxes from silently rendering an empty unchecked
+  state.
+- **Checkbox texture-mode default tint is now `WLX_WHITE`.** Texture mode
+  previously tinted the texture with the resolved checkbox background color
+  (and hover brightness). It now resolves an unset `tex_checked_tint` or
+  `tex_unchecked_tint` to `WLX_WHITE` so authored texture colors render
+  predictably, matching the rest of the texture-capable widget surface.
+  Hover brightness no longer modulates texture tint; hover feedback remains
+  a native-mode concern. `check_color` is documented as native-mode only
+  and is ignored in texture mode.
+  **Migration:** callers that relied on the old background-derived tinting
+  should set `.tex_checked_tint` and `.tex_unchecked_tint` explicitly to
+  recover the previous tone.
 
 ### Limitations
 - **WASM tint is alpha-only.** Texture tint on the bare-WASM backend
