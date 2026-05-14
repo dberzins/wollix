@@ -45,6 +45,8 @@
     #include "wollix_wasm.h"
 #endif
 
+#include "assets/wlx_icons.h"
+
 // ---------------------------------------------------------------------------
 // Platform contract (implemented in the platform block at end of file)
 // ---------------------------------------------------------------------------
@@ -76,6 +78,11 @@ typedef struct {
 static bool gallery_has_texture_assets(void);
 static Gallery_Checkbox_Textures gallery_texture_checkbox_assets(void);
 static Gallery_Image_Asset gallery_image_asset(void);
+
+static void        gallery_icon_atlas_create(WLX_Context *ctx);
+static void        gallery_icon_atlas_destroy(void);
+static WLX_Texture gallery_icon_atlas_texture(void);
+static bool        gallery_icon_atlas_ready(void);
 
 #define ROW_H 40
 
@@ -508,6 +515,36 @@ static WLX_Theme gallery_theme_copy_with_font(WLX_Theme theme, WLX_Font font) {
     theme.font = font;
     theme.slider.track = gallery_semantic_theme(&theme).color_surface_3;
     return theme;
+}
+
+typedef enum {
+    GALLERY_ICON_ROLE_TEXT,
+    GALLERY_ICON_ROLE_MUTED,
+    GALLERY_ICON_ROLE_ACCENT,
+    GALLERY_ICON_ROLE_SUCCESS,
+    GALLERY_ICON_ROLE_WARNING,
+    GALLERY_ICON_ROLE_DANGER,
+    GALLERY_ICON_ROLE_FOCUS,
+} Gallery_Icon_Role;
+
+static WLX_Rect gallery_icon_src(WLX_Icon id) {
+    if ((int)id < 0 || (int)id >= WLX_ICON_COUNT) return (WLX_Rect){0};
+    WLX_Icon_Rect r = wlx_icon_rects[id];
+    return (WLX_Rect){ (float)r.x, (float)r.y, (float)r.w, (float)r.h };
+}
+
+static WLX_Color gallery_icon_tint(const Gallery_Semantic_Theme *sem,
+                                   Gallery_Icon_Role role) {
+    switch (role) {
+    case GALLERY_ICON_ROLE_TEXT:    return sem->color_text_1;
+    case GALLERY_ICON_ROLE_MUTED:   return sem->color_text_muted;
+    case GALLERY_ICON_ROLE_ACCENT:  return sem->color_accent;
+    case GALLERY_ICON_ROLE_SUCCESS: return sem->color_success;
+    case GALLERY_ICON_ROLE_WARNING: return sem->color_warning;
+    case GALLERY_ICON_ROLE_DANGER:  return sem->color_danger;
+    case GALLERY_ICON_ROLE_FOCUS:   return sem->color_focus;
+    }
+    return sem->color_text_1;
 }
 
 // Low-level tint helper for preview blocks that still want bespoke color ramps.
@@ -3192,6 +3229,8 @@ static WLX_Texture  g_raylib_checkbox_tex_on;
 static WLX_Texture  g_raylib_checkbox_tex_off;
 static bool         g_raylib_image_asset_ready;
 static WLX_Texture  g_raylib_image_landscape;
+static bool         g_raylib_icon_atlas_ready;
+static WLX_Texture  g_raylib_icon_atlas;
 
 static WLX_Text_Style gallery_raylib_scaled_text_style(WLX_Text_Style style) {
     if (style.font_size > 0) {
@@ -3237,6 +3276,41 @@ static Gallery_Image_Asset gallery_image_asset(void) {
     Gallery_Image_Asset asset = {0};
     if (g_raylib_image_asset_ready) asset.landscape = g_raylib_image_landscape;
     return asset;
+}
+
+static void gallery_icon_atlas_create(WLX_Context *ctx) {
+    (void)ctx;
+    Image img = (Image){
+        .data    = (void *)wlx_icons_rgba,
+        .width   = WLX_ICONS_WIDTH,
+        .height  = WLX_ICONS_HEIGHT,
+        .mipmaps = 1,
+        .format  = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
+    };
+    g_raylib_icon_atlas = LoadTextureFromImage(img);
+    g_raylib_icon_atlas_ready = g_raylib_icon_atlas.width > 0;
+    if (g_raylib_icon_atlas_ready) {
+        SetTextureFilter(g_raylib_icon_atlas, TEXTURE_FILTER_BILINEAR);
+    } else {
+        g_raylib_icon_atlas = (WLX_Texture){0};
+        printf("WARNING: could not create icon atlas texture\n");
+    }
+}
+
+static void gallery_icon_atlas_destroy(void) {
+    if (g_raylib_icon_atlas_ready) {
+        UnloadTexture(g_raylib_icon_atlas);
+        g_raylib_icon_atlas = (WLX_Texture){0};
+        g_raylib_icon_atlas_ready = false;
+    }
+}
+
+static WLX_Texture gallery_icon_atlas_texture(void) {
+    return g_raylib_icon_atlas_ready ? g_raylib_icon_atlas : (WLX_Texture){0};
+}
+
+static bool gallery_icon_atlas_ready(void) {
+    return g_raylib_icon_atlas_ready;
 }
 
 static Texture2D gallery_raylib_make_landscape_texture(void) {
@@ -3316,6 +3390,8 @@ static bool gallery_platform_init(Gallery_State *gs) {
         }
     }
 
+    gallery_icon_atlas_create(g_raylib_ctx);
+
     for (int i = 0; i < 10; i++) {
         snprintf(gs->dynamic_names[i], sizeof(gs->dynamic_names[i]), "Panel %d", i + 1);
     }
@@ -3324,6 +3400,7 @@ static bool gallery_platform_init(Gallery_State *gs) {
 
 static void gallery_platform_shutdown(Gallery_State *gs) {
     (void)gs;
+    gallery_icon_atlas_destroy();
     if (g_raylib_checkbox_textures_ready) {
         UnloadTexture(g_raylib_checkbox_tex_on);
         UnloadTexture(g_raylib_checkbox_tex_off);
@@ -3431,6 +3508,8 @@ static WLX_Texture   g_sdl3_checkbox_tex_on;
 static WLX_Texture   g_sdl3_checkbox_tex_off;
 static bool          g_sdl3_image_asset_ready;
 static WLX_Texture   g_sdl3_image_landscape;
+static bool          g_sdl3_icon_atlas_ready;
+static WLX_Texture   g_sdl3_icon_atlas;
 
 static Uint64        g_sdl3_frame_start;
 static int           g_sdl3_fps;
@@ -3455,6 +3534,46 @@ static Gallery_Image_Asset gallery_image_asset(void) {
     Gallery_Image_Asset asset = {0};
     if (g_sdl3_image_asset_ready) asset.landscape = g_sdl3_image_landscape;
     return asset;
+}
+
+static void gallery_icon_atlas_create(WLX_Context *ctx) {
+    (void)ctx;
+    SDL_Texture *tex = SDL_CreateTexture(g_sdl3_renderer,
+        SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC,
+        WLX_ICONS_WIDTH, WLX_ICONS_HEIGHT);
+    if (!tex) {
+        printf("WARNING: could not create icon atlas texture: %s\n", SDL_GetError());
+        return;
+    }
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
+    if (!SDL_UpdateTexture(tex, NULL, wlx_icons_rgba, WLX_ICONS_WIDTH * 4)) {
+        printf("WARNING: SDL_UpdateTexture for icon atlas failed: %s\n", SDL_GetError());
+        SDL_DestroyTexture(tex);
+        return;
+    }
+    g_sdl3_icon_atlas = (WLX_Texture){
+        .handle = (uintptr_t)tex,
+        .width  = WLX_ICONS_WIDTH,
+        .height = WLX_ICONS_HEIGHT,
+    };
+    g_sdl3_icon_atlas_ready = true;
+}
+
+static void gallery_icon_atlas_destroy(void) {
+    if (g_sdl3_icon_atlas_ready) {
+        SDL_DestroyTexture((SDL_Texture *)(uintptr_t)g_sdl3_icon_atlas.handle);
+        g_sdl3_icon_atlas = (WLX_Texture){0};
+        g_sdl3_icon_atlas_ready = false;
+    }
+}
+
+static WLX_Texture gallery_icon_atlas_texture(void) {
+    return g_sdl3_icon_atlas_ready ? g_sdl3_icon_atlas : (WLX_Texture){0};
+}
+
+static bool gallery_icon_atlas_ready(void) {
+    return g_sdl3_icon_atlas_ready;
 }
 
 static SDL_Texture *sdl3_gen_solid_texture(int w, int h, WLX_Color c) {
@@ -3560,6 +3679,8 @@ static bool gallery_platform_init(Gallery_State *gs) {
         }
     }
 
+    gallery_icon_atlas_create(g_sdl3_ctx);
+
     for (int i = 0; i < 10; i++) {
         snprintf(gs->dynamic_names[i], sizeof(gs->dynamic_names[i]), "Panel %d", i + 1);
     }
@@ -3573,6 +3694,7 @@ static bool gallery_platform_init(Gallery_State *gs) {
 
 static void gallery_platform_shutdown(Gallery_State *gs) {
     (void)gs;
+    gallery_icon_atlas_destroy();
     if (g_sdl3_checkbox_textures_ready) {
         SDL_DestroyTexture((SDL_Texture *)(uintptr_t)g_sdl3_checkbox_tex_on.handle);
         SDL_DestroyTexture((SDL_Texture *)(uintptr_t)g_sdl3_checkbox_tex_off.handle);
@@ -3706,6 +3828,8 @@ static WLX_Texture  g_wasm_image_landscape;
 static bool         g_wasm_checkbox_textures_ready;
 static WLX_Texture  g_wasm_checkbox_tex_on;
 static WLX_Texture  g_wasm_checkbox_tex_off;
+static bool         g_wasm_icon_atlas_ready;
+static WLX_Texture  g_wasm_icon_atlas;
 
 static void gallery_wasm_set_pixel(uint8_t *buf, int w, int h,
                                    int x, int y, WLX_Color c) {
@@ -3792,6 +3916,32 @@ static Gallery_Image_Asset gallery_image_asset(void) {
     return asset;
 }
 
+static void gallery_icon_atlas_create(WLX_Context *ctx) {
+    (void)ctx;
+    g_wasm_icon_atlas = wlx_wasm_texture_create(
+        wlx_icons_rgba, WLX_ICONS_WIDTH, WLX_ICONS_HEIGHT);
+    g_wasm_icon_atlas_ready = g_wasm_icon_atlas.width > 0;
+    if (!g_wasm_icon_atlas_ready) {
+        printf("WARNING: could not create icon atlas texture\n");
+    }
+}
+
+static void gallery_icon_atlas_destroy(void) {
+    if (g_wasm_icon_atlas_ready) {
+        wlx_wasm_texture_destroy(g_wasm_icon_atlas);
+        g_wasm_icon_atlas = (WLX_Texture){0};
+        g_wasm_icon_atlas_ready = false;
+    }
+}
+
+static WLX_Texture gallery_icon_atlas_texture(void) {
+    return g_wasm_icon_atlas_ready ? g_wasm_icon_atlas : (WLX_Texture){0};
+}
+
+static bool gallery_icon_atlas_ready(void) {
+    return g_wasm_icon_atlas_ready;
+}
+
 static bool gallery_platform_init(Gallery_State *gs) {
     WLX_Font body_font = gallery_platform_font(GALLERY_FONT_BODY);
     g_wasm_theme_dark = gallery_theme_copy_with_font(wlx_theme_dark, body_font);
@@ -3858,6 +4008,8 @@ static bool gallery_platform_init(Gallery_State *gs) {
         }
     }
 
+    gallery_icon_atlas_create(g_wasm_ctx);
+
     for (int i = 0; i < 10; i++) {
         snprintf(gs->dynamic_names[i], sizeof(gs->dynamic_names[i]), "Panel %d", i + 1);
     }
@@ -3866,6 +4018,7 @@ static bool gallery_platform_init(Gallery_State *gs) {
 
 static void gallery_platform_shutdown(Gallery_State *gs) {
     (void)gs;
+    gallery_icon_atlas_destroy();
     if (g_wasm_checkbox_textures_ready) {
         wlx_wasm_texture_destroy(g_wasm_checkbox_tex_on);
         wlx_wasm_texture_destroy(g_wasm_checkbox_tex_off);
