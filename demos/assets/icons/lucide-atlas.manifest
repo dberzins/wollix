@@ -1,5 +1,5 @@
 name: lucide-atlas
-status: phase-1-locked
+status: atlas-generated
 
 upstream_project: lucide-icons
 upstream_version: 1.14.0
@@ -11,7 +11,9 @@ license_notice: demos/assets/icons/LUCIDE_LICENSE
 
 source_format: svg
 generated_artifact: demos/assets/wlx_icons.h
-generated_artifact_status: not-yet-generated
+generated_artifact_status: generated
+generated_artifact_sha256: b295fd04c3ad7397a24ee1fca63019072f5a39aab08bf6ed6dbd463339844e2f
+generated_artifact_rasterizer: rsvg-convert version 2.58.0
 generated_texture_model: rgba8 white-alpha atlas with embedded source-rect metadata
 
 target_icon_size_px: 16
