@@ -1,0 +1,39 @@
+name: lucide-atlas
+status: draft
+
+upstream_project: lucide-icons
+upstream_version: 1.14.0
+upstream_archive_url: https://github.com/lucide-icons/lucide/archive/refs/tags/1.14.0.zip
+local_source_dir: demos/assets/icons/lucide-icons-1.14.0
+license_notice: demos/assets/icons/LUCIDE_LICENSE
+
+source_format: svg
+generated_artifact: demos/assets/icons/lucide_atlas.h
+generated_artifact_status: not-yet-generated
+generated_texture_model: rgba8 white-alpha atlas with embedded source-rect metadata
+
+target_icon_size_px: 16
+atlas_padding_px: 0
+
+icon_names:
+  - check
+  - x
+  - info
+  - triangle-alert
+  - image
+  - palette
+  - save
+  - rotate-ccw
+  - settings
+  - play
+  - square
+  - square-check
+
+generation_toolchain: TBD
+generation_command: TBD
+normal_build_dependency: none
+
+notes:
+  - Normal builds should consume only the generated atlas header.
+  - The upstream Lucide download directory is a regeneration input and may be gitignored after atlas generation is scripted.
+  - Update this manifest whenever the upstream version, selected icon set, atlas dimensions, or generation command changes.

@@ -56,5 +56,6 @@ demos/gallery_sdl3_perf
 demos/image
 demos/button_image
 demos/label_image
+demos/assets/icons/lucide-icons-1.14.0
 
 dist/
