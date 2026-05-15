@@ -71,6 +71,18 @@ function test(name, fn) {
 }
 
 test("pixel-comparison filter vs scratch", () => {
+    // The direct filter generator silently no-ops on browsers whose Canvas 2D
+    // filter implementation accepts the assignment without applying it. The
+    // probe is the authoritative signal for filter usability; on a false
+    // probe production never calls the filter path, so a parity check between
+    // the two generators has nothing to compare and is reported as skipped.
+    if (!hooks.getProbedCtxFilterSupported()) {
+        return {
+            skipped: "browser probe reports ctxFilterSupported=false; " +
+                "filter generator is not exercised in this browser"
+        };
+    }
+
     const w = 32, h = 32;
     const pixels = makeCheckerboardPixels(w, h);
     const handle = hooks.createTextureFromPixels(pixels, w, h);
@@ -82,11 +94,8 @@ test("pixel-comparison filter vs scratch", () => {
         const filterVariant = hooks.generateVariantFilterDirect(handle, r, g, b);
         const scratchVariant = hooks.generateVariantScratchDirect(handle, r, g, b);
 
-        if (!filterVariant && !scratchVariant) {
-            throw new Error("both generators returned null");
-        }
         if (!filterVariant) {
-            return { skipped: "filter generator unsupported on this browser" };
+            throw new Error("filter generator returned null despite probe=true");
         }
         if (!scratchVariant) {
             throw new Error("scratch generator returned null");
