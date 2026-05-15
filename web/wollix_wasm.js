@@ -215,6 +215,92 @@ function probeCtxFilterSupported() {
         }
     }
 
+    function generateVariantFilter(entry, r, g, b) {
+        try {
+            const destCanvas = createTextureCanvas(entry.w, entry.h);
+            const destCtx = destCanvas.getContext("2d");
+            if (!destCtx) return null;
+
+            const fr = r / 255;
+            const fg = g / 255;
+            const fb = b / 255;
+            const matrix =
+                `${fr} 0 0 0 0 ` +
+                `0 ${fg} 0 0 0 ` +
+                `0 0 ${fb} 0 0 ` +
+                `0 0 0 1 0`;
+            const svg =
+                '<svg xmlns="http://www.w3.org/2000/svg">' +
+                  '<filter id="t" color-interpolation-filters="sRGB">' +
+                    `<feColorMatrix values="${matrix}"/>` +
+                  '</filter>' +
+                '</svg>';
+            const url = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '#t';
+
+            destCtx.save();
+            destCtx.filter = `url("${url}")`;
+            destCtx.drawImage(entry.canvas, 0, 0);
+            destCtx.restore();
+
+            return {
+                canvas: destCanvas,
+                lastUsed: ++tintLruCounter,
+                pixels: entry.w * entry.h,
+            };
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    function generateVariantScratch(entry, r, g, b) {
+        const destCanvas = createTextureCanvas(entry.w, entry.h);
+        const destCtx = destCanvas.getContext("2d");
+        if (!destCtx) return null;
+
+        destCtx.globalAlpha = 1;
+        destCtx.globalCompositeOperation = "source-over";
+        destCtx.drawImage(entry.canvas, 0, 0);
+        destCtx.globalCompositeOperation = "multiply";
+        destCtx.fillStyle = `rgb(${r},${g},${b})`;
+        destCtx.fillRect(0, 0, entry.w, entry.h);
+        destCtx.globalCompositeOperation = "destination-in";
+        destCtx.drawImage(entry.canvas, 0, 0);
+        destCtx.globalCompositeOperation = "source-over";
+
+        return {
+            canvas: destCanvas,
+            lastUsed: ++tintLruCounter,
+            pixels: entry.w * entry.h,
+        };
+    }
+
+    function ensureTintVariant(entry, r, g, b) {
+        const key = packTintKey(r, g, b);
+        const existing = entry.variants.get(key);
+        if (existing) {
+            existing.lastUsed = ++tintLruCounter;
+            return existing;
+        }
+        const needed = entry.w * entry.h;
+        evictLruIfNeeded(needed);
+        // Drained but still can't fit (e.g. TINT_CACHE_PIXEL_BUDGET=0 rollback
+        // config): signal the caller to take a live-draw path.
+        if (tintCachePixels + needed > TINT_CACHE_PIXEL_BUDGET) {
+            return null;
+        }
+        let variant = null;
+        if (ctxFilterSupported) {
+            variant = generateVariantFilter(entry, r, g, b);
+        }
+        if (!variant) {
+            variant = generateVariantScratch(entry, r, g, b);
+        }
+        if (!variant) return null;
+        entry.variants.set(key, variant);
+        tintCachePixels += variant.pixels;
+        return variant;
+    }
+
     // ========================================================================
     // Read a NUL-terminated C string from wasm memory
     // ========================================================================
