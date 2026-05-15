@@ -638,6 +638,23 @@ function probeCtxFilterSupported() {
 
     ctxFilterSupported = probeCtxFilterSupported();
 
+    // Debug-only hooks. Enabled by appending `?wlx_debug=1` to the page URL.
+    // wlx_debug_force_bypass(handle, on) flips the per-texture bypass flag so
+    // a cached-path texture can be rendered via the live-tint path for
+    // side-by-side inspection.
+    if (new URLSearchParams(window.location.search).get("wlx_debug") === "1") {
+        window.wlx_debug_force_bypass = (handle, on) => {
+            const entry = textures.get(handle);
+            if (!entry) return false;
+            entry.bypassed = !!on;
+            return true;
+        };
+        console.log(
+            "[wollix] debug hooks: wlx_debug_force_bypass(handle, on); " +
+            "ctxFilterSupported=" + ctxFilterSupported
+        );
+    }
+
     wasmInit();
 
     // ========================================================================
