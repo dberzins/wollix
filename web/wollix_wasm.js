@@ -9,6 +9,10 @@ const WASM_FILE = "gallery.wasm";
 const CANVAS_ID = "wlx-canvas";
 const TARGET_FPS = 60; // 0 = uncapped (tracks monitor refresh rate)
 
+const TINT_CACHE_PIXEL_BUDGET = 8 * 1024 * 1024;
+const TINT_LARGE_TEXTURE_PIXEL_THRESHOLD = 1024 * 1024;
+const TINT_FILTER_PROBE_RGB = 0x7F7F7F;
+
 // ============================================================================
 // WLX_Input_State layout (must match C struct on wasm32)
 // ============================================================================
@@ -92,6 +96,45 @@ function createTextureCanvas(width, height) {
     return canvas;
 }
 
+// One-shot detection that Canvas2D `ctx.filter` honors an inline SVG
+// `feColorMatrix` reference. Browsers without filter support assign silently
+// and leave pixels untouched; we readback a known-zeroed channel to confirm.
+function probeCtxFilterSupported() {
+    try {
+        const r = (TINT_FILTER_PROBE_RGB >>> 16) & 0xFF;
+        const g = (TINT_FILTER_PROBE_RGB >>>  8) & 0xFF;
+        const b = (TINT_FILTER_PROBE_RGB >>>  0) & 0xFF;
+
+        const src = createTextureCanvas(1, 1);
+        const srcCtx = src.getContext("2d");
+        if (!srcCtx) return false;
+        srcCtx.fillStyle = `rgb(${r},${g},${b})`;
+        srcCtx.fillRect(0, 0, 1, 1);
+
+        const dst = createTextureCanvas(1, 1);
+        const dstCtx = dst.getContext("2d");
+        if (!dstCtx) return false;
+
+        const svg =
+            '<svg xmlns="http://www.w3.org/2000/svg">' +
+              '<filter id="t" color-interpolation-filters="sRGB">' +
+                '<feColorMatrix values="0 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0"/>' +
+              '</filter>' +
+            '</svg>';
+        const url = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '#t';
+
+        dstCtx.save();
+        dstCtx.filter = `url("${url}")`;
+        dstCtx.drawImage(src, 0, 0);
+        dstCtx.restore();
+
+        const px = dstCtx.getImageData(0, 0, 1, 1).data;
+        return px[0] === 0;
+    } catch (_e) {
+        return false;
+    }
+}
+
 // ============================================================================
 // Boot
 // ============================================================================
@@ -127,6 +170,9 @@ function createTextureCanvas(width, height) {
     let nextTextureHandle = 1;
     let tintCanvas = null;
     let tintCtx = null;
+    let tintCachePixels = 0;
+    let tintLruCounter = 0;
+    let ctxFilterSupported = false;
 
     function getTintContext(width, height) {
         if (!tintCanvas) {
@@ -432,6 +478,8 @@ function createTextureCanvas(width, height) {
     } else {
         throw new Error("wollix_wasm.js: missing input state export");
     }
+
+    ctxFilterSupported = probeCtxFilterSupported();
 
     wasmInit();
 
