@@ -195,6 +195,7 @@ function probeCtxFilterSupported() {
     let liveScratchCtx = null;
     let tintCachePixels = 0;
     let tintLruCounter = 0;
+    let tintVariantGenerationCount = 0;
     let ctxFilterSupported = false;
 
     // Destination-sized scratch canvas used by the live-tint fallback when
@@ -248,6 +249,7 @@ function probeCtxFilterSupported() {
             destCtx.drawImage(entry.canvas, 0, 0);
             destCtx.restore();
 
+            tintVariantGenerationCount++;
             return {
                 canvas: destCanvas,
                 lastUsed: ++tintLruCounter,
@@ -273,6 +275,7 @@ function probeCtxFilterSupported() {
         destCtx.drawImage(entry.canvas, 0, 0);
         destCtx.globalCompositeOperation = "source-over";
 
+        tintVariantGenerationCount++;
         return {
             canvas: destCanvas,
             lastUsed: ++tintLruCounter,
@@ -638,11 +641,13 @@ function probeCtxFilterSupported() {
 
     ctxFilterSupported = probeCtxFilterSupported();
 
+    const queryParams = new URLSearchParams(window.location.search);
+
     // Debug-only hooks. Enabled by appending `?wlx_debug=1` to the page URL.
     // wlx_debug_force_bypass(handle, on) flips the per-texture bypass flag so
     // a cached-path texture can be rendered via the live-tint path for
     // side-by-side inspection.
-    if (new URLSearchParams(window.location.search).get("wlx_debug") === "1") {
+    if (queryParams.get("wlx_debug") === "1") {
         window.wlx_debug_force_bypass = (handle, on) => {
             const entry = textures.get(handle);
             if (!entry) return false;
@@ -653,6 +658,114 @@ function probeCtxFilterSupported() {
             "[wollix] debug hooks: wlx_debug_force_bypass(handle, on); " +
             "ctxFilterSupported=" + ctxFilterSupported
         );
+    }
+
+    // Validation harness hooks. Enabled by `?wlx_tint_tests=1`. Exposes the
+    // production import functions plus minimal read-only accessors so the
+    // harness can drive scenarios without re-implementing imports. The harness
+    // module is fetched only when the flag is set.
+    if (queryParams.get("wlx_tint_tests") === "1") {
+        window.__wlx_test_hooks__ = {
+            TINT_CACHE_PIXEL_BUDGET,
+            TINT_LARGE_TEXTURE_PIXEL_THRESHOLD,
+
+            destroy_texture: wlxImports.destroy_texture,
+            draw_texture: wlxImports.draw_texture,
+
+            createTextureFromPixels(pixelBytes, w, h) {
+                const imgData = new ImageData(
+                    new Uint8ClampedArray(pixelBytes), w, h
+                );
+                const tcanvas = createTextureCanvas(w, h);
+                const tctx = tcanvas.getContext("2d");
+                if (!tctx) return 0;
+                tctx.putImageData(imgData, 0, 0);
+                const handle = nextTextureHandle++;
+                textures.set(handle, {
+                    canvas: tcanvas,
+                    w, h,
+                    variants: new Map(),
+                    bypassed: w * h > TINT_LARGE_TEXTURE_PIXEL_THRESHOLD,
+                });
+                return handle;
+            },
+
+            getMainCtx() { return ctx; },
+
+            getState() {
+                return {
+                    ctxFilterSupported,
+                    tintCachePixels,
+                    tintLruCounter,
+                    tintVariantGenerationCount,
+                    textureCount: textures.size,
+                };
+            },
+
+            getTextureEntry(handle) {
+                const e = textures.get(handle);
+                if (!e) return null;
+                const variants = [];
+                for (const [key, v] of e.variants) {
+                    variants.push({
+                        key,
+                        lastUsed: v.lastUsed,
+                        pixels: v.pixels,
+                    });
+                }
+                return {
+                    w: e.w, h: e.h,
+                    bypassed: e.bypassed,
+                    variantCount: e.variants.size,
+                    variants,
+                };
+            },
+
+            getVariantImageData(handle, key) {
+                const e = textures.get(handle);
+                if (!e) return null;
+                const v = e.variants.get(key);
+                if (!v) return null;
+                const vctx = v.canvas.getContext("2d");
+                if (!vctx) return null;
+                return vctx.getImageData(0, 0, e.w, e.h);
+            },
+
+            generateVariantFilterDirect(handle, r, g, b) {
+                const e = textures.get(handle);
+                if (!e) return null;
+                return generateVariantFilter(e, r, g, b);
+            },
+
+            generateVariantScratchDirect(handle, r, g, b) {
+                const e = textures.get(handle);
+                if (!e) return null;
+                return generateVariantScratch(e, r, g, b);
+            },
+
+            evictLruIfNeeded,
+            packTintKey,
+
+            clearAllVariants() {
+                for (const e of textures.values()) {
+                    for (const v of e.variants.values()) {
+                        tintCachePixels -= v.pixels;
+                    }
+                    e.variants.clear();
+                }
+            },
+            setCtxFilterSupported(value) {
+                ctxFilterSupported = !!value;
+            },
+            resetVariantGenerationCount() {
+                tintVariantGenerationCount = 0;
+            },
+            getProbedCtxFilterSupported() {
+                return probeCtxFilterSupported();
+            },
+        };
+        import("./wollix_wasm_tint_tests.js")
+            .catch(err => console.error("[wollix] tint tests load failed:", err));
     }
 
     wasmInit();

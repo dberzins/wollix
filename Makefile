@@ -39,7 +39,7 @@ DEMO_NAMES = $(RAYLIB_DEMOS) $(SDL3_DEMOS)
 TARGETS = $(addprefix $(DEMO_DIR)/,$(DEMO_NAMES))
 PERF_TARGETS = $(addprefix $(DEMO_DIR)/,$(PERF_DEMOS))
 DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
-WASM_SITE_TARGETS = $(WASM_SITE_DIR)/gallery.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js
+WASM_SITE_TARGETS = $(WASM_SITE_DIR)/gallery.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js $(WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 
 .PHONY: all clean debug release help test perf-test test-demos wasm-bare wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
 
@@ -85,6 +85,9 @@ $(WASM_SITE_DIR)/index.html: $(WASM_SRC_DIR)/wollix_wasm.html | $(WASM_SITE_DIR)
 	cp $< $@
 
 $(WASM_SITE_DIR)/wollix_wasm.js: $(WASM_SRC_DIR)/wollix_wasm.js | $(WASM_SITE_DIR)
+	cp $< $@
+
+$(WASM_SITE_DIR)/wollix_wasm_tint_tests.js: $(WASM_SRC_DIR)/wollix_wasm_tint_tests.js | $(WASM_SITE_DIR)
 	cp $< $@
 
 debug: CFLAGS += -DDEBUG -O0
