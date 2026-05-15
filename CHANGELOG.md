@@ -74,6 +74,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   checkbox sample, both backed by C-side RGBA generators.
 
 ### Changed
+- **Gallery icon atlas rasterises four tiers (16 / 24 / 32 / 48 px).** The
+  committed `demos/assets/wlx_icons.h` is now a 576x120 row-per-tier white-alpha
+  atlas with per-tier source-rect metadata (`wlx_icon_tier_sizes[]`,
+  `wlx_icon_tier_y[]`, `wlx_icon_rects_tiered[TIER][ICON]`). The original 1D
+  `wlx_icon_rects[]` table is retained for backward compatibility and equals
+  the 16 px tier. Gallery callsites pick a tier through the size-aware helper
+  `gallery_icon_src_for(WLX_Icon, float target_px)`, which chooses the
+  smallest tier >= `ceilf(target_px)` and falls back to 48 px for larger
+  targets. Status, button (including slider extremes), checkbox, image
+  preview, and Theme Lab matrix surfaces all route through the helper so
+  larger gallery icons stay crisp without relying on backend interpolation.
+  Regenerate with `bash tools/gen_icon_atlas.sh`.
 - **Checkbox texture-mode activation now requires both state textures.**
   Texture mode previously activated whenever `tex_checked.width > 0`, so a
   checkbox with `tex_checked` set but `tex_unchecked` unset would draw an

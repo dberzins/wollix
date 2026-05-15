@@ -40,19 +40,33 @@ intermediate PNGs, compiled packer binary) are created under
 2. Copies each selected SVG into a working dir, substituting
    `currentColor` -> `white` so Lucide's stroke renders as a
    white-on-transparent shape. The committed SVGs are not modified.
-3. Runs `rsvg-convert -w 16 -h 16` on every working-copy SVG.
+3. For each tier in `TIERS=(16 24 32 48)` creates a scratch
+   subdirectory `.cache/icons/png/tier_<n>/` and rasterises every
+   working-copy SVG into it via `rsvg-convert -w <tier> -h <tier>`.
 4. Builds `tools/gen_icon_atlas.c` with
    `cc -std=c11 -Wall -Wextra -O2 ... -lm` (`-lm` is required because
    `stb_image.h` references `pow`).
 5. Runs the packer, which:
-   - decodes each 16x16 PNG via vendored `tools/third_party/stb_image.h`;
-   - composes a single 192x16 RGBA atlas in icon-enum order;
+   - decodes each `tier_<n>/<icon>.png` via vendored
+     `tools/third_party/stb_image.h`;
+   - composes a single 576x120 RGBA atlas laid out as one row per tier
+     in ascending tier order (16 px row at the top, then 24, 32, 48);
+   - within each row, every icon cell occupies `tier x tier` pixels at
+     `x = icon_index * 48` (the max tier), leaving transparent
+     right-padding for smaller tiers so cell-x arithmetic stays
+     identical across tiers;
    - rewrites every pixel's RGB to 255 and keeps the rasterizer's
      alpha channel (white-alpha encoding; color comes from the
      gallery's call-site tint);
    - emits `demos/assets/wlx_icons.h` with the banner, atlas
-     dimensions, `WLX_Icon` enum, `wlx_icon_rects[]` table, and the
-     9216-byte `wlx_icons_rgba[]` array (16 bytes per source line).
+     dimensions (`WLX_ICONS_WIDTH = 576`, `WLX_ICONS_HEIGHT = 120`),
+     `WLX_Icon` enum, the tier metadata
+     (`WLX_ICON_TIER_COUNT`, `wlx_icon_tier_sizes[]`,
+     `wlx_icon_tier_y[]`), the 2D source-rect table
+     `wlx_icon_rects_tiered[TIER][ICON]`, a 1D
+     `wlx_icon_rects[]` mirror for the 16 px tier (backward
+     compatibility), and the 276480-byte `wlx_icons_rgba[]` array
+     (576 * 4 bytes per source line).
 
 ### Determinism
 
