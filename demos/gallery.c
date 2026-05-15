@@ -545,6 +545,7 @@ static WLX_Color gallery_icon_tint(const Gallery_Semantic_Theme *sem,
     return sem->color_text_1;
 }
 
+
 // Low-level tint helper for preview blocks that still want bespoke color ramps.
 static WLX_Color heading_color(const WLX_Theme *t, int tr, int tg, int tb) {
     int s = gallery_theme_is_dark(t) ? 1 : -1;
@@ -592,6 +593,86 @@ static void color_sliders(WLX_Context *ctx, const char *prefix,
 // Option-panel constants (sidebar widgets)
 #define OPT_H   32
 #define OPT_FS  14
+
+// Resolve the pixel size used to pick an atlas tier for chrome helpers.
+// Falls back to row-height minus inset when the caller did not pass
+// .image_size; clamps into the atlas tier range.
+static float gallery_chrome_icon_size(float image_size, float row_height) {
+    float target = image_size > 0.0f ? image_size : row_height - 12.0f;
+    if (target < 16.0f) target = 16.0f;
+    if (target > 48.0f) target = 48.0f;
+    return target;
+}
+
+__attribute__((unused))
+static bool gallery_icon_button_helper(WLX_Context *ctx, const char *text,
+                                       WLX_Icon icon, Gallery_Icon_Role role,
+                                       WLX_Button_Opt opt,
+                                       const char *file, int line) {
+    if (icon != WLX_ICON_COUNT && gallery_icon_atlas_ready()) {
+        Gallery_Semantic_Theme sem = gallery_semantic_theme(ctx->theme);
+        float target = gallery_chrome_icon_size(opt.image_size, opt.height);
+        opt.texture = gallery_icon_atlas_texture();
+        opt.texture_src = gallery_icon_src_for(icon, target);
+        if (opt.texture_tint.a == 0) {
+            opt.texture_tint = gallery_icon_tint(&sem, role);
+        }
+        if (opt.image_size <= 0.0f) opt.image_size = target;
+        if (opt.image_text_gap < 0) opt.image_text_gap = 8;
+    }
+    return wlx_button_impl(ctx, text, opt, file, line);
+}
+
+#define gallery_icon_button(ctx, text, icon, role, ...) \
+    gallery_icon_button_helper((ctx), (text), (icon), (role), \
+        wlx_default_button_opt(__VA_ARGS__), __FILE__, __LINE__)
+
+__attribute__((unused))
+static void gallery_icon_label_helper(WLX_Context *ctx, const char *text,
+                                      WLX_Icon icon, Gallery_Icon_Role role,
+                                      WLX_Label_Opt opt,
+                                      const char *file, int line) {
+    if (icon != WLX_ICON_COUNT && gallery_icon_atlas_ready()) {
+        Gallery_Semantic_Theme sem = gallery_semantic_theme(ctx->theme);
+        float target = gallery_chrome_icon_size(opt.image_size, opt.height);
+        opt.texture = gallery_icon_atlas_texture();
+        opt.texture_src = gallery_icon_src_for(icon, target);
+        if (opt.texture_tint.a == 0) {
+            opt.texture_tint = gallery_icon_tint(&sem, role);
+        }
+        if (opt.image_size <= 0.0f) opt.image_size = target;
+        if (opt.image_text_gap < 0) opt.image_text_gap = 8;
+    }
+    wlx_label_impl(ctx, text, opt, file, line);
+}
+
+#define gallery_icon_label(ctx, text, icon, role, ...) \
+    gallery_icon_label_helper((ctx), (text), (icon), (role), \
+        wlx_default_label_opt(__VA_ARGS__), __FILE__, __LINE__)
+
+// Render an icon-backed heading row as the first body row of a panel.
+// The accompanying panel must be created without a built-in title so this
+// row stands in for it. Tint role is applied to the icon; the label uses
+// the theme's primary text color.
+__attribute__((unused))
+static void gallery_panel_heading(WLX_Context *ctx,
+                                  WLX_Icon icon,
+                                  Gallery_Icon_Role role,
+                                  const char *text,
+                                  int height) {
+    Gallery_Semantic_Theme sem = gallery_semantic_theme(ctx->theme);
+    gallery_icon_label(ctx, text, icon, role,
+        .height = height,
+        .font_size = SECTION_FS,
+        .align = WLX_LEFT,
+        .show_background = true,
+        .back_color = sem.color_surface_3,
+        .front_color = sem.color_text_1,
+        .border_color = sem.color_border,
+        .border_width = 0.5f,
+        .image_size = (float)height * 0.5f,
+        .image_text_gap = 10);
+}
 
 // Gallery-local semantic role lookups.
 #define GALLERY_ROLE(ctx, role) (gallery_semantic_theme((ctx)->theme).role)
