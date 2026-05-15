@@ -29,6 +29,26 @@ ICONS=(
     play
     square
     square-check
+    app-window
+    chevron-right
+    house
+    blocks
+    layout-dashboard
+    route
+    sliders-horizontal
+    type
+    mouse-pointer-click
+    text-cursor-input
+    component
+    align-horizontal-space-between
+    grid-3x3
+    stretch-horizontal
+    layout-template
+    scroll-text
+    layers
+    blend
+    square-dashed
+    toggle-left
 )
 
 # Atlas tier sizes (px). Must stay in sync with the TIERS[] table in
@@ -54,7 +74,7 @@ fi
 
 if [ ! -d "${SRC_DIR}" ]; then
     echo "error: ${SRC_DIR} does not exist" >&2
-    echo "       The 12 selected Lucide SVGs must be vendored there." >&2
+    echo "       The selected Lucide SVGs must be vendored there." >&2
     exit 1
 fi
 
