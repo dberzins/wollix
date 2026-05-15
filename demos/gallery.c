@@ -604,7 +604,6 @@ static float gallery_chrome_icon_size(float image_size, float row_height) {
     return target;
 }
 
-__attribute__((unused))
 static bool gallery_icon_button_helper(WLX_Context *ctx, const char *text,
                                        WLX_Icon icon, Gallery_Icon_Role role,
                                        WLX_Button_Opt opt,
@@ -627,7 +626,6 @@ static bool gallery_icon_button_helper(WLX_Context *ctx, const char *text,
     gallery_icon_button_helper((ctx), (text), (icon), (role), \
         wlx_default_button_opt(__VA_ARGS__), __FILE__, __LINE__)
 
-__attribute__((unused))
 static void gallery_icon_label_helper(WLX_Context *ctx, const char *text,
                                       WLX_Icon icon, Gallery_Icon_Role role,
                                       WLX_Label_Opt opt,
@@ -652,9 +650,10 @@ static void gallery_icon_label_helper(WLX_Context *ctx, const char *text,
 
 // Render an icon-backed heading row as the first body row of a panel.
 // The accompanying panel must be created without a built-in title so this
-// row stands in for it. Tint role is applied to the icon; the label uses
-// the theme's primary text color.
-__attribute__((unused))
+// row stands in for it. Font size matches the prior panel-title default
+// (18 px) so converted panels keep their existing visual weight. Tint
+// role is applied to the icon; the label uses the theme's primary text
+// color.
 static void gallery_panel_heading(WLX_Context *ctx,
                                   WLX_Icon icon,
                                   Gallery_Icon_Role role,
@@ -663,14 +662,12 @@ static void gallery_panel_heading(WLX_Context *ctx,
     Gallery_Semantic_Theme sem = gallery_semantic_theme(ctx->theme);
     gallery_icon_label(ctx, text, icon, role,
         .height = height,
-        .font_size = SECTION_FS,
+        .font_size = 18,
         .align = WLX_LEFT,
         .show_background = true,
         .back_color = sem.color_surface_3,
         .front_color = sem.color_text_1,
-        .border_color = sem.color_border,
-        .border_width = 0.5f,
-        .image_size = (float)height * 0.5f,
+        .image_size = (float)height * 0.45f,
         .image_text_gap = 10);
 }
 
@@ -703,8 +700,10 @@ static void gallery_panel_heading(WLX_Context *ctx,
 // consistent layout and semantic background colors.
 // Usage:
 //   SECTION_BEGIN(ctx);
-//     wlx_panel_begin(ctx, .title = "Options", ...);
-//     // ... controls ...
+//     wlx_panel_begin(ctx, .padding = 0);
+//       gallery_panel_heading(ctx, WLX_ICON_SLIDERS_HORIZONTAL,
+//                             GALLERY_ICON_ROLE_TEXT, "Options", HEADING_H);
+//       // ... controls ...
 //     wlx_panel_end(ctx);
 //   SECTION_NEXT(ctx);
 //     // ... preview content ...
@@ -730,10 +729,12 @@ static void section_label(WLX_Context *ctx, Gallery_State *st) {
         .first_back_color = SPLIT_BG(ctx));
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             wlx_slider(ctx, "Font Size  ", &st->label_font_size,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 8.0f, .max_value = 40.0f);
@@ -855,10 +856,12 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
         .first_back_color = SPLIT_BG(ctx));
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             wlx_slider(ctx, "Font Size  ", &st->button_font_size,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 10.0f, .max_value = 36.0f);
@@ -995,10 +998,12 @@ static void section_checkbox(WLX_Context *ctx, Gallery_State *st) {
         .first_back_color = SPLIT_BG(ctx));
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             wlx_slider(ctx, "Font Size  ", &st->checkbox_font_size,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 12.0f, .max_value = 30.0f);
@@ -1133,10 +1138,12 @@ static void section_slider(WLX_Context *ctx, Gallery_State *st) {
         .first_back_color = SPLIT_BG(ctx));
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             wlx_slider(ctx, "Min Value  ", &st->slider_min,
                 .height = OPT_H, .min_value = 0.0f, .max_value = 0.5f, .font_size = OPT_FS);
@@ -1208,10 +1215,12 @@ static void section_inputbox(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             wlx_slider(ctx, "Font Size  ", &st->input_font_size,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 10.0f, .max_value = 30.0f);
@@ -1264,10 +1273,12 @@ static void section_scroll_panel(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             wlx_slider(ctx, "Scrollbar W", &st->scroll_sb_width,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 4.0f, .max_value = 30.0f);
@@ -1380,10 +1391,12 @@ static void section_widget(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Info ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             wlx_label(ctx, "No adjustable options.",
                 .font_size = OPT_FS, .height = OPT_H);
@@ -1464,10 +1477,12 @@ static void section_layout_linear(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             static float layout_padding = 0;
 
@@ -1571,10 +1586,12 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             wlx_slider(ctx, "Rows       ", &st->grid_rows,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 1.0f, .max_value = 8.0f);
@@ -1727,10 +1744,12 @@ static void section_layout_flex(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             wlx_slider(ctx, "Weight A   ", &st->flex_weight_a,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 0.1f, .max_value = 5.0f);
@@ -2338,11 +2357,11 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
         .first_size = WLX_SLOT_PCT_MINMAX(30, 180, 280),
         .first_back_color = SPLIT_BG(ctx));
 
-        wlx_panel_begin(ctx, .title = "Theme Controls",
-            .title_height = HEADING_H,
-            .title_font_size = SMALL_FS,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_PALETTE, GALLERY_ICON_ROLE_ACCENT,
+                "Theme Controls", HEADING_H);
 
             wlx_push_id(ctx, 200);
             theme_lab_control_label(ctx, "Background");
@@ -2389,10 +2408,13 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
             wlx_slider(ctx, "Roundness", &st->theme_roundness, .height = OPT_H, .font_size = OPT_FS,
                 .min_value = 0.0f, .max_value = 1.0f);
 
-            if (wlx_button(ctx, "Use Custom Theme",
+            if (gallery_icon_button(ctx, "Use Custom Theme",
+                WLX_ICON_CHECK, GALLERY_ICON_ROLE_SUCCESS,
                 .height = OPT_H, .font_size = OPT_FS, .align = WLX_CENTER,
                 .back_color = semantic.color_selection,
-                .front_color = gallery_on_color(semantic.color_selection))) {
+                .front_color = gallery_on_color(semantic.color_selection),
+                .image_size = 16,
+                .image_text_gap = 8)) {
                 st->theme_mode = GALLERY_THEME_CUSTOM;
             }
 
@@ -2566,10 +2588,12 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
 static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             wlx_slider(ctx, "Widget      ", &st->opacity_control,
                 .height = OPT_H, .min_value = 0.0f, .max_value = 1.0f, .font_size = OPT_FS);
@@ -2738,10 +2762,12 @@ static void section_id_stack(WLX_Context *ctx, Gallery_State *st) {
         .first_back_color = SPLIT_BG(ctx));
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             wlx_slider(ctx, "Panel Count", &st->dynamic_panel_count,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 1.0f, .max_value = 10.0f);
@@ -2812,10 +2838,12 @@ static void section_borders(WLX_Context *ctx, Gallery_State *st) {
         .first_back_color = SPLIT_BG(ctx));
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
                 wlx_slider(ctx, "Width  ", &bw,
                     .height = OPT_H, .min_value = 0.0f, .max_value = 8.0f, .font_size = OPT_FS);
@@ -2924,10 +2952,12 @@ static void section_auto_layout(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
                 wlx_slider(ctx, "Items      ", &st->auto_item_count,
                     .height = OPT_H, .font_size = OPT_FS, .min_value = 1.0f, .max_value = 10.0f);
@@ -3111,10 +3141,12 @@ static void section_progress_toggle_radio(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .title = "Options",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
 
             wlx_slider(ctx, "Progress  ", &st->progress_value,
                 .height = OPT_H, .font_size = OPT_FS);
@@ -3198,10 +3230,11 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Welcome panel ========
-        wlx_panel_begin(ctx, .title = "Welcome",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_INFO, GALLERY_ICON_ROLE_ACCENT,
+                "Welcome", HEADING_H);
 
             wlx_label(ctx, "What is Wollix?",
                 .font_size = SECTION_FS, .height = HEADING_H, .align = WLX_LEFT,
@@ -3236,10 +3269,11 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
     SECTION_NEXT(ctx);
 
         // ======== RIGHT: Demo & quick nav ========
-        wlx_panel_begin(ctx, .title = "Demo & Links",
-            .title_height = HEADING_H,
-            .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+        wlx_panel_begin(ctx, .padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_PLAY, GALLERY_ICON_ROLE_ACCENT,
+                "Demo & Links", HEADING_H);
 
             // Brand trait demonstration
             wlx_layout_begin_s(ctx, WLX_HORZ,
@@ -3264,14 +3298,17 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
                 if (groups[gi].section_count == 0) continue;
                 wlx_push_id(ctx, (size_t)gi);
                 char btn_label[64];
-                snprintf(btn_label, sizeof(btn_label), " > Explore %s", groups[gi].name);
-                if (wlx_button(ctx, btn_label,
+                snprintf(btn_label, sizeof(btn_label), "Explore %s", groups[gi].name);
+                if (gallery_icon_button(ctx, btn_label,
+                    WLX_ICON_CHEVRON_RIGHT, GALLERY_ICON_ROLE_ACCENT,
                     .height = OPT_H, .align = WLX_LEFT,
                     .font_size = MEDIUM_FS,
                     .back_color = semantic.color_surface_3,
                     .front_color = semantic.color_text_1,
                     .border_color = semantic.color_border,
-                    .border_width = 0.5f)) {
+                    .border_width = 0.5f,
+                    .image_size = 16,
+                    .image_text_gap = 8)) {
                     gallery_select_group(st, gi);
                 }
                 wlx_pop_id(ctx);
@@ -3299,10 +3336,13 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                     .back_color = semantic.color_surface_2,
                     .border_color = semantic.color_border,
                     .border_width = 0.5f);
-                    wlx_label(ctx, "  Wollix",
+                    gallery_icon_label(ctx, "Wollix",
+                        WLX_ICON_APP_WINDOW, GALLERY_ICON_ROLE_ACCENT,
                         .font_size = 24, .align = WLX_LEFT,
                         .height = 44,
-                        .front_color = semantic.color_accent);
+                        .front_color = semantic.color_accent,
+                        .image_size = 24,
+                        .image_text_gap = 10);
 
                     {
                         char fps_label[32];
@@ -3315,13 +3355,16 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                     {
                         char mode_label[32];
                         snprintf(mode_label, sizeof(mode_label), "%s", theme_names[gs->theme_mode]);
-                        if (wlx_button(ctx, mode_label,
+                        if (gallery_icon_button(ctx, mode_label,
+                            WLX_ICON_PALETTE, GALLERY_ICON_ROLE_TEXT,
                             .height = 44, .align = WLX_CENTER,
                             .font_size = TINY_FS,
                             .back_color = semantic.color_surface_3,
                             .front_color = semantic.color_text_1,
                             .border_color = semantic.color_border_strong,
-                            .border_width = 0.5f)) {
+                            .border_width = 0.5f,
+                            .image_size = 16,
+                            .image_text_gap = 6)) {
                             gs->theme_mode = (gs->theme_mode + 1) % GALLERY_THEME_COUNT;
                         }
                     }
@@ -3405,18 +3448,21 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
             const Section *active_section = gallery_active_section(gs);
             const char *section_name = active_section ? active_section->name : groups[gs->active_group].name;
             snprintf(status, sizeof(status),
-                "  %s  |  v%s  |  FPS: %d  |  %s / %s  |  Theme: %s",
+                "%s  |  v%s  |  FPS: %d  |  %s / %s  |  Theme: %s",
                 GALLERY_BACKEND, GALLERY_VERSION,
                 gallery_platform_fps(),
                 groups[gs->active_group].name,
                 section_name,
                 theme_names[gs->theme_mode]);
-            wlx_label(ctx, status,
+            gallery_icon_label(ctx, status,
+                WLX_ICON_INFO, GALLERY_ICON_ROLE_MUTED,
                 .font_size = TINY_FS, .height = SMALL_H, .align = WLX_LEFT,
                 .back_color = semantic.color_surface_2,
                 .front_color = semantic.color_text_muted,
                 .border_color = semantic.color_border,
-                .border_width = 0.5f);
+                .border_width = 0.5f,
+                .image_size = 14,
+                .image_text_gap = 8);
         }
 
     wlx_layout_end(ctx);
