@@ -125,7 +125,19 @@ function createTextureCanvas(width, height) {
     // as invalid so the C side can short-circuit on a zeroed WLX_Texture.
     const textures = new Map();
     let nextTextureHandle = 1;
-    let warnedNonWhiteTint = false;
+    let tintCanvas = null;
+    let tintCtx = null;
+
+    function getTintContext(width, height) {
+        if (!tintCanvas) {
+            tintCanvas = createTextureCanvas(width, height);
+            tintCtx = tintCanvas.getContext("2d");
+        } else if (tintCanvas.width !== width || tintCanvas.height !== height) {
+            tintCanvas.width = width;
+            tintCanvas.height = height;
+        }
+        return tintCtx;
+    }
 
     // ========================================================================
     // Read a NUL-terminated C string from wasm memory
@@ -286,19 +298,37 @@ function createTextureCanvas(width, height) {
         draw_texture(handle, sx, sy, sw, sh, dx, dy, dw, dh, tint) {
             const entry = textures.get(handle);
             if (!entry) return;
-            const a = (tint >>> 0) & 0xFF;
+            if (sw <= 0 || sh <= 0 || dw === 0 || dh === 0) return;
+            const { r, g, b, a } = unpackColor(tint);
             if (a === 0) return;
-            const r = (tint >>> 24) & 0xFF;
-            const g = (tint >>> 16) & 0xFF;
-            const b = (tint >>>  8) & 0xFF;
-            if ((r !== 255 || g !== 255 || b !== 255) && !warnedNonWhiteTint) {
-                console.warn(
-                    "wollix_wasm: non-white RGB tint is ignored; v1 honours alpha only");
-                warnedNonWhiteTint = true;
-            }
+
             const prevAlpha = ctx.globalAlpha;
             ctx.globalAlpha = a / 255;
-            ctx.drawImage(entry.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+            if (r === 255 && g === 255 && b === 255) {
+                ctx.drawImage(entry.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+            } else {
+                const tw = Math.max(1, Math.ceil(Math.abs(dw)));
+                const th = Math.max(1, Math.ceil(Math.abs(dh)));
+                const tctx = getTintContext(tw, th);
+                if (!tctx) {
+                    ctx.drawImage(entry.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+                    ctx.globalAlpha = prevAlpha;
+                    return;
+                }
+
+                tctx.clearRect(0, 0, tw, th);
+                tctx.globalAlpha = 1;
+                tctx.globalCompositeOperation = "source-over";
+                tctx.drawImage(entry.canvas, sx, sy, sw, sh, 0, 0, tw, th);
+                tctx.globalCompositeOperation = "multiply";
+                tctx.fillStyle = `rgb(${r},${g},${b})`;
+                tctx.fillRect(0, 0, tw, th);
+                tctx.globalCompositeOperation = "destination-in";
+                tctx.drawImage(entry.canvas, sx, sy, sw, sh, 0, 0, tw, th);
+                tctx.globalCompositeOperation = "source-over";
+
+                ctx.drawImage(tintCanvas, 0, 0, tw, th, dx, dy, dw, dh);
+            }
             ctx.globalAlpha = prevAlpha;
         },
 
