@@ -3,6 +3,7 @@
 // One source compiled three ways via WLX_GALLERY_RAYLIB / _SDL3 / _WASM.
 // Build: make gallery (Raylib), make gallery_sdl3 (SDL3), make wasm-site (WASM).
 
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -514,10 +515,20 @@ typedef enum {
     GALLERY_ICON_ROLE_FOCUS,
 } Gallery_Icon_Role;
 
-static WLX_Rect gallery_icon_src(WLX_Icon id) {
+static WLX_Rect gallery_icon_src_for(WLX_Icon id, float target_px) {
     if ((int)id < 0 || (int)id >= WLX_ICON_COUNT) return (WLX_Rect){0};
-    WLX_Icon_Rect r = wlx_icon_rects[id];
+    int t = (target_px <= 0.0f) ? 0 : (int)ceilf(target_px);
+    int chosen = WLX_ICON_TIER_COUNT - 1;
+    for (int i = 0; i < WLX_ICON_TIER_COUNT; i++) {
+        if (wlx_icon_tier_sizes[i] >= t) { chosen = i; break; }
+    }
+    WLX_Icon_Rect r = wlx_icon_rects_tiered[chosen][id];
     return (WLX_Rect){ (float)r.x, (float)r.y, (float)r.w, (float)r.h };
+}
+
+__attribute__((unused))
+static WLX_Rect gallery_icon_src(WLX_Icon id) {
+    return gallery_icon_src_for(id, 16.0f);
 }
 
 static WLX_Color gallery_icon_tint(const Gallery_Semantic_Theme *sem,
@@ -711,28 +722,28 @@ static void section_label(WLX_Context *ctx, Gallery_State *st) {
                 wlx_label(ctx, "Saved",
                     .height = ROW_H, .font_size = fs,
                     .texture = atlas,
-                    .texture_src = gallery_icon_src(WLX_ICON_CHECK),
+                    .texture_src = gallery_icon_src_for(WLX_ICON_CHECK, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_SUCCESS),
                     .image_size = icon_size);
 
                 wlx_label(ctx, "Details",
                     .height = ROW_H, .font_size = fs,
                     .texture = atlas,
-                    .texture_src = gallery_icon_src(WLX_ICON_INFO),
+                    .texture_src = gallery_icon_src_for(WLX_ICON_INFO, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_ACCENT),
                     .image_size = icon_size);
 
                 wlx_label(ctx, "Heads up",
                     .height = ROW_H, .font_size = fs,
                     .texture = atlas,
-                    .texture_src = gallery_icon_src(WLX_ICON_TRIANGLE_ALERT),
+                    .texture_src = gallery_icon_src_for(WLX_ICON_TRIANGLE_ALERT, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_WARNING),
                     .image_size = icon_size);
 
                 wlx_label(ctx, "12 items",
                     .height = ROW_H, .font_size = fs,
                     .texture = atlas,
-                    .texture_src = gallery_icon_src(WLX_ICON_IMAGE),
+                    .texture_src = gallery_icon_src_for(WLX_ICON_IMAGE, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_MUTED),
                     .front_color = sem.color_text_muted,
                     .image_size = icon_size);
@@ -819,7 +830,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
                 if (wlx_button(ctx, "",
                     .height = bh, .align = WLX_CENTER,
                     .texture = atlas,
-                    .texture_src = gallery_icon_src(WLX_ICON_PLAY),
+                    .texture_src = gallery_icon_src_for(WLX_ICON_PLAY, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_ACCENT),
                     .image_size = icon_size)) {
                     st->button_click_count++;
@@ -827,7 +838,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
                 if (wlx_button(ctx, "Save",
                     .height = bh, .align = WLX_CENTER, .font_size = fs,
                     .texture = atlas,
-                    .texture_src = gallery_icon_src(WLX_ICON_SAVE),
+                    .texture_src = gallery_icon_src_for(WLX_ICON_SAVE, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_TEXT),
                     .image_placement = WLX_IMAGE_PLACEMENT_LEFT,
                     .image_size = icon_size,
@@ -837,7 +848,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
                 if (wlx_button(ctx, "Confirm",
                     .height = bh, .align = WLX_CENTER, .font_size = fs,
                     .texture = atlas,
-                    .texture_src = gallery_icon_src(WLX_ICON_CHECK),
+                    .texture_src = gallery_icon_src_for(WLX_ICON_CHECK, (float)bh * 0.5f),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_SUCCESS),
                     .image_placement = WLX_IMAGE_PLACEMENT_TOP,
                     .image_size = (float)bh * 0.5f)) {
@@ -846,7 +857,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
                 if (wlx_button(ctx, "Settings",
                     .height = bh, .align = WLX_CENTER, .font_size = fs,
                     .texture = atlas,
-                    .texture_src = gallery_icon_src(WLX_ICON_SETTINGS),
+                    .texture_src = gallery_icon_src_for(WLX_ICON_SETTINGS, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_TEXT),
                     .image_placement = WLX_IMAGE_PLACEMENT_RIGHT,
                     .image_size = icon_size,
@@ -876,7 +887,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
                 .height = ROW_H, .align = WLX_CENTER,
                 .back_color = DANGER_BG(ctx),
                 .texture = atlas_ready ? atlas : (WLX_Texture){0},
-                .texture_src = atlas_ready ? gallery_icon_src(WLX_ICON_ROTATE_CCW) : (WLX_Rect){0},
+                .texture_src = atlas_ready ? gallery_icon_src_for(WLX_ICON_ROTATE_CCW, (float)ROW_H - 14.0f) : (WLX_Rect){0},
                 .texture_tint = atlas_ready
                     ? gallery_icon_tint(&sem, GALLERY_ICON_ROLE_TEXT)
                     : (WLX_Color){0},
@@ -948,8 +959,8 @@ static void section_checkbox(WLX_Context *ctx, Gallery_State *st) {
             .height = ROW_H, .font_size = fs,
             .tex_checked       = atlas,
             .tex_unchecked     = atlas,
-            .tex_checked_src   = gallery_icon_src(WLX_ICON_SQUARE_CHECK),
-            .tex_unchecked_src = gallery_icon_src(WLX_ICON_SQUARE),
+            .tex_checked_src   = gallery_icon_src_for(WLX_ICON_SQUARE_CHECK, (float)fs),
+            .tex_unchecked_src = gallery_icon_src_for(WLX_ICON_SQUARE, (float)fs),
             .tex_checked_tint  = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_ACCENT),
             .tex_unchecked_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_MUTED));
     } else {
@@ -990,8 +1001,8 @@ static void section_image(WLX_Context *ctx, Gallery_State *st) {
 
     Gallery_Semantic_Theme sem = gallery_semantic_theme(ctx->theme);
     WLX_Texture atlas = gallery_icon_atlas_texture();
-    WLX_Rect src_image   = gallery_icon_src(WLX_ICON_IMAGE);
-    WLX_Rect src_palette = gallery_icon_src(WLX_ICON_PALETTE);
+    WLX_Rect src_image   = gallery_icon_src_for(WLX_ICON_IMAGE, (float)PREVIEW_H);
+    WLX_Rect src_palette = gallery_icon_src_for(WLX_ICON_PALETTE, (float)PREVIEW_H);
 
     static const struct {
         const char       *label;
@@ -2448,7 +2459,7 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
                                     .height = 46, .font_size = TINY_FS, .align = WLX_BOTTOM_CENTER,
                                     .front_color = row_sem.color_text_2,
                                     .texture = atlas,
-                                    .texture_src = gallery_icon_src(icon_cells[i].icon),
+                                    .texture_src = gallery_icon_src_for(icon_cells[i].icon, 24.0f),
                                     .texture_tint = gallery_icon_tint(&row_sem, icon_cells[i].role),
                                     .image_placement = WLX_IMAGE_PLACEMENT_TOP,
                                     .image_size = 24,
