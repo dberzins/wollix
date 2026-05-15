@@ -86,6 +86,24 @@ function packTintKey(r, g, b) {
     return (r << 16) | (g << 8) | b;
 }
 
+function buildTintFilterUrl(r, g, b) {
+    const fr = r / 255;
+    const fg = g / 255;
+    const fb = b / 255;
+    const matrix =
+        `${fr} 0 0 0 0 ` +
+        `0 ${fg} 0 0 0 ` +
+        `0 0 ${fb} 0 0 ` +
+        `0 0 0 1 0`;
+    const svg =
+        '<svg xmlns="http://www.w3.org/2000/svg">' +
+          '<filter id="t" color-interpolation-filters="sRGB">' +
+            `<feColorMatrix values="${matrix}"/>` +
+          '</filter>' +
+        '</svg>';
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '#t';
+}
+
 // OffscreenCanvas is missing on Safari < 16.4. Fall back to a detached
 // <canvas> element with the same draw semantics.
 const HAS_OFFSCREEN_CANVAS = typeof OffscreenCanvas !== "undefined";
@@ -173,21 +191,24 @@ function probeCtxFilterSupported() {
     // zeroed WLX_Texture.
     const textures = new Map();
     let nextTextureHandle = 1;
-    let tintCanvas = null;
-    let tintCtx = null;
+    let liveScratchCanvas = null;
+    let liveScratchCtx = null;
     let tintCachePixels = 0;
     let tintLruCounter = 0;
     let ctxFilterSupported = false;
 
-    function getTintContext(width, height) {
-        if (!tintCanvas) {
-            tintCanvas = createTextureCanvas(width, height);
-            tintCtx = tintCanvas.getContext("2d");
-        } else if (tintCanvas.width !== width || tintCanvas.height !== height) {
-            tintCanvas.width = width;
-            tintCanvas.height = height;
+    // Destination-sized scratch canvas used by the live-tint fallback when
+    // ctx.filter is unavailable. The variant cache owns its own per-texture
+    // canvases and does not consult this helper.
+    function getLiveScratchContext(width, height) {
+        if (!liveScratchCanvas) {
+            liveScratchCanvas = createTextureCanvas(width, height);
+            liveScratchCtx = liveScratchCanvas.getContext("2d");
+        } else if (liveScratchCanvas.width !== width || liveScratchCanvas.height !== height) {
+            liveScratchCanvas.width = width;
+            liveScratchCanvas.height = height;
         }
-        return tintCtx;
+        return liveScratchCtx;
     }
 
     // Drain LRU variants across all texture entries until the cache can fit
@@ -221,22 +242,7 @@ function probeCtxFilterSupported() {
             const destCtx = destCanvas.getContext("2d");
             if (!destCtx) return null;
 
-            const fr = r / 255;
-            const fg = g / 255;
-            const fb = b / 255;
-            const matrix =
-                `${fr} 0 0 0 0 ` +
-                `0 ${fg} 0 0 0 ` +
-                `0 0 ${fb} 0 0 ` +
-                `0 0 0 1 0`;
-            const svg =
-                '<svg xmlns="http://www.w3.org/2000/svg">' +
-                  '<filter id="t" color-interpolation-filters="sRGB">' +
-                    `<feColorMatrix values="${matrix}"/>` +
-                  '</filter>' +
-                '</svg>';
-            const url = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '#t';
-
+            const url = buildTintFilterUrl(r, g, b);
             destCtx.save();
             destCtx.filter = `url("${url}")`;
             destCtx.drawImage(entry.canvas, 0, 0);
@@ -299,6 +305,39 @@ function probeCtxFilterSupported() {
         entry.variants.set(key, variant);
         tintCachePixels += variant.pixels;
         return variant;
+    }
+
+    // Tint live every draw. Used by the large-texture bypass and by callers
+    // whose variant could not be cached. Caller is responsible for managing
+    // ctx.globalAlpha around the call.
+    function drawTextureLive(entry, r, g, b, sx, sy, sw, sh, dx, dy, dw, dh) {
+        if (ctxFilterSupported) {
+            const url = buildTintFilterUrl(r, g, b);
+            ctx.save();
+            ctx.filter = `url("${url}")`;
+            ctx.drawImage(entry.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+            ctx.restore();
+            return;
+        }
+        const tw = Math.max(1, Math.ceil(Math.abs(dw)));
+        const th = Math.max(1, Math.ceil(Math.abs(dh)));
+        const tctx = getLiveScratchContext(tw, th);
+        if (!tctx) {
+            ctx.drawImage(entry.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+            return;
+        }
+        tctx.clearRect(0, 0, tw, th);
+        tctx.globalAlpha = 1;
+        tctx.globalCompositeOperation = "source-over";
+        tctx.drawImage(entry.canvas, sx, sy, sw, sh, 0, 0, tw, th);
+        tctx.globalCompositeOperation = "multiply";
+        tctx.fillStyle = `rgb(${r},${g},${b})`;
+        tctx.fillRect(0, 0, tw, th);
+        tctx.globalCompositeOperation = "destination-in";
+        tctx.drawImage(entry.canvas, sx, sy, sw, sh, 0, 0, tw, th);
+        tctx.globalCompositeOperation = "source-over";
+
+        ctx.drawImage(liveScratchCanvas, 0, 0, tw, th, dx, dy, dw, dh);
     }
 
     // ========================================================================
@@ -468,6 +507,8 @@ function probeCtxFilterSupported() {
             textures.delete(handle);
         },
 
+        // Non-white RGB tints are fully supported by this backend; do not
+        // reintroduce a per-session warning here for non-white tints.
         draw_texture(handle, sx, sy, sw, sh, dx, dy, dw, dh, tint) {
             const entry = textures.get(handle);
             if (!entry) return;
@@ -477,31 +518,20 @@ function probeCtxFilterSupported() {
 
             const prevAlpha = ctx.globalAlpha;
             ctx.globalAlpha = a / 255;
+
             if (r === 255 && g === 255 && b === 255) {
                 ctx.drawImage(entry.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+            } else if (entry.bypassed) {
+                drawTextureLive(entry, r, g, b, sx, sy, sw, sh, dx, dy, dw, dh);
             } else {
-                const tw = Math.max(1, Math.ceil(Math.abs(dw)));
-                const th = Math.max(1, Math.ceil(Math.abs(dh)));
-                const tctx = getTintContext(tw, th);
-                if (!tctx) {
-                    ctx.drawImage(entry.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
-                    ctx.globalAlpha = prevAlpha;
-                    return;
+                const variant = ensureTintVariant(entry, r, g, b);
+                if (variant) {
+                    ctx.drawImage(variant.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+                } else {
+                    drawTextureLive(entry, r, g, b, sx, sy, sw, sh, dx, dy, dw, dh);
                 }
-
-                tctx.clearRect(0, 0, tw, th);
-                tctx.globalAlpha = 1;
-                tctx.globalCompositeOperation = "source-over";
-                tctx.drawImage(entry.canvas, sx, sy, sw, sh, 0, 0, tw, th);
-                tctx.globalCompositeOperation = "multiply";
-                tctx.fillStyle = `rgb(${r},${g},${b})`;
-                tctx.fillRect(0, 0, tw, th);
-                tctx.globalCompositeOperation = "destination-in";
-                tctx.drawImage(entry.canvas, sx, sy, sw, sh, 0, 0, tw, th);
-                tctx.globalCompositeOperation = "source-over";
-
-                ctx.drawImage(tintCanvas, 0, 0, tw, th, dx, dy, dw, dh);
             }
+
             ctx.globalAlpha = prevAlpha;
         },
 
