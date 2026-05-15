@@ -82,6 +82,10 @@ function cssColor(rgba) {
     return `rgba(${c.r},${c.g},${c.b},${c.a / 255})`;
 }
 
+function packTintKey(r, g, b) {
+    return (r << 16) | (g << 8) | b;
+}
+
 // OffscreenCanvas is missing on Safari < 16.4. Fall back to a detached
 // <canvas> element with the same draw semantics.
 const HAS_OFFSCREEN_CANVAS = typeof OffscreenCanvas !== "undefined";
@@ -164,8 +168,9 @@ function probeCtxFilterSupported() {
     let targetInterval = TARGET_FPS > 0 ? 1000 / TARGET_FPS : 0;
     let lastRenderedTime = 0;
 
-    // Texture registry: maps handle -> { canvas, w, h }. Handle 0 is reserved
-    // as invalid so the C side can short-circuit on a zeroed WLX_Texture.
+    // Texture registry: maps handle -> { canvas, w, h, variants, bypassed }.
+    // Handle 0 is reserved as invalid so the C side can short-circuit on a
+    // zeroed WLX_Texture.
     const textures = new Map();
     let nextTextureHandle = 1;
     let tintCanvas = null;
@@ -183,6 +188,31 @@ function probeCtxFilterSupported() {
             tintCanvas.height = height;
         }
         return tintCtx;
+    }
+
+    // Drain LRU variants across all texture entries until the cache can fit
+    // `neededPixels` within the budget. If a single new variant alone exceeds
+    // the budget the loop runs the cache to empty and exits; the caller is
+    // expected to fall back to a live-draw path in that case.
+    function evictLruIfNeeded(neededPixels) {
+        while (tintCachePixels + neededPixels > TINT_CACHE_PIXEL_BUDGET) {
+            let lruEntry = null;
+            let lruKey = -1;
+            let lruTick = Infinity;
+            for (const entry of textures.values()) {
+                for (const [key, variant] of entry.variants) {
+                    if (variant.lastUsed < lruTick) {
+                        lruTick = variant.lastUsed;
+                        lruEntry = entry;
+                        lruKey = key;
+                    }
+                }
+            }
+            if (lruEntry === null) return;
+            const variant = lruEntry.variants.get(lruKey);
+            lruEntry.variants.delete(lruKey);
+            tintCachePixels -= variant.pixels;
+        }
     }
 
     // ========================================================================
@@ -332,12 +362,23 @@ function probeCtxFilterSupported() {
             tctx.putImageData(imgData, 0, 0);
 
             const handle = nextTextureHandle++;
-            textures.set(handle, { canvas, w: width, h: height });
+            textures.set(handle, {
+                canvas,
+                w: width,
+                h: height,
+                variants: new Map(),
+                bypassed: width * height > TINT_LARGE_TEXTURE_PIXEL_THRESHOLD,
+            });
             return handle;
         },
 
         destroy_texture(handle) {
             if (handle === 0) return;
+            const entry = textures.get(handle);
+            if (!entry) return;
+            for (const variant of entry.variants.values()) {
+                tintCachePixels -= variant.pixels;
+            }
             textures.delete(handle);
         },
 
