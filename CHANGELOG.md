@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Gallery Lucide icon atlas:** the gallery now uses a committed 12-icon
+  Lucide 1.14.0 white-alpha atlas in `demos/assets/wlx_icons.h` for
+  icon-backed label, button, image, texture-checkbox, and Theme Lab
+  examples. The first set is `check`, `x`, `info`, `triangle-alert`,
+  `image`, `palette`, `save`, `rotate-ccw`, `settings`, `play`, `square`,
+  and `square-check`. Source SVGs, manifest, and license live under
+  `demos/assets/icons/`; regenerate the header with
+  `bash tools/gen_icon_atlas.sh`.
 - **Image-capable checkbox texture mode:** `wlx_checkbox` texture mode now
   supports per-state source rects and per-state tints through four new
   `WLX_Checkbox_Opt` fields: `tex_checked_src`, `tex_unchecked_src`,
