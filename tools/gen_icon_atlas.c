@@ -33,11 +33,20 @@ static const IconEntry icons[] = {
 };
 
 #define ICON_COUNT ((int)(sizeof(icons) / sizeof(icons[0])))
-#define ICON_SIZE  16
 
-static int read_icon_png(const char *png_dir, const char *name, unsigned char *out_rgba) {
+// Tier sizes in ascending order. Cell stride within a row is MAX_TIER so
+// the per-icon x coordinate is constant across tiers. Right-padding
+// columns (when tier_px < MAX_TIER) stay transparent.
+static const int TIERS[] = {16, 24, 32, 48};
+#define TIER_COUNT ((int)(sizeof(TIERS) / sizeof(TIERS[0])))
+#define MAX_TIER   48
+
+static int read_icon_png(const char *png_dir,
+                         int tier_px,
+                         const char *name,
+                         unsigned char *out_rgba) {
     char path[1024];
-    int n = snprintf(path, sizeof(path), "%s/%s.png", png_dir, name);
+    int n = snprintf(path, sizeof(path), "%s/tier_%d/%s.png", png_dir, tier_px, name);
     if (n < 0 || n >= (int)sizeof(path)) {
         fprintf(stderr, "error: png path too long for %s\n", name);
         return 1;
@@ -48,13 +57,13 @@ static int read_icon_png(const char *png_dir, const char *name, unsigned char *o
         fprintf(stderr, "error: stbi_load failed for %s: %s\n", path, stbi_failure_reason());
         return 1;
     }
-    if (w != ICON_SIZE || h != ICON_SIZE) {
+    if (w != tier_px || h != tier_px) {
         fprintf(stderr, "error: %s has size %dx%d, expected %dx%d\n",
-                path, w, h, ICON_SIZE, ICON_SIZE);
+                path, w, h, tier_px, tier_px);
         stbi_image_free(data);
         return 1;
     }
-    memcpy(out_rgba, data, (size_t)ICON_SIZE * ICON_SIZE * 4);
+    memcpy(out_rgba, data, (size_t)tier_px * tier_px * 4);
     stbi_image_free(data);
     return 0;
 }
@@ -109,8 +118,13 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    const int atlas_w = ICON_SIZE * ICON_COUNT;
-    const int atlas_h = ICON_SIZE;
+    int tier_y[TIER_COUNT];
+    int atlas_h = 0;
+    for (int t = 0; t < TIER_COUNT; ++t) {
+        tier_y[t] = atlas_h;
+        atlas_h += TIERS[t];
+    }
+    const int atlas_w = MAX_TIER * ICON_COUNT;
     const size_t atlas_bytes = (size_t)atlas_w * atlas_h * 4;
 
     unsigned char *atlas = (unsigned char *)calloc(atlas_bytes, 1);
@@ -119,27 +133,39 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    unsigned char cell[ICON_SIZE * ICON_SIZE * 4];
+    unsigned char *cell = (unsigned char *)malloc((size_t)MAX_TIER * MAX_TIER * 4);
+    if (!cell) {
+        fprintf(stderr, "error: failed to allocate cell scratch\n");
+        free(atlas);
+        return 1;
+    }
 
-    for (int i = 0; i < ICON_COUNT; ++i) {
-        if (read_icon_png(png_dir, icons[i].name, cell) != 0) {
-            free(atlas);
-            return 1;
-        }
-        const int dst_x = i * ICON_SIZE;
-        // White-alpha encoding: RGB = 255 for every pixel, preserve coverage
-        // from the rasterizer's alpha channel. Tint at the call site.
-        for (int y = 0; y < ICON_SIZE; ++y) {
-            for (int x = 0; x < ICON_SIZE; ++x) {
-                unsigned char a = cell[(y * ICON_SIZE + x) * 4 + 3];
-                size_t dst = ((size_t)y * atlas_w + (dst_x + x)) * 4;
-                atlas[dst + 0] = 255;
-                atlas[dst + 1] = 255;
-                atlas[dst + 2] = 255;
-                atlas[dst + 3] = a;
+    for (int t = 0; t < TIER_COUNT; ++t) {
+        const int tier_px = TIERS[t];
+        const int row_y = tier_y[t];
+        for (int i = 0; i < ICON_COUNT; ++i) {
+            if (read_icon_png(png_dir, tier_px, icons[i].name, cell) != 0) {
+                free(cell);
+                free(atlas);
+                return 1;
+            }
+            const int dst_x = i * MAX_TIER;
+            // White-alpha encoding: RGB = 255 for every pixel, preserve coverage
+            // from the rasterizer's alpha channel. Tint at the call site.
+            for (int y = 0; y < tier_px; ++y) {
+                for (int x = 0; x < tier_px; ++x) {
+                    unsigned char a = cell[(y * tier_px + x) * 4 + 3];
+                    size_t dst = ((size_t)(row_y + y) * atlas_w + (dst_x + x)) * 4;
+                    atlas[dst + 0] = 255;
+                    atlas[dst + 1] = 255;
+                    atlas[dst + 2] = 255;
+                    atlas[dst + 3] = a;
+                }
             }
         }
     }
+
+    free(cell);
 
     FILE *out = fopen(output_path, "wb");
     if (!out) {
@@ -153,7 +179,8 @@ int main(int argc, char **argv) {
     fputs("#ifndef WLX_ICONS_H\n", out);
     fputs("#define WLX_ICONS_H\n\n", out);
     fprintf(out, "#define WLX_ICONS_WIDTH  %d\n", atlas_w);
-    fprintf(out, "#define WLX_ICONS_HEIGHT %d\n\n", atlas_h);
+    fprintf(out, "#define WLX_ICONS_HEIGHT %d\n", atlas_h);
+    fprintf(out, "#define WLX_ICON_TIER_COUNT %d\n\n", TIER_COUNT);
 
     fputs("typedef enum {\n", out);
     for (int i = 0; i < ICON_COUNT; ++i) {
@@ -164,10 +191,34 @@ int main(int argc, char **argv) {
 
     fputs("typedef struct { int x, y, w, h; } WLX_Icon_Rect;\n\n", out);
 
+    fputs("static const int wlx_icon_tier_sizes[WLX_ICON_TIER_COUNT] = {", out);
+    for (int t = 0; t < TIER_COUNT; ++t) {
+        fprintf(out, "%s%d", t ? ", " : "", TIERS[t]);
+    }
+    fputs("};\n", out);
+
+    fputs("static const int wlx_icon_tier_y[WLX_ICON_TIER_COUNT] = {", out);
+    for (int t = 0; t < TIER_COUNT; ++t) {
+        fprintf(out, "%s%d", t ? ", " : "", tier_y[t]);
+    }
+    fputs("};\n\n", out);
+
+    fputs("static const WLX_Icon_Rect wlx_icon_rects_tiered[WLX_ICON_TIER_COUNT][WLX_ICON_COUNT] = {\n", out);
+    for (int t = 0; t < TIER_COUNT; ++t) {
+        fprintf(out, "    { /* tier %d */\n", TIERS[t]);
+        for (int i = 0; i < ICON_COUNT; ++i) {
+            fprintf(out, "        {%4d, %3d, %2d, %2d}, /* %s */\n",
+                    i * MAX_TIER, tier_y[t], TIERS[t], TIERS[t], icons[i].name);
+        }
+        fputs("    },\n", out);
+    }
+    fputs("};\n\n", out);
+
+    // Backwards-compatible 1D table: smallest tier, same row as tiered[0].
     fputs("static const WLX_Icon_Rect wlx_icon_rects[WLX_ICON_COUNT] = {\n", out);
     for (int i = 0; i < ICON_COUNT; ++i) {
-        fprintf(out, "    {%3d, 0, %d, %d}, /* %s */\n",
-                i * ICON_SIZE, ICON_SIZE, ICON_SIZE, icons[i].name);
+        fprintf(out, "    {%4d, %3d, %2d, %2d}, /* %s */\n",
+                i * MAX_TIER, tier_y[0], TIERS[0], TIERS[0], icons[i].name);
     }
     fputs("};\n\n", out);
 

@@ -31,6 +31,10 @@ ICONS=(
     square-check
 )
 
+# Atlas tier sizes (px). Must stay in sync with the TIERS[] table in
+# tools/gen_icon_atlas.c and target_icon_size_px in lucide-atlas.manifest.
+TIERS=(16 24 32 48)
+
 if ! command -v rsvg-convert >/dev/null 2>&1; then
     cat >&2 <<EOF
 error: rsvg-convert not found on PATH
@@ -70,11 +74,14 @@ for name in "${ICONS[@]}"; do
     sed 's/currentColor/white/g' "${src}" > "${SCRATCH}/svg/${name}.svg"
 done
 
-# Rasterize each working-copy SVG to a 16x16 RGBA PNG.
-for name in "${ICONS[@]}"; do
-    rsvg-convert -w 16 -h 16 \
-        -o "${SCRATCH}/png/${name}.png" \
-        "${SCRATCH}/svg/${name}.svg" >/dev/null
+# Rasterize each working-copy SVG to a tier_px*tier_px RGBA PNG per tier.
+for tier in "${TIERS[@]}"; do
+    mkdir -p "${SCRATCH}/png/tier_${tier}"
+    for name in "${ICONS[@]}"; do
+        rsvg-convert -w "${tier}" -h "${tier}" \
+            -o "${SCRATCH}/png/tier_${tier}/${name}.png" \
+            "${SCRATCH}/svg/${name}.svg" >/dev/null
+    done
 done
 
 # Build the packer.
