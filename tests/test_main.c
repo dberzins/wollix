@@ -90,6 +90,13 @@
 // check_color isolation, layout slot consumption.
 #include "test_checkbox_texture.c"
 
+// Content padding on wlx_label / wlx_button: default zero, uniform,
+// asymmetric per-side, per-side override, theme opt-in via
+// WLX_PADDING_USE_THEME, clamp on tight rect, chrome rect unchanged,
+// hit-rect unchanged, image-only inset, image+text inset, slot+content
+// padding composition.
+#include "test_content_padding.c"
+
 int main(void) {
     RUN_SUITE(layout_math);
     RUN_SUITE(color);
@@ -121,5 +128,6 @@ int main(void) {
     RUN_SUITE(button_image);
     RUN_SUITE(label_image);
     RUN_SUITE(checkbox_texture);
+    RUN_SUITE(content_padding);
     return test_summary();
 }

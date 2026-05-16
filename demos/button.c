@@ -40,11 +40,10 @@ int main(void) {
                 ClearBackground(WLX_BACKGROUND_COLOR);
 
                 wlx_layout_begin(ctx, 1, WLX_HORZ);
-                    wlx_layout_begin(ctx, 5, WLX_VERT);
+                    wlx_layout_begin(ctx, 5, WLX_VERT, .padding = 12, .gap = 8);
 
                         if (wlx_button(ctx, "BUTTON1",
                             .widget_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .align = WLX_CENTER
-                            // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Button1 ID: %zu, Left mouse clicked at: (%d, %d)\n", ctx->interaction.hot_id, ctx->input.mouse_x, ctx->input.mouse_y);
                             app.button1_clicked = true;
@@ -52,11 +51,37 @@ int main(void) {
 
                         if (wlx_button(ctx, "BUTTON2",
                             .widget_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .align = WLX_CENTER
-                            // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Button2 ID: %zu, Left mouse clicked at: (%d, %d)\n", ctx->interaction.hot_id, ctx->input.mouse_x, ctx->input.mouse_y);
                             app.button2_clicked = true;
                         }
+
+                        wlx_label(ctx,
+                            "content_padding: baseline | uniform 12 | asymmetric (8 vert, 24 horz)",
+                            .font_size = 14, .align = WLX_LEFT,
+                            .front_color = (Color){200, 220, 240, 255});
+
+                        wlx_layout_begin(ctx, 3, WLX_HORZ, .gap = 12);
+                            wlx_button(ctx, "Baseline",
+                                .font_size = 18, .height = 56,
+                                .back_color = (Color){60, 80, 140, 255},
+                                .align = WLX_CENTER);
+
+                            wlx_button(ctx, "Uniform 12",
+                                .font_size = 18, .height = 56,
+                                .back_color = (Color){60, 80, 140, 255},
+                                .align = WLX_CENTER,
+                                .content_padding = 12);
+
+                            wlx_button(ctx, "Asymmetric",
+                                .font_size = 18, .height = 56,
+                                .back_color = (Color){60, 80, 140, 255},
+                                .align = WLX_CENTER,
+                                .content_padding_top = 8,
+                                .content_padding_bottom = 8,
+                                .content_padding_left = 24,
+                                .content_padding_right = 24);
+                        wlx_layout_end(ctx);
 
                     wlx_layout_end(ctx);
                 wlx_layout_end(ctx);

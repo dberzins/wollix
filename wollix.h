@@ -1103,6 +1103,14 @@ static inline void wlx_arena_pool_destroy(WLX_Arena_Pool *pool) {
 // never valid (border_width, roundness).  Resolve checks: <= WLX_FLOAT_UNSET.
 #define WLX_FLOAT_UNSET (-1e30f)
 
+// Sentinel for WLX_PADDING_FIELDS uniform `padding` on widgets whose default
+// is "zero, preserve current visuals" (currently wlx_label, wlx_button). Pass
+// `.padding = WLX_PADDING_USE_THEME` to opt that widget into the theme's
+// inner-content padding (WLX_STYLE_CONTENT_PADDING / WLX_Theme.padding).
+// Numerically distinct from the -1 "unset" sentinel so the resolver can tell
+// "unset" apart from "explicit theme request".
+#define WLX_PADDING_USE_THEME (-2.0f)
+
 typedef struct {
     // ── Global colors ───────────────────────────────────────────────
     WLX_Color background;        // window / panel clear color
@@ -1494,6 +1502,36 @@ WLXDEF void wlx_perf_reset(WLX_Context *ctx);
 #define WLX_RESOLVE_PADDING(opt) \
     wlx_resolve_padding((opt).padding, (opt).padding_top, (opt).padding_right, (opt).padding_bottom, (opt).padding_left)
 
+// Content padding: inset applied around a widget's content (text + image)
+// while the chrome (background, border) and hit rect remain at the full
+// widget rect. Parallel to WLX_PADDING_FIELDS but with `content_padding*`
+// names so widgets that also embed WLX_LAYOUT_SLOT_FIELDS (where the slot's
+// own `padding*` is the outer-margin knob) can have both without collision.
+// Embedded by wlx_label and wlx_button; defaults are zero so existing
+// callers stay pixel-stable. Per-side fields >= 0 win over the uniform,
+// the uniform default of -1 resolves to 0 (back-compat), and a uniform of
+// WLX_PADDING_USE_THEME opts in to the theme's `padding` knob (default
+// WLX_STYLE_CONTENT_PADDING). The resolver clamps the resolved inset
+// proportionally so the content rect never has negative dimensions.
+#define WLX_CONTENT_PADDING_FIELDS \
+    float content_padding; \
+    float content_padding_top; \
+    float content_padding_right; \
+    float content_padding_bottom; \
+    float content_padding_left
+
+#define WLX_CONTENT_PADDING_DEFAULTS \
+    .content_padding = -1.0f, \
+    .content_padding_top = -1.0f, \
+    .content_padding_right = -1.0f, \
+    .content_padding_bottom = -1.0f, \
+    .content_padding_left = -1.0f
+
+#define WLX_RESOLVE_CONTENT_PADDING(ctx, opt) \
+    wlx_resolve_content_padding((ctx)->theme, \
+        (opt).content_padding, (opt).content_padding_top, (opt).content_padding_right, \
+        (opt).content_padding_bottom, (opt).content_padding_left)
+
 typedef struct {
     WLX_LAYOUT_SLOT_FIELDS;
     const WLX_Slot_Size *sizes;
@@ -1758,6 +1796,13 @@ typedef struct {
     // Border
     WLX_BORDER_FIELDS;
 
+    // Content padding: inset around text + image only. Chrome (background,
+    // border) and the hit rect stay at the full widget rect. Defaults
+    // resolve to 0 for back-compat; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` to opt into the theme's
+    // `padding` value.
+    WLX_CONTENT_PADDING_FIELDS;
+
     // Optional image content. .texture = {0} means text-only.
     WLX_Texture         texture;
     WLX_Rect            texture_src;     // src.w <= 0 -> full texture
@@ -1786,6 +1831,8 @@ typedef struct {
         .show_background = false, \
         /* Border */ \
         WLX_BORDER_DEFAULTS, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         /* Image content (inert by default) */ \
         .texture = {0}, \
         .texture_src = {0}, \
@@ -1816,6 +1863,13 @@ typedef struct {
     // Border
     WLX_BORDER_FIELDS;
 
+    // Content padding: inset around text + image only. Chrome (background,
+    // border) and the hit rect stay at the full widget rect. Defaults
+    // resolve to 0 for back-compat; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` to opt into the theme's
+    // `padding` value.
+    WLX_CONTENT_PADDING_FIELDS;
+
     // Optional image content. .texture = {0} means text-only.
     WLX_Texture         texture;
     WLX_Rect            texture_src;     // src.w <= 0 -> full texture
@@ -1842,6 +1896,8 @@ typedef struct {
         WLX_TEXT_COLOR_DEFAULTS, \
         /* Border */ \
         WLX_BORDER_DEFAULTS, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         /* Image content (inert by default) */ \
         .texture = {0}, \
         .texture_src = {0}, \
@@ -2991,6 +3047,53 @@ static inline WLX_Resolved_Padding wlx_resolve_padding(
         .bottom = (pb >= 0.0f) ? pb : uniform,
         .left   = (pl >= 0.0f) ? pl : uniform,
     };
+}
+
+// Resolve content padding for widgets where the default is "zero" (label,
+// button). Per-side values >= 0 win; otherwise the side falls back to the
+// uniform. If the resolved value is still < 0, the resolved side is 0 unless
+// the uniform is WLX_PADDING_USE_THEME, in which case the side resolves to
+// the theme's `padding` knob (WLX_STYLE_CONTENT_PADDING default).
+static inline WLX_Resolved_Padding wlx_resolve_content_padding(
+    const WLX_Theme *theme,
+    float uniform, float pt, float pr, float pb, float pl) {
+    bool theme_opt_in = (uniform == WLX_PADDING_USE_THEME);
+    float theme_value = theme ? theme->padding : (float)WLX_STYLE_CONTENT_PADDING;
+    float fallback = theme_opt_in ? theme_value : 0.0f;
+    float u = (uniform >= 0.0f) ? uniform : fallback;
+    return (WLX_Resolved_Padding){
+        .top    = (pt >= 0.0f) ? pt : u,
+        .right  = (pr >= 0.0f) ? pr : u,
+        .bottom = (pb >= 0.0f) ? pb : u,
+        .left   = (pl >= 0.0f) ? pl : u,
+    };
+}
+
+// Clamp resolved padding so that left+right <= max_w and top+bottom <= max_h.
+// Scales the opposing pair proportionally rather than clipping one side, so
+// the inset stays balanced. Never produces negative values. Mirrors the
+// inputbox content_padding clamp.
+static inline void wlx_clamp_resolved_padding(WLX_Resolved_Padding *rp, float max_w, float max_h) {
+    if (rp->left < 0.0f) rp->left = 0.0f;
+    if (rp->right < 0.0f) rp->right = 0.0f;
+    if (rp->top < 0.0f) rp->top = 0.0f;
+    if (rp->bottom < 0.0f) rp->bottom = 0.0f;
+
+    if (max_w < 0.0f) max_w = 0.0f;
+    if (max_h < 0.0f) max_h = 0.0f;
+
+    float hsum = rp->left + rp->right;
+    if (hsum > max_w && hsum > 0.0f) {
+        float s = max_w / hsum;
+        rp->left  *= s;
+        rp->right *= s;
+    }
+    float vsum = rp->top + rp->bottom;
+    if (vsum > max_h && vsum > 0.0f) {
+        float s = max_h / vsum;
+        rp->top    *= s;
+        rp->bottom *= s;
+    }
 }
 
 // Convenience helpers - non-consuming width/height of the innermost layout rect.
@@ -5870,6 +5973,10 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
+    wlx_clamp_resolved_padding(&rp, wr.w, wr.h);
+    WLX_Rect content_rect = wlx_rect_inset_sides(wr, rp.top, rp.right, rp.bottom, rp.left);
+
     WLX_Interaction inter = wlx_get_interaction(
         ctx,
         wr,
@@ -5904,10 +6011,10 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
         float text_w = 0.0f, text_h = 0.0f;
         wlx_measure_text_slice(ctx, text, text_len, ts, &text_w, &text_h);
 
-        float image_size = wlx_widget_auto_image_size(opt.image_size, opt.image_placement, wr, opt.font_size, true);
+        float image_size = wlx_widget_auto_image_size(opt.image_size, opt.image_placement, content_rect, opt.font_size, true);
 
         WLX_Rect image_rect, text_rect;
-        wlx_widget_layout_image_text(wr, opt.image_placement, image_size, opt.image_text_gap,
+        wlx_widget_layout_image_text(content_rect, opt.image_placement, image_size, opt.image_text_gap,
             text_w, text_h, opt.align, &image_rect, &text_rect);
 
         WLX_Rect src = wlx_widget_image_src(opt.texture, opt.texture_src);
@@ -5918,14 +6025,14 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
         wlx_draw_text_fitted_slice(ctx, text_rect, text, text_len, ts, opt.align, opt.wrap);
     } else if (has_image) {
         WLX_Rect target = (opt.image_size > 0)
-            ? wlx_get_align_rect(wr, opt.image_size, opt.image_size, opt.align)
-            : wr;
+            ? wlx_get_align_rect(content_rect, opt.image_size, opt.image_size, opt.align)
+            : content_rect;
         WLX_Rect src = wlx_widget_image_src(opt.texture, opt.texture_src);
         WLX_Rect tex_src, tex_dst;
         wlx_resolve_image_fit(target, src, opt.texture_scale, opt.align, &tex_src, &tex_dst);
         wlx_draw_texture(ctx, opt.texture, tex_src, tex_dst, opt.texture_tint);
     } else if (has_text) {
-        wlx_draw_text_fitted_slice(ctx, wr, text, text_len, ts, opt.align, opt.wrap);
+        wlx_draw_text_fitted_slice(ctx, content_rect, text, text_len, ts, opt.align, opt.wrap);
     }
     // No text and no image: chrome-only (if configured); label remains non-interactive.
 
@@ -6145,6 +6252,10 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
+    wlx_clamp_resolved_padding(&rp, wr.w, wr.h);
+    WLX_Rect content_rect = wlx_rect_inset_sides(wr, rp.top, rp.right, rp.bottom, rp.left);
+
     WLX_Interaction inter = wlx_get_interaction(
         ctx,
         wr,
@@ -6177,10 +6288,10 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
         float text_w = 0.0f, text_h = 0.0f;
         wlx_measure_text_slice(ctx, text, text_len, ts, &text_w, &text_h);
 
-        float image_size = wlx_widget_auto_image_size(opt.image_size, opt.image_placement, wr, opt.font_size, true);
+        float image_size = wlx_widget_auto_image_size(opt.image_size, opt.image_placement, content_rect, opt.font_size, true);
 
         WLX_Rect image_rect, text_rect;
-        wlx_widget_layout_image_text(wr, opt.image_placement, image_size, opt.image_text_gap,
+        wlx_widget_layout_image_text(content_rect, opt.image_placement, image_size, opt.image_text_gap,
             text_w, text_h, opt.align, &image_rect, &text_rect);
 
         WLX_Rect src = wlx_widget_image_src(opt.texture, opt.texture_src);
@@ -6191,14 +6302,14 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
         wlx_draw_text_fitted_slice(ctx, text_rect, text, text_len, ts, opt.align, opt.wrap);
     } else if (has_image) {
         WLX_Rect target = (opt.image_size > 0)
-            ? wlx_get_align_rect(wr, opt.image_size, opt.image_size, opt.align)
-            : wr;
+            ? wlx_get_align_rect(content_rect, opt.image_size, opt.image_size, opt.align)
+            : content_rect;
         WLX_Rect src = wlx_widget_image_src(opt.texture, opt.texture_src);
         WLX_Rect tex_src, tex_dst;
         wlx_resolve_image_fit(target, src, opt.texture_scale, opt.align, &tex_src, &tex_dst);
         wlx_draw_texture(ctx, opt.texture, tex_src, tex_dst, opt.texture_tint);
     } else if (has_text) {
-        wlx_draw_text_fitted_slice(ctx, wr, text, text_len, ts, opt.align, opt.wrap);
+        wlx_draw_text_fitted_slice(ctx, content_rect, text, text_len, ts, opt.align, opt.wrap);
     }
     // No text and no image: chrome-only; click contract preserved.
 

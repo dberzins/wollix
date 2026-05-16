@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Content padding for `wlx_label` and `wlx_button`:** five new option
+  fields (`content_padding`, `content_padding_top`, `content_padding_right`,
+  `content_padding_bottom`, `content_padding_left`) plus a public
+  `WLX_PADDING_USE_THEME` sentinel inset only the content (text + image)
+  rect of a label or button. Chrome (background, border) and the click
+  hit rect remain at the full widget rect, so a padded button still gets
+  its full clickable area. Defaults resolve to zero so existing call
+  sites keep their pre-change visuals; pass
+  `.content_padding = WLX_PADDING_USE_THEME` to opt into the theme's
+  `padding` value (`WLX_STYLE_CONTENT_PADDING` by default). Resolved
+  insets are clamped proportionally so a content rect never has negative
+  dimensions on tight slots. `demos/button` and `demos/label_image`
+  showcase the new rows. No backend or theme schema changes.
 - **Gallery navigation icon expansion:** the curated gallery atlas grew from
   12 to 32 icons under `demos/assets/icons/lucide-svg/`, adding `app-window`,
   `chevron-right`, `house`, `blocks`, `layout-dashboard`, `route`,

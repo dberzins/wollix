@@ -131,7 +131,7 @@ int main(void) {
         BeginDrawing();
             ClearBackground((Color){18, 22, 32, 255});
 
-            wlx_layout_begin(ctx, 10, WLX_VERT,
+            wlx_layout_begin(ctx, 12, WLX_VERT,
                 .sizes = (WLX_Slot_Size[]){
                     WLX_SLOT_PX(36),     // title
                     WLX_SLOT_PX(22),     // section heading
@@ -142,6 +142,8 @@ int main(void) {
                     WLX_SLOT_PX(96),     // scale row
                     WLX_SLOT_PX(22),     // section heading
                     WLX_SLOT_PX(48),     // hover row
+                    WLX_SLOT_PX(22),     // section heading
+                    WLX_SLOT_PX(56),     // content padding row
                     WLX_SLOT_FLEX(1),    // note
                 },
                 .padding = 12, .gap = 8);
@@ -246,6 +248,29 @@ int main(void) {
                         .front_color = WLX_WHITE,
                         .show_background = true,
                         .back_color = (Color){40, 60, 90, 255});
+                wlx_layout_end(ctx);
+
+                // -- Content padding ---------------------------------------
+                wlx_label(ctx, "Content padding (text + image inset; chrome unchanged)",
+                    .font_size = 14, .align = WLX_LEFT,
+                    .front_color = (Color){180, 200, 220, 255});
+
+                wlx_layout_begin(ctx, 2, WLX_HORZ, .gap = 12);
+                    wlx_label(ctx, "padding_left = 32",
+                        .texture = tex_info, .image_size = 22, .image_text_gap = 8,
+                        .font_size = 16, .align = WLX_LEFT,
+                        .front_color = WLX_WHITE,
+                        .show_background = true,
+                        .back_color = (Color){40, 60, 90, 255},
+                        .content_padding_left = 32);
+
+                    wlx_label(ctx, "USE_THEME",
+                        .texture = tex_check, .image_size = 22, .image_text_gap = 8,
+                        .font_size = 16, .align = WLX_CENTER,
+                        .front_color = WLX_WHITE,
+                        .show_background = true,
+                        .back_color = (Color){40, 70, 50, 255},
+                        .content_padding = WLX_PADDING_USE_THEME);
                 wlx_layout_end(ctx);
 
                 // -- Note --------------------------------------------------

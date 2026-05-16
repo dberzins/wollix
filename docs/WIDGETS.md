@@ -150,6 +150,11 @@ Mode is selected purely by the inputs — there is no separate
 | `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Where the image sits relative to text (`LEFT`, `RIGHT`, `TOP`, `BOTTOM`). |
 | `image_size` | `float` | `0` | Reserved square size for the image. `<= 0` is automatic: derived from `font_size` for text + image, or the full label rect for image-only. |
 | `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
+| `content_padding` | `float` | `-1` | Uniform inner inset around text + image. Default sentinel resolves to `0` (no inset). Pass `WLX_PADDING_USE_THEME` to opt into the theme's `padding` value. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 
 All shared placement, sizing, typography, color, and border fields also apply.
 Label content uses the same fitted line/run layout as `wlx_button`, so
@@ -157,6 +162,17 @@ centered or wrapped captions align per visible line. See the matching
 [`wlx_button` image content section](#wlx_button) for the parallel button
 surface — the two widgets share the same image content options and
 fitting helpers.
+
+`content_padding*` insets only the *content* (text + image) rect. The
+chrome (background, border) and the click hit rect remain at the full
+label rect. Per-side values >= 0 win; otherwise the side falls back to
+the uniform `content_padding`. When the uniform is also unset
+(`-1`, the default) the resolved inset is `0` so existing call sites
+keep their pixel-stable layout. Passing
+`.content_padding = WLX_PADDING_USE_THEME` resolves any still-unset side
+to the theme's `padding` knob (`WLX_STYLE_CONTENT_PADDING` by default).
+On tight rects the resolved padding is clamped proportionally so the
+content rect never has negative dimensions.
 
 ### Content rules
 
@@ -257,6 +273,16 @@ wlx_push_opacity(ctx, 0.5f);
 wlx_pop_opacity(ctx);
 ```
 
+Label with a left content inset (chrome stays at full width):
+
+```c
+wlx_label(ctx, "padded heading",
+    .height = 32, .font_size = 18, .align = WLX_LEFT,
+    .show_background = true,
+    .back_color = (WLX_Color){40, 60, 90, 255},
+    .content_padding_left = 32);
+```
+
 ---
 
 ## `wlx_button`
@@ -302,12 +328,26 @@ function or option struct.
 | `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Where the image sits relative to text (`LEFT`, `RIGHT`, `TOP`, `BOTTOM`). |
 | `image_size` | `float` | `0` | Reserved square size for the image. `<= 0` is automatic: derived from `font_size` for image+text, or full button rect for image-only. |
 | `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
+| `content_padding` | `float` | `-1` | Uniform inner inset around text + image. Default sentinel resolves to `0` (no inset). Pass `WLX_PADDING_USE_THEME` to opt into the theme's `padding` value. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 
 Shared placement, sizing, typography, color, and border fields also apply.
 The button always draws a filled `back_color` rectangle — hover brightens it
 automatically using the theme's `hover_brightness`. Button captions use the
 same fitted line/run layout as `wlx_label`, so centered or wrapped captions
 align per visible line.
+
+`content_padding*` insets only the *content* (text + image) rect. The
+chrome (background, border) and the click hit rect remain at the full
+button rect, so a button keeps its full clickable area even when the
+caption is visually inset. Resolution rules match `wlx_label`: per-side
+values >= 0 win, the uniform `content_padding` is the fallback, the
+default sentinel resolves to `0`, and `WLX_PADDING_USE_THEME` opts in
+to the theme's `padding` knob. The resolved inset is clamped so the
+content rect never has negative dimensions on tight buttons.
 
 ### Content rules
 
@@ -396,6 +436,32 @@ wlx_push_opacity(ctx, 0.5f);
         .texture_tint = (WLX_Color){200, 220, 255, 255},
         .image_size = 32, .align = WLX_CENTER);
 wlx_pop_opacity(ctx);
+```
+
+Button with uniform content padding:
+
+```c
+wlx_button(ctx, "Save",
+    .height = 56, .font_size = 18, .align = WLX_CENTER,
+    .content_padding = 12);
+```
+
+Asymmetric padding for a wide-padded label:
+
+```c
+wlx_button(ctx, "Confirm",
+    .height = 48, .font_size = 16, .align = WLX_CENTER,
+    .content_padding_top = 6, .content_padding_bottom = 6,
+    .content_padding_left = 20, .content_padding_right = 20);
+```
+
+Opt into the theme's `padding` knob (e.g. when a custom theme sets a
+consistent inset across all buttons):
+
+```c
+wlx_button(ctx, "Continue",
+    .height = 44, .font_size = 16, .align = WLX_CENTER,
+    .content_padding = WLX_PADDING_USE_THEME);
 ```
 
 ---

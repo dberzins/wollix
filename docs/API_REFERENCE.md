@@ -1678,6 +1678,11 @@ prefer [`wlx_image`](#widget--wlx_image). Mode is selected by the inputs:
 | `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Image position relative to text in text + image mode. |
 | `image_size` | `float` | `0` | Reserved square size. `<= 0` derives from `font_size` (text + image) or uses the full label rect (image-only). |
 | `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
+| `content_padding` | `float` | `-1` | Uniform inner inset around content (text + image). `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `-1` | Top-side content inset. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side content inset. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side content inset. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side content inset. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 Wrapped fitted labels break greedily at UTF-8 codepoint boundaries, honor
@@ -1728,6 +1733,11 @@ Mode is selected by the inputs:
 | `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Image position relative to text in image+text mode. |
 | `image_size` | `float` | `0` | Reserved square size. `<= 0` derives from `font_size` (image+text) or uses the full button rect (image-only). |
 | `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
+| `content_padding` | `float` | `-1` | Uniform inner inset around content (text + image). Chrome and hit rect stay at the full button rect. `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `-1` | Top-side content inset. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side content inset. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side content inset. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side content inset. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site. |
 
 Button captions follow the same fitted line/run layout and per-line alignment
