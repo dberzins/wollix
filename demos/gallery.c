@@ -589,6 +589,9 @@ static void color_sliders(WLX_Context *ctx, const char *prefix,
 #define SMALL_H        24
 #define PREVIEW_H      220
 #define SIDEBAR_W      210
+#define SIDEBAR_GROUP_CONTENT_PAD_L    10
+#define SIDEBAR_SECTION_CONTENT_PAD_L  20
+#define SIDEBAR_CONTENT_PAD_R           6
 
 // Font size constants
 #define SECTION_FS  26
@@ -3425,6 +3428,8 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                             .border_color = group_selected ? semantic.color_focus : semantic.color_border,
                             .border_width = group_selected ? 1.0f : 0.5f,
                             .font_size = SECTION_FS,
+                            .content_padding_left = SIDEBAR_GROUP_CONTENT_PAD_L,
+                            .content_padding_right = SIDEBAR_CONTENT_PAD_R,
                             .image_size = 18,
                             .image_text_gap = 8)) {
                             gallery_select_group(gs, gi);
@@ -3451,6 +3456,8 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                                 .border_color = section_selected ? semantic.color_focus : semantic.color_border,
                                 .border_width = section_selected ? 1.0f : 0.5f,
                                 .font_size = OPT_FS,
+                                .content_padding_left = SIDEBAR_SECTION_CONTENT_PAD_L,
+                                .content_padding_right = SIDEBAR_CONTENT_PAD_R,
                                 .image_size = 16,
                                 .image_text_gap = 6)) {
                                 gallery_select_section(gs, gi, si);
