@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Gallery navigation icon expansion:** the curated gallery atlas grew from
+  12 to 32 icons under `demos/assets/icons/lucide-svg/`, adding `app-window`,
+  `chevron-right`, `house`, `blocks`, `layout-dashboard`, `route`,
+  `sliders-horizontal`, `type`, `mouse-pointer-click`, `text-cursor-input`,
+  `component`, `align-horizontal-space-between`, `grid-3x3`,
+  `stretch-horizontal`, `layout-template`, `scroll-text`, `layers`, `blend`,
+  `square-dashed`, and `toggle-left`. Three gallery-local helpers
+  (`gallery_icon_button`, `gallery_icon_label`, `gallery_panel_heading`) route
+  the new icons into the title bar, theme selector, status bar, overview
+  quick-link chevrons, the Welcome / Demo & Links / Theme Controls / 15
+  `Options` panel headings, the `Use Custom Theme` apply action, and the
+  sidebar group rows (Phase 4a). Sidebar section icons are code-complete and
+  ship after the operator-gated density review. All helpers fall back to
+  text-only when the atlas is unavailable or the caller passes
+  `WLX_ICON_COUNT` as the icon. No public API change.
 - **Gallery Lucide icon atlas:** the gallery now uses a committed 12-icon
   Lucide 1.14.0 white-alpha atlas in `demos/assets/wlx_icons.h` for
   icon-backed label, button, image, texture-checkbox, and Theme Lab

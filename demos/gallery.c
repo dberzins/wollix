@@ -109,6 +109,7 @@ static void section_tokens(WLX_Context *ctx, Gallery_State *st);
 typedef struct {
     const char *name;
     SectionFn   render;
+    WLX_Icon    icon;
 } Section;
 
 static void section_label(WLX_Context *ctx, Gallery_State *g);
@@ -129,47 +130,53 @@ static void section_borders(WLX_Context *ctx, Gallery_State *g);
 static void section_auto_layout(WLX_Context *ctx, Gallery_State *g);
 static void section_progress_toggle_radio(WLX_Context *ctx, Gallery_State *g);
 
-static const Section section_tokens_entry = { "Semantic Tokens", section_tokens };
-static const Section section_label_entry = { "Label", section_label };
-static const Section section_button_entry = { "Button", section_button };
-static const Section section_checkbox_entry = { "Checkbox", section_checkbox };
-static const Section section_image_entry = { "Image", section_image };
-static const Section section_slider_entry = { "Slider", section_slider };
-static const Section section_inputbox_entry = { "Input Box", section_inputbox };
-static const Section section_scroll_panel_entry = { "Scroll Panel", section_scroll_panel };
-static const Section section_widget_entry = { "Widget", section_widget };
-static const Section section_layout_linear_entry = { "Linear Layout", section_layout_linear };
-static const Section section_layout_grid_entry = { "Grid Layout", section_layout_grid };
-static const Section section_layout_flex_entry = { "Flex & Sizing", section_layout_flex };
-static const Section section_theme_lab_entry = { "Theme Lab", section_theme_lab };
-static const Section section_opacity_entry = { "Opacity", section_opacity };
-static const Section section_id_stack_entry = { "ID Stack", section_id_stack };
-static const Section section_borders_entry = { "Borders", section_borders };
-static const Section section_auto_layout_entry = { "Auto Layout", section_auto_layout };
-static const Section section_progress_toggle_radio_entry = { "Progress/Toggle/Radio", section_progress_toggle_radio };
+static const Section section_tokens_entry = { "Semantic Tokens", section_tokens, WLX_ICON_PALETTE };
+static const Section section_label_entry = { "Label", section_label, WLX_ICON_TYPE };
+static const Section section_button_entry = { "Button", section_button, WLX_ICON_MOUSE_POINTER_CLICK };
+static const Section section_checkbox_entry = { "Checkbox", section_checkbox, WLX_ICON_SQUARE_CHECK };
+static const Section section_image_entry = { "Image", section_image, WLX_ICON_IMAGE };
+static const Section section_slider_entry = { "Slider", section_slider, WLX_ICON_SLIDERS_HORIZONTAL };
+static const Section section_inputbox_entry = { "Input Box", section_inputbox, WLX_ICON_TEXT_CURSOR_INPUT };
+static const Section section_scroll_panel_entry = { "Scroll Panel", section_scroll_panel, WLX_ICON_SCROLL_TEXT };
+static const Section section_widget_entry = { "Widget", section_widget, WLX_ICON_COMPONENT };
+static const Section section_layout_linear_entry = { "Linear Layout", section_layout_linear, WLX_ICON_ALIGN_HORIZONTAL_SPACE_BETWEEN };
+static const Section section_layout_grid_entry = { "Grid Layout", section_layout_grid, WLX_ICON_GRID_3X3 };
+static const Section section_layout_flex_entry = { "Flex & Sizing", section_layout_flex, WLX_ICON_STRETCH_HORIZONTAL };
+static const Section section_theme_lab_entry = { "Theme Lab", section_theme_lab, WLX_ICON_PALETTE };
+static const Section section_opacity_entry = { "Opacity", section_opacity, WLX_ICON_BLEND };
+static const Section section_id_stack_entry = { "ID Stack", section_id_stack, WLX_ICON_LAYERS };
+static const Section section_borders_entry = { "Borders", section_borders, WLX_ICON_SQUARE_DASHED };
+static const Section section_auto_layout_entry = { "Auto Layout", section_auto_layout, WLX_ICON_LAYOUT_TEMPLATE };
+static const Section section_progress_toggle_radio_entry = { "Progress/Toggle/Radio", section_progress_toggle_radio, WLX_ICON_TOGGLE_LEFT };
 
 // ---------------------------------------------------------------------------
 // IA Group structure: direct section pointers for the final information architecture.
+// Trailing icon field is the group-level sidebar icon; WLX_ICON_COUNT means
+// "no icon" and triggers the gallery_icon_button text-only fallback.
 // ---------------------------------------------------------------------------
 typedef struct {
     const char    *name;
     const Section *sections[12];
     int         section_count;
     int         default_section;
+    WLX_Icon    icon;
 } Group;
 
 // Group ordering: 0=Overview, 1=Tokens, 2=Components, 3=Layouts, 4=Patterns, 5=Theme Lab
 static const Group groups[] = {
-    { "Overview",   { NULL }, 0, 0 },
-    { "Tokens",     { &section_tokens_entry }, 1, 0 },
+    { "Overview",   { NULL }, 0, 0, WLX_ICON_HOUSE },
+    { "Tokens",     { &section_tokens_entry }, 1, 0, WLX_ICON_PALETTE },
     { "Components", { &section_label_entry, &section_button_entry, &section_checkbox_entry,
                       &section_image_entry, &section_slider_entry, &section_inputbox_entry,
-                      &section_widget_entry, &section_progress_toggle_radio_entry }, 8, 0 },
+                      &section_widget_entry, &section_progress_toggle_radio_entry }, 8, 0,
+                    WLX_ICON_BLOCKS },
     { "Layouts",    { &section_layout_linear_entry, &section_layout_grid_entry,
-                      &section_layout_flex_entry, &section_auto_layout_entry }, 4, 0 },
+                      &section_layout_flex_entry, &section_auto_layout_entry }, 4, 0,
+                    WLX_ICON_LAYOUT_DASHBOARD },
     { "Patterns",   { &section_scroll_panel_entry, &section_id_stack_entry,
-                      &section_opacity_entry, &section_borders_entry }, 4, 0 },
-    { "Theme Lab",  { &section_theme_lab_entry }, 1, 0 },
+                      &section_opacity_entry, &section_borders_entry }, 4, 0,
+                    WLX_ICON_ROUTE },
+    { "Theme Lab",  { &section_theme_lab_entry }, 1, 0, WLX_ICON_PALETTE },
 };
 #define GROUP_COUNT ((int)(sizeof(groups) / sizeof(groups[0])))
 #define GROUP_OVERVIEW 0
@@ -3394,14 +3401,21 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                         WLX_Color group_bg = group_selected
                             ? semantic.color_selection
                             : semantic.color_surface_2;
-                        if (wlx_button(ctx, group->name,
+                        WLX_Color group_fg = group_selected
+                            ? gallery_on_color(group_bg)
+                            : semantic.color_text_1;
+                        if (gallery_icon_button(ctx, group->name,
+                            group->icon, GALLERY_ICON_ROLE_TEXT,
                             .height = SUB_HEADING_H,
                             .align = WLX_LEFT,
                             .back_color = group_bg,
-                            .front_color = group_selected ? gallery_on_color(group_bg) : semantic.color_text_1,
+                            .front_color = group_fg,
+                            .texture_tint = group_fg,
                             .border_color = group_selected ? semantic.color_focus : semantic.color_border,
                             .border_width = group_selected ? 1.0f : 0.5f,
-                            .font_size = SECTION_FS)) {
+                            .font_size = SECTION_FS,
+                            .image_size = 18,
+                            .image_text_gap = 8)) {
                             gallery_select_group(gs, gi);
                         }
 
@@ -3413,14 +3427,21 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                             WLX_Color sec_bg = section_selected
                                 ? semantic.color_selection
                                 : semantic.color_surface_3;
-                            if (wlx_button(ctx, section->name,
+                            WLX_Color sec_fg = section_selected
+                                ? gallery_on_color(sec_bg)
+                                : semantic.color_text_2;
+                            if (gallery_icon_button(ctx, section->name,
+                                section->icon, GALLERY_ICON_ROLE_MUTED,
                                 .height = OPT_H,
                                 .align = WLX_LEFT,
                                 .back_color = sec_bg,
-                                .front_color = section_selected ? gallery_on_color(sec_bg) : semantic.color_text_2,
+                                .front_color = sec_fg,
+                                .texture_tint = sec_fg,
                                 .border_color = section_selected ? semantic.color_focus : semantic.color_border,
                                 .border_width = section_selected ? 1.0f : 0.5f,
-                                .font_size = OPT_FS)) {
+                                .font_size = OPT_FS,
+                                .image_size = 16,
+                                .image_text_gap = 6)) {
                                 gallery_select_section(gs, gi, si);
                             }
                             wlx_pop_id(ctx);
