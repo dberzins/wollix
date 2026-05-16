@@ -661,13 +661,15 @@ static void gallery_icon_label_helper(WLX_Context *ctx, const char *text,
 // (18 px) so converted panels keep their existing visual weight. Tint
 // role is applied to the icon; the label uses the theme's primary text
 // color.
-static void gallery_panel_heading(WLX_Context *ctx,
-                                  WLX_Icon icon,
-                                  Gallery_Icon_Role role,
-                                  const char *text,
-                                  int height) {
+static void gallery_panel_heading_helper(WLX_Context *ctx,
+                                         WLX_Icon icon,
+                                         Gallery_Icon_Role role,
+                                         const char *text,
+                                         int height,
+                                         const char *file,
+                                         int line) {
     Gallery_Semantic_Theme sem = gallery_semantic_theme(ctx->theme);
-    gallery_icon_label(ctx, text, icon, role,
+    gallery_icon_label_helper(ctx, text, icon, role, wlx_default_label_opt(
         .height = height,
         .font_size = 18,
         .align = WLX_LEFT,
@@ -675,8 +677,14 @@ static void gallery_panel_heading(WLX_Context *ctx,
         .back_color = sem.color_surface_3,
         .front_color = sem.color_text_1,
         .image_size = (float)height * 0.45f,
-        .image_text_gap = 10);
+        .image_text_gap = 10),
+        file,
+        line);
 }
+
+#define gallery_panel_heading(ctx, icon, role, text, height) \
+    gallery_panel_heading_helper((ctx), (icon), (role), (text), (height), \
+        __FILE__, __LINE__)
 
 // Gallery-local semantic role lookups.
 #define GALLERY_ROLE(ctx, role) (gallery_semantic_theme((ctx)->theme).role)
