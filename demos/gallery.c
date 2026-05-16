@@ -856,6 +856,9 @@ static void section_label(WLX_Context *ctx, Gallery_State *st) {
 static void section_button(WLX_Context *ctx, Gallery_State *st) {
     int fs = (int)st->button_font_size;
     int bh = (int)st->button_height;
+    int image_bh = bh;
+    int stacked_image_bh = (int)((float)bh * 0.5f + (float)fs * 1.5f + 6.0f);
+    if (image_bh < stacked_image_bh) image_bh = stacked_image_bh;
     WLX_Color bc = to_color(st->button_color.r, st->button_color.g, st->button_color.b, 1.0f);
 
     wlx_split_begin(ctx,
@@ -919,7 +922,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
 
             wlx_layout_begin(ctx, 4, WLX_HORZ, .gap = 8);
                 if (wlx_button(ctx, "",
-                    .height = bh, .align = WLX_CENTER,
+                    .height = image_bh, .align = WLX_CENTER,
                     .texture = atlas,
                     .texture_src = gallery_icon_src_for(WLX_ICON_PLAY, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_ACCENT),
@@ -927,7 +930,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
                     st->button_click_count++;
                 }
                 if (wlx_button(ctx, "Save",
-                    .height = bh, .align = WLX_CENTER, .font_size = fs,
+                    .height = image_bh, .align = WLX_CENTER, .font_size = fs,
                     .texture = atlas,
                     .texture_src = gallery_icon_src_for(WLX_ICON_SAVE, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_TEXT),
@@ -937,7 +940,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
                     st->button_click_count++;
                 }
                 if (wlx_button(ctx, "Confirm",
-                    .height = bh, .align = WLX_CENTER, .font_size = fs,
+                    .height = image_bh, .align = WLX_CENTER, .font_size = fs,
                     .texture = atlas,
                     .texture_src = gallery_icon_src_for(WLX_ICON_CHECK, (float)bh * 0.5f),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_SUCCESS),
@@ -946,7 +949,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
                     st->button_click_count++;
                 }
                 if (wlx_button(ctx, "Settings",
-                    .height = bh, .align = WLX_CENTER, .font_size = fs,
+                    .height = image_bh, .align = WLX_CENTER, .font_size = fs,
                     .texture = atlas,
                     .texture_src = gallery_icon_src_for(WLX_ICON_SETTINGS, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_TEXT),
