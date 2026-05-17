@@ -3447,6 +3447,7 @@ static void section_progress_toggle_radio(WLX_Context *ctx, Gallery_State *st) {
 // ---------------------------------------------------------------------------
 static void section_overview(WLX_Context *ctx, Gallery_State *st) {
     Gallery_Semantic_Theme semantic = gallery_semantic_theme(ctx->theme);
+    float content_pad = gallery_option_content_padding(ctx);
 
     SECTION_BEGIN(ctx);
 
@@ -3459,18 +3460,24 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
 
             wlx_label(ctx, "What is Wollix?",
                 .font_size = SECTION_FS, .height = HEADING_H, .align = WLX_LEFT,
-                .front_color = semantic.color_text_1);
+                .front_color = semantic.color_text_1,
+                .content_padding_left = content_pad,
+                .content_padding_right = content_pad);
 
             wlx_label(ctx,
                 "Wollix is a header-only, immediate-mode GUI library for C11.\n"
                 "It is compact, mechanical, and clear -- designed for tools\n"
                 "and overlays where every pixel counts.",
                 .font_size = MEDIUM_FS, .height = 100, .align = WLX_LEFT,
-                .front_color = semantic.color_text_2);
+                .front_color = semantic.color_text_2,
+                .content_padding_left = content_pad,
+                .content_padding_right = content_pad);
 
             wlx_label(ctx, "Current Stats",
                 .font_size = SECTION_FS, .height = HEADING_H, .align = WLX_LEFT,
-                .front_color = semantic.color_text_1);
+                .front_color = semantic.color_text_1,
+                .content_padding_left = content_pad,
+                .content_padding_right = content_pad);
 
             char stats[256];
             snprintf(stats, sizeof(stats),
@@ -3483,7 +3490,9 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
                 theme_names[st->theme_mode]);
             wlx_label(ctx, stats,
                 .font_size = DEMO_FS, .height = 130, .align = WLX_LEFT,
-                .front_color = semantic.color_text_2);
+                .front_color = semantic.color_text_2,
+                .content_padding_left = content_pad,
+                .content_padding_right = content_pad);
 
         wlx_panel_end(ctx);
 
@@ -3503,15 +3512,21 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
                 wlx_label(ctx, "Compact",
                     .height = 50, .font_size = DEMO_FS, .align = WLX_CENTER,
                     .show_background = true,
-                    .back_color = semantic.color_surface_2);
+                    .back_color = semantic.color_surface_2,
+                    .content_padding_left = content_pad,
+                    .content_padding_right = content_pad);
                 wlx_label(ctx, "Mechanical",
                     .height = 50, .font_size = DEMO_FS, .align = WLX_CENTER,
                     .show_background = true,
-                    .back_color = semantic.color_surface_2);
+                    .back_color = semantic.color_surface_2,
+                    .content_padding_left = content_pad,
+                    .content_padding_right = content_pad);
                 wlx_label(ctx, "Clear",
                     .height = 50, .font_size = DEMO_FS, .align = WLX_CENTER,
                     .show_background = true,
-                    .back_color = semantic.color_surface_2);
+                    .back_color = semantic.color_surface_2,
+                    .content_padding_left = content_pad,
+                    .content_padding_right = content_pad);
             wlx_layout_end(ctx);
 
             // Navigation buttons to groups that have sections
@@ -3529,7 +3544,9 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
                     .border_color = semantic.color_border,
                     .border_width = 0.5f,
                     .image_size = 16,
-                    .image_text_gap = 8)) {
+                    .image_text_gap = 8,
+                    .content_padding_left = content_pad,
+                    .content_padding_right = content_pad)) {
                     gallery_select_group(st, gi);
                 }
                 wlx_pop_id(ctx);
