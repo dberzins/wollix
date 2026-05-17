@@ -777,11 +777,50 @@ static void gallery_panel_heading_helper(WLX_Context *ctx,
 #define SECTION_BEGIN(ctx) \
     wlx_split_begin(ctx, .content_padding = 0, .gap = 4, .first_back_color = SPLIT_BG(ctx))
 
+static float gallery_option_content_padding(WLX_Context *ctx) {
+    float inset = GALLERY_SPACING(ctx, space_control_x);
+    float minimum = (float)WLX_STYLE_CONTENT_PADDING;
+    return inset < minimum ? minimum : inset;
+}
+
+#define GALLERY_OPTION_CONTENT_PADDING(ctx) \
+    .content_padding_left = gallery_option_content_padding(ctx), \
+    .content_padding_right = gallery_option_content_padding(ctx)
+
+#define gallery_option_slider(ctx, label, value, ...) \
+    wlx_slider((ctx), (label), (value), GALLERY_OPTION_CONTENT_PADDING(ctx), __VA_ARGS__)
+
+#define gallery_option_checkbox(ctx, label, value, ...) \
+    wlx_checkbox((ctx), (label), (value), GALLERY_OPTION_CONTENT_PADDING(ctx), __VA_ARGS__)
+
+#define gallery_option_label(ctx, text, ...) \
+    wlx_label((ctx), (text), GALLERY_OPTION_CONTENT_PADDING(ctx), __VA_ARGS__)
+
 #define SECTION_NEXT(ctx) \
     wlx_split_next(ctx)
 
 #define SECTION_END(ctx) \
     wlx_split_end(ctx)
+
+static void gallery_option_color_sliders(WLX_Context *ctx, const char *prefix,
+    ColorF *c, int h, int fs) {
+    char lr[32], lg[32], lb[32];
+    snprintf(lr, sizeof(lr), "%s R ", prefix);
+    snprintf(lg, sizeof(lg), "%s G ", prefix);
+    snprintf(lb, sizeof(lb), "%s B ", prefix);
+    wlx_push_id(ctx, 0);
+    gallery_option_slider(ctx, lr, &c->r,
+        .height = h, .font_size = fs, .thumb_color = GALLERY_RED);
+    wlx_pop_id(ctx);
+    wlx_push_id(ctx, 1);
+    gallery_option_slider(ctx, lg, &c->g,
+        .height = h, .font_size = fs, .thumb_color = GALLERY_GREEN);
+    wlx_pop_id(ctx);
+    wlx_push_id(ctx, 2);
+    gallery_option_slider(ctx, lb, &c->b,
+        .height = h, .font_size = fs, .thumb_color = GALLERY_BLUE);
+    wlx_pop_id(ctx);
+}
 
 // ---------------------------------------------------------------------------
 // Section: Label
@@ -801,11 +840,11 @@ static void section_label(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-            wlx_slider(ctx, "Font Size  ", &st->label_font_size,
+            gallery_option_slider(ctx, "Font Size  ", &st->label_font_size,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 8.0f, .max_value = 40.0f);
-            wlx_checkbox(ctx, "Boxed", &st->label_show_bg,
+            gallery_option_checkbox(ctx, "Boxed", &st->label_show_bg,
                 .height = OPT_H, .font_size = OPT_FS);
-            wlx_slider(ctx, "Opacity    ", &st->label_opacity,
+            gallery_option_slider(ctx, "Opacity    ", &st->label_opacity,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 0.0f, .max_value = 1.0f);
 
         wlx_panel_end(ctx);
@@ -931,11 +970,11 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-            wlx_slider(ctx, "Font Size  ", &st->button_font_size,
+            gallery_option_slider(ctx, "Font Size  ", &st->button_font_size,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 10.0f, .max_value = 36.0f);
-            wlx_slider(ctx, "Height     ", &st->button_height,
+            gallery_option_slider(ctx, "Height     ", &st->button_height,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 24.0f, .max_value = 80.0f);
-            color_sliders(ctx, "", &st->button_color, OPT_H, OPT_FS);
+            gallery_option_color_sliders(ctx, "", &st->button_color, OPT_H, OPT_FS);
 
         wlx_panel_end(ctx);
 
@@ -1073,7 +1112,7 @@ static void section_checkbox(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-            wlx_slider(ctx, "Font Size  ", &st->checkbox_font_size,
+            gallery_option_slider(ctx, "Font Size  ", &st->checkbox_font_size,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 12.0f, .max_value = 30.0f);
 
         wlx_panel_end(ctx);
@@ -1219,15 +1258,15 @@ static void section_slider(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-            wlx_slider(ctx, "Min Value  ", &st->slider_min,
+            gallery_option_slider(ctx, "Min Value  ", &st->slider_min,
                 .height = OPT_H, .min_value = 0.0f, .max_value = 0.5f, .font_size = OPT_FS);
-            wlx_slider(ctx, "Max Value  ", &st->slider_max,
+            gallery_option_slider(ctx, "Max Value  ", &st->slider_max,
                 .height = OPT_H, .min_value = 0.5f, .max_value = 2.0f, .font_size = OPT_FS);
-            wlx_slider(ctx, "Track H    ", &st->slider_track_height,
+            gallery_option_slider(ctx, "Track H    ", &st->slider_track_height,
                 .height = OPT_H, .min_value = 2.0f, .max_value = 24.0f, .font_size = OPT_FS);
-            wlx_slider(ctx, "Thumb W    ", &st->slider_thumb_width,
+            gallery_option_slider(ctx, "Thumb W    ", &st->slider_thumb_width,
                 .height = OPT_H, .min_value = 4.0f, .max_value = 40.0f, .font_size = OPT_FS);
-            wlx_checkbox(ctx, "Show Label", &st->slider_show_label,
+            gallery_option_checkbox(ctx, "Show Label", &st->slider_show_label,
                 .height = OPT_H, .font_size = OPT_FS);
 
         wlx_panel_end(ctx);
@@ -1306,11 +1345,11 @@ static void section_inputbox(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-            wlx_slider(ctx, "Font Size  ", &st->input_font_size,
+            gallery_option_slider(ctx, "Font Size  ", &st->input_font_size,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 10.0f, .max_value = 30.0f);
-            wlx_slider(ctx, "Height     ", &st->input_height,
+            gallery_option_slider(ctx, "Height     ", &st->input_height,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 28.0f, .max_value = 80.0f);
-            color_sliders(ctx, "Focus", &st->input_focus_color, OPT_H, OPT_FS);
+            gallery_option_color_sliders(ctx, "Focus", &st->input_focus_color, OPT_H, OPT_FS);
 
         wlx_panel_end(ctx);
 
@@ -1364,11 +1403,11 @@ static void section_scroll_panel(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-            wlx_slider(ctx, "Scrollbar W", &st->scroll_sb_width,
+            gallery_option_slider(ctx, "Scrollbar W", &st->scroll_sb_width,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 4.0f, .max_value = 30.0f);
-            wlx_slider(ctx, "Wheel Speed", &st->scroll_wheel_speed,
+            gallery_option_slider(ctx, "Wheel Speed", &st->scroll_wheel_speed,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 5.0f, .max_value = 100.0f);
-            wlx_checkbox(ctx, "Show Scrollbar", &st->scroll_show_scrollbar,
+            gallery_option_checkbox(ctx, "Show Scrollbar", &st->scroll_show_scrollbar,
                 .height = OPT_H, .font_size = OPT_FS);
 
         wlx_panel_end(ctx);
@@ -1482,9 +1521,9 @@ static void section_widget(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-            wlx_label(ctx, "No adjustable options.",
+            gallery_option_label(ctx, "No adjustable options.",
                 .font_size = OPT_FS, .height = OPT_H);
-            wlx_label(ctx, "wlx_widget() draws a colored rect for swatches, spacers, and dividers.",
+            gallery_option_label(ctx, "wlx_widget() draws a colored rect for swatches, spacers, and dividers.",
                 .font_size = OPT_FS, .height = 60, .wrap = true);
 
         wlx_panel_end(ctx);
@@ -1570,9 +1609,9 @@ static void section_layout_linear(WLX_Context *ctx, Gallery_State *st) {
 
             static float layout_padding = 0;
 
-            wlx_slider(ctx, "Slot Count ", &st->layout_slot_count,
+            gallery_option_slider(ctx, "Slot Count ", &st->layout_slot_count,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 2.0f, .max_value = 10.0f);
-            wlx_slider(ctx, "Padding    ", &layout_padding,
+            gallery_option_slider(ctx, "Padding    ", &layout_padding,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 0.0f, .max_value = 20.0f);
 
         wlx_panel_end(ctx);
@@ -1677,9 +1716,9 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-            wlx_slider(ctx, "Rows       ", &st->grid_rows,
+            gallery_option_slider(ctx, "Rows       ", &st->grid_rows,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 1.0f, .max_value = 8.0f);
-            wlx_slider(ctx, "Cols       ", &st->grid_cols,
+            gallery_option_slider(ctx, "Cols       ", &st->grid_cols,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 1.0f, .max_value = 8.0f);
 
         wlx_panel_end(ctx);
@@ -1835,13 +1874,13 @@ static void section_layout_flex(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-            wlx_slider(ctx, "Weight A   ", &st->flex_weight_a,
+            gallery_option_slider(ctx, "Weight A   ", &st->flex_weight_a,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 0.1f, .max_value = 5.0f);
-            wlx_slider(ctx, "Weight B   ", &st->flex_weight_b,
+            gallery_option_slider(ctx, "Weight B   ", &st->flex_weight_b,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 0.1f, .max_value = 5.0f);
-            wlx_slider(ctx, "Min        ", &st->flex_min,
+            gallery_option_slider(ctx, "Min        ", &st->flex_min,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 0.0f, .max_value = 400.0f);
-            wlx_slider(ctx, "Max        ", &st->flex_max,
+            gallery_option_slider(ctx, "Max        ", &st->flex_max,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 100.0f, .max_value = 800.0f);
 
         wlx_panel_end(ctx);
@@ -2527,45 +2566,45 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
             theme_lab_control_label(ctx, "Background");
             wlx_pop_id(ctx);
             wlx_push_id(ctx, 100);
-            color_sliders(ctx, "BG", &st->theme_bg, OPT_H, OPT_FS);
+            gallery_option_color_sliders(ctx, "BG", &st->theme_bg, OPT_H, OPT_FS);
             wlx_pop_id(ctx);
 
             wlx_push_id(ctx, 201);
             theme_lab_control_label(ctx, "Surface");
             wlx_pop_id(ctx);
             wlx_push_id(ctx, 101);
-            color_sliders(ctx, "Srf", &st->theme_surface, OPT_H, OPT_FS);
+            gallery_option_color_sliders(ctx, "Srf", &st->theme_surface, OPT_H, OPT_FS);
             wlx_pop_id(ctx);
 
             wlx_push_id(ctx, 202);
             theme_lab_control_label(ctx, "Text");
             wlx_pop_id(ctx);
             wlx_push_id(ctx, 102);
-            color_sliders(ctx, "Txt", &st->theme_fg, OPT_H, OPT_FS);
+            gallery_option_color_sliders(ctx, "Txt", &st->theme_fg, OPT_H, OPT_FS);
             wlx_pop_id(ctx);
 
             wlx_push_id(ctx, 203);
             theme_lab_control_label(ctx, "Accent");
             wlx_pop_id(ctx);
             wlx_push_id(ctx, 103);
-            color_sliders(ctx, "Acc", &st->theme_accent, OPT_H, OPT_FS);
+            gallery_option_color_sliders(ctx, "Acc", &st->theme_accent, OPT_H, OPT_FS);
             wlx_pop_id(ctx);
 
             wlx_push_id(ctx, 204);
             theme_lab_control_label(ctx, "Border");
             wlx_pop_id(ctx);
             wlx_push_id(ctx, 104);
-            color_sliders(ctx, "Bdr", &st->theme_border, OPT_H, OPT_FS);
+            gallery_option_color_sliders(ctx, "Bdr", &st->theme_border, OPT_H, OPT_FS);
             wlx_pop_id(ctx);
 
             wlx_push_id(ctx, 205);
             theme_lab_control_label(ctx, "Interaction");
             wlx_pop_id(ctx);
-            wlx_slider(ctx, "Hover Brt", &st->theme_hover_brightness, .height = OPT_H, .font_size = OPT_FS,
+            gallery_option_slider(ctx, "Hover Brt", &st->theme_hover_brightness, .height = OPT_H, .font_size = OPT_FS,
                 .min_value = -0.25f, .max_value = 0.85f);
-            wlx_slider(ctx, "Padding  ", &st->theme_padding, .height = OPT_H, .font_size = OPT_FS,
+            gallery_option_slider(ctx, "Padding  ", &st->theme_padding, .height = OPT_H, .font_size = OPT_FS,
                 .min_value = 0.0f, .max_value = 20.0f);
-            wlx_slider(ctx, "Roundness", &st->theme_roundness, .height = OPT_H, .font_size = OPT_FS,
+            gallery_option_slider(ctx, "Roundness", &st->theme_roundness, .height = OPT_H, .font_size = OPT_FS,
                 .min_value = 0.0f, .max_value = 1.0f);
 
             if (gallery_icon_button(ctx, "Use Custom Theme",
@@ -2770,11 +2809,11 @@ static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-            wlx_slider(ctx, "Widget      ", &st->opacity_control,
+            gallery_option_slider(ctx, "Widget      ", &st->opacity_control,
                 .height = OPT_H, .min_value = 0.0f, .max_value = 1.0f, .font_size = OPT_FS);
-            wlx_slider(ctx, "Theme       ", &st->theme_opacity,
+            gallery_option_slider(ctx, "Theme       ", &st->theme_opacity,
                 .height = OPT_H, .min_value = 0.0f, .max_value = 1.0f, .font_size = OPT_FS);
-            wlx_slider(ctx, "Stack       ", &st->stack_opacity,
+            gallery_option_slider(ctx, "Stack       ", &st->stack_opacity,
                 .height = OPT_H, .min_value = 0.0f, .max_value = 1.0f, .font_size = OPT_FS);
 
         wlx_panel_end(ctx);
@@ -2944,7 +2983,7 @@ static void section_id_stack(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-            wlx_slider(ctx, "Panel Count", &st->dynamic_panel_count,
+            gallery_option_slider(ctx, "Panel Count", &st->dynamic_panel_count,
                 .height = OPT_H, .font_size = OPT_FS, .min_value = 1.0f, .max_value = 10.0f);
 
         wlx_panel_end(ctx);
@@ -3020,21 +3059,21 @@ static void section_borders(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-                wlx_slider(ctx, "Width  ", &bw,
+                gallery_option_slider(ctx, "Width  ", &bw,
                     .height = OPT_H, .min_value = 0.0f, .max_value = 8.0f, .font_size = OPT_FS);
 
-                wlx_label(ctx, "Border Color", .font_size = OPT_FS, .height = SMALL_H);
-                color_sliders(ctx, "", &st->border_color, OPT_H, OPT_FS);
+                gallery_option_label(ctx, "Border Color", .font_size = OPT_FS, .height = SMALL_H);
+                gallery_option_color_sliders(ctx, "", &st->border_color, OPT_H, OPT_FS);
 
                 // Color preview swatch
-                wlx_label(ctx, "Preview", .font_size = OPT_FS, .height = SMALL_H);
+                gallery_option_label(ctx, "Preview", .font_size = OPT_FS, .height = SMALL_H);
                 wlx_widget(ctx, .height = OPT_H,
                     .color = bdr, .border_color = (WLX_Color){255,255,255,80}, .border_width = 1);
 
                 // Demo slider/checkbox state (secondary controls)
-                wlx_slider(ctx, "Slider ", &st->border_slider,
+                gallery_option_slider(ctx, "Slider ", &st->border_slider,
                     .height = OPT_H, .font_size = OPT_FS);
-                wlx_checkbox(ctx, "Checkbox", &st->border_checkbox,
+                gallery_option_checkbox(ctx, "Checkbox", &st->border_checkbox,
                     .font_size = OPT_FS, .height = OPT_H);
 
             wlx_panel_end(ctx);
@@ -3134,13 +3173,13 @@ static void section_auto_layout(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-                wlx_slider(ctx, "Items      ", &st->auto_item_count,
+                gallery_option_slider(ctx, "Items      ", &st->auto_item_count,
                     .height = OPT_H, .font_size = OPT_FS, .min_value = 1.0f, .max_value = 10.0f);
-                wlx_slider(ctx, "Item H     ", &st->auto_item_height,
+                gallery_option_slider(ctx, "Item H     ", &st->auto_item_height,
                     .height = OPT_H, .font_size = OPT_FS, .min_value = 20.0f, .max_value = 80.0f);
-                wlx_slider(ctx, "Header %   ", &st->auto_header_pct,
+                gallery_option_slider(ctx, "Header %   ", &st->auto_header_pct,
                     .height = OPT_H, .font_size = OPT_FS, .min_value = 5.0f, .max_value = 40.0f);
-                wlx_slider(ctx, "Sidebar %  ", &st->auto_sidebar_pct,
+                gallery_option_slider(ctx, "Sidebar %  ", &st->auto_sidebar_pct,
                     .height = OPT_H, .font_size = OPT_FS, .min_value = 10.0f, .max_value = 60.0f);
 
             wlx_panel_end(ctx);
@@ -3323,7 +3362,7 @@ static void section_progress_toggle_radio(WLX_Context *ctx, Gallery_State *st) {
                 "Options", HEADING_H);
 
 
-            wlx_slider(ctx, "Progress  ", &st->progress_value,
+            gallery_option_slider(ctx, "Progress  ", &st->progress_value,
                 .height = OPT_H, .font_size = OPT_FS);
 
         wlx_panel_end(ctx);
