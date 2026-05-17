@@ -91,6 +91,54 @@ directly even though it does not use the macro.
 | `roundness` | `float` | `-1` | Corner roundness. `-1` = theme default |
 | `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
 
+### Content padding (`WLX_CONTENT_PADDING_FIELDS`)
+
+Used by `label`, `button`, `split`, `panel`, and `inputbox` to inset the
+widget's *inner content* independently from outer slot margin. Chrome
+(background, border) and the interaction hit rect always stay at the full
+widget rect.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `content_padding` | `float` | varies | Uniform inner inset. `-1` resolves to `0` for leaf widgets; compound widgets use their own literal default (see table below). Pass `WLX_PADDING_USE_THEME` to opt into the theme's `padding` knob. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+
+Per-widget uniform defaults:
+
+| Widget | `content_padding` default | Resolved to |
+|--------|--------------------------|-------------|
+| `wlx_label` | `-1` | `0` (no inset) |
+| `wlx_button` | `-1` | `0` (no inset) |
+| `wlx_split_begin` | `4` | `4 px` all sides |
+| `wlx_panel_begin` | `2` | `2 px` all sides |
+| `wlx_inputbox` | `10` | `10 px` outer gutter (all sides) |
+
+Resolution rules (same for every consumer):
+- A per-side value `>= 0` wins unconditionally.
+- Otherwise the side falls back to the uniform `content_padding`.
+- A uniform of `-1` (the default sentinel) resolves to `0` for leaf
+  widgets; compound widgets start from their literal default.
+- `WLX_PADDING_USE_THEME` on the uniform (`-2.0f`) resolves all
+  still-unset sides to the theme's `padding` knob
+  (`WLX_STYLE_CONTENT_PADDING` by default).
+- On tight rects the resolved padding is clamped proportionally so the
+  content rect never has negative dimensions.
+
+**Inputbox-specific note:** `wlx_inputbox` uses `WLX_CONTENT_PADDING_FIELDS`
+for the outer gutter (label area, input rect position, and vertical centering).
+The text rect *inside* the editing box is additionally inset by the fixed
+constant `WLX_INPUTBOX_TEXT_INSET` (5 px) on the x-axis only. This value
+equals the pre-change default of `content_padding / 2` with `content_padding
+= 10`, preserving byte-identical default visuals.
+
+**Adding a new chrome widget:** any widget that insets inner content must
+embed `WLX_CONTENT_PADDING_FIELDS` in its opt struct and resolve padding with
+`wlx_resolve_content_padding`. Do not add a bespoke `padding` scalar — use
+this shared shape so theme integration and per-side overrides work uniformly.
+
 ### Identity field
 
 All leaf-widget opt structs include an optional identity field:
@@ -150,11 +198,11 @@ Mode is selected purely by the inputs — there is no separate
 | `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Where the image sits relative to text (`LEFT`, `RIGHT`, `TOP`, `BOTTOM`). |
 | `image_size` | `float` | `0` | Reserved square size for the image. `<= 0` is automatic: derived from `font_size` for text + image, or the full label rect for image-only. |
 | `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
-| `content_padding` | `float` | `-1` | Uniform inner inset around text + image. Default sentinel resolves to `0` (no inset). Pass `WLX_PADDING_USE_THEME` to opt into the theme's `padding` value. |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+| `content_padding` | `float` | `-1` | See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. See [Content padding](#content-padding-wlx_content_padding_fields). |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 All shared placement, sizing, typography, color, and border fields also apply.
 Label content uses the same fitted line/run layout as `wlx_button`, so
@@ -163,16 +211,11 @@ centered or wrapped captions align per visible line. See the matching
 surface — the two widgets share the same image content options and
 fitting helpers.
 
-`content_padding*` insets only the *content* (text + image) rect. The
-chrome (background, border) and the click hit rect remain at the full
-label rect. Per-side values >= 0 win; otherwise the side falls back to
-the uniform `content_padding`. When the uniform is also unset
-(`-1`, the default) the resolved inset is `0` so existing call sites
-keep their pixel-stable layout. Passing
-`.content_padding = WLX_PADDING_USE_THEME` resolves any still-unset side
-to the theme's `padding` knob (`WLX_STYLE_CONTENT_PADDING` by default).
-On tight rects the resolved padding is clamped proportionally so the
-content rect never has negative dimensions.
+`content_padding*` insets only the content (text + image) rect; chrome and
+hit rect stay at the full label rect. See
+[Content padding](#content-padding-wlx_content_padding_fields) in the
+shared section for full resolution rules and the `WLX_PADDING_USE_THEME`
+sentinel.
 
 ### Content rules
 
@@ -328,11 +371,11 @@ function or option struct.
 | `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Where the image sits relative to text (`LEFT`, `RIGHT`, `TOP`, `BOTTOM`). |
 | `image_size` | `float` | `0` | Reserved square size for the image. `<= 0` is automatic: derived from `font_size` for image+text, or full button rect for image-only. |
 | `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
-| `content_padding` | `float` | `-1` | Uniform inner inset around text + image. Default sentinel resolves to `0` (no inset). Pass `WLX_PADDING_USE_THEME` to opt into the theme's `padding` value. |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+| `content_padding` | `float` | `-1` | See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. See [Content padding](#content-padding-wlx_content_padding_fields). |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 Shared placement, sizing, typography, color, and border fields also apply.
 The button always draws a filled `back_color` rectangle — hover brightens it
@@ -340,14 +383,10 @@ automatically using the theme's `hover_brightness`. Button captions use the
 same fitted line/run layout as `wlx_label`, so centered or wrapped captions
 align per visible line.
 
-`content_padding*` insets only the *content* (text + image) rect. The
-chrome (background, border) and the click hit rect remain at the full
-button rect, so a button keeps its full clickable area even when the
-caption is visually inset. Resolution rules match `wlx_label`: per-side
-values >= 0 win, the uniform `content_padding` is the fallback, the
-default sentinel resolves to `0`, and `WLX_PADDING_USE_THEME` opts in
-to the theme's `padding` knob. The resolved inset is clamped so the
-content rect never has negative dimensions on tight buttons.
+`content_padding*` insets only the content (text + image) rect; chrome and
+hit rect stay at the full button rect, so the full clickable area is
+preserved. See [Content padding](#content-padding-wlx_content_padding_fields)
+in the shared section for full resolution rules.
 
 ### Content rules
 
@@ -623,7 +662,11 @@ if (wlx_inputbox(ctx, "Name:", name, sizeof(name), .height = 40)) {
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `content_padding` | `float` | `10` | Horizontal padding inside the text editing area |
+| `content_padding` | `float` | `10` | Outer gutter inset. See [Content padding](#content-padding-wlx_content_padding_fields). Default `10` applies to all sides. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 | `border_color` | `WLX_Color` | `{0}` | Border color in unfocused state. `{0}` = theme `border` |
 | `border_width` | `float` | `-1` | Border width. `-1` = theme `input.border_width`, then theme `border_width` |
 | `roundness` | `float` | `-1` | Corner roundness. `-1` = theme default |
@@ -635,6 +678,15 @@ All shared placement, sizing, typography, and color fields also apply.
 Default `wrap` is `true` for inputbox, so long buffers display over multiple
 visual lines inside the widget and cursor placement stays aligned with that
 wrapped rendering.
+
+`content_padding*` controls the outer gutter: it positions the label area,
+the input rect, and the vertical centering of content. The text cursor rect
+*inside* the editing box is additionally inset by the fixed constant
+`WLX_INPUTBOX_TEXT_INSET` (5 px) on the x-axis only. With the default
+`content_padding = 10` this preserves the pre-migration visual exactly
+(`10 / 2 = 5`). The text inset is intentionally fixed — callers that need
+asymmetric gutters should use `content_padding_left` / `content_padding_right`
+to shift the input rect, not the internal text offset.
 
 ### Common overrides
 
@@ -1115,11 +1167,11 @@ wlx_split_end(ctx);
 | `first_size` | `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | Width of the first (left) pane |
 | `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width of the second (right) pane |
 | `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Outer wrapper slot size |
-| `padding` | `float` | `4` | Uniform padding for the split container |
-| `padding_top` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
-| `padding_right` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
-| `padding_bottom` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
-| `padding_left` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
+| `content_padding` | `float` | `4` | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 | `gap` | `float` | `0` | Space between the two panes |
 | `first_back_color` | `WLX_Color` | `{0}` | First pane background. `{0}` = theme default |
 | `second_back_color` | `WLX_Color` | `{0}` | Second pane background. `{0}` = theme default |
@@ -1235,11 +1287,11 @@ wlx_panel_end(ctx);
 | `border_width` | `float` | `0` | Border thickness in pixels. `0` = no border |
 | `roundness` | `float` | `0` | Corner roundness for border/background. `0` = sharp |
 | `clip` | `bool` | `false` | Clip body content to panel bounds |
-| `padding` | `float` | `2` | Inner layout padding |
-| `padding_top` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
-| `padding_right` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
-| `padding_bottom` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
-| `padding_left` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
+| `content_padding` | `float` | `2` | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 | `gap` | `float` | `0` | Gap between child widgets |
 | `capacity` | `int` | `32` | Max child widgets (excl. title). Clamped to `WLX_CONTENT_SLOTS_MAX` (32). |
 | `id` | `const char *` | `NULL` | Scope ID applied to the full panel body |

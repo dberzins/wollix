@@ -1820,7 +1820,11 @@ line/run measurement path as labels and buttons.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | *shared fields* | | | placement, sizing, typography (default `wrap = true`), colors |
-| `content_padding` | `float` | `10` | Horizontal padding inside the editing area |
+| `content_padding` | `float` | `10` | Outer gutter inset applied to all sides. See `WLX_CONTENT_PADDING_FIELDS`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 | `border_color` | `WLX_Color` | `{0}` | Unfocused border. `{0}` = theme `border` |
 | `border_width` | `float` | `-1` | Border width. `-1` = theme `input.border_width`, then theme `border_width` |
 | `roundness` | `float` | `-1` | Corner roundness. `-1` = theme default |
@@ -1828,6 +1832,12 @@ line/run measurement path as labels and buttons.
 | `border_focus_color` | `WLX_Color` | `{0}` | Focused border. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Blinking cursor. `{0}` = theme `input.cursor` |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
+
+`content_padding*` controls the outer gutter (label area, input rect
+position, vertical centering). The text cursor inside the editing box is
+additionally inset by the fixed constant `WLX_INPUTBOX_TEXT_INSET` (5 px)
+on the x-axis only; with the default `content_padding = 10` this equals the
+pre-migration value of `content_padding / 2`.
 
 Default `wrap = true`. Long buffers and existing newline bytes can therefore
 produce multiple visual lines, and cursor placement resolves from the same
@@ -2042,11 +2052,11 @@ the user creates their own inner layout inside each pane.
 | `first_size` | `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | Width/size of the first (left) pane |
 | `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width/size of the second (right) pane |
 | `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FILL` | Outer wrapper slot size (e.g. `WLX_SLOT_FILL_MIN(400)`) |
-| `padding` | `float` | `4` | Uniform padding for the inner HORZ split layout |
-| `padding_top` | `float` | `-1` | Top padding override. Negative = inherit `padding` |
-| `padding_right` | `float` | `-1` | Right padding override. Negative = inherit `padding` |
-| `padding_bottom` | `float` | `-1` | Bottom padding override. Negative = inherit `padding` |
-| `padding_left` | `float` | `-1` | Left padding override. Negative = inherit `padding` |
+| `content_padding` | `float` | `4` | Uniform inner inset for the split container. See `WLX_CONTENT_PADDING_FIELDS`. |
+| `content_padding_top` | `float` | `-1` | Top padding override. Negative = inherit `content_padding` |
+| `content_padding_right` | `float` | `-1` | Right padding override. Negative = inherit `content_padding` |
+| `content_padding_bottom` | `float` | `-1` | Bottom padding override. Negative = inherit `content_padding` |
+| `content_padding_left` | `float` | `-1` | Left padding override. Negative = inherit `content_padding` |
 | `gap` | `float` | `0` | Space between the two pane slots |
 | `first_back_color` | `WLX_Color` | `{0}` | First pane scroll panel background. `{0}` = theme default |
 | `second_back_color` | `WLX_Color` | `{0}` | Second pane scroll panel background. `{0}` = theme default |
@@ -2100,11 +2110,11 @@ impact. Adding or removing child widgets requires no slot-count updates.
 | `border_width` | `float` | `0` | Panel border thickness in pixels. `0` = no border |
 | `roundness` | `float` | `0` | Corner roundness for the panel background and border. `0` = sharp corners |
 | `clip` | `bool` | `false` | Clip panel content to the post-padding inner rect. Use when children might overflow the panel bounds |
-| `padding` | `float` | `2` | Inner layout padding |
-| `padding_top` | `float` | `-1` | Top padding override. Negative = inherit `padding` |
-| `padding_right` | `float` | `-1` | Right padding override. Negative = inherit `padding` |
-| `padding_bottom` | `float` | `-1` | Bottom padding override. Negative = inherit `padding` |
-| `padding_left` | `float` | `-1` | Left padding override. Negative = inherit `padding` |
+| `content_padding` | `float` | `2` | Uniform inner inset for the panel layout. See `WLX_CONTENT_PADDING_FIELDS`. |
+| `content_padding_top` | `float` | `-1` | Top padding override. Negative = inherit `content_padding` |
+| `content_padding_right` | `float` | `-1` | Right padding override. Negative = inherit `content_padding` |
+| `content_padding_bottom` | `float` | `-1` | Bottom padding override. Negative = inherit `content_padding` |
+| `content_padding_left` | `float` | `-1` | Left padding override. Negative = inherit `content_padding` |
 | `gap` | `float` | `0` | Gap between generated CONTENT slots |
 | `capacity` | `int` | `32` | Maximum number of child widgets (excluding title). Clamped to `WLX_CONTENT_SLOTS_MAX` (64) |
 | `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full panel body. `NULL` = no scoping |

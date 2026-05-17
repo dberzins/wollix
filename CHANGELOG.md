@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Unified content padding across all chrome widgets.** `WLX_Split_Opt` and
+  `WLX_Panel_Opt` now embed `WLX_CONTENT_PADDING_FIELDS` (`content_padding`,
+  `content_padding_top`, `content_padding_right`, `content_padding_bottom`,
+  `content_padding_left`). The old `WLX_PADDING_FIELDS` / `.padding` /
+  `.padding_top` / `.padding_right` / `.padding_bottom` / `.padding_left`
+  fields on Split and Panel are removed — rename call sites to the
+  `content_padding*` equivalents. `WLX_Inputbox_Opt.content_padding` remains
+  supported (same scalar default of `10`) and gains per-side overrides
+  (`content_padding_top` / `_right` / `_bottom` / `_left`). The text cursor
+  rect inside the editing box is now inset by the fixed constant
+  `WLX_INPUTBOX_TEXT_INSET` (5 px) instead of the computed `content_padding /
+  2`; with the default `content_padding = 10` the rendered output is
+  byte-identical to the previous implementation. All five chrome widgets
+  (`label`, `button`, `split`, `panel`, `inputbox`) resolve padding through
+  the shared `wlx_resolve_content_padding` helper and support the
+  `WLX_PADDING_USE_THEME` sentinel. `WLX_PADDING_FIELDS`,
+  `WLX_PADDING_DEFAULTS`, and `WLX_RESOLVE_PADDING` macros are removed.
+
 ### Added
 - **Content padding for `wlx_label` and `wlx_button`:** five new option
   fields (`content_padding`, `content_padding_top`, `content_padding_right`,
