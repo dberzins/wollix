@@ -136,6 +136,33 @@ theme contract, then derive app-specific semantic roles locally. That keeps the
 core API stable while giving each product enough vocabulary for its own chrome,
 navigation, tables, panels, and status states.
 
+## Semantic Spacing System
+
+`WLX_Theme.padding` is the public base spacing value. It is intentionally one
+scalar, not a full application spacing system. Leaf widgets that should follow
+that base value can opt in with `.content_padding = WLX_PADDING_USE_THEME`,
+while layouts and demos can still use explicit `.padding` or
+`.content_padding` values when they are demonstrating raw geometry.
+
+Larger UI surfaces should derive semantic spacing locally, the same way they
+derive semantic colors. The gallery uses `Gallery_Semantic_Spacing` for that
+purpose. Its current roles are:
+
+| Role | Use |
+|------|-----|
+| `space_shell` | Flush or near-flush major shell panes. |
+| `space_panel` | Compact panel and preview layout padding. |
+| `space_heading_x` | Horizontal text inset for section and panel headings. |
+| `space_heading_y` | Vertical heading inset where row height allows it. |
+| `space_control_x` | Compact text inset for controls, metadata, and status rows. |
+| `space_preview` | Token cards, theme cards, and component preview surfaces. |
+| `gap_dense` | Dense row and cell gaps. |
+| `gap_section` | Larger separation between conceptual groups. |
+
+These roles are gallery-local, not public API. If the same spacing roles become
+necessary across core widgets and public examples, they can be promoted later
+through a separate theme-extension decision.
+
 ## Custom Themes
 
 Custom themes are ordinary `WLX_Theme` values. Start with a built-in preset and
@@ -149,6 +176,7 @@ app_theme.surface = (WLX_Color){35, 39, 39, 255};
 app_theme.border = (WLX_Color){58, 68, 64, 255};
 app_theme.accent = (WLX_Color){96, 190, 174, 255};
 app_theme.border_width = 0.5f;
+app_theme.padding = 8.0f;
 app_theme.input.border_focus = app_theme.accent;
 app_theme.slider.thumb = app_theme.foreground;
 app_theme.progress.fill = app_theme.accent;

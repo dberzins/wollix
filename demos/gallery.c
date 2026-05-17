@@ -440,10 +440,27 @@ typedef struct {
     WLX_Color color_danger;
 } Gallery_Semantic_Theme;
 
+typedef struct {
+    float space_shell;
+    float space_panel;
+    float space_heading_x;
+    float space_heading_y;
+    float space_control_x;
+    float space_preview;
+    float gap_dense;
+    float gap_section;
+} Gallery_Semantic_Spacing;
+
 static unsigned char gallery_clamp_byte(int value) {
     if (value < 0) return 0;
     if (value > 255) return 255;
     return (unsigned char)value;
+}
+
+static float gallery_clamp_float(float value, float min_value, float max_value) {
+    if (value < min_value) return min_value;
+    if (value > max_value) return max_value;
+    return value;
 }
 
 static bool gallery_color_is_zero(WLX_Color color) {
@@ -503,6 +520,22 @@ static Gallery_Semantic_Theme gallery_semantic_theme(const WLX_Theme *theme) {
         .color_success = GALLERY_GREEN,
         .color_warning = GALLERY_WARNING,
         .color_danger = GALLERY_RED,
+    };
+}
+
+static Gallery_Semantic_Spacing gallery_semantic_spacing(const WLX_Theme *theme) {
+    float base = theme ? theme->padding : (float)WLX_STYLE_CONTENT_PADDING;
+    if (base < 0.0f) base = (float)WLX_STYLE_CONTENT_PADDING;
+
+    return (Gallery_Semantic_Spacing){
+        .space_shell = 0.0f,
+        .space_panel = gallery_clamp_float(base + 2.0f, 2.0f, 8.0f),
+        .space_heading_x = gallery_clamp_float(base + 6.0f, 6.0f, 14.0f),
+        .space_heading_y = gallery_clamp_float(base * 0.25f, 0.0f, 3.0f),
+        .space_control_x = gallery_clamp_float(base + 4.0f, 4.0f, 10.0f),
+        .space_preview = gallery_clamp_float(base + 4.0f, 4.0f, 12.0f),
+        .gap_dense = gallery_clamp_float(base + 2.0f, 3.0f, 6.0f),
+        .gap_section = gallery_clamp_float(base + 4.0f, 4.0f, 10.0f),
     };
 }
 
@@ -672,6 +705,7 @@ static void gallery_panel_heading_helper(WLX_Context *ctx,
                                          const char *file,
                                          int line) {
     Gallery_Semantic_Theme sem = gallery_semantic_theme(ctx->theme);
+    Gallery_Semantic_Spacing spacing = gallery_semantic_spacing(ctx->theme);
     gallery_icon_label_helper(ctx, text, icon, role, wlx_default_label_opt(
         .height = height,
         .font_size = 18,
@@ -680,7 +714,11 @@ static void gallery_panel_heading_helper(WLX_Context *ctx,
         .back_color = sem.color_surface_3,
         .front_color = sem.color_text_1,
         .image_size = (float)height * 0.45f,
-        .image_text_gap = 10),
+        .image_text_gap = spacing.space_control_x,
+        .content_padding_top = spacing.space_heading_y,
+        .content_padding_right = spacing.space_heading_x,
+        .content_padding_bottom = spacing.space_heading_y,
+        .content_padding_left = spacing.space_heading_x),
         file,
         line);
 }
@@ -691,6 +729,7 @@ static void gallery_panel_heading_helper(WLX_Context *ctx,
 
 // Gallery-local semantic role lookups.
 #define GALLERY_ROLE(ctx, role) (gallery_semantic_theme((ctx)->theme).role)
+#define GALLERY_SPACING(ctx, role) (gallery_semantic_spacing((ctx)->theme).role)
 #define SPLIT_BG(ctx)      GALLERY_ROLE(ctx, color_surface_2)
 #define OPTIONS_BG(ctx)    GALLERY_ROLE(ctx, color_surface_3)
 #define SECTION_BG(ctx)    GALLERY_ROLE(ctx, color_surface_2)
@@ -705,12 +744,20 @@ static void gallery_panel_heading_helper(WLX_Context *ctx,
 #define SECTION_HEADING(ctx, title) \
     wlx_label(ctx, title, \
         .font_size = SECTION_FS, .align = WLX_CENTER, .height = HEADING_H, \
-        .show_background = true, .back_color = CONTENT_BG(ctx))
+        .show_background = true, .back_color = CONTENT_BG(ctx), \
+        .content_padding_top = GALLERY_SPACING(ctx, space_heading_y), \
+        .content_padding_right = GALLERY_SPACING(ctx, space_heading_x), \
+        .content_padding_bottom = GALLERY_SPACING(ctx, space_heading_y), \
+        .content_padding_left = GALLERY_SPACING(ctx, space_heading_x))
 
 #define SUB_HEADING(ctx, title) \
     wlx_label(ctx, title, \
         .font_size = WLX_STYLE_HEADING_FONT_SIZE, .align = WLX_LEFT, .height = SUB_HEADING_H, \
-        .show_background = true, .back_color = SECTION_BG(ctx))
+        .show_background = true, .back_color = SECTION_BG(ctx), \
+        .content_padding_top = GALLERY_SPACING(ctx, space_heading_y), \
+        .content_padding_right = GALLERY_SPACING(ctx, space_heading_x), \
+        .content_padding_bottom = GALLERY_SPACING(ctx, space_heading_y), \
+        .content_padding_left = GALLERY_SPACING(ctx, space_heading_x))
 
 // ---------------------------------------------------------------------------
 // Section template: left-panel (controls) / right-panel (preview) split.
@@ -1962,11 +2009,14 @@ static WLX_Theme gallery_brand_theme(WLX_Font font) {
 static void theme_preview_widgets(WLX_Context *ctx) {
     static bool preview_check = true;
     static float preview_slider = 0.58f;
+    Gallery_Semantic_Spacing spacing = gallery_semantic_spacing(ctx->theme);
 
     wlx_layout_begin_s(ctx, WLX_VERT,
         WLX_SIZES(WLX_SLOT_PX(28), WLX_SLOT_PX(28), WLX_SLOT_PX(28)),
-        .padding = 4, .gap = 4);
-        wlx_button(ctx, "Button", .height = 28, .font_size = SMALL_FS, .align = WLX_CENTER);
+        .padding = spacing.space_panel, .gap = spacing.gap_dense);
+        wlx_button(ctx, "Button", .height = 28, .font_size = SMALL_FS, .align = WLX_CENTER,
+            .content_padding_left = spacing.space_control_x,
+            .content_padding_right = spacing.space_control_x);
         wlx_slider(ctx, "Value", &preview_slider, .height = 28, .font_size = TINY_FS);
         wlx_checkbox(ctx, "Check", &preview_check, .height = 28, .font_size = SMALL_FS);
     wlx_layout_end(ctx);
@@ -1978,6 +2028,7 @@ static void theme_sample_widgets(WLX_Context *ctx) {
     static float t_slider = 0.5f;
     static float t_progress = 0.64f;
     static char t_input[64] = "Edit me";
+    Gallery_Semantic_Spacing spacing = gallery_semantic_spacing(ctx->theme);
 
     wlx_layout_begin_s(ctx, WLX_VERT,
         WLX_SIZES(
@@ -1987,12 +2038,14 @@ static void theme_sample_widgets(WLX_Context *ctx) {
             WLX_SLOT_PX(ROW_H),
             WLX_SLOT_PX(ROW_H)
         ),
-        .padding = 6, .gap = 4);
-        wlx_button(ctx, "Sample Button", .height = ROW_H, .align = WLX_CENTER);
+        .padding = spacing.space_panel, .gap = spacing.gap_dense);
+        wlx_button(ctx, "Sample Button", .height = ROW_H, .align = WLX_CENTER,
+            .content_padding_left = spacing.space_control_x,
+            .content_padding_right = spacing.space_control_x);
         wlx_checkbox(ctx, "Sample Checkbox", &t_check, .height = ROW_H);
         wlx_slider(ctx, "Sample  ", &t_slider, .height = ROW_H);
         wlx_inputbox(ctx, "Input:", t_input, sizeof(t_input), .height = ROW_H);
-        wlx_layout_begin(ctx, 2, WLX_HORZ, .padding = 0, .gap = 4);
+        wlx_layout_begin(ctx, 2, WLX_HORZ, .padding = spacing.space_shell, .gap = spacing.gap_dense);
             wlx_toggle(ctx, "Toggle", &t_toggle, .height = ROW_H);
             wlx_progress(ctx, t_progress, .height = ROW_H);
         wlx_layout_end(ctx);
@@ -2003,23 +2056,28 @@ static void theme_lab_preview_card(WLX_Context *ctx, const char *name, const cha
     const WLX_Theme *theme, bool active, size_t id) {
     const WLX_Theme *saved = ctx->theme;
     Gallery_Semantic_Theme preview = gallery_semantic_theme(theme);
+    Gallery_Semantic_Spacing spacing = gallery_semantic_spacing(theme);
     WLX_Color header_bg = active ? preview.color_selection : preview.color_surface_2;
 
     ctx->theme = theme;
     wlx_push_id(ctx, id);
         wlx_layout_begin_s(ctx, WLX_VERT,
             WLX_SIZES(WLX_SLOT_PX(26), WLX_SLOT_PX(18), WLX_SLOT_FLEX(1)),
-            .padding = 5, .gap = 4,
+            .padding = spacing.space_preview, .gap = spacing.gap_dense,
             .back_color = preview.color_app_bg,
             .border_color = active ? preview.color_selection : preview.color_border_strong,
             .border_width = active ? 1.0f : 0.5f);
             wlx_label(ctx, name,
                 .height = 26, .font_size = DEMO_FS, .align = WLX_CENTER,
                 .back_color = header_bg,
-                .front_color = gallery_on_color(header_bg));
+                .front_color = gallery_on_color(header_bg),
+                .content_padding_left = spacing.space_control_x,
+                .content_padding_right = spacing.space_control_x);
             wlx_label(ctx, tag,
                 .height = 18, .font_size = TINY_FS, .align = WLX_CENTER,
-                .front_color = preview.color_text_muted);
+                .front_color = preview.color_text_muted,
+                .content_padding_left = spacing.space_control_x,
+                .content_padding_right = spacing.space_control_x);
             theme_preview_widgets(ctx);
         wlx_layout_end(ctx);
     wlx_pop_id(ctx);
@@ -2027,11 +2085,14 @@ static void theme_lab_preview_card(WLX_Context *ctx, const char *name, const cha
 }
 
 static void theme_lab_control_label(WLX_Context *ctx, const char *label) {
+    Gallery_Semantic_Spacing spacing = gallery_semantic_spacing(ctx->theme);
     wlx_label(ctx, label,
         .font_size = OPT_FS, .height = SMALL_H, .align = WLX_LEFT,
         .show_background = true,
         .back_color = SECTION_BG(ctx),
-        .front_color = GALLERY_ROLE(ctx, color_text_1));
+        .front_color = GALLERY_ROLE(ctx, color_text_1),
+        .content_padding_left = spacing.space_control_x,
+        .content_padding_right = spacing.space_control_x);
 }
 
 enum {
@@ -2039,11 +2100,9 @@ enum {
     THEME_LAB_PRESET_COUNT = 5,
 };
 
-#define THEME_LAB_TOKEN_ROW_H 76.0f
-#define THEME_LAB_TOKEN_GRID_PADDING 6.0f
-#define THEME_LAB_TOKEN_GRID_GAP 6.0f
-#define THEME_LAB_PRESET_ROW_H 166.0f
-#define THEME_LAB_PRESET_GRID_GAP 4.0f
+#define THEME_LAB_PRESET_ROW_H 192.0f
+#define THEME_LAB_MATRIX_COL_H 46.0f
+#define THEME_LAB_MATRIX_STATE_H 24.0f
 
 static int gallery_responsive_columns(float available_width, int preferred_columns, float min_cell_width) {
     if (preferred_columns < 1) return 1;
@@ -2069,49 +2128,83 @@ static int theme_lab_token_columns(float available_width) {
     return gallery_responsive_columns(available_width, 3, 132.0f);
 }
 
-static float theme_lab_token_grid_height(int column_count) {
+static float theme_preview_widgets_height(const Gallery_Semantic_Spacing *spacing) {
+    return 3.0f * 28.0f + 2.0f * spacing->gap_dense + 2.0f * spacing->space_panel;
+}
+
+static float theme_lab_token_row_height(const Gallery_Semantic_Spacing *spacing) {
+    return 18.0f + 30.0f + 16.0f + 2.0f * spacing->gap_dense +
+        2.0f * spacing->space_preview;
+}
+
+static float theme_lab_token_grid_height(int column_count,
+    const Gallery_Semantic_Spacing *spacing) {
     return gallery_auto_grid_height(THEME_LAB_TOKEN_COUNT, column_count,
-        THEME_LAB_TOKEN_ROW_H, THEME_LAB_TOKEN_GRID_PADDING, THEME_LAB_TOKEN_GRID_GAP);
+        theme_lab_token_row_height(spacing), spacing->space_preview, spacing->gap_dense);
 }
 
 static int theme_lab_preset_columns(float available_width) {
     return gallery_responsive_columns(available_width, 3, 150.0f);
 }
 
-static float theme_lab_preset_grid_height(int column_count) {
+static float theme_lab_preset_row_height(const Gallery_Semantic_Spacing *spacing) {
+    float semantic_row_height = 2.0f * spacing->space_preview + 26.0f + 18.0f +
+        2.0f * spacing->gap_dense + theme_preview_widgets_height(spacing);
+    return semantic_row_height > THEME_LAB_PRESET_ROW_H
+        ? semantic_row_height
+        : THEME_LAB_PRESET_ROW_H;
+}
+
+static float theme_lab_preset_grid_height(int column_count,
+    const Gallery_Semantic_Spacing *spacing) {
+    float row_height = theme_lab_preset_row_height(spacing);
     return gallery_auto_grid_height(THEME_LAB_PRESET_COUNT, column_count,
-        THEME_LAB_PRESET_ROW_H, 0.0f, THEME_LAB_PRESET_GRID_GAP);
+        row_height, spacing->space_shell, spacing->gap_dense);
+}
+
+static float theme_lab_component_matrix_height(const Gallery_Semantic_Spacing *spacing) {
+    float grid_height = 6.0f * THEME_LAB_MATRIX_COL_H + 5.0f * spacing->gap_dense;
+    return 2.0f * spacing->space_preview + THEME_LAB_MATRIX_STATE_H +
+        spacing->gap_dense + grid_height;
 }
 
 static void theme_lab_token_card(WLX_Context *ctx, const Gallery_Semantic_Theme *semantic,
-    const char *name, WLX_Color dark_color, WLX_Color light_color, size_t id) {
+    const Gallery_Semantic_Spacing *spacing, const char *name, WLX_Color dark_color,
+    WLX_Color light_color, size_t id) {
     wlx_push_id(ctx, id);
         wlx_layout_begin_s(ctx, WLX_VERT,
             WLX_SIZES(WLX_SLOT_PX(18), WLX_SLOT_PX(30), WLX_SLOT_PX(16)),
-            .padding = 4, .gap = 3,
+            .padding = spacing->space_preview, .gap = spacing->gap_dense,
             .back_color = semantic->color_surface_1,
             .border_color = semantic->color_border,
             .border_width = 1.0f);
             wlx_label(ctx, name,
                 .height = 18, .font_size = TINY_FS, .align = WLX_CENTER,
-                .front_color = semantic->color_text_1);
-            wlx_layout_begin(ctx, 2, WLX_HORZ, .padding = 0, .gap = 3);
+                .front_color = semantic->color_text_1,
+                .content_padding_left = spacing->space_control_x,
+                .content_padding_right = spacing->space_control_x);
+            wlx_layout_begin(ctx, 2, WLX_HORZ, .padding = spacing->space_shell, .gap = spacing->gap_dense);
                 wlx_widget(ctx, .height = 30, .color = dark_color,
                     .border_color = semantic->color_border_strong, .border_width = 1.0f);
                 wlx_widget(ctx, .height = 30, .color = light_color,
                     .border_color = semantic->color_border_strong, .border_width = 1.0f);
             wlx_layout_end(ctx);
-            wlx_layout_begin(ctx, 2, WLX_HORZ, .padding = 0, .gap = 3);
+            wlx_layout_begin(ctx, 2, WLX_HORZ, .padding = spacing->space_shell, .gap = spacing->gap_dense);
                 wlx_label(ctx, "dark", .height = 16, .font_size = TINY_FS, .align = WLX_CENTER,
-                    .front_color = semantic->color_text_muted);
+                    .front_color = semantic->color_text_muted,
+                    .content_padding_left = spacing->space_control_x,
+                    .content_padding_right = spacing->space_control_x);
                 wlx_label(ctx, "light", .height = 16, .font_size = TINY_FS, .align = WLX_CENTER,
-                    .front_color = semantic->color_text_muted);
+                    .front_color = semantic->color_text_muted,
+                    .content_padding_left = spacing->space_control_x,
+                    .content_padding_right = spacing->space_control_x);
             wlx_layout_end(ctx);
         wlx_layout_end(ctx);
     wlx_pop_id(ctx);
 }
 
-static void theme_lab_token_swatches(WLX_Context *ctx, const Gallery_Semantic_Theme *semantic) {
+static void theme_lab_token_swatches(WLX_Context *ctx, const Gallery_Semantic_Theme *semantic,
+    const Gallery_Semantic_Spacing *spacing) {
     Gallery_Semantic_Theme dark = gallery_semantic_theme(&wlx_theme_dark);
     Gallery_Semantic_Theme light = gallery_semantic_theme(&wlx_theme_light);
     const char *names[THEME_LAB_TOKEN_COUNT] = {
@@ -2131,13 +2224,13 @@ static void theme_lab_token_swatches(WLX_Context *ctx, const Gallery_Semantic_Th
     };
 
     int column_count = theme_lab_token_columns(wlx_get_available_width(ctx));
-    wlx_grid_begin_auto(ctx, column_count, THEME_LAB_TOKEN_ROW_H,
-        .padding = THEME_LAB_TOKEN_GRID_PADDING, .gap = THEME_LAB_TOKEN_GRID_GAP,
+    wlx_grid_begin_auto(ctx, column_count, theme_lab_token_row_height(spacing),
+        .padding = spacing->space_preview, .gap = spacing->gap_dense,
         .back_color = semantic->color_surface_2,
         .slot_border_color = semantic->color_border,
         .slot_border_width = 0.5f);
         for (int i = 0; i < THEME_LAB_TOKEN_COUNT; i++) {
-            theme_lab_token_card(ctx, semantic, names[i], dark_values[i], light_values[i], (size_t)i);
+            theme_lab_token_card(ctx, semantic, spacing, names[i], dark_values[i], light_values[i], (size_t)i);
         }
     wlx_layout_end(ctx);
 }
@@ -2145,6 +2238,7 @@ static void theme_lab_token_swatches(WLX_Context *ctx, const Gallery_Semantic_Th
 static void section_tokens(WLX_Context *ctx, Gallery_State *st) {
     (void)st;
     Gallery_Semantic_Theme semantic = gallery_semantic_theme(ctx->theme);
+    Gallery_Semantic_Spacing spacing = gallery_semantic_spacing(ctx->theme);
 
     SECTION_BEGIN(ctx);
 
@@ -2155,15 +2249,21 @@ static void section_tokens(WLX_Context *ctx, Gallery_State *st) {
 
             wlx_label(ctx, "Color Roles",
                 .height = SUB_HEADING_H, .font_size = DEMO_FS, .align = WLX_LEFT,
-                .front_color = semantic.color_text_1);
+                .front_color = semantic.color_text_1,
+                .content_padding_left = spacing.space_control_x,
+                .content_padding_right = spacing.space_control_x);
             wlx_label(ctx,
                 "app_bg\nsurface_1 / surface_2 / surface_3\ntext_1 / text_2 / text_muted\nborder / border_strong\naccent / focus / selection\nstatus colors",
                 .height = 150, .font_size = OPT_FS, .align = WLX_LEFT,
-                .front_color = semantic.color_text_2);
+                .front_color = semantic.color_text_2,
+                .content_padding_left = spacing.space_control_x,
+                .content_padding_right = spacing.space_control_x);
 
             wlx_label(ctx, "Text Scale",
                 .height = SUB_HEADING_H, .font_size = DEMO_FS, .align = WLX_LEFT,
-                .front_color = semantic.color_text_1);
+                .front_color = semantic.color_text_1,
+                .content_padding_left = spacing.space_control_x,
+                .content_padding_right = spacing.space_control_x);
             {
                 char type_buf[128];
                 snprintf(type_buf, sizeof(type_buf),
@@ -2171,12 +2271,16 @@ static void section_tokens(WLX_Context *ctx, Gallery_State *st) {
                     SECTION_FS, DEMO_FS, SMALL_FS, TINY_FS);
                 wlx_label(ctx, type_buf,
                     .height = 104, .font_size = OPT_FS, .align = WLX_LEFT,
-                    .front_color = semantic.color_text_2);
+                    .front_color = semantic.color_text_2,
+                    .content_padding_left = spacing.space_control_x,
+                    .content_padding_right = spacing.space_control_x);
             }
 
             wlx_label(ctx, "Theme Geometry",
                 .height = SUB_HEADING_H, .font_size = DEMO_FS, .align = WLX_LEFT,
-                .front_color = semantic.color_text_1);
+                .front_color = semantic.color_text_1,
+                .content_padding_left = spacing.space_control_x,
+                .content_padding_right = spacing.space_control_x);
             {
                 char geometry_buf[160];
                 snprintf(geometry_buf, sizeof(geometry_buf),
@@ -2187,7 +2291,9 @@ static void section_tokens(WLX_Context *ctx, Gallery_State *st) {
                     ctx->theme->hover_brightness);
                 wlx_label(ctx, geometry_buf,
                     .height = 112, .font_size = OPT_FS, .align = WLX_LEFT,
-                    .front_color = semantic.color_text_2);
+                    .front_color = semantic.color_text_2,
+                    .content_padding_left = spacing.space_control_x,
+                    .content_padding_right = spacing.space_control_x);
             }
 
         wlx_panel_end(ctx);
@@ -2195,7 +2301,7 @@ static void section_tokens(WLX_Context *ctx, Gallery_State *st) {
     SECTION_NEXT(ctx);
 
         float token_width = wlx_get_available_width(ctx);
-        float token_height = theme_lab_token_grid_height(theme_lab_token_columns(token_width));
+        float token_height = theme_lab_token_grid_height(theme_lab_token_columns(token_width), &spacing);
 
         wlx_layout_begin_s(ctx, WLX_VERT,
             WLX_SIZES(
@@ -2211,10 +2317,12 @@ static void section_tokens(WLX_Context *ctx, Gallery_State *st) {
 
             wlx_label(ctx, "Semantic roles used by the gallery shell and theme previews.",
                 .height = DESC_H,
-                .front_color = semantic.color_text_2);
+                .front_color = semantic.color_text_2,
+                .content_padding_left = spacing.space_control_x,
+                .content_padding_right = spacing.space_control_x);
 
             SUB_HEADING(ctx, "Semantic Color Roles");
-            theme_lab_token_swatches(ctx, &semantic);
+            theme_lab_token_swatches(ctx, &semantic, &spacing);
 
             SUB_HEADING(ctx, "Interaction Scale");
             wlx_layout_begin(ctx, 3, WLX_HORZ, .padding = 0, .gap = 4);
@@ -2222,17 +2330,23 @@ static void section_tokens(WLX_Context *ctx, Gallery_State *st) {
                     .height = 86, .font_size = DEMO_FS, .align = WLX_CENTER,
                     .show_background = true,
                     .back_color = semantic.color_surface_3,
-                    .front_color = semantic.color_text_1);
+                    .front_color = semantic.color_text_1,
+                    .content_padding_left = spacing.space_preview,
+                    .content_padding_right = spacing.space_preview);
                 wlx_label(ctx, "Focus",
                     .height = 86, .font_size = DEMO_FS, .align = WLX_CENTER,
                     .show_background = true,
                     .back_color = semantic.color_focus,
-                    .front_color = gallery_on_color(semantic.color_focus));
+                    .front_color = gallery_on_color(semantic.color_focus),
+                    .content_padding_left = spacing.space_preview,
+                    .content_padding_right = spacing.space_preview);
                 wlx_label(ctx, "Selected",
                     .height = 86, .font_size = DEMO_FS, .align = WLX_CENTER,
                     .show_background = true,
                     .back_color = semantic.color_selection,
-                    .front_color = gallery_on_color(semantic.color_selection));
+                    .front_color = gallery_on_color(semantic.color_selection),
+                    .content_padding_left = spacing.space_preview,
+                    .content_padding_right = spacing.space_preview);
             wlx_layout_end(ctx);
 
         wlx_layout_end(ctx);
@@ -2262,33 +2376,37 @@ static WLX_Color theme_lab_state_border(const Gallery_Semantic_Theme *semantic, 
     return semantic->color_border;
 }
 
-static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_Theme *semantic) {
+static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_Theme *semantic,
+    const Gallery_Semantic_Spacing *spacing) {
     static bool matrix_checks[5] = { false, false, true, true, true };
     static float matrix_sliders[5] = { 0.35f, 0.45f, 0.72f, 0.58f, 0.25f };
     static char matrix_inputs[5][32] = { "Default", "Hover", "Active", "Focus", "Disabled" };
     static const char *states[] = { "Default", "Hover", "Active", "Focus", "Disabled" };
 
-    // 6 rows x 46 px + 5 gaps x 4 = 296 (matches the loop below)
     wlx_layout_begin_s(ctx, WLX_VERT,
-        WLX_SIZES(WLX_SLOT_PX(24), WLX_SLOT_PX(296)),
-        .padding = 6, .gap = 4,
+        WLX_SIZES(WLX_SLOT_PX(THEME_LAB_MATRIX_STATE_H),
+            WLX_SLOT_PX(6.0f * THEME_LAB_MATRIX_COL_H + 5.0f * spacing->gap_dense)),
+        .padding = spacing->space_preview, .gap = spacing->gap_dense,
         .back_color = semantic->color_surface_2,
         .border_color = semantic->color_border_strong,
         .border_width = 1.0f);
-        wlx_layout_begin(ctx, 5, WLX_HORZ, .padding = 0, .gap = 4);
+        wlx_layout_begin(ctx, 5, WLX_HORZ, .padding = spacing->space_shell, .gap = spacing->gap_dense);
             for (int i = 0; i < 5; i++) {
                 wlx_push_id(ctx, (size_t)i);
                 wlx_label(ctx, states[i],
-                    .height = 24, .font_size = TINY_FS, .align = WLX_CENTER,
+                    .height = THEME_LAB_MATRIX_STATE_H, .font_size = TINY_FS, .align = WLX_CENTER,
                     .back_color = theme_lab_state_back(semantic, i),
                     .front_color = theme_lab_state_front(semantic, theme_lab_state_back(semantic, i), i),
                     .border_color = theme_lab_state_border(semantic, i),
-                    .border_width = 0.5f);
+                    .border_width = 0.5f,
+                    .content_padding_left = spacing->space_control_x,
+                    .content_padding_right = spacing->space_control_x);
                 wlx_pop_id(ctx);
             }
         wlx_layout_end(ctx);
 
-        wlx_grid_begin_auto(ctx, 5, 46, .padding = 0, .gap = 4);
+        wlx_grid_begin_auto(ctx, 5, THEME_LAB_MATRIX_COL_H,
+            .padding = spacing->space_shell, .gap = spacing->gap_dense);
             for (int row = 0; row < 6; row++) {
                 for (int state = 0; state < 5; state++) {
                     WLX_Color back = theme_lab_state_back(semantic, state);
@@ -2301,23 +2419,27 @@ static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_
                     switch (row) {
                         case 0:
                             wlx_label(ctx, "Label",
-                                .height = 46, .font_size = SMALL_FS, .align = WLX_CENTER,
+                                .height = THEME_LAB_MATRIX_COL_H, .font_size = SMALL_FS, .align = WLX_CENTER,
                                 .show_background = true,
                                 .back_color = back, .front_color = front,
                                 .border_color = border, .border_width = border_width,
+                                .content_padding_left = spacing->space_control_x,
+                                .content_padding_right = spacing->space_control_x,
                                 .opacity = opacity);
                             break;
                         case 1:
                             wlx_button(ctx, "Button",
-                                .height = 46, .font_size = SMALL_FS, .align = WLX_CENTER,
+                                .height = THEME_LAB_MATRIX_COL_H, .font_size = SMALL_FS, .align = WLX_CENTER,
                                 .back_color = back,
                                 .front_color = front,
                                 .border_color = border, .border_width = border_width,
+                                .content_padding_left = spacing->space_control_x,
+                                .content_padding_right = spacing->space_control_x,
                                 .opacity = opacity);
                             break;
                         case 2:
                             wlx_checkbox(ctx, "Checkbox", &matrix_checks[state],
-                                .height = 46, .font_size = SMALL_FS,
+                                .height = THEME_LAB_MATRIX_COL_H, .font_size = SMALL_FS,
                                 .back_color = back, .front_color = front,
                                 .border_color = border, .border_width = border_width,
                                 .check_color = semantic->color_accent,
@@ -2325,7 +2447,7 @@ static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_
                             break;
                         case 3:
                             wlx_slider(ctx, "Slider", &matrix_sliders[state],
-                                .height = 46, .font_size = TINY_FS,
+                                .height = THEME_LAB_MATRIX_COL_H, .font_size = TINY_FS,
                                 .track_color = (state == 2) ? semantic->color_selection : semantic->color_surface_3,
                                 .thumb_color = (state == 4) ? semantic->color_text_muted : semantic->color_accent,
                                 .label_color = front,
@@ -2334,7 +2456,7 @@ static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_
                             break;
                         case 4:
                             wlx_inputbox(ctx, "Input", matrix_inputs[state], sizeof(matrix_inputs[state]),
-                                .height = 46, .font_size = TINY_FS,
+                                .height = THEME_LAB_MATRIX_COL_H, .font_size = TINY_FS,
                                 .back_color = back, .front_color = front,
                                 .border_color = border, .border_width = border_width,
                                 .border_focus_color = semantic->color_focus,
@@ -2344,7 +2466,7 @@ static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_
                         default:
                             wlx_layout_begin_s(ctx, WLX_VERT,
                                 WLX_SIZES(WLX_SLOT_PX(14), WLX_SLOT_PX(24)),
-                                .padding = 2, .gap = 2,
+                                .padding = spacing->space_shell, .gap = spacing->gap_dense,
                                 .back_color = back,
                                 .border_color = border,
                                 .border_width = border_width);
@@ -2372,6 +2494,7 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
     gallery_update_custom_theme(st, custom_font);
 
     Gallery_Semantic_Theme semantic = gallery_semantic_theme(ctx->theme);
+    Gallery_Semantic_Spacing spacing = gallery_semantic_spacing(ctx->theme);
 
     wlx_split_begin(ctx,
         .content_padding = 0, .gap = 4,
@@ -2435,7 +2558,9 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
                 .back_color = semantic.color_selection,
                 .front_color = gallery_on_color(semantic.color_selection),
                 .image_size = 16,
-                .image_text_gap = 8)) {
+                .image_text_gap = spacing.gap_dense,
+                .content_padding_left = spacing.space_control_x,
+                .content_padding_right = spacing.space_control_x)) {
                 st->theme_mode = GALLERY_THEME_CUSTOM;
             }
 
@@ -2445,11 +2570,13 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
 
         gallery_update_custom_theme(st, custom_font);
         semantic = gallery_semantic_theme(ctx->theme);
+        spacing = gallery_semantic_spacing(ctx->theme);
         float theme_lab_width = wlx_get_available_width(ctx);
         int token_columns = theme_lab_token_columns(theme_lab_width);
         int preset_columns = theme_lab_preset_columns(theme_lab_width);
-        float token_height = theme_lab_token_grid_height(token_columns);
-        float preset_height = theme_lab_preset_grid_height(preset_columns);
+        float token_height = theme_lab_token_grid_height(token_columns, &spacing);
+        float preset_height = theme_lab_preset_grid_height(preset_columns, &spacing);
+        float matrix_height = theme_lab_component_matrix_height(&spacing);
 
         wlx_layout_begin_s(ctx, WLX_VERT,
             WLX_SIZES(
@@ -2462,7 +2589,7 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
                 WLX_SLOT_CONTENT,
                 WLX_SLOT_PX(276),
                 WLX_SLOT_CONTENT,
-                WLX_SLOT_PX(336),
+                WLX_SLOT_PX(matrix_height),
                 WLX_SLOT_CONTENT,
                 WLX_SLOT_PX(84),
                 WLX_SLOT_PX(84)
@@ -2472,10 +2599,12 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
 
             wlx_label(ctx, "Tokens, presets, controls, states.",
                 .height = DESC_H,
-                .front_color = semantic.color_text_2);
+                .front_color = semantic.color_text_2,
+                .content_padding_left = spacing.space_control_x,
+                .content_padding_right = spacing.space_control_x);
 
             SUB_HEADING(ctx, "Semantic Token Swatches");
-            theme_lab_token_swatches(ctx, &semantic);
+            theme_lab_token_swatches(ctx, &semantic, &spacing);
 
             SUB_HEADING(ctx, "Theme Presets");
             {
@@ -2496,8 +2625,8 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
                     { "Brand", "gallery-local", &brand_theme, GALLERY_THEME_BRAND },
                     { "Custom", "editable", &custom_theme, GALLERY_THEME_CUSTOM },
                 };
-                wlx_grid_begin_auto(ctx, preset_columns, THEME_LAB_PRESET_ROW_H,
-                    .padding = 0, .gap = THEME_LAB_PRESET_GRID_GAP);
+                wlx_grid_begin_auto(ctx, preset_columns, theme_lab_preset_row_height(&spacing),
+                    .padding = spacing.space_shell, .gap = spacing.gap_dense);
                     for (int i = 0; i < THEME_LAB_PRESET_COUNT; i++) {
                         theme_lab_preview_card(ctx, previews[i].name, previews[i].tag,
                             previews[i].theme, previews[i].mode == st->theme_mode, (size_t)i);
@@ -2509,6 +2638,7 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
             {
                 const WLX_Theme *saved = ctx->theme;
                 Gallery_Semantic_Theme custom_semantic = gallery_semantic_theme(&st->custom_theme);
+                Gallery_Semantic_Spacing custom_spacing = gallery_semantic_spacing(&st->custom_theme);
                 ctx->theme = &st->custom_theme;
                 wlx_push_id(ctx, 300);
                     wlx_layout_begin_s(ctx, WLX_VERT,
@@ -2516,13 +2646,15 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
                         .back_color = custom_semantic.color_app_bg,
                         .border_color = custom_semantic.color_border_strong,
                         .border_width = 1.0f,
-                        .gap = 4);
+                        .gap = custom_spacing.gap_dense);
                         wlx_label(ctx, "Custom",
                             .height = 28, .font_size = DEMO_FS, .align = WLX_CENTER,
                             .back_color = custom_semantic.color_surface_2,
                             .front_color = custom_semantic.color_text_1,
                             .border_color = custom_semantic.color_border,
-                            .border_width = 0.5f);
+                            .border_width = 0.5f,
+                            .content_padding_left = custom_spacing.space_control_x,
+                            .content_padding_right = custom_spacing.space_control_x);
                         theme_sample_widgets(ctx);
                     wlx_layout_end(ctx);
                 wlx_pop_id(ctx);
@@ -2530,7 +2662,7 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
             }
 
             SUB_HEADING(ctx, "Component Preview Matrix");
-            theme_lab_component_matrix(ctx, &semantic);
+            theme_lab_component_matrix(ctx, &semantic, &spacing);
 
             SUB_HEADING(ctx, "Icon Tints (cross-theme)");
             if (gallery_icon_atlas_ready()) {
@@ -2565,6 +2697,7 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
                     wlx_push_id(ctx, (size_t)row);
                     ctx->theme = theme_rows[row].theme;
                     Gallery_Semantic_Theme row_sem = gallery_semantic_theme(theme_rows[row].theme);
+                    Gallery_Semantic_Spacing row_spacing = gallery_semantic_spacing(theme_rows[row].theme);
                     wlx_layout_begin_s(ctx, WLX_VERT,
                         WLX_SIZES(WLX_SLOT_PX(20), WLX_SLOT_PX(54)),
                         .padding = 4, .gap = 2,
@@ -2575,8 +2708,11 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
                             .height = 20, .font_size = SMALL_FS,
                             .front_color = row_sem.color_text_1,
                             .back_color = row_sem.color_surface_2,
-                            .show_background = true);
-                        wlx_layout_begin(ctx, icon_count, WLX_HORZ, .gap = 6, .padding = 2);
+                            .show_background = true,
+                            .content_padding_left = row_spacing.space_control_x,
+                            .content_padding_right = row_spacing.space_control_x);
+                        wlx_layout_begin(ctx, icon_count, WLX_HORZ,
+                            .gap = 6, .padding = row_spacing.space_shell);
                             for (int i = 0; i < icon_count; i++) {
                                 wlx_push_id(ctx, (size_t)i);
                                 wlx_label(ctx, icon_cells[i].label,
@@ -2587,7 +2723,9 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
                                     .texture_tint = gallery_icon_tint(&row_sem, icon_cells[i].role),
                                     .image_placement = WLX_IMAGE_PLACEMENT_TOP,
                                     .image_size = 24,
-                                    .image_text_gap = 2);
+                                    .image_text_gap = row_spacing.gap_dense,
+                                    .content_padding_left = row_spacing.space_control_x,
+                                    .content_padding_right = row_spacing.space_control_x);
                                 wlx_pop_id(ctx);
                             }
                         wlx_layout_end(ctx);
@@ -3345,6 +3483,7 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
 // ---------------------------------------------------------------------------
 static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
     Gallery_Semantic_Theme semantic = gallery_semantic_theme(ctx->theme);
+    Gallery_Semantic_Spacing spacing = gallery_semantic_spacing(ctx->theme);
 
     wlx_layout_begin_s(ctx, WLX_VERT,
         WLX_SIZES(WLX_SLOT_PX(44), WLX_SLOT_FLEX(1), WLX_SLOT_PX(SMALL_H)),
@@ -3363,14 +3502,18 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                         .height = 44,
                         .front_color = semantic.color_accent,
                         .image_size = 24,
-                        .image_text_gap = 10);
+                        .image_text_gap = spacing.space_control_x,
+                        .content_padding_left = spacing.space_heading_x,
+                        .content_padding_right = spacing.space_control_x);
 
                     {
                         char fps_label[32];
                         snprintf(fps_label, sizeof(fps_label), "FPS: %d  ", gallery_platform_fps());
                         wlx_label(ctx, fps_label,
                             .font_size = TINY_FS, .height = 44, .align = WLX_RIGHT,
-                            .front_color = semantic.color_text_2);
+                            .front_color = semantic.color_text_2,
+                            .content_padding_left = spacing.space_control_x,
+                            .content_padding_right = spacing.space_control_x);
                     }
 
                     {
@@ -3385,7 +3528,9 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                             .border_color = semantic.color_border_strong,
                             .border_width = 0.5f,
                             .image_size = 16,
-                            .image_text_gap = 6)) {
+                            .image_text_gap = spacing.gap_dense,
+                            .content_padding_left = spacing.space_control_x,
+                            .content_padding_right = spacing.space_control_x)) {
                             gs->theme_mode = (gs->theme_mode + 1) % GALLERY_THEME_COUNT;
                         }
                     }
@@ -3428,10 +3573,10 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                             .border_color = group_selected ? semantic.color_focus : semantic.color_border,
                             .border_width = group_selected ? 1.0f : 0.5f,
                             .font_size = SECTION_FS,
-                            .content_padding_left = SIDEBAR_GROUP_CONTENT_PAD_L,
-                            .content_padding_right = SIDEBAR_CONTENT_PAD_R,
+                            .content_padding_left = spacing.space_heading_x,
+                            .content_padding_right = spacing.space_control_x,
                             .image_size = 18,
-                            .image_text_gap = 8)) {
+                            .image_text_gap = spacing.space_control_x)) {
                             gallery_select_group(gs, gi);
                         }
 
@@ -3456,10 +3601,10 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                                 .border_color = section_selected ? semantic.color_focus : semantic.color_border,
                                 .border_width = section_selected ? 1.0f : 0.5f,
                                 .font_size = OPT_FS,
-                                .content_padding_left = SIDEBAR_SECTION_CONTENT_PAD_L,
-                                .content_padding_right = SIDEBAR_CONTENT_PAD_R,
+                                .content_padding_left = spacing.space_heading_x + spacing.space_control_x,
+                                .content_padding_right = spacing.space_control_x,
                                 .image_size = 16,
-                                .image_text_gap = 6)) {
+                                .image_text_gap = spacing.gap_dense)) {
                                 gallery_select_section(gs, gi, si);
                             }
                             wlx_pop_id(ctx);
@@ -3501,7 +3646,9 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                 .border_color = semantic.color_border,
                 .border_width = 0.5f,
                 .image_size = 14,
-                .image_text_gap = 8);
+                .image_text_gap = spacing.gap_dense,
+                .content_padding_left = spacing.space_control_x,
+                .content_padding_right = spacing.space_control_x);
         }
 
     wlx_layout_end(ctx);

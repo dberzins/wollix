@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Gallery semantic spacing:** the gallery now derives local spacing roles
+  (`space_shell`, `space_panel`, `space_heading_x`, `space_heading_y`,
+  `space_control_x`, `space_preview`, `gap_dense`, and `gap_section`) from
+  `WLX_Theme.padding`. Headings, option labels, title/sidebar/status chrome,
+  token cards, Theme Lab preset cards, and the component preview matrix now use
+  those roles for consistent content inset while raw layout/default-widget
+  examples keep explicit geometry. This is gallery-local only; no public theme
+  fields or core widget defaults changed.
 - **Unified content padding across all chrome widgets.** `WLX_Split_Opt` and
   `WLX_Panel_Opt` now embed `WLX_CONTENT_PADDING_FIELDS` (`content_padding`,
   `content_padding_top`, `content_padding_right`, `content_padding_bottom`,
