@@ -1915,6 +1915,13 @@ typedef struct {
     int       rounded_segments;
     WLX_Color check_color;
 
+    // Content padding: inset around the compound content (checkbox glyph +
+    // label) only. Chrome and hit rect stay at the full widget rect.
+    // Defaults resolve to 0; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` to opt into the theme's
+    // `padding` value.
+    WLX_CONTENT_PADDING_FIELDS;
+
     // Texture mode: active only when both tex_checked and tex_unchecked
     // are drawable. Each state has its own source rect and tint, matching
     // the image-capable label/button/image contract.
@@ -1948,6 +1955,8 @@ typedef struct {
         .roundness = -1, \
         .rounded_segments = -1, \
         .check_color = {0}, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         .tex_checked_src = {0}, \
         .tex_unchecked_src = {0}, \
         .tex_checked_tint = {0}, \
@@ -2036,6 +2045,13 @@ typedef struct {
     // Border
     WLX_BORDER_FIELDS;
 
+    // Content padding: inset around the label / track / value content. Slot
+    // contribution and the track-region hit rect are derived from the inset
+    // rect, so a padded slider stays interactive only inside the inset.
+    // Defaults resolve to 0; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` for the theme value.
+    WLX_CONTENT_PADDING_FIELDS;
+
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
 } WLX_Slider_Opt;
@@ -2066,6 +2082,8 @@ typedef struct {
         .max_value = 1.0f, \
         /* Border */ \
         WLX_BORDER_DEFAULTS, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         __VA_ARGS__ \
     }
 
@@ -2101,6 +2119,11 @@ typedef struct {
     float     track_height;       // 0 -> full widget height
     WLX_BORDER_FIELDS;
 
+    // Content padding: inset around the track. Slot contribution stays
+    // unchanged. Defaults resolve to 0; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` for the theme value.
+    WLX_CONTENT_PADDING_FIELDS;
+
     const char *id;
 } WLX_Progress_Opt;
 
@@ -2112,6 +2135,8 @@ typedef struct {
         .fill_color = {0}, \
         .track_height = 0, \
         WLX_BORDER_DEFAULTS, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         __VA_ARGS__ \
     }
 
@@ -2157,6 +2182,12 @@ typedef struct {
     float     hover_brightness;
     WLX_BORDER_FIELDS;
 
+    // Content padding: inset around the compound content (track + label).
+    // Chrome and the click/hover hit rect stay at the full widget rect.
+    // Defaults resolve to 0; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` for the theme value.
+    WLX_CONTENT_PADDING_FIELDS;
+
     const char *id;
 } WLX_Toggle_Opt;
 
@@ -2172,6 +2203,8 @@ typedef struct {
         .thumb_color = {0}, \
         .hover_brightness = WLX_FLOAT_UNSET, \
         WLX_BORDER_DEFAULTS, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         __VA_ARGS__ \
     }
 
@@ -2189,6 +2222,12 @@ typedef struct {
     float     ring_border_width;
     float     hover_brightness;
 
+    // Content padding: inset around the compound content (ring + label).
+    // Chrome and the click/hover hit rect stay at the full widget rect.
+    // Defaults resolve to 0; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` for the theme value.
+    WLX_CONTENT_PADDING_FIELDS;
+
     const char *id;
 } WLX_Radio_Opt;
 
@@ -2203,6 +2242,8 @@ typedef struct {
         .fill_color = {0}, \
         .ring_border_width = -1, \
         .hover_brightness = WLX_FLOAT_UNSET, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         __VA_ARGS__ \
     }
 
@@ -6342,8 +6383,12 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
+    WLX_Resolved_Padding cp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
+    wlx_clamp_resolved_padding(&cp, wr.w, wr.h);
+    WLX_Rect content_rect = wlx_rect_inset_sides(wr, cp.top, cp.right, cp.bottom, cp.left);
+
     // Draw checkbox
-    float checkbox_size = (wr.h > opt.font_size) ? opt.font_size : wr.h * WLX_CHECKBOX_SIZE_RATIO;
+    float checkbox_size = (content_rect.h > opt.font_size) ? opt.font_size : content_rect.h * WLX_CHECKBOX_SIZE_RATIO;
     float text_w = 0;
     float text_h = 0;
     WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing };
@@ -6352,7 +6397,7 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
     float padding = opt.font_size * WLX_CHECKBOX_LABEL_PADDING_FACTOR;
 
     float height = text_h > checkbox_size ? text_h : checkbox_size;
-    WLX_Rect acr = wlx_get_align_rect(wr, checkbox_size + padding + text_w, height, opt.align);
+    WLX_Rect acr = wlx_get_align_rect(content_rect, checkbox_size + padding + text_w, height, opt.align);
     WLX_Rect hit_rect = (opt.full_slot_hit) ? wr : acr;
 
     WLX_Interaction inter = wlx_get_interaction(
@@ -6418,7 +6463,7 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
       .x = acr.x + checkbox_size + padding,
       .y = acr.y,
       .w = acr.w - checkbox_size - padding,
-      .h = wr.y + wr.h - acr.y
+      .h = content_rect.y + content_rect.h - acr.y
     };
     wlx_draw_text_fitted_slice(ctx, text_rect, text, text_len, ts, WLX_ALIGN_NONE, opt.wrap);
 
@@ -6707,6 +6752,10 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
+    WLX_Resolved_Padding cp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
+    wlx_clamp_resolved_padding(&cp, wr.w, wr.h);
+    WLX_Rect content_rect = wlx_rect_inset_sides(wr, cp.top, cp.right, cp.bottom, cp.left);
+
     bool changed = false;
 
     // Layout: [label] [track with thumb] [value text]
@@ -6740,10 +6789,10 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
     }
 
     // Track area
-    float track_x = wr.x + label_width;
-    float track_w = wr.w - label_width - value_text_width;
+    float track_x = content_rect.x + label_width;
+    float track_w = content_rect.w - label_width - value_text_width;
     if (track_w < opt.thumb_width) track_w = opt.thumb_width;
-    float track_y = wr.y + (wr.h - opt.track_height) / 2.0f;
+    float track_y = content_rect.y + (content_rect.h - opt.track_height) / 2.0f;
 
     // Usable range for the thumb center (half thumb on each side)
     float half_thumb = opt.thumb_width / 2.0f;
@@ -6761,16 +6810,16 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
 
     float thumb_cx = roundf(usable_x + t * usable_w);
     float thumb_min_h = opt.track_height + 4.0f;
-    float thumb_max_h = wr.h - 4.0f;
+    float thumb_max_h = content_rect.h - 4.0f;
     if (thumb_max_h < opt.track_height) thumb_max_h = opt.track_height;
     float thumb_h = opt.thumb_width;
     if (thumb_h < thumb_min_h) thumb_h = thumb_min_h;
     if (thumb_h > thumb_max_h) thumb_h = thumb_max_h;
     if (thumb_h < 1.0f) thumb_h = 1.0f;
-    float thumb_y = roundf(wr.y + (wr.h - thumb_h) / 2.0f);
+    float thumb_y = roundf(content_rect.y + (content_rect.h - thumb_h) / 2.0f);
 
     // Interaction via unified handler (drag mode for continuous value updates)
-    WLX_Rect hit_rect = { track_x, wr.y, track_w, wr.h };
+    WLX_Rect hit_rect = { track_x, content_rect.y, track_w, content_rect.h };
 
     WLX_Interaction inter = wlx_get_interaction(
         ctx,
@@ -6800,7 +6849,7 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
 
     // Draw label
     if (label != NULL && opt.font_size > 0) {
-        WLX_Rect label_rect = { wr.x, wr.y, label_width, wr.h };
+        WLX_Rect label_rect = { content_rect.x, content_rect.y, label_width, content_rect.h };
         wlx_draw_text_fitted_slice(ctx, label_rect, label, label_len, ts, WLX_LEFT, false);
     }
 
@@ -6838,7 +6887,7 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
         // Recalculate value string in case it changed during drag
         snprintf(value_str, sizeof(value_str), "%.2f", *value);
         float vt_x = track_x + track_w;
-        WLX_Rect value_rect = { vt_x, wr.y, value_text_width + padding, wr.h };
+        WLX_Rect value_rect = { vt_x, content_rect.y, value_text_width + padding, content_rect.h };
         wlx_draw_text_fitted(ctx, value_rect, value_str, ts, WLX_LEFT, false);
     }
 
@@ -6891,11 +6940,16 @@ WLXDEF void wlx_progress_impl(WLX_Context *ctx, float value, WLX_Progress_Opt op
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
+    WLX_Resolved_Padding cp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
+    wlx_clamp_resolved_padding(&cp, wr.w, wr.h);
+    WLX_Rect content_rect = wlx_rect_inset_sides(wr, cp.top, cp.right, cp.bottom, cp.left);
+
     if (value < 0.0f) value = 0.0f;
     if (value > 1.0f) value = 1.0f;
 
-    float th = opt.track_height > 0 ? opt.track_height : wr.h;
-    WLX_Rect track = { wr.x, wr.y + (wr.h - th) / 2.0f, wr.w, th };
+    float th = opt.track_height > 0 ? opt.track_height : content_rect.h;
+    if (th > content_rect.h) th = content_rect.h;
+    WLX_Rect track = { content_rect.x, content_rect.y + (content_rect.h - th) / 2.0f, content_rect.w, th };
 
     wlx_draw_box(ctx, track, (WLX_Box_Style){
         .fill            = opt.track_color,
@@ -6989,6 +7043,10 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
+    WLX_Resolved_Padding cp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
+    wlx_clamp_resolved_padding(&cp, wr.w, wr.h);
+    WLX_Rect content_rect = wlx_rect_inset_sides(wr, cp.top, cp.right, cp.bottom, cp.left);
+
     float track_h = opt.font_size;
     float thr = ctx->theme->toggle.track_to_height_ratio > 0.0f
                     ? ctx->theme->toggle.track_to_height_ratio : 2.0f;
@@ -7005,7 +7063,7 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
 
     float content_w = track_w + (label_w > 0.0f ? padding + label_w : 0.0f);
     float content_h = track_h > label_h ? track_h : label_h;
-    WLX_Rect acr = wlx_get_align_rect(wr, content_w, content_h, opt.align);
+    WLX_Rect acr = wlx_get_align_rect(content_rect, content_w, content_h, opt.align);
 
     float track_x = acr.x;
     float track_y = acr.y + (acr.h - track_h) / 2.0f;
@@ -7088,6 +7146,10 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
+    WLX_Resolved_Padding cp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
+    wlx_clamp_resolved_padding(&cp, wr.w, wr.h);
+    WLX_Rect content_rect = wlx_rect_inset_sides(wr, cp.top, cp.right, cp.bottom, cp.left);
+
     bool selected = (*active == index);
 
     float circle_size = (float)opt.font_size;
@@ -7113,7 +7175,7 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
 
     float content_w = circle_size + (label_w > 0.0f ? padding + label_w : 0.0f);
     float content_h = circle_size > label_h ? circle_size : label_h;
-    WLX_Rect acr = wlx_get_align_rect(wr, content_w, content_h, opt.align);
+    WLX_Rect acr = wlx_get_align_rect(content_rect, content_w, content_h, opt.align);
 
     float circle_x = acr.x;
     float circle_y = acr.y + (acr.h - circle_size) / 2.0f;

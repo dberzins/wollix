@@ -35,6 +35,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `WLX_PADDING_DEFAULTS`, and `WLX_RESOLVE_PADDING` macros are removed.
 
 ### Added
+- **Content padding extended to chrome widgets:** `wlx_checkbox`, `wlx_radio`,
+  `wlx_toggle`, `wlx_slider`, and `wlx_progress` now embed
+  `WLX_CONTENT_PADDING_FIELDS` (`content_padding`, `content_padding_top`,
+  `content_padding_right`, `content_padding_bottom`, `content_padding_left`).
+  The inset shrinks the compound content rect (glyph + label, label/track/
+  value region, or the progress track) while the click/hover hit rect and
+  slot contribution stay at the full widget rect; checkbox honours
+  `full_slot_hit`, slider's drag hit-rect tracks the inset track region,
+  and progress clamps its rendered track height to the inset height.
+  Defaults resolve to zero so existing call sites are pixel-stable; pass
+  `.content_padding = WLX_PADDING_USE_THEME` to opt into the theme's
+  `padding` knob. Gallery demos show baseline + padded variants for each
+  widget.
 - **Content padding for `wlx_label` and `wlx_button`:** five new option
   fields (`content_padding`, `content_padding_top`, `content_padding_right`,
   `content_padding_bottom`, `content_padding_left`) plus a public

@@ -1793,6 +1793,11 @@ instead of the removed `wlx_checkbox_tex` compatibility macro.
 | `tex_unchecked_src` | `WLX_Rect` | `{0}` | Source rect within `tex_unchecked`. `{0}` = full texture |
 | `tex_checked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_checked`. `{0}` = `WLX_WHITE` |
 | `tex_unchecked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_unchecked`. `{0}` = `WLX_WHITE` |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the indicator + label content. Chrome and slot stay put; the hit rect honours `full_slot_hit`. `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
@@ -1884,6 +1889,11 @@ Horizontal slider. Click/drag the thumb or click the track to jump.
 | `fill_inactive_brightness` | `float` | `-0.3` | Filled-portion brightness offset |
 | `min_value` | `float` | `0.0` | Minimum slider value |
 | `max_value` | `float` | `1.0` | Maximum slider value |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the label / track / value region. Drag hit-rect tracks the inset track. `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
@@ -1934,6 +1944,11 @@ before drawing.
 | `track_color` | `WLX_Color` | `{0}` | Track color. `{0}` = theme `progress.track`, falling back to `slider.track` |
 | `fill_color` | `WLX_Color` | `{0}` | Fill color. `{0}` = theme `progress.fill`, falling back to `accent` |
 | `track_height` | `float` | `0` | Inner bar height. `0` = theme default |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the track rect. Rendered track height is additionally clamped to the inset height. `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
@@ -1966,6 +1981,11 @@ The `label` may be `NULL`.
 | `track_active_color` | `WLX_Color` | `{0}` | Active track color. `{0}` = theme `toggle.track_active`, falling back to `accent` |
 | `thumb_color` | `WLX_Color` | `{0}` | Thumb color. `{0}` = theme `toggle.thumb`, falling back to `foreground` |
 | `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness shift. Uses `theme->hover_brightness` when unset |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the track + label content. Click/hover hit rect stays at the full slot rect. `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
@@ -1998,6 +2018,11 @@ Select-one radio control. Activating the widget sets `*active = index`. The
 | `fill_color` | `WLX_Color` | `{0}` | Selected fill color. `{0}` = theme `radio.fill`, falling back to `accent` |
 | `ring_border_width` | `float` | `-1` | Ring outline thickness. Uses theme radio/border defaults when unset |
 | `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness shift. Uses `theme->hover_brightness` when unset |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the ring + label content. Click/hover hit rect stays at the full slot rect. `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---

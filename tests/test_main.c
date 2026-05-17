@@ -103,6 +103,12 @@
 // Inputbox per-side migration: visual stability, theme opt-in, clamp.
 #include "test_inputbox_padding.c"
 
+// Content padding on wlx_checkbox / wlx_radio / wlx_toggle / wlx_slider /
+// wlx_progress: per-widget chrome shifts in unison with the resolved
+// content_rect; hit-rect on checkbox keeps using wr when full_slot_hit is
+// set; progress clamps track height to the inset rect.
+#include "test_missing_padding.c"
+
 int main(void) {
     RUN_SUITE(layout_math);
     RUN_SUITE(color);
@@ -137,5 +143,6 @@ int main(void) {
     RUN_SUITE(content_padding);
     RUN_SUITE(padding_alignment);
     RUN_SUITE(inputbox_padding);
+    RUN_SUITE(missing_padding);
     return test_summary();
 }

@@ -1104,6 +1104,12 @@ static void section_checkbox(WLX_Context *ctx, Gallery_State *st) {
         .height = ROW_H, .font_size = fs,
         .border_color = (WLX_Color){200, 0, 0, 255});
 
+    SUB_HEADING(ctx, "Content Padding");
+    wlx_checkbox(ctx, "Baseline (no padding)", &st->checkboxes[0],
+        .height = ROW_H, .font_size = fs);
+    wlx_checkbox(ctx, "Inset left by 24", &st->checkboxes[1],
+        .height = ROW_H, .font_size = fs, .content_padding_left = 24);
+
     SUB_HEADING(ctx, "Atlas Texture Checkbox");
 
     if (gallery_icon_atlas_ready()) {
@@ -1265,6 +1271,16 @@ static void section_slider(WLX_Context *ctx, Gallery_State *st) {
                     .track_height = st->slider_track_height,
                     .thumb_width = st->slider_thumb_width,
                     .roundness = 0.5f, .rounded_segments = 4);
+            }
+
+            SUB_HEADING(ctx, "Content Padding");
+            {
+                static float padded = 0.5f;
+                wlx_slider(ctx, "Baseline  ", &padded,
+                    .height = ROW_H, .font_size = DEMO_FS);
+                wlx_slider(ctx, "Inset 24  ", &padded,
+                    .height = ROW_H, .font_size = DEMO_FS,
+                    .content_padding_left = 24, .content_padding_right = 24);
             }
 
         wlx_panel_end(ctx);
@@ -3374,6 +3390,13 @@ static void section_progress_toggle_radio(WLX_Context *ctx, Gallery_State *st) {
             .back_color = semantic.color_selection,
             .front_color = gallery_on_color(semantic.color_selection));
     }
+
+    // -- Content padding showcase --
+    SUB_HEADING(ctx, "Content Padding");
+    wlx_progress(ctx, 0.5f, .height = ROW_H);
+    wlx_progress(ctx, 0.5f, .height = ROW_H, .content_padding_left = 24, .content_padding_right = 24);
+    wlx_toggle(ctx, "Padded toggle", &st->toggle_a, .height = ROW_H, .content_padding_left = 16);
+    wlx_radio(ctx, "Padded option", &st->radio_choice, 3, .height = ROW_H, .content_padding_left = 16);
 
         wlx_panel_end(ctx);
 

@@ -112,6 +112,11 @@ Per-widget uniform defaults:
 |--------|--------------------------|-------------|
 | `wlx_label` | `-1` | `0` (no inset) |
 | `wlx_button` | `-1` | `0` (no inset) |
+| `wlx_checkbox` | `-1` | `0` (no inset) |
+| `wlx_radio` | `-1` | `0` (no inset) |
+| `wlx_toggle` | `-1` | `0` (no inset) |
+| `wlx_slider` | `-1` | `0` (no inset) |
+| `wlx_progress` | `-1` | `0` (no inset) |
 | `wlx_split_begin` | `4` | `4 px` all sides |
 | `wlx_panel_begin` | `2` | `2 px` all sides |
 | `wlx_inputbox` | `10` | `10 px` outer gutter (all sides) |
@@ -549,10 +554,20 @@ if (wlx_checkbox(ctx, "Dark mode", &dark_mode)) {
 | `tex_unchecked_src` | `WLX_Rect` | `{0}` | Source rect within `tex_unchecked`. `{0}` = full texture |
 | `tex_checked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_checked`. `{0}` = `WLX_WHITE` |
 | `tex_unchecked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_unchecked`. `{0}` = `WLX_WHITE` |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the compound content (indicator + label). See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 All shared placement, sizing, typography, and color fields also apply.
 Default `wrap` is `false` for checkbox. `.back_color` fills the indicator in
 native mode only; it is not used in texture mode.
+
+`content_padding*` insets the compound content rect (indicator glyph + label
+together) before alignment. The hit rect honours `full_slot_hit`: when
+`true` (the default) clicks still register anywhere in the slot rect; when
+`false` the hit rect tracks the inset alignment rect.
 
 ### Texture mode
 
@@ -772,8 +787,17 @@ Slider has its own typography and color fields (not the shared
 | `fill_inactive_brightness` | `float` | `-0.3` | Brightness offset for the filled portion of the track |
 | `min_value` | `float` | `0.0` | Minimum slider value |
 | `max_value` | `float` | `1.0` | Maximum slider value |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the label / track / value region. See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 Shared placement and sizing fields also apply.
+
+`content_padding*` insets the label, track, thumb, and value text together.
+The drag hit-rect tracks the inset track region, so a padded slider stays
+interactive only inside the inset.
 
 ### Common overrides
 
@@ -875,8 +899,17 @@ wlx_progress(ctx, download_progress,
 | `track_color` | `WLX_Color` | `{0}` | Track color. `{0}` = theme `progress.track`, then `slider.track` |
 | `fill_color` | `WLX_Color` | `{0}` | Fill color. `{0}` = theme `progress.fill`, then `accent` |
 | `track_height` | `float` | `0` | Centered track height. `0` = theme/default progress height |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the track rect. See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 Shared placement, sizing, and border fields also apply.
+
+`content_padding*` insets the track rect. The rendered track height is
+additionally clamped to the inset height so a tall `track_height` cannot
+overflow into the padding.
 
 ### Common overrides
 
@@ -937,10 +970,18 @@ if (wlx_toggle(ctx, "Autosave", &autosave, .height = 34)) {
 | `track_active_color` | `WLX_Color` | `{0}` | On-state track color. `{0}` = theme `toggle.track_active`, then `accent` |
 | `thumb_color` | `WLX_Color` | `{0}` | Thumb color. `{0}` = theme `toggle.thumb`, then `foreground` |
 | `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness override. Unset = theme `hover_brightness` |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the compound content (track + label). See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 Shared placement, sizing, typography, text-color, and border fields also
 apply. Default `wrap` is `false`. `front_color` styles the label text;
 `back_color` is currently unused by this widget.
+
+`content_padding*` insets the compound content rect (track + label) before
+alignment. The click/hover hit rect stays at the full slot rect.
 
 ### Common overrides
 
@@ -1002,10 +1043,18 @@ wlx_radio(ctx, "Glass", &theme_choice, 2);
 | `fill_color` | `WLX_Color` | `{0}` | Selected fill color. `{0}` = theme `radio.fill`, then `accent` |
 | `ring_border_width` | `float` | `-1` | Ring outline width. `-1` = theme `radio.border_width`, then theme `border_width` |
 | `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness override. Unset = theme `hover_brightness` |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the compound content (ring + label). See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 Shared placement, sizing, typography, and text-color fields also apply.
 Default `wrap` is `false`. `front_color` styles the label text; `back_color`
 is currently unused by this widget.
+
+`content_padding*` insets the compound content rect (ring + label) before
+alignment. The click/hover hit rect stays at the full slot rect.
 
 ### Common overrides
 
