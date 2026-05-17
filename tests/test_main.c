@@ -97,6 +97,12 @@
 // padding composition.
 #include "test_content_padding.c"
 
+// Cross-widget invariants for the unified WLX_CONTENT_PADDING_FIELDS shape.
+#include "test_padding_alignment.c"
+
+// Inputbox per-side migration: visual stability, theme opt-in, clamp.
+#include "test_inputbox_padding.c"
+
 int main(void) {
     RUN_SUITE(layout_math);
     RUN_SUITE(color);
@@ -129,5 +135,7 @@ int main(void) {
     RUN_SUITE(label_image);
     RUN_SUITE(checkbox_texture);
     RUN_SUITE(content_padding);
+    RUN_SUITE(padding_alignment);
+    RUN_SUITE(inputbox_padding);
     return test_summary();
 }

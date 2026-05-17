@@ -476,7 +476,7 @@ static void section_slider(WLX_Context *ctx, Gallery_State *st) {
         wlx_panel_begin(ctx, .title = "Slider",
             .title_font_size = 26, .title_height = 48,
             .title_back_color = heading_color(ctx->theme, 17, 12, 32),
-            .padding = 0);
+            .content_padding = 0);
 
             wlx_label(ctx, "Horizontal slider for float values. Click/drag the thumb or track.",
                 .font_size = 16, .height = 30);
@@ -536,7 +536,7 @@ static void section_inputbox(WLX_Context *ctx, Gallery_State *st) {
     wlx_panel_begin(ctx, .title = "Input Box",
         .title_font_size = 26, .title_height = 48,
         .title_back_color = heading_color(ctx->theme, 17, 12, 32),
-        .padding = 0);
+        .content_padding = 0);
 
     wlx_label(ctx, "Single-line text input. Click to focus, type to edit, Enter/Esc to unfocus.",
         .font_size = 16, .height = 30);
@@ -1578,7 +1578,7 @@ static void section_borders(WLX_Context *ctx, Gallery_State *st) {
         wlx_panel_begin(ctx, .title = "Borders",
             .title_font_size = 26, .title_height = 48,
             .title_back_color = heading_color(ctx->theme, 17, 12, 32),
-            .padding = 2);
+            .content_padding = 2);
 
                 wlx_label(ctx, "Adjust controls on the left - see borders update live on the right.",
                     .font_size = 16, .height = 30);
@@ -1842,7 +1842,7 @@ static void section_progress_toggle_radio(WLX_Context *ctx, Gallery_State *st) {
         wlx_panel_begin(ctx, .title = "Progress / Toggle / Radio",
             .title_font_size = 26, .title_height = 48,
             .title_back_color = heading_color(ctx->theme, 17, 12, 32),
-            .padding = 0);
+            .content_padding = 0);
 
             wlx_label(ctx, "Phase 2 widgets: progress bar, toggle switch, radio button.",
                 .font_size = 16, .height = 30);

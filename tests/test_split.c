@@ -216,7 +216,7 @@ TEST(split_defaults_resolve) {
     ASSERT_TRUE(wlx_slot_size_is_zero(opt.first_size));
     ASSERT_TRUE(wlx_slot_size_is_zero(opt.second_size));
     ASSERT_TRUE(wlx_slot_size_is_zero(opt.fill_size));
-    ASSERT_EQ_F(-1.0f, opt.padding, 0.001f);  // -1 sentinel
+    ASSERT_EQ_F(4.0f, opt.content_padding, 0.001f);  // baked-in Split default
 
     // back_colors default to zero (theme)
     ASSERT_TRUE(wlx_color_is_zero(opt.first_back_color));
@@ -228,7 +228,7 @@ TEST(split_custom_options) {
     WLX_Split_Opt opt = wlx_default_split_opt(
         .first_size = WLX_SLOT_PX(300),
         .second_size = WLX_SLOT_FLEX(2),
-        .padding = 8.0f,
+        .content_padding = 8.0f,
         .first_back_color = (WLX_Color){255, 0, 0, 255}
     );
 
@@ -236,7 +236,7 @@ TEST(split_custom_options) {
     ASSERT_EQ_INT(WLX_SIZE_PIXELS, (int)opt.first_size.kind);
     ASSERT_EQ_F(2.0f, opt.second_size.value, 0.001f);
     ASSERT_EQ_INT(WLX_SIZE_FLEX, (int)opt.second_size.kind);
-    ASSERT_EQ_F(8.0f, opt.padding, 0.001f);
+    ASSERT_EQ_F(8.0f, opt.content_padding, 0.001f);
     ASSERT_EQ_INT(255, (int)opt.first_back_color.r);
 }
 
@@ -415,7 +415,7 @@ TEST(split_zero_padding) {
 
     wlx_layout_begin(&ctx, 1, WLX_VERT);
 
-        wlx_split_begin(&ctx, .padding = 0.0f);
+        wlx_split_begin(&ctx, .content_padding = 0.0f);
             wlx_label(&ctx, "Left", .height = 30);
         wlx_split_next(&ctx);
             wlx_label(&ctx, "Right", .height = 30);
@@ -436,14 +436,14 @@ TEST(split_zero_padding) {
 TEST(split_perside_defaults_sentinel) {
     // Default per-side values are -1 (sentinel)
     WLX_Split_Opt opt = wlx_default_split_opt();
-    ASSERT_EQ_F(-1.0f, opt.padding_top, 0.001f);
-    ASSERT_EQ_F(-1.0f, opt.padding_right, 0.001f);
-    ASSERT_EQ_F(-1.0f, opt.padding_bottom, 0.001f);
-    ASSERT_EQ_F(-1.0f, opt.padding_left, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding_top, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding_right, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding_bottom, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding_left, 0.001f);
 }
 
 TEST(split_perside_top_zero) {
-    // .padding_top = 0 while uniform defaults to 4 -> top flush
+    // .content_padding_top = 0 while uniform defaults to 4 -> top flush
     WLX_Context ctx;
     test_ctx_init(&ctx, 800, 600);
 
@@ -451,7 +451,7 @@ TEST(split_perside_top_zero) {
 
     wlx_layout_begin(&ctx, 1, WLX_VERT);
 
-        wlx_split_begin(&ctx, .padding_top = 0);
+        wlx_split_begin(&ctx, .content_padding_top = 0);
             wlx_label(&ctx, "Left", .height = 30);
         wlx_split_next(&ctx);
             wlx_label(&ctx, "Right", .height = 30);

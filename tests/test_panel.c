@@ -123,7 +123,7 @@ TEST(panel_custom_options) {
             .title_font_size = 26,
             .title_height = 48,
             .title_align = WLX_LEFT,
-            .padding = 4,
+            .content_padding = 4,
             .capacity = 16);
             wlx_label(&ctx, "Item", .height = 30);
         wlx_panel_end(&ctx);
@@ -141,7 +141,7 @@ TEST(panel_defaults_resolve) {
     ASSERT_TRUE(opt.title == NULL);
     ASSERT_EQ_INT(0, opt.title_font_size);        // sentinel -> resolved to 18 in impl
     ASSERT_EQ_F(0.0f, opt.title_height, 0.001f);  // sentinel -> resolved to 32 in impl
-    ASSERT_EQ_F(-1.0f, opt.padding, 0.001f);       // sentinel -> resolved to 2 in impl
+    ASSERT_EQ_F(2.0f, opt.content_padding, 0.001f); // baked-in Panel default
     ASSERT_EQ_INT(0, opt.capacity);                 // sentinel -> resolved to 32 in impl
 }
 
@@ -296,14 +296,14 @@ TEST(panel_in_loop_with_push_id) {
 
 TEST(panel_perside_defaults_sentinel) {
     WLX_Panel_Opt opt = wlx_default_panel_opt();
-    ASSERT_EQ_F(-1.0f, opt.padding_top, 0.001f);
-    ASSERT_EQ_F(-1.0f, opt.padding_right, 0.001f);
-    ASSERT_EQ_F(-1.0f, opt.padding_bottom, 0.001f);
-    ASSERT_EQ_F(-1.0f, opt.padding_left, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding_top, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding_right, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding_bottom, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding_left, 0.001f);
 }
 
 TEST(panel_perside_top_zero) {
-    // .padding = 4, .padding_top = 0 -> content starts flush at top
+    // .content_padding = 4, .content_padding_top = 0 -> content starts flush at top
     WLX_Context ctx;
     test_ctx_init(&ctx, 800, 600);
 
@@ -314,8 +314,8 @@ TEST(panel_perside_top_zero) {
 
             wlx_panel_begin(&ctx,
                 .title = "Flush Top",
-                .padding = 4,
-                .padding_top = 0);
+                .content_padding = 4,
+                .content_padding_top = 0);
                 wlx_label(&ctx, "A", .height = 30);
                 wlx_label(&ctx, "B", .height = 40);
             wlx_panel_end(&ctx);

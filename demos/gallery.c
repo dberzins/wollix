@@ -700,7 +700,7 @@ static void gallery_panel_heading_helper(WLX_Context *ctx,
 
 // Section heading macros - colors adapt to the active theme
 #define PANEL_TITLE_DEFAULTS \
-    .title_font_size = SECTION_FS, .title_height = HEADING_H, .padding = 0
+    .title_font_size = SECTION_FS, .title_height = HEADING_H, .content_padding = 0
 
 #define SECTION_HEADING(ctx, title) \
     wlx_label(ctx, title, \
@@ -718,7 +718,7 @@ static void gallery_panel_heading_helper(WLX_Context *ctx,
 // consistent layout and semantic background colors.
 // Usage:
 //   SECTION_BEGIN(ctx);
-//     wlx_panel_begin(ctx, .padding = 0);
+//     wlx_panel_begin(ctx, .content_padding = 0);
 //       gallery_panel_heading(ctx, WLX_ICON_SLIDERS_HORIZONTAL,
 //                             GALLERY_ICON_ROLE_TEXT, "Options", HEADING_H);
 //       // ... controls ...
@@ -728,7 +728,7 @@ static void gallery_panel_heading_helper(WLX_Context *ctx,
 //   SECTION_END(ctx);
 // ---------------------------------------------------------------------------
 #define SECTION_BEGIN(ctx) \
-    wlx_split_begin(ctx, .padding = 0, .gap = 4, .first_back_color = SPLIT_BG(ctx))
+    wlx_split_begin(ctx, .content_padding = 0, .gap = 4, .first_back_color = SPLIT_BG(ctx))
 
 #define SECTION_NEXT(ctx) \
     wlx_split_next(ctx)
@@ -743,11 +743,11 @@ static void section_label(WLX_Context *ctx, Gallery_State *st) {
     int fs = (int)st->label_font_size;
 
     wlx_split_begin(ctx,
-        .padding = 0, .gap = 4,
+        .content_padding = 0, .gap = 4,
         .first_back_color = SPLIT_BG(ctx));
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -873,11 +873,11 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
     WLX_Color bc = to_color(st->button_color.r, st->button_color.g, st->button_color.b, 1.0f);
 
     wlx_split_begin(ctx,
-        .padding = 0, .gap = 4,
+        .content_padding = 0, .gap = 4,
         .first_back_color = SPLIT_BG(ctx));
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -1015,11 +1015,11 @@ static void section_checkbox(WLX_Context *ctx, Gallery_State *st) {
     int fs = (int)st->checkbox_font_size;
 
     wlx_split_begin(ctx,
-        .padding = 0, .gap = 4,
+        .content_padding = 0, .gap = 4,
         .first_back_color = SPLIT_BG(ctx));
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -1155,11 +1155,11 @@ static void section_image(WLX_Context *ctx, Gallery_State *st) {
 // ---------------------------------------------------------------------------
 static void section_slider(WLX_Context *ctx, Gallery_State *st) {
     wlx_split_begin(ctx,
-        .padding = 0, .gap = 4,
+        .content_padding = 0, .gap = 4,
         .first_back_color = SPLIT_BG(ctx));
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -1236,7 +1236,7 @@ static void section_inputbox(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -1294,7 +1294,7 @@ static void section_scroll_panel(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -1412,7 +1412,7 @@ static void section_widget(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Info ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -1498,7 +1498,7 @@ static void section_layout_linear(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -1607,7 +1607,7 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -1765,7 +1765,7 @@ static void section_layout_flex(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -2151,7 +2151,7 @@ static void section_tokens(WLX_Context *ctx, Gallery_State *st) {
         wlx_panel_begin(ctx, .title = "Token Snapshot",
             .title_height = HEADING_H,
             .title_back_color = OPTIONS_BG(ctx),
-            .padding = 0);
+            .content_padding = 0);
 
             wlx_label(ctx, "Color Roles",
                 .height = SUB_HEADING_H, .font_size = DEMO_FS, .align = WLX_LEFT,
@@ -2374,11 +2374,11 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
     Gallery_Semantic_Theme semantic = gallery_semantic_theme(ctx->theme);
 
     wlx_split_begin(ctx,
-        .padding = 0, .gap = 4,
+        .content_padding = 0, .gap = 4,
         .first_size = WLX_SLOT_PCT_MINMAX(30, 180, 280),
         .first_back_color = SPLIT_BG(ctx));
 
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_PALETTE, GALLERY_ICON_ROLE_ACCENT,
@@ -2609,7 +2609,7 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
 static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -2779,11 +2779,11 @@ static void section_id_stack(WLX_Context *ctx, Gallery_State *st) {
     Gallery_Semantic_Theme semantic = gallery_semantic_theme(ctx->theme);
 
     wlx_split_begin(ctx,
-        .padding = 0, .gap = 4,
+        .content_padding = 0, .gap = 4,
         .first_back_color = SPLIT_BG(ctx));
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -2855,11 +2855,11 @@ static void section_borders(WLX_Context *ctx, Gallery_State *st) {
     static float bw = 0.35f;
 
     wlx_split_begin(ctx,
-        .padding = 0, .gap = 4,
+        .content_padding = 0, .gap = 4,
         .first_back_color = SPLIT_BG(ctx));
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -2973,7 +2973,7 @@ static void section_auto_layout(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -3162,7 +3162,7 @@ static void section_progress_toggle_radio(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Options ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
@@ -3251,7 +3251,7 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
     SECTION_BEGIN(ctx);
 
         // ======== LEFT: Welcome panel ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_INFO, GALLERY_ICON_ROLE_ACCENT,
@@ -3290,7 +3290,7 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
     SECTION_NEXT(ctx);
 
         // ======== RIGHT: Demo & quick nav ========
-        wlx_panel_begin(ctx, .padding = 0);
+        wlx_panel_begin(ctx, .content_padding = 0);
 
             gallery_panel_heading(ctx,
                 WLX_ICON_PLAY, GALLERY_ICON_ROLE_ACCENT,
@@ -3401,7 +3401,7 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                 .back_color = semantic.color_surface_2,
                 .scrollbar_color = semantic.color_border_strong);
                 wlx_panel_begin(ctx,
-                    .padding = 0,
+                    .content_padding = 0,
                     .back_color = semantic.color_surface_2,
                     .border_color = semantic.color_border,
                     .border_width = 0.5f,
