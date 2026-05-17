@@ -3634,23 +3634,30 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                         wlx_push_id(ctx, (size_t)(100 + gi));
                         const Group *group = &groups[gi];
                         bool group_selected = gi == gs->active_group;
+                        bool group_has_leaf_selection = group->section_count <= 1;
+                        bool group_active_parent = group_selected && !group_has_leaf_selection;
 
                         // Group label button
-                        WLX_Color group_bg = group_selected
+                        WLX_Color group_bg = group_selected && group_has_leaf_selection
                             ? semantic.color_selection
+                            : group_active_parent
+                                ? gallery_blend_color(semantic.color_surface_2, semantic.color_accent, 34)
                             : semantic.color_surface_2;
-                        WLX_Color group_fg = group_selected
+                        WLX_Color group_fg = group_selected && group_has_leaf_selection
                             ? gallery_on_color(group_bg)
+                            : group_active_parent
+                                ? semantic.color_accent
                             : semantic.color_text_1;
+                        WLX_Color group_icon = group_active_parent ? semantic.color_accent : group_fg;
                         if (gallery_icon_button(ctx, group->name,
                             group->icon, GALLERY_ICON_ROLE_TEXT,
                             .height = SUB_HEADING_H,
                             .align = WLX_LEFT,
                             .back_color = group_bg,
                             .front_color = group_fg,
-                            .texture_tint = group_fg,
+                            .texture_tint = group_icon,
                             .border_color = group_selected ? semantic.color_focus : semantic.color_border,
-                            .border_width = group_selected ? 1.0f : 0.5f,
+                            .border_width = group_selected && group_has_leaf_selection ? 1.0f : 0.5f,
                             .font_size = SECTION_FS,
                             .content_padding_left = spacing.space_heading_x,
                             .content_padding_right = spacing.space_control_x,
@@ -3660,7 +3667,7 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                         }
 
                         // Section buttons under this group
-                        for (int si = 0; si < group->section_count; si++) {
+                        for (int si = 0; group->section_count > 1 && si < group->section_count; si++) {
                             wlx_push_id(ctx, (size_t)(200 + si));
                             const Section *section = group->sections[si];
                             bool section_selected = si == gs->active_section_in_group && group_selected;
