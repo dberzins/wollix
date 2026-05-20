@@ -1850,6 +1850,9 @@ typedef struct {
     // Sizing
     WLX_WIDGET_SIZING_FIELDS;
 
+    // State
+    WLX_WIDGET_STATE_FIELDS;
+
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
 
@@ -1885,6 +1888,8 @@ typedef struct {
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
         WLX_WIDGET_SIZING_DEFAULTS, \
+        /* State */ \
+        WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
         .wrap = true, \
@@ -1915,6 +1920,9 @@ typedef struct {
 
     // Sizing
     WLX_WIDGET_SIZING_FIELDS;
+
+    // State
+    WLX_WIDGET_STATE_FIELDS;
 
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
@@ -1957,6 +1965,8 @@ typedef struct {
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
         WLX_WIDGET_SIZING_DEFAULTS, \
+        /* State */ \
+        WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
         .wrap = false, \
@@ -1988,6 +1998,9 @@ typedef struct {
     WLX_WIDGET_SIZING_FIELDS;
     WLX_CONTENT_PADDING_FIELDS;       // outer gutter around label/input rect (default: 10)
 
+    // State
+    WLX_WIDGET_STATE_FIELDS;
+
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
 
@@ -2012,6 +2025,8 @@ typedef struct {
         WLX_WIDGET_SIZING_DEFAULTS, \
         WLX_CONTENT_PADDING_DEFAULTS, \
         .content_padding = 10.0f, \
+        /* State */ \
+        WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
         .wrap = true, \
@@ -2035,6 +2050,9 @@ typedef struct {
 
     // Sizing
     WLX_WIDGET_SIZING_FIELDS;
+
+    // State
+    WLX_WIDGET_STATE_FIELDS;
 
     // Typography
     WLX_Font font;
@@ -2076,6 +2094,8 @@ typedef struct {
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
         WLX_WIDGET_SIZING_DEFAULTS, \
+        /* State */ \
+        WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
         .font = WLX_FONT_DEFAULT, \
         .font_size = 0, \
@@ -2186,6 +2206,7 @@ WLXDEF void wlx_image_impl(WLX_Context *ctx, WLX_Texture texture, WLX_Image_Opt 
 typedef struct {
     WLX_LAYOUT_SLOT_FIELDS;
     WLX_WIDGET_SIZING_FIELDS;
+    WLX_WIDGET_STATE_FIELDS;
     WLX_TEXT_TYPOGRAPHY_FIELDS;
     WLX_TEXT_COLOR_FIELDS;
 
@@ -2208,6 +2229,7 @@ typedef struct {
     (WLX_Toggle_Opt) { \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         WLX_WIDGET_SIZING_DEFAULTS, \
+        WLX_WIDGET_STATE_DEFAULTS, \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
         .wrap = false, \
         WLX_TEXT_COLOR_DEFAULTS, \
@@ -2227,6 +2249,7 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
 typedef struct {
     WLX_LAYOUT_SLOT_FIELDS;
     WLX_WIDGET_SIZING_FIELDS;
+    WLX_WIDGET_STATE_FIELDS;
     WLX_TEXT_TYPOGRAPHY_FIELDS;
     WLX_TEXT_COLOR_FIELDS;
 
@@ -2248,6 +2271,7 @@ typedef struct {
     (WLX_Radio_Opt) { \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         WLX_WIDGET_SIZING_DEFAULTS, \
+        WLX_WIDGET_STATE_DEFAULTS, \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
         .wrap = false, \
         WLX_TEXT_COLOR_DEFAULTS, \
