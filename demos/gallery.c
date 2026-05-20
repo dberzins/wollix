@@ -435,6 +435,9 @@ typedef struct {
     WLX_Color color_accent;
     WLX_Color color_focus;
     WLX_Color color_selection;
+    WLX_Color color_disabled_bg;
+    WLX_Color color_disabled_fg;
+    WLX_Color color_disabled_border;
     WLX_Color color_success;
     WLX_Color color_warning;
     WLX_Color color_danger;
@@ -502,6 +505,13 @@ static Gallery_Semantic_Theme gallery_semantic_theme(const WLX_Theme *theme) {
     WLX_Color surface_2 = gallery_shift_with_theme(theme->surface, 12, theme_is_dark);
     WLX_Color surface_3 = gallery_shift_with_theme(theme->surface, 24, theme_is_dark);
 
+    // Disabled-role illustration: shift surface/foreground/border by the
+    // theme's disabled_brightness. When the theme leaves the sentinel
+    // unset, the shift collapses to zero (wlx_color_brightness clamps
+    // factor in [-1, 1] and 0 is a no-op).
+    float disabled_b = wlx_is_float_unset(theme->disabled_brightness)
+        ? 0.0f : theme->disabled_brightness;
+
     return (Gallery_Semantic_Theme){
         .color_app_bg = theme->background,
         .color_surface_1 = theme->surface,
@@ -517,6 +527,9 @@ static Gallery_Semantic_Theme gallery_semantic_theme(const WLX_Theme *theme) {
             ? theme->accent
             : theme->input.border_focus,
         .color_selection = gallery_blend_color(surface_2, theme->accent, 92),
+        .color_disabled_bg     = wlx_color_brightness(theme->surface,    disabled_b),
+        .color_disabled_fg     = wlx_color_brightness(theme->foreground, disabled_b),
+        .color_disabled_border = wlx_color_brightness(theme->border,     disabled_b),
         .color_success = GALLERY_GREEN,
         .color_warning = GALLERY_WARNING,
         .color_danger = GALLERY_RED,
@@ -2151,7 +2164,7 @@ static void theme_lab_control_label(WLX_Context *ctx, const char *label) {
 }
 
 enum {
-    THEME_LAB_TOKEN_COUNT = 15,
+    THEME_LAB_TOKEN_COUNT = 18,
     THEME_LAB_PRESET_COUNT = 5,
 };
 
@@ -2265,17 +2278,23 @@ static void theme_lab_token_swatches(WLX_Context *ctx, const Gallery_Semantic_Th
     const char *names[THEME_LAB_TOKEN_COUNT] = {
         "app_bg", "surface_1", "surface_2", "surface_3", "text_1",
         "text_2", "text_muted", "border", "border_strong", "accent",
-        "focus", "selection", "success", "warning", "danger",
+        "focus", "selection",
+        "disabled_bg", "disabled_fg", "disabled_border",
+        "success", "warning", "danger",
     };
     WLX_Color dark_values[THEME_LAB_TOKEN_COUNT] = {
         dark.color_app_bg, dark.color_surface_1, dark.color_surface_2, dark.color_surface_3, dark.color_text_1,
         dark.color_text_2, dark.color_text_muted, dark.color_border, dark.color_border_strong, dark.color_accent,
-        dark.color_focus, dark.color_selection, dark.color_success, dark.color_warning, dark.color_danger,
+        dark.color_focus, dark.color_selection,
+        dark.color_disabled_bg, dark.color_disabled_fg, dark.color_disabled_border,
+        dark.color_success, dark.color_warning, dark.color_danger,
     };
     WLX_Color light_values[THEME_LAB_TOKEN_COUNT] = {
         light.color_app_bg, light.color_surface_1, light.color_surface_2, light.color_surface_3, light.color_text_1,
         light.color_text_2, light.color_text_muted, light.color_border, light.color_border_strong, light.color_accent,
-        light.color_focus, light.color_selection, light.color_success, light.color_warning, light.color_danger,
+        light.color_focus, light.color_selection,
+        light.color_disabled_bg, light.color_disabled_fg, light.color_disabled_border,
+        light.color_success, light.color_warning, light.color_danger,
     };
 
     int column_count = theme_lab_token_columns(wlx_get_available_width(ctx));

@@ -41,6 +41,17 @@ are documented once here.
 | `max_height` | `float` | `0` | Maximum height constraint. `0` = unconstrained |
 | `opacity` | `float` | `-1` | Opacity multiplier. Negative = inherit theme and opacity stack; `0.0`–`1.0` = explicit alpha |
 
+### State fields (`WLX_WIDGET_STATE_FIELDS`)
+
+Embedded by every interactive widget (`wlx_button`, `wlx_checkbox`,
+`wlx_inputbox`, `wlx_slider`, `wlx_toggle`, `wlx_radio`). Compound and
+non-interactive widgets (`wlx_label`, `wlx_panel`, `wlx_split`,
+`wlx_scroll_panel`) do not currently expose this field.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `disabled` | `bool` | `false` | When `true`, the widget skips active-state interaction (click/press/focus/drag), suppresses hover tint, shifts its resolved colors by `theme->disabled_brightness`, and multiplies its effective opacity by `theme->disabled_opacity`. Hover is still reported for tooltip anchoring. The same flag is mirrored on `WLX_Interaction.disabled` so widget impls can branch consistently. |
+
 ### Typography fields (`WLX_TEXT_TYPOGRAPHY_FIELDS`)
 
 Used by `label`, `button`, `checkbox`, `inputbox`, `toggle`, and `radio`.

@@ -176,8 +176,8 @@ This is a structural default contract, not theme inheritance.
 
 | Situation | Helper to use |
 |-----------|--------------|
-| Field uses `-1` sentinel; negative values are never meaningful (border_width, roundness, opacity, padding, scrollbar_width, ...) | `wlx_is_negative_unset(x)` |
-| Field uses `WLX_FLOAT_UNSET` sentinel; negative values are legitimate (hover_brightness, thumb_hover_brightness, scrollbar_hover_brightness) | `wlx_is_float_unset(x)` |
+| Field uses `-1` sentinel; negative values are never meaningful (border_width, roundness, opacity, disabled_opacity, padding, scrollbar_width, ...) | `wlx_is_negative_unset(x)` |
+| Field uses `WLX_FLOAT_UNSET` sentinel; negative values are legitimate (hover_brightness, thumb_hover_brightness, scrollbar_hover_brightness, disabled_brightness) | `wlx_is_float_unset(x)` |
 | Field uses all-zero `WLX_Slot_Size` as an omitted/default marker in a structural option path (currently split sizes) | `wlx_slot_size_is_zero(x)` |
 
 `WLX_ALIGN_NONE` does not have a generic helper-based unset contract. Treat it
@@ -213,6 +213,8 @@ wlx_layout_begin(ctx, 3, WLX_VERT, .roundness = 0.3f, .back_color = bg);
 | `hover_brightness` | `WLX_FLOAT_UNSET` | theme value | no hover effect |
 | `thumb_hover_brightness` | `WLX_FLOAT_UNSET` | theme value | no hover effect |
 | `scrollbar_hover_brightness` | `WLX_FLOAT_UNSET` | theme value | no hover effect |
+| `disabled_brightness` (theme) | `WLX_FLOAT_UNSET` | no brightness shift | no shift on disabled widgets |
+| `disabled_opacity` (theme) | `-1` | no alpha multiplier (factor `1.0`) | fully transparent disabled widgets |
 | `font_size` | `<= 0` | theme value | *(never valid)* |
 | `track_height` | `<= 0` | theme value | *(never valid)* |
 | `thumb_width` | `<= 0` | theme value | *(never valid)* |

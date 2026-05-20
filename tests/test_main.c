@@ -109,6 +109,11 @@
 // set; progress clamps track height to the inset rect.
 #include "test_missing_padding.c"
 
+// Disabled-state model: interaction gating, hover-tint suppression,
+// brightness + opacity transforms, sentinel inheritance, theme defaults,
+// back-compat default behaviour.
+#include "test_disabled_state.c"
+
 int main(void) {
     RUN_SUITE(layout_math);
     RUN_SUITE(color);
@@ -144,5 +149,6 @@ int main(void) {
     RUN_SUITE(padding_alignment);
     RUN_SUITE(inputbox_padding);
     RUN_SUITE(missing_padding);
+    RUN_SUITE(disabled_state);
     return test_summary();
 }

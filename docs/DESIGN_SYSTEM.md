@@ -41,9 +41,9 @@ Wollix ships three public theme presets:
 
 | Preset | Description |
 |--------|-------------|
-| `wlx_theme_dark` | Neutral dark default with low visual weight and blue accent states. |
-| `wlx_theme_light` | Bright preset with dark text, pale surfaces, and darker hover feedback. |
-| `wlx_theme_glass` | Dark translucent preset for layered surfaces and stronger focus borders. |
+| `wlx_theme_dark` | Neutral dark default with low visual weight, blue accent states, and a darkened disabled treatment (`disabled_brightness = -0.35f`, `disabled_opacity = 0.55f`). |
+| `wlx_theme_light` | Bright preset with dark text, pale surfaces, darker hover feedback, and a lightened disabled treatment (`disabled_brightness = +0.30f`, `disabled_opacity = 0.55f`). |
+| `wlx_theme_glass` | Dark translucent preset for layered surfaces, stronger focus borders, and a softly darkened disabled treatment (`disabled_brightness = -0.25f`, `disabled_opacity = 0.55f`). |
 
 The live gallery includes a Theme Lab that compares the built-in presets,
 their semantic token ramps, and common component states:
@@ -98,6 +98,9 @@ The current gallery role set is:
 | Accent | `theme->accent` |
 | Focus | `theme->input.border_focus`, falling back to accent |
 | Selection | Surface 2 blended with accent |
+| Disabled background | `theme->surface` shifted by `theme->disabled_brightness` |
+| Disabled foreground | `theme->foreground` shifted by `theme->disabled_brightness` |
+| Disabled border | `theme->border` shifted by `theme->disabled_brightness` |
 | Warning, danger, success | Application-owned status colors |
 
 In [../demos/gallery.c](../demos/gallery.c), these roles live in
@@ -135,6 +138,33 @@ Application code should follow the same pattern: keep `WLX_Theme` as the public
 theme contract, then derive app-specific semantic roles locally. That keeps the
 core API stable while giving each product enough vocabulary for its own chrome,
 navigation, tables, panels, and status states.
+
+## Component States
+
+Interactive widgets pass through a small set of canonical states. The names
+below are the design-system vocabulary; the runtime fields live on
+`WLX_Interaction` (and one widget option) and follow the same shape:
+
+| State | Origin | Default appearance |
+|-------|--------|--------------------|
+| Default  | No interaction | Resolved theme colors as-is |
+| Hover    | `WLX_Interaction.hover` is true | Background shifted by `theme->hover_brightness` |
+| Focused  | `WLX_Interaction.focused` is true (FOCUS-mode widgets) | Focus border (`theme->input.border_focus`, falling back to accent) |
+| Active   | `WLX_Interaction.active` is true (pressed, dragged, or focused) | Per-widget pressed feedback; sliders use the active thumb tint |
+| Disabled | `.disabled = true` on the option (mirrored as `WLX_Interaction.disabled`) | Colors shifted by `theme->disabled_brightness`; alpha multiplied by `theme->disabled_opacity`; hover tint suppressed |
+
+Phase 1 of the disabled-state model exposes only `disabled` as a public
+option field; the other states remain implicit interaction flags. If you
+need a stricter state ramp (per-widget hover/focused/active colors), derive
+it locally the same way the gallery derives semantic color roles. A typed
+`WLX_State_Flags` enum is a future direction once the component-recipe work
+has settled which roles repeat in practice.
+
+The disabled treatment composes with the existing opacity stack: the
+effective alpha is `theme->disabled_opacity * widget.opacity *
+theme->opacity * ctx_stack_opacity`. Stacking `wlx_push_opacity(0.5f)` over
+an already-disabled widget compounds the dim and is treated as caller
+responsibility (no implicit readability floor).
 
 ## Semantic Spacing System
 
