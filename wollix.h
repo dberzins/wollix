@@ -1132,9 +1132,11 @@ typedef struct {
 
     // ── Interaction feedback ────────────────────────────────────────
     float hover_brightness;     // brightness shift on hover
+    float disabled_brightness;  // brightness shift applied when a widget is disabled (WLX_FLOAT_UNSET = no shift)
 
     // ── Opacity ─────────────────────────────────────────────────────
     float opacity;              // global opacity multiplier (<0 = unset sentinel, 0.0-1.0 = explicit)
+    float disabled_opacity;     // alpha multiplier applied when a widget is disabled (<0 = unset sentinel, 0.0-1.0 = explicit)
 
     // ── Widget-specific overrides (zero = use globals) ──────────────
     struct {
@@ -1320,6 +1322,7 @@ typedef struct {
     bool active;         // Is the active widget (being pressed, dragged, or focused)
     bool just_focused;   // Became focused this frame
     bool just_unfocused; // Lost focus this frame
+    bool disabled;       // Widget was queried with the disabled gate; clicked/pressed/focused/active are forced false
 } WLX_Interaction;
 
 typedef void (*WLX_Input_Handler)(WLX_Context *ctx);
@@ -1682,6 +1685,16 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
     .widget_align = WLX_LEFT, .width = -1, .height = -1, \
     .min_width = 0, .min_height = 0, .max_width = 0, .max_height = 0, \
     .opacity = -1
+
+// Per-widget interaction-state fields. Currently a single `disabled` flag;
+// when true, the widget skips active-state interaction (click/press/focus/drag)
+// and the visual treatment is shifted by `theme->disabled_brightness` and
+// `theme->disabled_opacity`. Hover arbitration is preserved (tooltip anchor).
+#define WLX_WIDGET_STATE_FIELDS \
+    bool disabled
+
+#define WLX_WIDGET_STATE_DEFAULTS \
+    .disabled = false
 
 #define WLX_TEXT_TYPOGRAPHY_FIELDS \
     WLX_Font font; \
@@ -2495,7 +2508,9 @@ const WLX_Theme wlx_theme_dark = {
     .rounded_segments = 0,
     .min_rounded_segments = 16,
     .hover_brightness = 0.08f,
+    .disabled_brightness = -0.35f,
     .opacity          = -1,
+    .disabled_opacity = 0.55f,
     .input = {
         .border_focus = { 90, 140, 210, 255},
         .cursor       = {200, 200, 200, 255},
@@ -2550,7 +2565,9 @@ const WLX_Theme wlx_theme_light = {
     .rounded_segments = 0,
     .min_rounded_segments = 16,
     .hover_brightness = -0.08f,
+    .disabled_brightness = 0.30f,
     .opacity          = -1,
+    .disabled_opacity = 0.55f,
     .input = {
         .border_focus = { 55,  80, 190, 255},
         .cursor       = { 30,  35,  50, 255},
@@ -2607,7 +2624,9 @@ const WLX_Theme wlx_theme_glass = {
     // .rounded_segments = 6,
     .min_rounded_segments = 16,
     .hover_brightness = 0.05f,
+    .disabled_brightness = -0.25f,
     .opacity          = -1,
+    .disabled_opacity = 0.55f,
     .input = {
         .border_focus = { 90, 110, 200, 255},
         .cursor       = {210, 215, 235, 255},
