@@ -2486,7 +2486,13 @@ static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_
                     WLX_Color back = theme_lab_state_back(semantic, state);
                     WLX_Color front = theme_lab_state_front(semantic, back, state);
                     WLX_Color border = theme_lab_state_border(semantic, state);
-                    float opacity = (state == 4) ? 0.45f : 1.0f;
+                    bool  disabled = (state == 4);
+                    // Non-interactive widgets (label, progress) cannot honor
+                    // `.disabled`, so fall back to a manual alpha dim to keep
+                    // the Disabled column readable. Interactive widgets pass
+                    // `.disabled = true` instead; the theme's disabled_opacity
+                    // and disabled_brightness handle their dim automatically.
+                    float opacity = disabled ? 0.45f : 1.0f;
                     float border_width = (state == 3) ? 1.5f : 0.5f;
 
                     wlx_push_id(ctx, (size_t)(1000 + row * 16 + state));
@@ -2509,7 +2515,7 @@ static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_
                                 .border_color = border, .border_width = border_width,
                                 .content_padding_left = spacing->space_control_x,
                                 .content_padding_right = spacing->space_control_x,
-                                .opacity = opacity);
+                                .disabled = disabled);
                             break;
                         case 2:
                             wlx_checkbox(ctx, "Checkbox", &matrix_checks[state],
@@ -2517,16 +2523,16 @@ static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_
                                 .back_color = back, .front_color = front,
                                 .border_color = border, .border_width = border_width,
                                 .check_color = semantic->color_accent,
-                                .opacity = opacity);
+                                .disabled = disabled);
                             break;
                         case 3:
                             wlx_slider(ctx, "Slider", &matrix_sliders[state],
                                 .height = THEME_LAB_MATRIX_COL_H, .font_size = TINY_FS,
                                 .track_color = (state == 2) ? semantic->color_selection : semantic->color_surface_3,
-                                .thumb_color = (state == 4) ? semantic->color_text_muted : semantic->color_accent,
+                                .thumb_color = semantic->color_accent,
                                 .label_color = front,
                                 .border_color = border, .border_width = border_width,
-                                .opacity = opacity);
+                                .disabled = disabled);
                             break;
                         case 4:
                             wlx_inputbox(ctx, "Input", matrix_inputs[state], sizeof(matrix_inputs[state]),
@@ -2535,7 +2541,7 @@ static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_
                                 .border_color = border, .border_width = border_width,
                                 .border_focus_color = semantic->color_focus,
                                 .cursor_color = semantic->color_focus,
-                                .opacity = opacity);
+                                .disabled = disabled);
                             break;
                         default:
                             wlx_layout_begin_s(ctx, WLX_VERT,
