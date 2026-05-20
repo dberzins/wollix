@@ -5057,13 +5057,26 @@ static inline void wlx_interaction_handle_keyboard(WLX_Context *ctx, size_t id, 
     }
 }
 
-WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, const char *file, int line) {
-    // ID = hash(file, line) ^ id_stack_hash.
-    // Use wlx_push_id()/wlx_pop_id() for loop disambiguation.
+// Internal variant of wlx_get_interaction() that adds an explicit `disabled`
+// gate. When `disabled` is true, the global interaction state (hot_id and
+// active_id) is left untouched, all action booleans (clicked, pressed,
+// focused, active, just_focused, just_unfocused) are forced false, and
+// result.disabled is set. Hover is still reported when the WLX_INTERACT_HOVER
+// flag is set, but only as a local rect-containment check so a disabled
+// widget cannot claim hot ownership from a sibling.
+static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, bool disabled, const char *file, int line) {
     size_t id = wlx_interaction_make_id(ctx, file, line);
     WLX_Interaction result = { .id = id };
 
     bool mouse_over = wlx_interaction_mouse_over(ctx, rect);
+
+    if (disabled) {
+        if (flags & WLX_INTERACT_HOVER) {
+            result.hover = mouse_over;
+        }
+        result.disabled = true;
+        return result;
+    }
 
     if (flags & WLX_INTERACT_HOVER) {
         wlx_interaction_compute_hover(ctx, id, mouse_over, &result);
@@ -5092,6 +5105,12 @@ WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint
     }
 
     return result;
+}
+
+WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, const char *file, int line) {
+    // ID = hash(file, line) ^ id_stack_hash.
+    // Use wlx_push_id()/wlx_pop_id() for loop disambiguation.
+    return wlx_get_interaction_for(ctx, rect, flags, false, file, line);
 }
 
 // ---------------------------------------------------------------------------
