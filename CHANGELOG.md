@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Disabled-state coverage rule + docs.** `wlx_widget_impl` and
+  `wlx_label_impl` now route their interaction call through
+  `wlx_get_interaction_for(..., false, ...)` instead of the legacy
+  `wlx_get_interaction`, and use `wlx_color_hover_tint` for hover-tint;
+  the call shape now matches every disabled-aware widget so a future
+  `.disabled` opt-in is a one-line change. Neither option struct gains
+  `.disabled` in this slice (decision documented inline and in
+  `docs/dev/ADR_018_DISABLED_STATE_MODEL.md`). ADR_018 grows a "Coverage
+  Rule and Matrix" section; `docs/WIDGETS.md` gains a "Disabled state"
+  reference section covering the coverage matrix, the `.disabled` effect,
+  theme knobs, and the "add `.disabled` to a new widget" checklist;
+  `docs/API_REFERENCE.md` documents `wlx_get_interaction_for`,
+  `WLX_Interaction.disabled`, `theme->disabled_brightness`, and
+  `theme->disabled_opacity`.
 - **Internal: split paragraph-wrap out of typography field macro and aligned
   slider with V03 resolver helpers.** `bool wrap` moved from
   `WLX_TEXT_TYPOGRAPHY_FIELDS` into a dedicated `WLX_TEXT_WRAP_FIELDS`

@@ -495,10 +495,18 @@ typedef struct {
     bool active;          // Being pressed, dragged, or focused
     bool just_focused;    // Became focused this frame
     bool just_unfocused;  // Lost focus this frame
+    bool disabled;        // Mirrors the disabled gate passed to wlx_get_interaction_for
 } WLX_Interaction;
 ```
 
-Returned by `wlx_get_interaction()`.
+Returned by `wlx_get_interaction()` and `wlx_get_interaction_for()`. When
+queried through `wlx_get_interaction_for(..., true, ...)`, the widget is
+gated as disabled: `hover` may still be set (so disabled controls can
+anchor tooltips) but `pressed`, `clicked`, `focused`, `active`,
+`just_focused`, and `just_unfocused` are forced to `false`. `disabled`
+mirrors the resolved gate so widget bodies can branch on it without
+re-reading the option surface. See [WIDGETS.md § Disabled
+state](WIDGETS.md#disabled-state) for the coverage matrix and effect.
 
 ---
 
@@ -756,6 +764,10 @@ typedef struct {
 
     // Interaction
     float   hover_brightness;   // Brightness shift on hover
+
+    // Disabled state (see WIDGETS.md § Disabled state and ADR_018)
+    float   disabled_brightness; // WLX_FLOAT_UNSET → skip; otherwise applied via wlx_color_brightness
+    float   disabled_opacity;    // <0 → skip multiply; built-in presets use 0.55f
 
     // Opacity
     float   opacity;            // Global opacity (0 = opaque sentinel, 0.0001–1.0 = explicit)
@@ -1345,6 +1357,28 @@ reached multiple times.
 | `file`, `line` | Call-site (passed automatically by widget macros) |
 
 Typically not called directly — widgets call it internally.
+
+### `wlx_get_interaction_for`
+
+```c
+WLX_Interaction wlx_get_interaction_for(
+    WLX_Context *ctx, WLX_Rect rect, uint32_t flags, bool disabled,
+    const char *file, int line
+);
+```
+
+Disabled-aware variant of `wlx_get_interaction`. When `disabled` is `true`,
+the function returns early with `hover` reflecting the mouse position but
+with `pressed`, `clicked`, `focused`, `active`, `just_focused`, and
+`just_unfocused` all forced to `false`; the returned `WLX_Interaction.disabled`
+mirrors the gate so widget bodies can branch on it. When `disabled` is `false`
+the behavior is identical to `wlx_get_interaction`.
+
+Used by every interactive widget that carries `.disabled` (button, checkbox,
+inputbox, slider, toggle, radio) and by the non-disabled decoration widgets
+(widget, label) with `disabled = false` so adding `.disabled` later is a
+one-line change. See [WIDGETS.md § Disabled state](WIDGETS.md#disabled-state)
+for the coverage matrix.
 
 ### `wlx_get_state`
 

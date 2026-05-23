@@ -165,6 +165,77 @@ All leaf-widget opt structs include an optional identity field:
 
 ---
 
+## Disabled state
+
+Wollix exposes a single first-class disabled-state contract that covers
+both interaction gating and visual treatment.
+
+### Coverage matrix
+
+The coverage rule is structural: any widget that calls
+`wlx_get_interaction*` and reports `clicked`, `pressed`, `focused`, or
+`active` to the caller carries `.disabled`. Purely decorative widgets do
+not.
+
+| Widget | `.disabled` field | Notes |
+|--------|-------------------|-------|
+| `wlx_button` | yes | Reports `clicked`; gates click/focus when disabled |
+| `wlx_checkbox` | yes | Reports `clicked`; gates click when disabled |
+| `wlx_inputbox` | yes | Reports `focused` / typing; gates focus when disabled |
+| `wlx_slider` | yes | Reports drag / `active`; gates drag when disabled |
+| `wlx_toggle` | yes | Reports `clicked`; gates click when disabled |
+| `wlx_radio` | yes | Reports `clicked`; gates click when disabled |
+| `wlx_widget` | no | Decoration primitive; hover only for tooltip anchoring |
+| `wlx_label` | no | Non-interactive text; hover only for tooltip anchoring |
+| `wlx_image` | no | Pure visual; no interaction |
+| `wlx_separator` | no | Pure visual; no interaction |
+| `wlx_progress` | no | Read-only indicator; no interaction |
+| `wlx_scroll_panel` | no | Container scroll interaction is not gated |
+
+### Effect when `.disabled = true`
+
+1. **Interaction:** click, focus, drag, and keyboard arbitration are
+   suppressed. `WLX_Interaction.clicked`, `.pressed`, `.focused`,
+   `.active`, `.just_focused`, and `.just_unfocused` are forced to
+   `false`. `.hover` is still reported (so a disabled control can still
+   anchor a tooltip), and `.disabled` mirrors the resolved state.
+2. **Visual:** the widget's resolved opacity is multiplied by
+   `theme->disabled_opacity`, and resolved disabled-state colors are
+   shifted by `wlx_color_brightness(..., theme->disabled_brightness)`.
+   Hover-tint is automatically suppressed (the
+   `(hover && !disabled) ? brightness : c` gate at every interactive
+   draw site).
+
+### Theme knobs
+
+| Theme field | Sentinel | Built-in presets |
+|-------------|----------|------------------|
+| `disabled_brightness` | `WLX_FLOAT_UNSET` (skip) | dark `-0.35f`, light `+0.30f`, glass `-0.25f` |
+| `disabled_opacity` | `< 0` (skip multiply) | all presets `0.55f` |
+
+Custom themes that leave both fields at their sentinel render disabled
+widgets identically to enabled ones — that is the back-compat fall-back.
+
+### Adding `.disabled` to a new widget
+
+Use the coverage rule above as the test. If the new widget returns a
+click/focus/active result and an end-user could meaningfully want it
+greyed-out and inert:
+
+1. Embed `WLX_WIDGET_STATE_FIELDS` in the option struct (adds
+   `bool disabled`) and `WLX_WIDGET_STATE_DEFAULTS` in the default-opt
+   macro.
+2. Route the interaction call through
+   `wlx_get_interaction_for(ctx, rect, flags, opt.disabled, file, line)`.
+3. Use `wlx_color_hover_tint(c, inter.hover, inter.disabled, brightness)`
+   for any hover tint; the helper applies the disabled gate.
+4. End the resolver with
+   `WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled, /*colors...*/)`
+   so disabled-brightness and disabled-opacity flow through the standard
+   tail.
+
+---
+
 ## `wlx_label`
 
 Static text label. Does not return a value and is non-interactive regardless

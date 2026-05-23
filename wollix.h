@@ -1736,6 +1736,9 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
     .border_color = {0}, .border_width = -1, \
     .roundness = -1, .rounded_segments = -1
 
+// wlx_widget is a decoration primitive: it draws a rect and exposes hover
+// for tooltip anchoring but does not return a click/focus/active result.
+// It therefore does not carry .disabled.
 typedef struct {
     // Placement
     WLX_LAYOUT_SLOT_FIELDS;
@@ -1788,6 +1791,9 @@ typedef enum {
     WLX_IMAGE_PLACEMENT_BOTTOM,
 } WLX_Image_Placement;
 
+// wlx_label is a non-interactive text widget: it exposes hover for tooltip
+// anchoring but does not return a click/focus/active result. It therefore
+// does not carry .disabled.
 typedef struct {
     // Placement
     WLX_LAYOUT_SLOT_FIELDS;
@@ -5250,17 +5256,22 @@ WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget_Opt opt, const char *fi
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
-    WLX_Interaction inter = wlx_get_interaction(
+    // wlx_widget intentionally does not carry .disabled (see ADR_018
+    // coverage matrix); the _for form with disabled=false keeps the
+    // call shape consistent with the disabled-aware widgets and makes
+    // a future opt-in a one-line change.
+    WLX_Interaction inter = wlx_get_interaction_for(
         ctx,
         wr,
         WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD,
+        false,
         file, line
     );
 
-    if (inter.hover) {
-        opt.color        = wlx_color_brightness(opt.color,        ctx->theme->hover_brightness);
-        opt.border_color = wlx_color_brightness(opt.border_color, ctx->theme->hover_brightness);
-    }
+    opt.color = wlx_color_hover_tint(
+        opt.color, inter.hover, inter.disabled, ctx->theme->hover_brightness);
+    opt.border_color = wlx_color_hover_tint(
+        opt.border_color, inter.hover, inter.disabled, ctx->theme->hover_brightness);
 
     WLX_Rect rect = {
         .x = ceilf(wr.x),
@@ -6140,16 +6151,21 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
     wlx_clamp_resolved_padding(&rp, wr.w, wr.h);
     WLX_Rect content_rect = wlx_rect_inset_sides(wr, rp.top, rp.right, rp.bottom, rp.left);
 
-    WLX_Interaction inter = wlx_get_interaction(
+    // wlx_label intentionally does not carry .disabled (see ADR_018
+    // coverage matrix); the _for form with disabled=false keeps the
+    // call shape consistent with the disabled-aware widgets and makes
+    // a future opt-in a one-line change.
+    WLX_Interaction inter = wlx_get_interaction_for(
         ctx,
         wr,
         WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD,
+        false,
         file, line
     );
 
     if (opt.show_background || opt.border_width > 0) {
         WLX_Color bg = opt.show_background
-            ? ((inter.hover) ? wlx_color_brightness(opt.back_color, ctx->theme->hover_brightness) : opt.back_color)
+            ? wlx_color_hover_tint(opt.back_color, inter.hover, inter.disabled, ctx->theme->hover_brightness)
             : (WLX_Color){0};
         wlx_draw_box(ctx, (WLX_Rect){wr.x, wr.y, wr.w, wr.h}, (WLX_Box_Style){
             .fill            = bg,
@@ -6209,12 +6225,12 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
 // may crop) and destination rect to draw into. Shared between wlx_image
 // and the image branch of wlx_button.
 static void wlx_resolve_image_fit(
-    WLX_Rect target, 
-    WLX_Rect src, 
-    WLX_Image_Scale scale, 
+    WLX_Rect target,
+    WLX_Rect src,
+    WLX_Image_Scale scale,
     WLX_Align align,
-    WLX_Rect *out_src, 
-    WLX_Rect *out_dst) 
+    WLX_Rect *out_src,
+    WLX_Rect *out_dst)
 {
 
     WLX_Rect s = src;
@@ -6606,17 +6622,17 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
 
 static void wlx_resolve_opt_inputbox(const WLX_Context *ctx, WLX_Inputbox_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
-   
+
     if (wlx_color_is_zero(opt->front_color))        opt->front_color        = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))         opt->back_color         = theme->surface;
     // Widget-specific border_width fallback before common helper
     if (wlx_is_negative_unset(opt->border_width))   opt->border_width       = theme->input.border_width;
     if (wlx_color_is_zero(opt->border_focus_color)) opt->border_focus_color = theme->input.border_focus;
     if (wlx_color_is_zero(opt->cursor_color))       opt->cursor_color       = theme->input.cursor;
-   
+
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-   
+
     WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
         &opt->front_color, &opt->back_color, &opt->border_color,
         &opt->border_focus_color, &opt->cursor_color);
@@ -6702,8 +6718,8 @@ static void wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state
     if (changed_cursor_or_text) state->cursor_blink_time = 0.0f;
 }
 
-WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_size, 
-    WLX_Inputbox_Opt opt, const char *file, int line) 
+WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_size,
+    WLX_Inputbox_Opt opt, const char *file, int line)
 {
     assert(ctx != NULL);
     assert(buffer != NULL && "inputbox buffer must not be NULL");
