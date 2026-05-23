@@ -8,6 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Internal: codebase hygiene pass.**
+  - `WLX_Checkbox_Opt` and `WLX_Inputbox_Opt` now embed `WLX_BORDER_FIELDS` /
+    `WLX_BORDER_DEFAULTS` instead of hand-rolled border/roundness fields.
+    Per-widget theme fallbacks (`theme->checkbox.border`,
+    `theme->input.border_width`) stay in the resolver before
+    `wlx_resolve_border`. Field layout and designated-init defaults are
+    byte-identical.
+  - New `wlx_resolve_content_rect_full` helper + `WLX_RESOLVE_CONTENT_RECT`
+    macro collapse the standard "resolve content padding, clamp, inset"
+    three-line pattern into one call. Label, button, checkbox, slider,
+    progress, toggle, and radio impls all use it. Inputbox keeps its
+    two-step form because the resolved padding feeds its min-input-width
+    calculation.
+  - `wlx_widget_impl` no longer rounds its draw rect with `ceilf`. Every
+    other widget passes raw float coordinates; `wlx_widget` was the
+    odd-one-out.
+  - New `wlx_resolve_opt_separator` resolves the separator color via the
+    shared `WLX_RESOLVE_VISUAL_STATE` tail. As a side effect, separator
+    now respects the opacity stack and `theme->opacity` (previously
+    silently ignored); the inline `wlx_color_is_zero(opt.color)` fallback
+    moved into the helper unchanged.
+  - New `wlx_scope_push` / `wlx_scope_pop` helpers encode the optional
+    `.id` → id-stack push/pop pattern used by every frame helper. Widget
+    frame, layout frame, and scroll-panel frame all converted; the
+    `pushed_id` const-char-star fields on `WLX_Widget_Frame` and
+    `WLX_Scroll_Panel_State` are now `bool pushed_scope` flags, matching
+    the existing `WLX_Layout.pushed_scope` (renamed from
+    `pushed_scope_id` for consistency). Under `WLX_DEBUG`, `wlx_end`
+    asserts the id-stack returns to zero each frame so any orphan
+    `wlx_push_id` / `wlx_scope_push` is caught immediately.
+  - Built-in theme presets share a new `WLX_DEFAULT_DISABLED_OPACITY`
+    constant (`0.55f`) instead of repeating the literal.
 - **Disabled-state coverage rule + docs.** `wlx_widget_impl` and
   `wlx_label_impl` now route their interaction call through
   `wlx_get_interaction_for(..., false, ...)` instead of the legacy
