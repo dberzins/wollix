@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Internal: split paragraph-wrap out of typography field macro and aligned
+  slider with V03 resolver helpers.** `bool wrap` moved from
+  `WLX_TEXT_TYPOGRAPHY_FIELDS` into a dedicated `WLX_TEXT_WRAP_FIELDS`
+  alongside `WLX_TEXT_WRAP_DEFAULTS` (`.wrap = false`). Label, button,
+  checkbox, inputbox, toggle, and radio option structs now embed both
+  macros; their default-opt macros drop redundant `.wrap = false` lines and
+  keep explicit `.wrap = true` for label/button/inputbox where that is the
+  per-widget default. `WLX_Slider_Opt` adopts the slim
+  `WLX_TEXT_TYPOGRAPHY_FIELDS` (no wrap, since slider renders single-line
+  text), and `wlx_resolve_opt_slider` now resolves typography and border
+  through the shared `wlx_resolve_typography` / `wlx_resolve_border`
+  helpers and finishes with `WLX_RESOLVE_VISUAL_STATE` — matching every
+  other resolver. The `min_rounded_segments` clamp,
+  `thumb_hover_brightness = hover_brightness * 0.5f` derivation, and
+  `track_height` / `thumb_width` theme fallbacks are preserved. Public
+  designated-init surface is unchanged: `.wrap`, `.font`, `.font_size`,
+  `.align`, `.spacing` continue to compile and produce byte-identical
+  defaults on every widget that exposed them previously.
 - **Internal: unified resolver visual-state tail and hover-tint gate.** Added
   internal `WLX_RESOLVE_VISUAL_STATE(ctx, opt_ptr, disabled, /*colors...*/)`
   macro that names the color list exactly once and folds

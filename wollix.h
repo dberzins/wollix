@@ -1705,11 +1705,19 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
     WLX_Font font; \
     int font_size; \
     WLX_Align align; \
-    bool wrap; \
     int spacing
 
 #define WLX_TEXT_TYPOGRAPHY_DEFAULTS \
     .font = WLX_FONT_DEFAULT, .font_size = 0, .align = WLX_LEFT, .spacing = 0
+
+// Paragraph-wrap toggle: separated from WLX_TEXT_TYPOGRAPHY_FIELDS so widgets
+// can opt in independently. Embed alongside the typography macro when the
+// widget renders multi-line text; omit (e.g. on slider) when wrap is meaningless.
+#define WLX_TEXT_WRAP_FIELDS \
+    bool wrap
+
+#define WLX_TEXT_WRAP_DEFAULTS \
+    .wrap = false
 
 #define WLX_TEXT_COLOR_FIELDS \
     WLX_Color front_color; \
@@ -1789,6 +1797,7 @@ typedef struct {
 
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
+    WLX_TEXT_WRAP_FIELDS;
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
@@ -1826,6 +1835,7 @@ typedef struct {
         WLX_WIDGET_SIZING_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
+        WLX_TEXT_WRAP_DEFAULTS, \
         .wrap = true, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
@@ -1860,6 +1870,7 @@ typedef struct {
 
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
+    WLX_TEXT_WRAP_FIELDS;
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
@@ -1897,6 +1908,7 @@ typedef struct {
         WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
+        WLX_TEXT_WRAP_DEFAULTS, \
         .wrap = true, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
@@ -1931,6 +1943,7 @@ typedef struct {
 
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
+    WLX_TEXT_WRAP_FIELDS;
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
@@ -1974,7 +1987,7 @@ typedef struct {
         WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
-        .wrap = false, \
+        WLX_TEXT_WRAP_DEFAULTS, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
         .full_slot_hit = true, \
@@ -2008,6 +2021,7 @@ typedef struct {
 
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
+    WLX_TEXT_WRAP_FIELDS;
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
@@ -2034,6 +2048,7 @@ typedef struct {
         WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
+        WLX_TEXT_WRAP_DEFAULTS, \
         .wrap = true, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
@@ -2059,11 +2074,8 @@ typedef struct {
     // State
     WLX_WIDGET_STATE_FIELDS;
 
-    // Typography
-    WLX_Font font;
-    int font_size;
-    WLX_Align align;
-    int spacing;
+    // Typography (no wrap: slider renders single-line label + value text)
+    WLX_TEXT_TYPOGRAPHY_FIELDS;
     bool show_label;      // show value label next to slider
 
     // Styles
@@ -2102,10 +2114,7 @@ typedef struct {
         /* State */ \
         WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
-        .font = WLX_FONT_DEFAULT, \
-        .font_size = 0, \
-        .align = WLX_LEFT, \
-        .spacing = 0, \
+        WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
         .show_label = true, \
         /* Styles */ \
         .track_color = {0}, \
@@ -2213,6 +2222,7 @@ typedef struct {
     WLX_WIDGET_SIZING_FIELDS;
     WLX_WIDGET_STATE_FIELDS;
     WLX_TEXT_TYPOGRAPHY_FIELDS;
+    WLX_TEXT_WRAP_FIELDS;
     WLX_TEXT_COLOR_FIELDS;
 
     WLX_Color track_color;
@@ -2236,7 +2246,7 @@ typedef struct {
         WLX_WIDGET_SIZING_DEFAULTS, \
         WLX_WIDGET_STATE_DEFAULTS, \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
-        .wrap = false, \
+        WLX_TEXT_WRAP_DEFAULTS, \
         WLX_TEXT_COLOR_DEFAULTS, \
         .track_color = {0}, \
         .track_active_color = {0}, \
@@ -2256,6 +2266,7 @@ typedef struct {
     WLX_WIDGET_SIZING_FIELDS;
     WLX_WIDGET_STATE_FIELDS;
     WLX_TEXT_TYPOGRAPHY_FIELDS;
+    WLX_TEXT_WRAP_FIELDS;
     WLX_TEXT_COLOR_FIELDS;
 
     WLX_Color ring_color;
@@ -2278,7 +2289,7 @@ typedef struct {
         WLX_WIDGET_SIZING_DEFAULTS, \
         WLX_WIDGET_STATE_DEFAULTS, \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
-        .wrap = false, \
+        WLX_TEXT_WRAP_DEFAULTS, \
         WLX_TEXT_COLOR_DEFAULTS, \
         .ring_color = {0}, \
         .fill_color = {0}, \
@@ -6842,25 +6853,27 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
 
 static void wlx_resolve_opt_slider(const WLX_Context *ctx, WLX_Slider_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
-    
-    if (wlx_color_is_zero(opt->track_color))        opt->track_color            = theme->slider.track;
-    if (wlx_color_is_zero(opt->thumb_color))        opt->thumb_color            = theme->slider.thumb;
-    if (wlx_color_is_zero(opt->label_color))        opt->label_color            = theme->slider.label;
-    if (wlx_color_is_zero(opt->border_color))       opt->border_color           = theme->border;
-    if (wlx_is_negative_unset(opt->border_width))   opt->border_width           = theme->border_width;
-    if (opt->font == WLX_FONT_DEFAULT)              opt->font                   = theme->font;
-    if (opt->font_size              <= 0)           opt->font_size              = theme->font_size;
-    if (opt->track_height           <= 0)           opt->track_height           = theme->slider.track_height;
-    if (opt->thumb_width            <= 0)           opt->thumb_width            = theme->slider.thumb_width;
-    if (opt->min_height             <= 0)           opt->min_height             = (float)opt->font_size;
-    if (wlx_is_negative_unset(opt->roundness))      opt->roundness              = theme->roundness;
-    if (wlx_is_negative_unset(opt->rounded_segments)) opt->rounded_segments     = theme->rounded_segments;
 
+    // Widget-specific fallbacks
+    if (wlx_color_is_zero(opt->track_color)) opt->track_color = theme->slider.track;
+    if (wlx_color_is_zero(opt->thumb_color)) opt->thumb_color = theme->slider.thumb;
+    if (wlx_color_is_zero(opt->label_color)) opt->label_color = theme->slider.label;
+    if (opt->track_height <= 0)              opt->track_height = theme->slider.track_height;
+    if (opt->thumb_width  <= 0)              opt->thumb_width  = theme->slider.thumb_width;
 
-    if (opt->rounded_segments < ctx->theme->min_rounded_segments) opt->rounded_segments = ctx->theme->min_rounded_segments;
-    if (wlx_is_float_unset(opt->hover_brightness))       opt->hover_brightness       = theme->hover_brightness;
-    if (wlx_is_float_unset(opt->thumb_hover_brightness)) opt->thumb_hover_brightness = opt->hover_brightness * 0.5f;
-    
+    // Common helpers (typography, border, roundness)
+    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
+    wlx_resolve_border(theme, &opt->border_color, &opt->border_width,
+                       &opt->roundness, &opt->rounded_segments);
+    if (opt->rounded_segments < theme->min_rounded_segments)
+        opt->rounded_segments = theme->min_rounded_segments;
+
+    // Brightness derivations: thumb defaults to half of base hover.
+    if (wlx_is_float_unset(opt->hover_brightness))
+        opt->hover_brightness = theme->hover_brightness;
+    if (wlx_is_float_unset(opt->thumb_hover_brightness))
+        opt->thumb_hover_brightness = opt->hover_brightness * 0.5f;
+
     WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
         &opt->track_color, &opt->thumb_color, &opt->label_color, &opt->border_color);
 }
