@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Internal: converged parent content-tracking contribution into a single
+  helper.** Added internal `WLX_Parent_Contribution` struct and
+  `wlx_contribute_to_parent_layout`, used by `wlx_widget_begin`,
+  `wlx_layout_end`, and `wlx_scroll_panel_contribute_to_parent` to update the
+  parent layout's `accumulated_content_height`, per-slot CONTENT bucket, and
+  per-row grid bucket through a single code path. No public API change; no
+  observable behavior change (byte-identical contribution math, full test
+  suite + demos pass).
 - **Gallery semantic spacing:** the gallery now derives local spacing roles
   (`space_shell`, `space_panel`, `space_heading_x`, `space_heading_y`,
   `space_control_x`, `space_preview`, `gap_dense`, and `gap_section`) from

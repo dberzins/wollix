@@ -1111,6 +1111,11 @@ static inline void wlx_arena_pool_destroy(WLX_Arena_Pool *pool) {
 // request".
 #define WLX_PADDING_USE_THEME (-2.0f)
 
+// Sentinel for WLX_Parent_Contribution slot_index / grid_row: skips the
+// per-slot CONTENT or per-row grid bucket update in the parent layout
+// while still contributing to accumulated_content_height.
+#define WLX_SLOT_SKIP SIZE_MAX
+
 typedef struct {
     // ── Global colors ───────────────────────────────────────────────
     WLX_Color background;        // window / panel clear color
@@ -3254,6 +3259,40 @@ typedef struct {
         .align = (opt).widget_align, .overflow = (opt).overflow, \
     }
 
+// Aggregated description of a child's contribution to its parent layout's
+// content tracking. Pass WLX_SLOT_SKIP for slot_index / grid_row to skip
+// the per-slot CONTENT or per-row grid bucket update.
+typedef struct {
+    float  h_contrib;
+    size_t slot_index;
+    size_t grid_row;
+} WLX_Parent_Contribution;
+
+// Single entry point for "child contributes its measured height to parent
+// content tracking". Updates the parent's accumulated_content_height
+// (HORZ max, VERT/grid sum), the per-slot CONTENT bucket, and the per-row
+// grid bucket (max across cells in the same row).
+static inline void wlx_contribute_to_parent_layout(
+    WLX_Context *ctx, WLX_Layout *parent, WLX_Parent_Contribution c)
+{
+    if (parent->kind == WLX_LAYOUT_LINEAR && parent->linear.orient == WLX_HORZ) {
+        if (c.h_contrib > parent->accumulated_content_height)
+            parent->accumulated_content_height = c.h_contrib;
+    } else {
+        parent->accumulated_content_height += c.h_contrib;
+    }
+
+    if (parent->has_content_slot_heights && c.slot_index < WLX_CONTENT_SLOTS_MAX) {
+        wlx_layout_content_heights(ctx, parent)[c.slot_index] += c.h_contrib;
+    }
+
+    if (parent->has_grid_row_content_heights && c.grid_row < parent->grid.rows) {
+        float *rch = wlx_grid_row_content_heights(ctx, parent);
+        if (c.h_contrib > rch[c.grid_row])
+            rch[c.grid_row] = c.h_contrib;
+    }
+}
+
 static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layout ly)
 {
     WLX_Rect cell = wlx_get_widget_cell_rect(ctx, ly.pos, ly.span, ly.padding,
@@ -3269,40 +3308,13 @@ static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layo
         WLX_Layout *parent_l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
         float h_contrib = (ly.height > 0) ? ly.height
                        : (ly.min_h > cell.h) ? ly.min_h : cell.h;
-        // HORZ layouts: content height = max of children (side by side)
-        // VERT layouts: content height = sum of children (stacked)
-        if (parent_l->kind == WLX_LAYOUT_LINEAR && parent_l->linear.orient == WLX_HORZ) {
-            if (h_contrib > parent_l->accumulated_content_height)
-                parent_l->accumulated_content_height = h_contrib;
-        } else {
-            parent_l->accumulated_content_height += h_contrib;
-        }
-
-        // Per-slot content height tracking for CONTENT slots.
-        // l->index was just advanced by wlx_get_slot_rect, so the slot
-        // that this widget occupies is at (index - span).
-        WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-        if (l->has_content_slot_heights) {
-            size_t slot_idx = l->index - ly.span;
-            if (slot_idx < WLX_CONTENT_SLOTS_MAX) {
-                float contrib = (ly.height > 0) ? ly.height
-                              : (ly.min_h > cell.h) ? ly.min_h : cell.h;
-                wlx_layout_content_heights(ctx, l)[slot_idx] += contrib;
-            }
-        }
-
-        // Per-row content height tracking for grid CONTENT rows.
-        // Uses max() across cells in the same row.
-        if (l->has_grid_row_content_heights) {
-            size_t row = l->grid.last_placed_row;
-            if (row < l->grid.rows) {
-                float contrib = (ly.height > 0) ? ly.height
-                              : (ly.min_h > cell.h) ? ly.min_h : cell.h;
-                float *rch = wlx_grid_row_content_heights(ctx, l);
-                if (contrib > rch[row])
-                    rch[row] = contrib;
-            }
-        }
+        // l->index was just advanced by wlx_get_slot_rect, so the slot this
+        // widget occupies is at (index - span).
+        wlx_contribute_to_parent_layout(ctx, parent_l, (WLX_Parent_Contribution){
+            .h_contrib  = h_contrib,
+            .slot_index = parent_l->index - ly.span,
+            .grid_row   = parent_l->grid.last_placed_row,
+        });
     }
 
     // --- Widget rect resolution ---
@@ -4680,42 +4692,42 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
     if (ctx->arena.layouts.count > 1) {
         WLX_Layout *parent = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2];
         float child_h = l->accumulated_content_height + l->padding_top + l->padding_bottom;
+        // For VERT linear parents with explicitly-sized slots (PX or
+        // CONTENT), the child occupies exactly the slot's allocated
+        // height in the parent rect, regardless of how tall the child
+        // actually rendered. Use the slot height as the contribution
+        // so siblings placed in fixed-size slots that render shorter
+        // than their slot do not undercount the parent's total content
+        // height (which the auto-height scroll panel uses to compute
+        // max_scroll), and so children that overflow their slot do
+        // not overcount it (overflow is overdraw, not extra content).
+        // FLEX/FILL slots keep child_h (size depends on parent rect, would
+        // create runaway feedback inside auto-height scroll panels).
+        float contrib = child_h;
         if (parent->kind == WLX_LAYOUT_LINEAR
-            && parent->linear.orient == WLX_HORZ) {
-            if (child_h > parent->accumulated_content_height)
-                parent->accumulated_content_height = child_h;
-        } else {
-            // For VERT linear parents with explicitly-sized slots (PX or
-            // CONTENT), the child occupies exactly the slot's allocated
-            // height in the parent rect, regardless of how tall the child
-            // actually rendered. Use the slot height as the contribution
-            // so siblings placed in fixed-size slots that render shorter
-            // than their slot do not undercount the parent's total content
-            // height (which the auto-height scroll panel uses to compute
-            // max_scroll), and so children that overflow their slot do
-            // not overcount it (overflow is overdraw, not extra content).
-            // Skip for FLEX/FILL slots (size depends on parent rect, would
-            // create runaway feedback inside auto-height scroll panels).
-            float contrib = child_h;
-            if (parent->kind == WLX_LAYOUT_LINEAR
-                && parent->linear.orient == WLX_VERT
-                && parent->content_sizes != NULL
-                && parent->index > 0 && parent->index <= parent->count) {
-                WLX_Size_Kind k = parent->content_sizes[parent->index - 1].kind;
-                if (k == WLX_SIZE_PIXELS || k == WLX_SIZE_CONTENT) {
-                    const float *poff = wlx_layout_offsets(ctx, parent);
-                    float slot_h = poff[parent->index] - poff[parent->index - 1];
-                    // wlx_compute_offsets stores boundary positions, so the
-                    // delta between adjacent boundaries includes the trailing
-                    // inter-slot gap for non-last slots. Strip it here - the
-                    // parent adds total_gap once via the gap accumulation
-                    // step above (l->gap * (l->index - 1)).
-                    if (parent->index < parent->count) slot_h -= parent->gap;
-                    contrib = slot_h;
-                }
+            && parent->linear.orient == WLX_VERT
+            && parent->content_sizes != NULL
+            && parent->index > 0 && parent->index <= parent->count) {
+            WLX_Size_Kind k = parent->content_sizes[parent->index - 1].kind;
+            if (k == WLX_SIZE_PIXELS || k == WLX_SIZE_CONTENT) {
+                const float *poff = wlx_layout_offsets(ctx, parent);
+                float slot_h = poff[parent->index] - poff[parent->index - 1];
+                // wlx_compute_offsets stores boundary positions, so the
+                // delta between adjacent boundaries includes the trailing
+                // inter-slot gap for non-last slots. Strip it here - the
+                // parent adds total_gap once via the gap accumulation
+                // step above (l->gap * (l->index - 1)).
+                if (parent->index < parent->count) slot_h -= parent->gap;
+                contrib = slot_h;
             }
-            parent->accumulated_content_height += contrib;
         }
+        // Accumulated-only contribution: per-slot and per-row buckets were
+        // already updated earlier with the pre-gap, non-overridden child_h.
+        wlx_contribute_to_parent_layout(ctx, parent, (WLX_Parent_Contribution){
+            .h_contrib  = contrib,
+            .slot_index = WLX_SLOT_SKIP,
+            .grid_row   = WLX_SLOT_SKIP,
+        });
     }
 
     // --- Compute CONTENT slot deltas for deferred replay ---
@@ -7357,32 +7369,16 @@ static inline void wlx_scroll_panel_resolve_rect(
 
 // Helper: contribute scroll panel's viewport height to the parent layout's content tracking.
 static inline void wlx_scroll_panel_contribute_to_parent(WLX_Context *ctx, float vp_contrib) {
-    if (ctx->arena.layouts.count > 0) {
-        WLX_Layout *parent_l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-        if (parent_l->kind == WLX_LAYOUT_LINEAR && parent_l->linear.orient == WLX_HORZ) {
-            if (vp_contrib > parent_l->accumulated_content_height)
-                parent_l->accumulated_content_height = vp_contrib;
-        } else {
-            parent_l->accumulated_content_height += vp_contrib;
-        }
-        // Per-slot content height for WLX_SIZE_CONTENT parents (e.g. panels).
-        // index was already advanced by wlx_get_slot_rect above.
-        if (parent_l->has_content_slot_heights && parent_l->index > 0) {
-            size_t slot_idx = parent_l->index - 1;
-            if (slot_idx < WLX_CONTENT_SLOTS_MAX) {
-                float *csh = wlx_layout_content_heights(ctx, parent_l);
-                csh[slot_idx] += vp_contrib;
-            }
-        }
-        if (parent_l->has_grid_row_content_heights) {
-            size_t row = parent_l->grid.last_placed_row;
-            if (row < parent_l->grid.rows) {
-                float *rch = wlx_grid_row_content_heights(ctx, parent_l);
-                if (vp_contrib > rch[row])
-                    rch[row] = vp_contrib;
-            }
-        }
-    }
+    if (ctx->arena.layouts.count == 0) return;
+    WLX_Layout *parent_l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    // Per-slot bucket needs parent_l->index > 0 (index was already advanced
+    // by wlx_get_slot_rect); guard by clamping the index when not eligible.
+    size_t slot_index = (parent_l->index > 0) ? (parent_l->index - 1) : WLX_SLOT_SKIP;
+    wlx_contribute_to_parent_layout(ctx, parent_l, (WLX_Parent_Contribution){
+        .h_contrib  = vp_contrib,
+        .slot_index = slot_index,
+        .grid_row   = parent_l->grid.last_placed_row,
+    });
 }
 
 // Helper: compute the scrollbar handle rect from panel geometry and scroll state.
