@@ -7607,7 +7607,7 @@ static inline WLX_Scroll_Panel_Frame wlx_scroll_panel_frame_begin(
     state->pushed_scope = pushed;
 
     // Push onto scroll panel stack so wlx_scroll_panel_end can handle wheel events.
-    wlx_pool_push(&ctx->arena.scroll_panels, WLX_Scroll_Panel_Stapushed_scopete *, state);
+    wlx_pool_push(&ctx->arena.scroll_panels, WLX_Scroll_Panel_State *, state);
 
     return (WLX_Scroll_Panel_Frame){
         .rect           = wr,
