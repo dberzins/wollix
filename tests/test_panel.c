@@ -123,7 +123,7 @@ TEST(panel_custom_options) {
             .title_font_size = 26,
             .title_height = 48,
             .title_align = WLX_LEFT,
-            .padding = 4,
+            .content_padding = 4,
             .capacity = 16);
             wlx_label(&ctx, "Item", .height = 30);
         wlx_panel_end(&ctx);
@@ -141,7 +141,7 @@ TEST(panel_defaults_resolve) {
     ASSERT_TRUE(opt.title == NULL);
     ASSERT_EQ_INT(0, opt.title_font_size);        // sentinel -> resolved to 18 in impl
     ASSERT_EQ_F(0.0f, opt.title_height, 0.001f);  // sentinel -> resolved to 32 in impl
-    ASSERT_EQ_F(-1.0f, opt.padding, 0.001f);       // sentinel -> resolved to 2 in impl
+    ASSERT_EQ_F(2.0f, opt.content_padding, 0.001f); // baked-in Panel default
     ASSERT_EQ_INT(0, opt.capacity);                 // sentinel -> resolved to 32 in impl
 }
 
@@ -296,14 +296,14 @@ TEST(panel_in_loop_with_push_id) {
 
 TEST(panel_perside_defaults_sentinel) {
     WLX_Panel_Opt opt = wlx_default_panel_opt();
-    ASSERT_EQ_F(-1.0f, opt.padding_top, 0.001f);
-    ASSERT_EQ_F(-1.0f, opt.padding_right, 0.001f);
-    ASSERT_EQ_F(-1.0f, opt.padding_bottom, 0.001f);
-    ASSERT_EQ_F(-1.0f, opt.padding_left, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding_top, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding_right, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding_bottom, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding_left, 0.001f);
 }
 
 TEST(panel_perside_top_zero) {
-    // .padding = 4, .padding_top = 0 -> content starts flush at top
+    // .content_padding = 4, .content_padding_top = 0 -> content starts flush at top
     WLX_Context ctx;
     test_ctx_init(&ctx, 800, 600);
 
@@ -314,8 +314,8 @@ TEST(panel_perside_top_zero) {
 
             wlx_panel_begin(&ctx,
                 .title = "Flush Top",
-                .padding = 4,
-                .padding_top = 0);
+                .content_padding = 4,
+                .content_padding_top = 0);
                 wlx_label(&ctx, "A", .height = 30);
                 wlx_label(&ctx, "B", .height = 40);
             wlx_panel_end(&ctx);
@@ -547,6 +547,61 @@ TEST(panel_nested_horz_no_false_clip_warning) {
 #endif
 
 // ============================================================================
+// Parent contribution convergence: widget + nested layout + scroll panel
+// ============================================================================
+
+TEST(parent_contribution_three_sibling_kinds_share_per_slot_bucket) {
+    // A CONTENT-slot parent receives contributions from three different
+    // sibling kinds: a widget (via wlx_widget_begin), a nested layout
+    // (via wlx_layout_end), and a scroll panel (via
+    // wlx_scroll_panel_contribute_to_parent). Each occupies its own
+    // CONTENT slot; the per-slot CONTENT bucket should converge to each
+    // sibling's contribution, regardless of which contribution site
+    // wrote to it.
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 600);
+
+    float widget_slot_h = -1, nested_slot_h = -1, scroll_slot_h = -1;
+    for (int frame = 0; frame < 4; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin_s(&ctx, WLX_VERT,
+            WLX_SIZES(WLX_SLOT_CONTENT, WLX_SLOT_CONTENT,
+                      WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1)));
+
+            // Slot 0: widget contribution via wlx_widget_begin.
+            wlx_widget(&ctx, .min_height = 30);
+
+            // Slot 1: nested layout contribution via wlx_layout_end.
+            wlx_layout_begin(&ctx, 2, WLX_VERT);
+                wlx_widget(&ctx, .min_height = 20);
+                wlx_widget(&ctx, .min_height = 20);
+            wlx_layout_end(&ctx);
+
+            // Slot 2: scroll panel contribution via
+            // wlx_scroll_panel_contribute_to_parent.
+            wlx_scroll_panel_begin_impl(&ctx, 200.0f,
+                wlx_default_scroll_panel_opt(.height = 50.0f),
+                __FILE__, __LINE__);
+            wlx_scroll_panel_end(&ctx);
+
+            if (frame == 3) {
+                WLX_Layout *parent =
+                    &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+                const float *off = wlx_layout_offsets(&ctx, parent);
+                widget_slot_h = off[1] - off[0];
+                nested_slot_h = off[2] - off[1];
+                scroll_slot_h = off[3] - off[2];
+            }
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+
+    ASSERT_EQ_F(widget_slot_h, 30.0f, 2.0f);
+    ASSERT_EQ_F(nested_slot_h, 40.0f, 2.0f);
+    ASSERT_EQ_F(scroll_slot_h, 50.0f, 2.0f);
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
@@ -572,6 +627,9 @@ SUITE(panel) {
 
     // Option M regression
     RUN_TEST(content_padded_child_layout_contributes_padding);
+
+    // Parent contribution convergence (three sibling kinds)
+    RUN_TEST(parent_contribution_three_sibling_kinds_share_per_slot_bucket);
 
     // Per-side padding
     RUN_TEST(panel_perside_defaults_sentinel);

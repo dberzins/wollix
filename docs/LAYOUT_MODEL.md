@@ -42,7 +42,7 @@ In all other files, include without the define to get declarations only:
 Then include the backend adapter after `wollix.h`:
 
 ```c
-#include "wollix_raylib.h"   // or wollix_sdl3.h
+#include "wollix_raylib.h"   // or wollix_sdl3.h / wollix_wasm.h
 ```
 
 ---
@@ -57,8 +57,9 @@ wlx_begin(&ctx, root_rect, input_handler);
 wlx_end(&ctx);
 ```
 
-**`wlx_begin`** resets per-frame state (hot widget, debug tracking, scratch buffers),
-calls the input handler to populate `ctx.input`, and sets the root rect.
+**`wlx_begin`** resets per-frame state (hot widget, arena pool, command buffer,
+debug/perf tracking), calls the input handler to populate `ctx.input`, and sets
+the root rect.
 
 **`wlx_end`** replays the deferred command buffer (see [Deferred Drawing](#13-deferred-drawing)),
 then closes the frame.
@@ -70,18 +71,27 @@ The **input handler** is a callback that reads platform input and writes it to
 
 ```c
 WLX_Context ctx = {0};              // zero-init once
-wlx_context_init_raylib(&ctx);      // attach backend (calls wlx_context_init internally)
+wlx_context_init_raylib(&ctx);      // attach backend
 ctx.theme = &wlx_theme_dark;        // optional (dark is the default)
 ```
 
-`wlx_context_init_raylib` (in `wollix_raylib.h`) populates the backend and
-calls `wlx_context_init` from `wollix.h`. When writing a custom backend, call
-`wlx_context_init` directly after populating `ctx->backend`, or use
-`wlx_context_init_ex` to pass a custom `WLX_Arena_Pool_Config`:
+The backend init helpers (`wlx_context_init_raylib`, `wlx_context_init_sdl3`,
+`wlx_context_init_wasm`) populate `ctx->backend`. A zero-initialized context is
+enough for default arena settings: `wlx_begin` lazily initializes the arena pool
+on the first frame.
+
+If you want to pre-initialize the arenas or pass a custom
+`WLX_Arena_Pool_Config`, call the core init function before attaching the
+backend, because `wlx_context_init` and `wlx_context_init_ex` zero the context:
 
 ```c
-wlx_context_init(&ctx);          // default allocator settings
-wlx_context_init_ex(&ctx, &cfg); // custom arena/pool sizing
+// Optional default pre-init:
+wlx_context_init(&ctx);
+wlx_context_init_raylib(&ctx);
+
+// Or, for custom arena/pool sizing:
+wlx_context_init_ex(&ctx, &cfg);
+wlx_context_init_raylib(&ctx);
 ```
 
 When the context is no longer needed, free its buffers:
@@ -90,9 +100,9 @@ When the context is no longer needed, free its buffers:
 wlx_context_destroy(&ctx);
 ```
 
-`WLX_Context` owns dynamically-growing buffers (layout stack, state pool, scratch
-offsets). Zero-init it once, then reuse across frames. The context is not
-thread-safe — use one per thread if needed.
+`WLX_Context` owns dynamically-growing buffers (arena pool, command buffer,
+state map, scratch offsets). Zero-init it once, then reuse across frames. The
+context is not thread-safe — use one per thread if needed.
 
 ---
 
@@ -193,6 +203,7 @@ wlx_layout_end(ctx);
 | `WLX_SLOT_FILL_PCT(pct)` | Percentage of viewport |
 | `WLX_SLOT_FLEX(w)` | **Greedy** — takes all remaining space |
 | `WLX_SLOT_AUTO` | Same as FLEX (greedy remaining) |
+| `WLX_SLOT_CONTENT` | Uses `size.value` as pre-resolved pixels (0 if unset, then normal 1px floor) |
 
 Min/max constraints work as expected:
 
@@ -211,7 +222,8 @@ still available and equivalent to `wlx_layout_auto_slot(ctx, WLX_SLOT_PX(px))`.
 
 ### Slot Placement Options
 
-Every layout and widget macro accepts optional named arguments:
+Most layout and widget macros that consume a slot accept optional named
+arguments:
 
 | Field     | Default | Description |
 |-----------|---------|-------------|
@@ -219,6 +231,7 @@ Every layout and widget macro accepts optional named arguments:
 | `span`    | `1`     | Number of consecutive slots to occupy |
 | `overflow`| `false` | Allow widget to exceed slot bounds |
 | `padding` | `0`     | Uniform inset applied to the slot rect |
+| `padding_top/right/bottom/left` | `-1` | Per-side slot inset; values `>= 0` override `padding` |
 
 ```c
 wlx_layout_begin(ctx, 4, WLX_VERT, .padding = 10);
@@ -417,9 +430,10 @@ wlx_grid_end(ctx);
 | `wlx_grid_begin_auto_tile` | rows (dynamic) | Fixed | -- | -- | -- | -- | -- | -- |
 | `wlx_grid_begin_auto_tile` | cols | Derived | -- | -- | -- | -- | -- | -- |
 
-\* `wlx_layout_auto_slot` with CONTENT reads `size.value` as pre-resolved px
-(falls back to 0). No persistent measurement loop — the caller must supply the
-value.
+\* `wlx_layout_auto_slot` with CONTENT reads `size.value` as pre-resolved px.
+If no value is supplied it starts at 0 and then follows the normal dynamic-slot
+1px floor. No persistent measurement loop exists here - the caller must supply
+the value.
 
 ### Restrictions
 
@@ -427,7 +441,7 @@ value.
 |---|---|
 | `wlx_layout_begin` | Slot count must be known at begin time. Max 32 slots when using CONTENT (`WLX_CONTENT_SLOTS_MAX`). |
 | `wlx_layout_begin_s` | Same as `wlx_layout_begin`; count derived from `WLX_SIZES()` macro. |
-| `wlx_layout_begin_auto` | Sequential access only (no `pos`). No nested `wlx_layout_begin` inside body (scratch buffer corruption). When `slot_px=0`, every child must call `wlx_layout_auto_slot` before use. CONTENT via `auto_slot` is not auto-measured (value=0 fallback). |
+| `wlx_layout_begin_auto` | Sequential access only (no `pos`). No nested `wlx_layout_begin` inside body (scratch buffer corruption). When `slot_px=0`, every child must call `wlx_layout_auto_slot` before use. CONTENT via `auto_slot` is not auto-measured (caller-supplied value, or 1px after the floor). |
 | `wlx_grid_begin` | Row and column count fixed at begin time. CONTENT supported in `row_sizes` (per-row max height, one-frame delay). CONTENT not supported in `col_sizes` (resolves to 0px). Max 32 CONTENT rows (`WLX_CONTENT_SLOTS_MAX`). Max `WLX_MAX_SLOT_COUNT` rows/cols. |
 | `wlx_grid_begin_auto` | Column count fixed; rows grow dynamically. Requires `row_px > 0` (no zero or content-sized rows). Per-row override via `wlx_grid_auto_row_px` consumed once. CONTENT not supported in `col_sizes`. |
 | `wlx_grid_begin_auto_tile` | Same as `wlx_grid_begin_auto`. Column count derived from `floor(width / tile_w)`, minimum 1. `col_sizes` in opt is accepted but column count is computed from tile width. |
@@ -493,7 +507,7 @@ Each widget has three parts:
 
 ### Shared Fields
 
-All widgets inherit these field groups:
+Widget option structs share these field groups, depending on widget type:
 
 **Placement** (from `WLX_LAYOUT_SLOT_FIELDS`):
 
@@ -503,6 +517,7 @@ All widgets inherit these field groups:
 | `span` | `1` | Slot span |
 | `overflow` | `false` | Allow exceeding slot bounds |
 | `padding` | `0` | Slot inset |
+| `padding_top/right/bottom/left` | `-1` | Per-side slot inset; values `>= 0` override `padding` |
 
 **Sizing** (from `WLX_WIDGET_SIZING_FIELDS`):
 
@@ -515,16 +530,23 @@ All widgets inherit these field groups:
 | `min_height` | `0` | Minimum height (`0` = none) |
 | `max_width` | `0` | Maximum width (`0` = none) |
 | `max_height` | `0` | Maximum height (`0` = none) |
-| `opacity` | `0` | Opacity (`0` = fully opaque sentinel) |
+| `opacity` | `-1` | Opacity (`-1` = fully opaque sentinel) |
 
-**Typography** (text widgets only, from `WLX_TEXT_TYPOGRAPHY_FIELDS`):
+**State** (interactive widgets only, from `WLX_WIDGET_STATE_FIELDS`):
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `disabled` | `false` | Disable click/focus/drag activation while preserving hover arbitration |
+
+**Typography** (text widgets; `wrap` is a separate opt-in field):
 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `font` | `WLX_FONT_DEFAULT` | Font handle |
 | `font_size` | `0` | Font size (`0` = use theme) |
 | `align` | `WLX_LEFT` | Text alignment within widget |
-| `wrap` | varies | Word-wrap long text |
+| `spacing` | `0` | Extra character spacing (`0` = backend default) |
+| `wrap` | varies | Word-wrap long text on widgets that embed `WLX_TEXT_WRAP_FIELDS`; slider omits it |
 
 **Colors** (from `WLX_TEXT_COLOR_FIELDS`):
 
@@ -532,6 +554,13 @@ All widgets inherit these field groups:
 |-------|---------|-------------|
 | `front_color` | `{0}` | Text color (`{0}` = use theme foreground) |
 | `back_color` | `{0}` | Background color (`{0}` = use theme surface) |
+
+**Content padding** (widgets that embed `WLX_CONTENT_PADDING_FIELDS`):
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `content_padding` | `-1` | Uniform inset around widget content; `WLX_PADDING_USE_THEME` opts into `theme.padding` |
+| `content_padding_top/right/bottom/left` | `-1` | Per-side content inset; values `>= 0` override the uniform value |
 
 ### Widget Quick Reference
 
@@ -545,6 +574,10 @@ wlx_label(ctx, "Hello", .font_size = 20, .align = WLX_CENTER, .wrap = true);
 if (wlx_button(ctx, "OK", .height = 40, .back_color = WLX_RGBA(0, 120, 200, 255)))
     do_something();
 ```
+
+`wlx_button` and `wlx_label` can also render optional image content via
+`.texture`, `.texture_scale`, `.image_placement`, `.image_size`, and related
+image fields.
 
 **`wlx_checkbox`** — toggle, returns `true` when state changes:
 ```c
@@ -598,6 +631,11 @@ wlx_separator(ctx, .color = WLX_RGBA(100, 100, 100, 255), .thickness = 2.0f);
 ```c
 wlx_progress(ctx, 0.75f);
 wlx_progress(ctx, value, .fill_color = WLX_RGBA(0, 200, 80, 255), .height = 12);
+```
+
+**`wlx_image`** — draw a texture region with scale, alignment, source rect, and tint:
+```c
+wlx_image(ctx, texture, .scale = WLX_IMAGE_SCALE_FIT, .tint = WLX_RGBA(255, 255, 255, 255));
 ```
 
 **`wlx_toggle`** — on/off toggle switch, returns `true` when state changes:
@@ -660,10 +698,11 @@ FOCUS, or DRAG) optionally combined with HOVER and KEYBOARD:
 
 ### Result Fields
 
-`WLX_Interaction` has these boolean fields:
+`WLX_Interaction` has these fields:
 
 | Field | Meaning |
 |-------|---------|
+| `id` | Generated interaction ID |
 | `hover` | Mouse is currently over the widget |
 | `pressed` | Mouse is down on this widget right now |
 | `clicked` | Click completed (released while hovering) or keyboard-activated |
@@ -671,6 +710,7 @@ FOCUS, or DRAG) optionally combined with HOVER and KEYBOARD:
 | `active` | Widget is the active widget (being pressed, dragged, or focused) |
 | `just_focused` | Became focused this frame |
 | `just_unfocused` | Lost focus this frame |
+| `disabled` | Interaction was queried through the disabled gate; active/click/focus results are forced false |
 
 ### Hot / Active Model
 
@@ -731,8 +771,9 @@ Persistent state IDs use the same `hash(file, line) ^ id_stack_hash` formula
 as interaction IDs, so they are stable across frames. Use `wlx_push_id` when
 the same state call is reached multiple times.
 
-Built-in widgets that use persistent state: `wlx_inputbox` (cursor position),
-`wlx_scroll_panel` (scroll offset, drag state), `wlx_slider` (drag state).
+Built-in paths that use persistent state: `WLX_SIZE_CONTENT` layout/grid/panel
+measurement, `wlx_inputbox` (cursor position), and `wlx_scroll_panel` (scroll
+offset, drag state).
 
 ### Explicit String IDs
 
@@ -752,6 +793,9 @@ This is equivalent to wrapping the call in `wlx_push_id` / `wlx_pop_id` with
 `wlx_hash_string(names[i])`, but more concise. The string is hashed with
 `wlx_hash_string()` (djb2) and the resulting value is pushed/popped
 automatically inside the widget implementation.
+
+Layouts, grids, panels, and splits also accept `.id`; for those container APIs,
+the string scopes the descendants inside the layout body.
 
 **When to use `.id`:**
 - Widgets created in loops where each iteration has a meaningful string key.
@@ -774,6 +818,7 @@ overrides for the entire UI. Set it on the context:
 ```c
 ctx.theme = &wlx_theme_dark;     // built-in dark theme (default)
 ctx.theme = &wlx_theme_light;    // built-in light theme
+ctx.theme = &wlx_theme_glass;    // built-in translucent theme
 ```
 
 Or create a custom theme:
@@ -794,17 +839,22 @@ ctx.theme = &my_theme;
 | `foreground` | Default text color |
 | `surface` | Widget background color |
 | `border` | Default border color |
+| `border_width` | Default border width (0 = no border) |
 | `accent` | Active/focused accent color |
 | `font` | Default font handle |
 | `font_size` | Default font size |
-| `padding` | Default slot padding |
+| `padding` | Default content padding when widgets opt in with `WLX_PADDING_USE_THEME` |
 | `roundness` | Corner radius |
+| `rounded_segments` | Segment count for rounded drawing |
+| `min_rounded_segments` | Minimum segment floor for fully-round widgets |
 | `hover_brightness` | Brightness shift on hover |
+| `disabled_brightness` | Brightness shift when disabled (`WLX_FLOAT_UNSET` = no shift) |
 | `opacity` | Global opacity multiplier |
+| `disabled_opacity` | Alpha multiplier when disabled (`< 0` = unset) |
 
 Widget-specific overrides exist for `input` (border focus, cursor color),
-`wlx_slider` (track, thumb, label), `wlx_checkbox` (check, border), and `scrollbar`
-(bar color, width).
+`slider` (track, thumb, label), `checkbox` (check, border), `toggle` (track colors, thumb),
+`radio` (ring, fill, label), `progress` (track, fill), and `scrollbar` (bar color, width).
 
 ### Theme vs. Per-Widget Overrides
 
@@ -825,9 +875,9 @@ wlx_button(ctx, "Custom BG", .back_color = WLX_RGBA(200, 0, 0, 255));
 ## 12. Backend Contract
 
 `wollix.h` does not render anything itself. It calls function pointers stored
-in `WLX_Backend` to do all drawing and input. Backend adapters
-(`wollix_raylib.h`, `wollix_sdl3.h`) populate these pointers for specific
-graphics libraries.
+in `WLX_Backend` to do drawing and frame-time queries. Backend adapters
+(`wollix_raylib.h`, `wollix_sdl3.h`, `wollix_wasm.h`) populate these pointers
+for specific graphics environments and provide input handlers separately.
 
 ### WLX_Backend Function Pointers
 
@@ -875,7 +925,8 @@ truncated before dispatch.
 2. Write an init function that populates `ctx->backend`.
 3. Write an input handler that reads platform input into `ctx->input`.
 
-See `wollix_raylib.h` or `wollix_sdl3.h` for reference implementations.
+See `wollix_raylib.h`, `wollix_sdl3.h`, or `wollix_wasm.h` for reference
+implementations.
 
 ### Input State
 

@@ -19,7 +19,7 @@ Live gallery demo: [https://dberzins.github.io/wollix/](https://dberzins.github.
 - Built-in widgets and compound helpers: labels, buttons, checkboxes,
     toggles, radios, input boxes, sliders, progress bars, separators, scroll
     panels, panels, split layouts, and fixed/auto-growing grid helpers
-- Current version: `WOLLIX_VERSION` = `"0.4.0"`
+- Current version: `WOLLIX_VERSION` = `"0.5.0"`
 
 ## Quick Start
 
@@ -156,7 +156,7 @@ The library includes the following widgets and layout/container primitives:
 ## Themes & Design System
 
 Wollix ships three built-in theme presets: `dark`, `light`, and `glass`.
-Callers can set `ctx->theme` per frame, start from a built-in preset, and
+Callers can set `ctx.theme` per frame, start from a built-in preset, and
 create custom themes by overriding the fields they need.
 
 For the full theme model, inheritance rules, semantic color guidance, and

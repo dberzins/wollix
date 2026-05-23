@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-23
+
+### Added
+- **Image widget:** `wlx_image` with `WLX_Image_Scale` (`STRETCH`/`FIT`/`FILL`/`NONE`),
+  `WLX_Image_Opt` (alignment, tint, source sub-rect, opacity), and `demos/image`.
+- **Image-capable button:** `WLX_Button_Opt` gains `texture`, `texture_src`, `texture_scale`,
+  `texture_tint`, `image_placement`, `image_size`, `image_text_gap`; new `WLX_Image_Placement`
+  enum (`LEFT`/`RIGHT`/`TOP`/`BOTTOM`). New `demos/button_image` demo.
+- **Image-capable label:** same image surface as button via `WLX_Label_Opt`. New `demos/label_image` demo.
+- **Image-capable checkbox texture mode:** `WLX_Checkbox_Opt` gains `tex_checked_src`,
+  `tex_unchecked_src`, `tex_checked_tint`, `tex_unchecked_tint`. Both tints fold through the
+  opacity stack; texture mode now requires both state textures and defaults tint to `WLX_WHITE`.
+- **Content padding for all widgets:** `WLX_CONTENT_PADDING_FIELDS` (`content_padding`,
+  `content_padding_top/right/bottom/left`) added to every widget and chrome container;
+  `WLX_PADDING_USE_THEME` sentinel opts into `theme->padding`. Defaults are zero so existing
+  call sites are pixel-stable.
+- **Disabled-state Phase 1:** `.disabled` option on `wlx_button`, `wlx_checkbox`, `wlx_inputbox`,
+  `wlx_slider`, `wlx_toggle`, and `wlx_radio`; `theme->disabled_brightness` and
+  `theme->disabled_opacity` knobs; `WLX_DEFAULT_DISABLED_OPACITY` constant (`0.55f`) shared
+  across built-in presets. Coverage rule documented in ADR_018 and `docs/WIDGETS.md`.
+- **WASM texture support:** `wlx_wasm_texture_create` / `wlx_wasm_texture_destroy` C helpers;
+  JS host owns a per-texture `OffscreenCanvas` registry copied at upload time. Full RGB tint
+  is supported via a source-space variant cache: primary path uses `ctx.filter feColorMatrix`;
+  fallback uses Canvas 2D `multiply` compositing. Alpha applies per-draw via `ctx.globalAlpha`.
+  See ADR_017 for the full contract.
+- **Gallery Lucide icon atlas (32 icons, four tiers):** `demos/assets/wlx_icons.h` is now a
+  576x120 white-alpha atlas at 16/24/32/48 px. `gallery_icon_src_for()` picks the sharpest tier
+  at the call-site size. Source SVGs and manifest under `demos/assets/icons/`.
+
+### Changed
+- **Breaking:** `WLX_Split_Opt` and `WLX_Panel_Opt` replace `.padding*` fields with
+  `.content_padding*`. `WLX_PADDING_FIELDS`, `WLX_PADDING_DEFAULTS`, and `WLX_RESOLVE_PADDING`
+  macros removed. Rename `.padding` → `.content_padding` (and per-side variants) to migrate.
+- **Breaking:** `pushed_id` fields on `WLX_Widget_Frame` and `WLX_Scroll_Panel_State` renamed to
+  `bool pushed_scope`; `pushed_scope_id` on `WLX_Layout` renamed to `pushed_scope`.
+- Separator now respects the opacity stack and `theme->opacity` (was silently ignored).
+- Gallery spacing roles (`space_shell`, `space_panel`, `space_heading_*`, `gap_dense`, etc.)
+  derived from `WLX_Theme.padding` instead of hard-coded literals.
+- `wlx_widget_impl` draw rect no longer rounded with `ceilf`; matches all other widget paths.
+
+### Fixed
+- Fixed incorrect cast in `wlx_scroll_panel_frame_begin`.
+
+### Internal
+- `WLX_Checkbox_Opt` and `WLX_Inputbox_Opt` embed `WLX_BORDER_FIELDS`/`WLX_BORDER_DEFAULTS`
+  instead of hand-rolled border fields.
+- `wlx_resolve_content_rect_full` + `WLX_RESOLVE_CONTENT_RECT` collapse the common
+  padding/clamp/inset three-liner used by label, button, checkbox, slider, progress, toggle, radio.
+- `WLX_RESOLVE_VISUAL_STATE` macro unifies resolver tails; `wlx_color_hover_tint` centralizes
+  the hover-tint gate across all interactive widgets.
+- `wlx_scope_push`/`wlx_scope_pop` unify the `.id` → id-stack push/pop pattern used by every
+  frame helper. Under `WLX_DEBUG`, `wlx_end` asserts the id-stack returns to zero each frame.
+- `wlx_contribute_to_parent_layout` (`WLX_Parent_Contribution`) consolidates parent
+  content-tracking for `wlx_widget_begin`, `wlx_layout_end`, and scroll-panel.
+- `bool wrap` split from `WLX_TEXT_TYPOGRAPHY_FIELDS` into `WLX_TEXT_WRAP_FIELDS`; slider
+  resolver aligned with shared `wlx_resolve_typography`/`wlx_resolve_border` helpers.
+
 ## [0.4.0] - 2026-05-09
 
 ### Added

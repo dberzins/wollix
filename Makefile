@@ -32,14 +32,14 @@ WASM_BARE_CFLAGS = --target=wasm32-unknown-unknown -nostdlib -nostdinc -Wno-init
 
 DEMO_DIR = demos
 GALLERY_PERF_HEADER = $(DEMO_DIR)/gallery_perf.h
-RAYLIB_DEMOS = layout button text checkbox checkbox_tex input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo gallery auth
+RAYLIB_DEMOS = layout button button_image label_image text checkbox checkbox_tex image input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo disabled_demo gallery auth
 SDL3_DEMOS = sdl3_demo gallery_sdl3
 PERF_DEMOS = gallery_perf gallery_sdl3_perf
 DEMO_NAMES = $(RAYLIB_DEMOS) $(SDL3_DEMOS)
 TARGETS = $(addprefix $(DEMO_DIR)/,$(DEMO_NAMES))
 PERF_TARGETS = $(addprefix $(DEMO_DIR)/,$(PERF_DEMOS))
 DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
-WASM_SITE_TARGETS = $(WASM_SITE_DIR)/gallery.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js
+WASM_SITE_TARGETS = $(WASM_SITE_DIR)/gallery.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js $(WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 
 .PHONY: all clean debug release help test perf-test test-demos wasm-bare wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
 
@@ -78,13 +78,16 @@ wasm-site: $(WASM_SITE_TARGETS)
 $(WASM_SITE_DIR):
 	mkdir -p $@
 
-$(WASM_SITE_DIR)/gallery.wasm: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) $(WASM_SRC_DIR)/wlx_libc_shim.c wollix.h wollix_wasm.h | $(WASM_SITE_DIR)
+$(WASM_SITE_DIR)/gallery.wasm: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) $(WASM_SRC_DIR)/wlx_libc_shim.c $(WASM_SRC_DIR)/wlx_libc_shim.h wollix.h wollix_wasm.h | $(WASM_SITE_DIR)
 	$(WASM_CC) $(WASM_BARE_CFLAGS) -DWLX_GALLERY_WASM -o $@ demos/gallery.c $(WASM_SRC_DIR)/wlx_libc_shim.c
 
 $(WASM_SITE_DIR)/index.html: $(WASM_SRC_DIR)/wollix_wasm.html | $(WASM_SITE_DIR)
 	cp $< $@
 
 $(WASM_SITE_DIR)/wollix_wasm.js: $(WASM_SRC_DIR)/wollix_wasm.js | $(WASM_SITE_DIR)
+	cp $< $@
+
+$(WASM_SITE_DIR)/wollix_wasm_tint_tests.js: $(WASM_SRC_DIR)/wollix_wasm_tint_tests.js | $(WASM_SITE_DIR)
 	cp $< $@
 
 debug: CFLAGS += -DDEBUG -O0

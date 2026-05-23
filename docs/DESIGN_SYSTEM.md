@@ -18,14 +18,14 @@ text defaults, geometry defaults, interaction feedback, opacity, and a small
 set of widget-specific overrides for inputs, sliders, checkboxes, toggles,
 radios, progress bars, and scrollbars.
 
-Callers usually assign `ctx->theme` before `wlx_begin()`:
+Callers usually assign `ctx.theme` before `wlx_begin()`:
 
 ```c
-ctx->theme = dark_mode ? &wlx_theme_dark : &wlx_theme_light;
+ctx.theme = dark_mode ? &wlx_theme_dark : &wlx_theme_light;
 wlx_begin(&ctx, root, wlx_process_raylib_input);
 ```
 
-If `ctx->theme` is `NULL`, `wlx_begin()` selects `&wlx_theme_dark` for the
+If `ctx.theme` is `NULL`, `wlx_begin()` selects `&wlx_theme_dark` for the
 frame. Widget resolve functions then fill omitted option fields from the
 active theme. For example, a button without `.front_color`, `.back_color`,
 `.font_size`, or `.roundness` uses the current theme values, while explicit
@@ -41,9 +41,9 @@ Wollix ships three public theme presets:
 
 | Preset | Description |
 |--------|-------------|
-| `wlx_theme_dark` | Neutral dark default with low visual weight and blue accent states. |
-| `wlx_theme_light` | Bright preset with dark text, pale surfaces, and darker hover feedback. |
-| `wlx_theme_glass` | Dark translucent preset for layered surfaces and stronger focus borders. |
+| `wlx_theme_dark` | Neutral dark default with low visual weight, blue accent states, and a darkened disabled treatment (`disabled_brightness = -0.35f`, `disabled_opacity = 0.55f`). |
+| `wlx_theme_light` | Bright preset with dark text, pale surfaces, darker hover feedback, and a lightened disabled treatment (`disabled_brightness = +0.30f`, `disabled_opacity = 0.55f`). |
+| `wlx_theme_glass` | Dark translucent preset for layered surfaces, stronger focus borders, and a softly darkened disabled treatment (`disabled_brightness = -0.25f`, `disabled_opacity = 0.55f`). |
 
 The live gallery includes a Theme Lab that compares the built-in presets,
 their semantic token ramps, and common component states:
@@ -98,6 +98,9 @@ The current gallery role set is:
 | Accent | `theme->accent` |
 | Focus | `theme->input.border_focus`, falling back to accent |
 | Selection | Surface 2 blended with accent |
+| Disabled background | `theme->surface` shifted by `theme->disabled_brightness` |
+| Disabled foreground | `theme->foreground` shifted by `theme->disabled_brightness` |
+| Disabled border | `theme->border` shifted by `theme->disabled_brightness` |
 | Warning, danger, success | Application-owned status colors |
 
 In [../demos/gallery.c](../demos/gallery.c), these roles live in
@@ -108,6 +111,9 @@ static Gallery_Semantic_Theme gallery_semantic_theme(const WLX_Theme *theme) {
     bool theme_is_dark = gallery_theme_is_dark(theme);
     WLX_Color surface_2 = gallery_shift_with_theme(theme->surface, 12, theme_is_dark);
     WLX_Color surface_3 = gallery_shift_with_theme(theme->surface, 24, theme_is_dark);
+
+    float disabled_b = wlx_is_float_unset(theme->disabled_brightness)
+        ? 0.0f : theme->disabled_brightness;
 
     return (Gallery_Semantic_Theme){
         .color_app_bg = theme->background,
@@ -124,9 +130,12 @@ static Gallery_Semantic_Theme gallery_semantic_theme(const WLX_Theme *theme) {
             ? theme->accent
             : theme->input.border_focus,
         .color_selection = gallery_blend_color(surface_2, theme->accent, 92),
+        .color_disabled_bg     = wlx_color_brightness(theme->surface,    disabled_b),
+        .color_disabled_fg     = wlx_color_brightness(theme->foreground, disabled_b),
+        .color_disabled_border = wlx_color_brightness(theme->border,     disabled_b),
         .color_success = GALLERY_GREEN,
         .color_warning = GALLERY_WARNING,
-        .color_danger  = GALLERY_RED,
+        .color_danger = GALLERY_RED,
     };
 }
 ```
@@ -135,6 +144,60 @@ Application code should follow the same pattern: keep `WLX_Theme` as the public
 theme contract, then derive app-specific semantic roles locally. That keeps the
 core API stable while giving each product enough vocabulary for its own chrome,
 navigation, tables, panels, and status states.
+
+## Component States
+
+Interactive widgets pass through a small set of canonical states. The names
+below are the design-system vocabulary; the runtime fields live on
+`WLX_Interaction` (and one widget option) and follow the same shape:
+
+| State | Origin | Default appearance |
+|-------|--------|--------------------|
+| Default  | No interaction | Resolved theme colors as-is |
+| Hover    | `WLX_Interaction.hover` is true | Background shifted by `theme->hover_brightness` |
+| Focused  | `WLX_Interaction.focused` is true (FOCUS-mode widgets) | Focus border (`theme->input.border_focus`, falling back to accent) |
+| Active   | `WLX_Interaction.active` is true (pressed, dragged, or focused) | Per-widget treatment where implemented; sliders tint the active thumb |
+| Disabled | `.disabled = true` on the option (mirrored as `WLX_Interaction.disabled`) | Colors shifted by `theme->disabled_brightness`; alpha multiplied by `theme->disabled_opacity`; hover tint suppressed |
+
+Phase 1 of the disabled-state model exposes only `disabled` as a public
+option field; the other states remain implicit interaction flags. If you
+need a stricter state ramp (per-widget hover/focused/active colors), derive
+it locally the same way the gallery derives semantic color roles. A typed
+`WLX_State_Flags` enum is a future direction once the component-recipe work
+has settled which roles repeat in practice.
+
+The disabled treatment composes with the existing opacity stack: the
+effective alpha is `theme->disabled_opacity * widget.opacity *
+theme->opacity * ctx_stack_opacity`. Stacking `wlx_push_opacity(0.5f)` over
+an already-disabled widget compounds the dim and is treated as caller
+responsibility (no implicit readability floor).
+
+## Semantic Spacing System
+
+`WLX_Theme.padding` is the public base spacing value. It is intentionally one
+scalar, not a full application spacing system. Leaf widgets that should follow
+that base value can opt in with `.content_padding = WLX_PADDING_USE_THEME`,
+while layouts and demos can still use explicit `.padding` or
+`.content_padding` values when they are demonstrating raw geometry.
+
+Larger UI surfaces should derive semantic spacing locally, the same way they
+derive semantic colors. The gallery uses `Gallery_Semantic_Spacing` for that
+purpose. Its current roles are:
+
+| Role | Use |
+|------|-----|
+| `space_shell` | Flush or near-flush major shell panes. |
+| `space_panel` | Compact panel and preview layout padding. |
+| `space_heading_x` | Horizontal text inset for section and panel headings. |
+| `space_heading_y` | Vertical heading inset where row height allows it. |
+| `space_control_x` | Compact text inset for controls, metadata, and status rows. |
+| `space_preview` | Token cards, theme cards, and component preview surfaces. |
+| `gap_dense` | Dense row and cell gaps. |
+| `gap_section` | Larger separation between conceptual groups. |
+
+These roles are gallery-local, not public API. If the same spacing roles become
+necessary across core widgets and public examples, they can be promoted later
+through a separate theme-extension decision.
 
 ## Custom Themes
 
@@ -149,11 +212,12 @@ app_theme.surface = (WLX_Color){35, 39, 39, 255};
 app_theme.border = (WLX_Color){58, 68, 64, 255};
 app_theme.accent = (WLX_Color){96, 190, 174, 255};
 app_theme.border_width = 0.5f;
+app_theme.padding = 8.0f;
 app_theme.input.border_focus = app_theme.accent;
 app_theme.slider.thumb = app_theme.foreground;
 app_theme.progress.fill = app_theme.accent;
 
-ctx->theme = &app_theme;
+ctx.theme = &app_theme;
 wlx_begin(&ctx, root, wlx_process_raylib_input);
 ```
 

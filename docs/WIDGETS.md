@@ -41,6 +41,17 @@ are documented once here.
 | `max_height` | `float` | `0` | Maximum height constraint. `0` = unconstrained |
 | `opacity` | `float` | `-1` | Opacity multiplier. Negative = inherit theme and opacity stack; `0.0`–`1.0` = explicit alpha |
 
+### State fields (`WLX_WIDGET_STATE_FIELDS`)
+
+Embedded by every interactive widget (`wlx_button`, `wlx_checkbox`,
+`wlx_inputbox`, `wlx_slider`, `wlx_toggle`, `wlx_radio`). Compound and
+non-interactive widgets (`wlx_label`, `wlx_panel`, `wlx_split`,
+`wlx_scroll_panel`) do not currently expose this field.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `disabled` | `bool` | `false` | When `true`, the widget skips active-state interaction (click/press/focus/drag), suppresses hover tint, shifts its resolved colors by `theme->disabled_brightness`, and multiplies its effective opacity by `theme->disabled_opacity`. Hover is still reported for tooltip anchoring. The same flag is mirrored on `WLX_Interaction.disabled` so widget impls can branch consistently. |
+
 ### Typography fields (`WLX_TEXT_TYPOGRAPHY_FIELDS`)
 
 Used by `label`, `button`, `checkbox`, `inputbox`, `toggle`, and `radio`.
@@ -91,6 +102,59 @@ directly even though it does not use the macro.
 | `roundness` | `float` | `-1` | Corner roundness. `-1` = theme default |
 | `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
 
+### Content padding (`WLX_CONTENT_PADDING_FIELDS`)
+
+Used by `label`, `button`, `split`, `panel`, and `inputbox` to inset the
+widget's *inner content* independently from outer slot margin. Chrome
+(background, border) and the interaction hit rect always stay at the full
+widget rect.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `content_padding` | `float` | varies | Uniform inner inset. `-1` resolves to `0` for leaf widgets; compound widgets use their own literal default (see table below). Pass `WLX_PADDING_USE_THEME` to opt into the theme's `padding` knob. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+
+Per-widget uniform defaults:
+
+| Widget | `content_padding` default | Resolved to |
+|--------|--------------------------|-------------|
+| `wlx_label` | `-1` | `0` (no inset) |
+| `wlx_button` | `-1` | `0` (no inset) |
+| `wlx_checkbox` | `-1` | `0` (no inset) |
+| `wlx_radio` | `-1` | `0` (no inset) |
+| `wlx_toggle` | `-1` | `0` (no inset) |
+| `wlx_slider` | `-1` | `0` (no inset) |
+| `wlx_progress` | `-1` | `0` (no inset) |
+| `wlx_split_begin` | `4` | `4 px` all sides |
+| `wlx_panel_begin` | `2` | `2 px` all sides |
+| `wlx_inputbox` | `10` | `10 px` outer gutter (all sides) |
+
+Resolution rules (same for every consumer):
+- A per-side value `>= 0` wins unconditionally.
+- Otherwise the side falls back to the uniform `content_padding`.
+- A uniform of `-1` (the default sentinel) resolves to `0` for leaf
+  widgets; compound widgets start from their literal default.
+- `WLX_PADDING_USE_THEME` on the uniform (`-2.0f`) resolves all
+  still-unset sides to the theme's `padding` knob
+  (`WLX_STYLE_CONTENT_PADDING` by default).
+- On tight rects the resolved padding is clamped proportionally so the
+  content rect never has negative dimensions.
+
+**Inputbox-specific note:** `wlx_inputbox` uses `WLX_CONTENT_PADDING_FIELDS`
+for the outer gutter (label area, input rect position, and vertical centering).
+The text rect *inside* the editing box is additionally inset by the fixed
+constant `WLX_INPUTBOX_TEXT_INSET` (5 px) on the x-axis only. This value
+equals the pre-change default of `content_padding / 2` with `content_padding
+= 10`, preserving byte-identical default visuals.
+
+**Adding a new chrome widget:** any widget that insets inner content must
+embed `WLX_CONTENT_PADDING_FIELDS` in its opt struct and resolve padding with
+`wlx_resolve_content_padding`. Do not add a bespoke `padding` scalar — use
+this shared shape so theme integration and per-side overrides work uniformly.
+
 ### Identity field
 
 All leaf-widget opt structs include an optional identity field:
@@ -101,12 +165,88 @@ All leaf-widget opt structs include an optional identity field:
 
 ---
 
+## Disabled state
+
+Wollix exposes a single first-class disabled-state contract that covers
+both interaction gating and visual treatment.
+
+### Coverage matrix
+
+The coverage rule is structural: any widget that calls
+`wlx_get_interaction*` and reports `clicked`, `pressed`, `focused`, or
+`active` to the caller carries `.disabled`. Purely decorative widgets do
+not.
+
+| Widget | `.disabled` field | Notes |
+|--------|-------------------|-------|
+| `wlx_button` | yes | Reports `clicked`; gates click/focus when disabled |
+| `wlx_checkbox` | yes | Reports `clicked`; gates click when disabled |
+| `wlx_inputbox` | yes | Reports `focused` / typing; gates focus when disabled |
+| `wlx_slider` | yes | Reports drag / `active`; gates drag when disabled |
+| `wlx_toggle` | yes | Reports `clicked`; gates click when disabled |
+| `wlx_radio` | yes | Reports `clicked`; gates click when disabled |
+| `wlx_widget` | no | Decoration primitive; hover only for tooltip anchoring |
+| `wlx_label` | no | Non-interactive text; hover only for tooltip anchoring |
+| `wlx_image` | no | Pure visual; no interaction |
+| `wlx_separator` | no | Pure visual; no interaction |
+| `wlx_progress` | no | Read-only indicator; no interaction |
+| `wlx_scroll_panel` | no | Container scroll interaction is not gated |
+
+### Effect when `.disabled = true`
+
+1. **Interaction:** click, focus, drag, and keyboard arbitration are
+   suppressed. `WLX_Interaction.clicked`, `.pressed`, `.focused`,
+   `.active`, `.just_focused`, and `.just_unfocused` are forced to
+   `false`. `.hover` is still reported (so a disabled control can still
+   anchor a tooltip), and `.disabled` mirrors the resolved state.
+2. **Visual:** the widget's resolved opacity is multiplied by
+   `theme->disabled_opacity`, and resolved disabled-state colors are
+   shifted by `wlx_color_brightness(..., theme->disabled_brightness)`.
+   Hover-tint is automatically suppressed (the
+   `(hover && !disabled) ? brightness : c` gate at every interactive
+   draw site).
+
+### Theme knobs
+
+| Theme field | Sentinel | Built-in presets |
+|-------------|----------|------------------|
+| `disabled_brightness` | `WLX_FLOAT_UNSET` (skip) | dark `-0.35f`, light `+0.30f`, glass `-0.25f` |
+| `disabled_opacity` | `< 0` (skip multiply) | all presets `0.55f` |
+
+Custom themes that leave both fields at their sentinel render disabled
+widgets identically to enabled ones — that is the back-compat fall-back.
+
+### Adding `.disabled` to a new widget
+
+Use the coverage rule above as the test. If the new widget returns a
+click/focus/active result and an end-user could meaningfully want it
+greyed-out and inert:
+
+1. Embed `WLX_WIDGET_STATE_FIELDS` in the option struct (adds
+   `bool disabled`) and `WLX_WIDGET_STATE_DEFAULTS` in the default-opt
+   macro.
+2. Route the interaction call through
+   `wlx_get_interaction_for(ctx, rect, flags, opt.disabled, file, line)`.
+3. Use `wlx_color_hover_tint(c, inter.hover, inter.disabled, brightness)`
+   for any hover tint; the helper applies the disabled gate.
+4. End the resolver with
+   `WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled, /*colors...*/)`
+   so disabled-brightness and disabled-opacity flow through the standard
+   tail.
+
+---
+
 ## `wlx_label`
 
-Static text label. Does not return a value and has no interactive behavior
-beyond hover highlighting (when `show_background` is true). Wrapped labels are
-measured and drawn as whole visible lines, and explicit newlines preserve empty
-visual lines.
+Static text label. Does not return a value and is non-interactive regardless
+of content mode — the only hover behavior is brightening the optional
+background fill (when `show_background` is true). Wrapped labels are measured
+and drawn as whole visible lines, and explicit newlines preserve empty visual
+lines.
+
+The same call supports text-only and text + image content through the same
+options. Image-only labels are supported as an edge case; for pure
+non-interactive image rendering prefer [`wlx_image`](#wlx_image).
 
 ### Signature
 
@@ -122,13 +262,63 @@ wlx_label(ctx, "Hello, world!",
 );
 ```
 
+### Content modes
+
+| Mode | Trigger |
+|------|---------|
+| Text-only | `text` is non-empty, no `texture` (or `texture.width <= 0`) |
+| Text + image | both `texture` valid and `text` non-empty |
+| Image-only (edge case) | `texture.width > 0`, `text` is `""` (or `NULL`) — prefer `wlx_image` for pure image content |
+
+Mode is selected purely by the inputs — there is no separate
+`wlx_image_label` or `wlx_label_image` function or option struct.
+
 ### Widget-specific options
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `show_background` | `bool` | `false` | Draw a filled background rectangle behind the text |
+| `show_background` | `bool` | `false` | Draw a filled background rectangle behind the content. When `true`, hover brightens the fill using the theme's `hover_brightness`. |
+| `texture` | `WLX_Texture` | zero handle | Optional image content. `width <= 0` or `height <= 0` means no image. |
+| `texture_src` | `WLX_Rect` | `{0}` | Source sub-rect. `w <= 0` or `h <= 0` means full texture. |
+| `texture_scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_FIT` | How the texture fits its image rect (same modes as `wlx_image`). |
+| `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`. The alpha is multiplied by the opacity stack. |
+| `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Where the image sits relative to text (`LEFT`, `RIGHT`, `TOP`, `BOTTOM`). |
+| `image_size` | `float` | `0` | Reserved square size for the image. `<= 0` is automatic: derived from `font_size` for text + image, or the full label rect for image-only. |
+| `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
+| `content_padding` | `float` | `-1` | See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. See [Content padding](#content-padding-wlx_content_padding_fields). |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 All shared placement, sizing, typography, color, and border fields also apply.
+Label content uses the same fitted line/run layout as `wlx_button`, so
+centered or wrapped captions align per visible line. See the matching
+[`wlx_button` image content section](#wlx_button) for the parallel button
+surface — the two widgets share the same image content options and
+fitting helpers.
+
+`content_padding*` insets only the content (text + image) rect; chrome and
+hit rect stay at the full label rect. See
+[Content padding](#content-padding-wlx_content_padding_fields) in the
+shared section for full resolution rules and the `WLX_PADDING_USE_THEME`
+sentinel.
+
+### Content rules
+
+- **Empty texture + non-empty text** → behaves exactly like a text-only label
+  (no texture draw is emitted).
+- **Empty texture + empty text** → no content is drawn; the chrome (background
+  and/or border) still draws when configured.
+- **`align` vs. `image_placement`** are independent:
+  `image_placement` controls *which side* of the text the image sits on
+  (`LEFT`/`RIGHT`/`TOP`/`BOTTOM` of the text within the combined block);
+  `align` then positions the *combined block* inside the label rect for
+  text + image mode, or the image rect itself for image-only mode when
+  `image_size > 0`.
+- The texture is always centered inside its reserved image rect. Hover
+  feedback applies to the optional background only — texture tint is not
+  modulated by hover, and labels never intercept clicks.
 
 ### Common overrides
 
@@ -155,12 +345,82 @@ wlx_label(ctx, status_text,
 );
 ```
 
+Text + image with default LEFT placement:
+
+```c
+wlx_label(ctx, "Saved",
+    .height = 32, .font_size = 18, .align = WLX_CENTER,
+    .texture = check_icon
+);
+```
+
+Text + image with image stacked on top:
+
+```c
+wlx_label(ctx, "Saved",
+    .height = 56, .font_size = 14, .align = WLX_CENTER,
+    .texture = check_icon,
+    .image_placement = WLX_IMAGE_PLACEMENT_TOP,
+    .image_size = 24, .image_text_gap = 6
+);
+```
+
+Text + image with `RIGHT` and `BOTTOM` placement:
+
+```c
+wlx_label(ctx, "Reminder",
+    .height = 32, .font_size = 16, .align = WLX_CENTER,
+    .texture = info_icon,
+    .image_placement = WLX_IMAGE_PLACEMENT_RIGHT,
+    .image_size = 20
+);
+
+wlx_label(ctx, "Saved",
+    .height = 56, .font_size = 14, .align = WLX_CENTER,
+    .texture = check_icon,
+    .image_placement = WLX_IMAGE_PLACEMENT_BOTTOM,
+    .image_size = 24, .image_text_gap = 6
+);
+```
+
+Image-only label (edge case — prefer `wlx_image` for non-interactive image
+rendering):
+
+```c
+wlx_label(ctx, "",
+    .texture = check_icon, .image_size = 32, .align = WLX_CENTER
+);
+```
+
+Tinted icon, fades with the opacity stack:
+
+```c
+wlx_push_opacity(ctx, 0.5f);
+    wlx_label(ctx, "Saved",
+        .texture = check_icon,
+        .texture_tint = (WLX_Color){200, 220, 255, 255},
+        .image_size = 24, .font_size = 14, .align = WLX_CENTER);
+wlx_pop_opacity(ctx);
+```
+
+Label with a left content inset (chrome stays at full width):
+
+```c
+wlx_label(ctx, "padded heading",
+    .height = 32, .font_size = 18, .align = WLX_LEFT,
+    .show_background = true,
+    .back_color = (WLX_Color){40, 60, 90, 255},
+    .content_padding_left = 32);
+```
+
 ---
 
 ## `wlx_button`
 
 Clickable button. Returns `true` on the frame the user clicks (press then
 release while hovering) or activates via keyboard (Space/Enter when hovered).
+Supports three content modes through the same call: text-only, image-only,
+and image + text.
 
 ### Signature
 
@@ -176,19 +436,64 @@ if (wlx_button(ctx, "Click me")) {
 }
 ```
 
+### Content modes
+
+| Mode | Trigger |
+|------|---------|
+| Text-only | `text` is non-empty, no `texture` (or `texture.width <= 0`) |
+| Image-only | `texture.width > 0`, `text` is `""` (or `NULL`) |
+| Image + text | both `texture` valid and `text` non-empty |
+
+Mode is selected purely by the inputs — there is no separate `wlx_image_button`
+function or option struct.
+
 ### Widget-specific options
 
-No widget-specific options beyond the shared fields.
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `texture` | `WLX_Texture` | zero handle | Optional image content. `width <= 0` or `height <= 0` means no image. |
+| `texture_src` | `WLX_Rect` | `{0}` | Source sub-rect. `w <= 0` or `h <= 0` means full texture. |
+| `texture_scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_FIT` | How the texture fits its image rect (same modes as `wlx_image`). |
+| `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`. The alpha is multiplied by the opacity stack. |
+| `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Where the image sits relative to text (`LEFT`, `RIGHT`, `TOP`, `BOTTOM`). |
+| `image_size` | `float` | `0` | Reserved square size for the image. `<= 0` is automatic: derived from `font_size` for image+text, or full button rect for image-only. |
+| `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
+| `content_padding` | `float` | `-1` | See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. See [Content padding](#content-padding-wlx_content_padding_fields). |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
-All shared placement, sizing, typography, color, and border fields apply.
+Shared placement, sizing, typography, color, and border fields also apply.
 The button always draws a filled `back_color` rectangle — hover brightens it
 automatically using the theme's `hover_brightness`. Button captions use the
 same fitted line/run layout as `wlx_label`, so centered or wrapped captions
 align per visible line.
 
+`content_padding*` insets only the content (text + image) rect; chrome and
+hit rect stay at the full button rect, so the full clickable area is
+preserved. See [Content padding](#content-padding-wlx_content_padding_fields)
+in the shared section for full resolution rules.
+
+### Content rules
+
+- **Empty texture + non-empty text** → behaves exactly like a text-only
+  button (no texture draw is emitted).
+- **Empty texture + empty text** → only the chrome is drawn; the button still
+  returns the click contract.
+- **`align` vs. `image_placement`** are independent:
+  `image_placement` controls *which side* of the text the image sits on (image
+  is always on the LEFT/RIGHT/TOP/BOTTOM of the text within the combined block);
+  `align` then positions the *combined block* inside the button rect for
+  image+text mode, or the image rect itself for image-only mode when
+  `image_size > 0`.
+- The texture is always centered inside its reserved image rect; hover
+  feedback applies to the chrome background only — texture tint is not
+  modulated by hover.
+
 ### Common overrides
 
-Centered fixed-size button with custom color:
+Text-only button with custom color:
 
 ```c
 if (wlx_button(ctx, "Submit",
@@ -202,21 +507,97 @@ if (wlx_button(ctx, "Submit",
 }
 ```
 
-Full-width button in a vertical layout:
+Image-only icon button (full button rect as image target):
 
 ```c
-if (wlx_button(ctx, "Save", .font_size = 18, .height = 40, .align = WLX_CENTER)) {
+if (wlx_button(ctx, "",
+    .width = 48, .height = 48,
+    .texture = save_icon, .align = WLX_CENTER
+)) {
     save_data();
 }
+```
+
+Image-only with explicit square size, anchored via `align`:
+
+```c
+if (wlx_button(ctx, "",
+    .height = 48,
+    .texture = save_icon, .image_size = 32, .align = WLX_CENTER
+)) {
+    save_data();
+}
+```
+
+Image + text with default LEFT placement:
+
+```c
+if (wlx_button(ctx, "Save",
+    .height = 40, .font_size = 18, .align = WLX_CENTER,
+    .texture = save_icon
+)) {
+    save_data();
+}
+```
+
+Image + text with image stacked on top:
+
+```c
+if (wlx_button(ctx, "Save",
+    .height = 64, .font_size = 14, .align = WLX_CENTER,
+    .texture = save_icon,
+    .image_placement = WLX_IMAGE_PLACEMENT_TOP,
+    .image_size = 28, .image_text_gap = 6
+)) {
+    save_data();
+}
+```
+
+Tinted icon, fades with the opacity stack:
+
+```c
+wlx_push_opacity(ctx, 0.5f);
+    wlx_button(ctx, "",
+        .texture = save_icon,
+        .texture_tint = (WLX_Color){200, 220, 255, 255},
+        .image_size = 32, .align = WLX_CENTER);
+wlx_pop_opacity(ctx);
+```
+
+Button with uniform content padding:
+
+```c
+wlx_button(ctx, "Save",
+    .height = 56, .font_size = 18, .align = WLX_CENTER,
+    .content_padding = 12);
+```
+
+Asymmetric padding for a wide-padded label:
+
+```c
+wlx_button(ctx, "Confirm",
+    .height = 48, .font_size = 16, .align = WLX_CENTER,
+    .content_padding_top = 6, .content_padding_bottom = 6,
+    .content_padding_left = 20, .content_padding_right = 20);
+```
+
+Opt into the theme's `padding` knob (e.g. when a custom theme sets a
+consistent inset across all buttons):
+
+```c
+wlx_button(ctx, "Continue",
+    .height = 44, .font_size = 16, .align = WLX_CENTER,
+    .content_padding = WLX_PADDING_USE_THEME);
 ```
 
 ---
 
 ## `wlx_checkbox`
 
-Toggle checkbox with a text label. Draws a square indicator beside the label,
-or uses textures when `tex_checked` / `tex_unchecked` are provided. Returns
-`true` on the frame the checked state changes.
+Toggle checkbox with a text label. Draws a square indicator beside the label
+(native mode), or replaces the indicator with a texture per state when both
+`tex_checked` and `tex_unchecked` are provided (texture mode). Returns `true`
+on the frame the checked state changes.
 
 ### Signature
 
@@ -248,18 +629,52 @@ if (wlx_checkbox(ctx, "Dark mode", &dark_mode)) {
 | `border_width` | `float` | `-1` | Indicator border width. `-1` = theme `checkbox.border_width` |
 | `roundness` | `float` | `-1` | Indicator corner roundness. `-1` = theme default |
 | `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
-| `check_color` | `WLX_Color` | `{0}` | Color of the check mark. `{0}` = theme `checkbox.check` |
+| `check_color` | `WLX_Color` | `{0}` | Checkmark color (native mode only). `{0}` = theme `checkbox.check` |
 | `tex_checked` | `WLX_Texture` | zero handle | Texture used for the checked state |
 | `tex_unchecked` | `WLX_Texture` | zero handle | Texture used for the unchecked state |
+| `tex_checked_src` | `WLX_Rect` | `{0}` | Source rect within `tex_checked`. `{0}` = full texture |
+| `tex_unchecked_src` | `WLX_Rect` | `{0}` | Source rect within `tex_unchecked`. `{0}` = full texture |
+| `tex_checked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_checked`. `{0}` = `WLX_WHITE` |
+| `tex_unchecked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_unchecked`. `{0}` = `WLX_WHITE` |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the compound content (indicator + label). See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 All shared placement, sizing, typography, and color fields also apply.
 Default `wrap` is `false` for checkbox. `.back_color` fills the indicator in
-native mode and tints the texture in texture mode; there is no separate
-row-background toggle.
+native mode only; it is not used in texture mode.
+
+`content_padding*` insets the compound content rect (indicator glyph + label
+together) before alignment. The hit rect honours `full_slot_hit`: when
+`true` (the default) clicks still register anywhere in the slot rect; when
+`false` the hit rect tracks the inset alignment rect.
+
+### Texture mode
+
+Texture mode activates only when **both** `tex_checked` and `tex_unchecked`
+are drawable. If either is missing, the widget falls back to native rendering
+for both states; this avoids half-configured checkboxes where one state
+silently disappears.
+
+When active, texture mode follows the same contract as `wlx_label`,
+`wlx_button`, and `wlx_image`:
+
+- An unset source rect (`w <= 0 || h <= 0`) resolves to the full selected
+  texture.
+- An unset tint (`{0}`) resolves to `WLX_WHITE`.
+- Texture tints participate in opacity resolution alongside other resolved
+  colors.
+- Hover brightness does **not** modulate texture tint. Hover feedback
+  remains a native-mode concern; texture tint is caller-controlled.
+- `check_color` only affects native rendering and is ignored in texture mode.
+- No native chrome (background, border, checkmark) is drawn while texture
+  mode is active — the texture is the full replacement.
 
 ### Common overrides
 
-Styled checkbox with custom font size:
+Styled checkbox with custom font size (native mode):
 
 ```c
 if (wlx_checkbox(ctx, "Enable notifications", &notify_enabled,
@@ -270,17 +685,37 @@ if (wlx_checkbox(ctx, "Enable notifications", &notify_enabled,
 }
 ```
 
-Texture-backed checkbox using the same API:
+Texture-backed checkbox with two separate per-state textures (default white
+tint draws the textures at their authored colors):
 
 ```c
 if (wlx_checkbox(ctx, "Favorite", &favorited,
     .tex_checked   = star_filled_tex,
-    .tex_unchecked = star_empty_tex,
-    .back_color = (WLX_Color){255, 255, 255, 255}
+    .tex_unchecked = star_empty_tex
 )) {
     printf("Favorited: %s\n", favorited ? "yes" : "no");
 }
 ```
+
+Shared atlas using per-state source rects and semantic tints (one texture,
+two cells, two roles):
+
+```c
+WLX_Rect src_unchecked = (WLX_Rect){ 0, 0, 64, 64};
+WLX_Rect src_checked   = (WLX_Rect){64, 0, 64, 64};
+
+wlx_checkbox(ctx, "Sync over cellular", &sync_enabled,
+    .tex_checked        = icon_atlas,
+    .tex_unchecked      = icon_atlas,
+    .tex_checked_src    = src_checked,
+    .tex_unchecked_src  = src_unchecked,
+    .tex_checked_tint   = semantic.color_accent,
+    .tex_unchecked_tint = semantic.color_border_strong);
+```
+
+Texture mode shares the source-rect and tint contract with
+[`wlx_label`](#wlx_label), [`wlx_button`](#wlx_button), and
+[`wlx_image`](#wlx_image).
 
 Use `wlx_checkbox(..., .tex_checked = ..., .tex_unchecked = ...)` instead of
 the removed `wlx_checkbox_tex` compatibility macro.
@@ -324,7 +759,11 @@ if (wlx_inputbox(ctx, "Name:", name, sizeof(name), .height = 40)) {
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `content_padding` | `float` | `10` | Horizontal padding inside the text editing area |
+| `content_padding` | `float` | `10` | Outer gutter inset. See [Content padding](#content-padding-wlx_content_padding_fields). Default `10` applies to all sides. |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 | `border_color` | `WLX_Color` | `{0}` | Border color in unfocused state. `{0}` = theme `border` |
 | `border_width` | `float` | `-1` | Border width. `-1` = theme `input.border_width`, then theme `border_width` |
 | `roundness` | `float` | `-1` | Corner roundness. `-1` = theme default |
@@ -336,6 +775,15 @@ All shared placement, sizing, typography, and color fields also apply.
 Default `wrap` is `true` for inputbox, so long buffers display over multiple
 visual lines inside the widget and cursor placement stays aligned with that
 wrapped rendering.
+
+`content_padding*` controls the outer gutter: it positions the label area,
+the input rect, and the vertical centering of content. The text cursor rect
+*inside* the editing box is additionally inset by the fixed constant
+`WLX_INPUTBOX_TEXT_INSET` (5 px) on the x-axis only. With the default
+`content_padding = 10` this preserves the pre-migration visual exactly
+(`10 / 2 = 5`). The text inset is intentionally fixed — callers that need
+asymmetric gutters should use `content_padding_left` / `content_padding_right`
+to shift the input rect, not the internal text offset.
 
 ### Common overrides
 
@@ -397,8 +845,9 @@ if (wlx_slider(ctx, "Volume", &volume,
 
 ### Widget-specific options
 
-Slider has its own typography and color fields (not the shared
-`WLX_TEXT_COLOR_FIELDS` / `WLX_TEXT_TYPOGRAPHY_FIELDS`).
+Slider shares `WLX_TEXT_TYPOGRAPHY_FIELDS` (`font`, `font_size`, `align`, `spacing`) but has its own
+color field (`label_color`) instead of the shared `WLX_TEXT_COLOR_FIELDS` (`front_color` / `back_color`).
+It also omits `wrap` — all slider text is single-line.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -421,8 +870,17 @@ Slider has its own typography and color fields (not the shared
 | `fill_inactive_brightness` | `float` | `-0.3` | Brightness offset for the filled portion of the track |
 | `min_value` | `float` | `0.0` | Minimum slider value |
 | `max_value` | `float` | `1.0` | Maximum slider value |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the label / track / value region. See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 Shared placement and sizing fields also apply.
+
+`content_padding*` insets the label, track, thumb, and value text together.
+The drag hit-rect tracks the inset track region, so a padded slider stays
+interactive only inside the inset.
 
 ### Common overrides
 
@@ -524,8 +982,17 @@ wlx_progress(ctx, download_progress,
 | `track_color` | `WLX_Color` | `{0}` | Track color. `{0}` = theme `progress.track`, then `slider.track` |
 | `fill_color` | `WLX_Color` | `{0}` | Fill color. `{0}` = theme `progress.fill`, then `accent` |
 | `track_height` | `float` | `0` | Centered track height. `0` = theme/default progress height |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the track rect. See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 Shared placement, sizing, and border fields also apply.
+
+`content_padding*` insets the track rect. The rendered track height is
+additionally clamped to the inset height so a tall `track_height` cannot
+overflow into the padding.
 
 ### Common overrides
 
@@ -586,10 +1053,18 @@ if (wlx_toggle(ctx, "Autosave", &autosave, .height = 34)) {
 | `track_active_color` | `WLX_Color` | `{0}` | On-state track color. `{0}` = theme `toggle.track_active`, then `accent` |
 | `thumb_color` | `WLX_Color` | `{0}` | Thumb color. `{0}` = theme `toggle.thumb`, then `foreground` |
 | `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness override. Unset = theme `hover_brightness` |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the compound content (track + label). See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 Shared placement, sizing, typography, text-color, and border fields also
 apply. Default `wrap` is `false`. `front_color` styles the label text;
 `back_color` is currently unused by this widget.
+
+`content_padding*` insets the compound content rect (track + label) before
+alignment. The click/hover hit rect stays at the full slot rect.
 
 ### Common overrides
 
@@ -651,10 +1126,18 @@ wlx_radio(ctx, "Glass", &theme_choice, 2);
 | `fill_color` | `WLX_Color` | `{0}` | Selected fill color. `{0}` = theme `radio.fill`, then `accent` |
 | `ring_border_width` | `float` | `-1` | Ring outline width. `-1` = theme `radio.border_width`, then theme `border_width` |
 | `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness override. Unset = theme `hover_brightness` |
+| `content_padding` | `float` | `-1` | Uniform inner inset around the compound content (ring + label). See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `-1` | Top-side override. |
+| `content_padding_right` | `float` | `-1` | Right-side override. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
+| `content_padding_left` | `float` | `-1` | Left-side override. |
 
 Shared placement, sizing, typography, and text-color fields also apply.
 Default `wrap` is `false`. `front_color` styles the label text; `back_color`
 is currently unused by this widget.
+
+`content_padding*` insets the compound content rect (ring + label) before
+alignment. The click/hover hit rect stays at the full slot rect.
 
 ### Common overrides
 
@@ -816,11 +1299,11 @@ wlx_split_end(ctx);
 | `first_size` | `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | Width of the first (left) pane |
 | `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width of the second (right) pane |
 | `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Outer wrapper slot size |
-| `padding` | `float` | `4` | Uniform padding for the split container |
-| `padding_top` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
-| `padding_right` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
-| `padding_bottom` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
-| `padding_left` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
+| `content_padding` | `float` | `4` | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 | `gap` | `float` | `0` | Space between the two panes |
 | `first_back_color` | `WLX_Color` | `{0}` | First pane background. `{0}` = theme default |
 | `second_back_color` | `WLX_Color` | `{0}` | Second pane background. `{0}` = theme default |
@@ -936,11 +1419,11 @@ wlx_panel_end(ctx);
 | `border_width` | `float` | `0` | Border thickness in pixels. `0` = no border |
 | `roundness` | `float` | `0` | Corner roundness for border/background. `0` = sharp |
 | `clip` | `bool` | `false` | Clip body content to panel bounds |
-| `padding` | `float` | `2` | Inner layout padding |
-| `padding_top` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
-| `padding_right` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
-| `padding_bottom` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
-| `padding_left` | `float` | `-1` | Per-side override. `-1` = inherit `padding` |
+| `content_padding` | `float` | `2` | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |
+| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
 | `gap` | `float` | `0` | Gap between child widgets |
 | `capacity` | `int` | `32` | Max child widgets (excl. title). Clamped to `WLX_CONTENT_SLOTS_MAX` (32). |
 | `id` | `const char *` | `NULL` | Scope ID applied to the full panel body |
@@ -964,7 +1447,7 @@ wlx_split_next(ctx);
     wlx_panel_begin(ctx, .title = "Content",
         .title_font_size = 26, .title_height = 48,
         .title_back_color = (WLX_Color){34, 24, 50, 255},
-        .padding = 0);
+        .content_padding = 0);
         wlx_label(ctx, "Hello world", .font_size = 16, .height = 30);
     wlx_panel_end(ctx);
 
@@ -1023,6 +1506,120 @@ wlx_widget(ctx,
     .color = (WLX_Color){ 80, 80, 80, 255 }
 );
 ```
+
+---
+
+## `wlx_image`
+
+Displays a `WLX_Texture` inside a layout slot. Supports four scale modes
+(`STRETCH`, `FIT`, `FILL`, `NONE`) and an image-content alignment independent
+of the slot alignment. The tint color's alpha channel is multiplied by the
+active opacity stack, so `wlx_push_opacity` / `wlx_pop_opacity` regions work
+transparently.
+
+### Signature
+
+```c
+void wlx_image(WLX_Context *ctx, WLX_Texture texture, ...options);
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `texture` | A `WLX_Texture` supplied by the host application. Must have `width > 0` and `height > 0`. |
+
+### Minimal example
+
+```c
+wlx_image(ctx, my_texture,
+    .width = 128, .height = 128
+);
+```
+
+### Scale modes
+
+| `WLX_Image_Scale` | Behavior |
+|-------------------|----------|
+| `WLX_IMAGE_SCALE_STRETCH` | Stretches the texture to fill the entire widget rect (default). |
+| `WLX_IMAGE_SCALE_FIT` | Scales uniformly so the image fits entirely within the widget rect, preserving aspect ratio. Letterbox / pillarbox space is transparent. |
+| `WLX_IMAGE_SCALE_FILL` | Crops the source rect so the visible area fills the widget rect completely, preserving aspect ratio. No transparent borders. |
+| `WLX_IMAGE_SCALE_NONE` | Draws the image at its natural source size. Clips to the widget rect if the image is larger. |
+
+### Widget-specific options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_STRETCH` | How the texture is scaled inside the slot (see table above). |
+| `align` | `WLX_Align` | `WLX_CENTER` | Positions the image content within the slot for `FIT` and `NONE`; selects the crop anchor for `FILL`. Has no effect for `STRETCH`. |
+| `tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE` (no tint). The alpha component is multiplied by the opacity stack. |
+| `src` | `WLX_Rect` | `{0}` | Source sub-rect within the texture. `{0}` (or `src.w <= 0`) means the full texture. Use this for spritesheet cells. |
+| `id` | `const char *` | `NULL` | Optional widget ID for persistent state and scoping. |
+
+Shared placement, sizing (`widget_align`, `width`, `height`, etc.), and border
+fields also apply.
+
+> **`widget_align` vs. `align`**: `widget_align` positions the *widget slot*
+> within the parent layout (e.g. center a 100px slot inside a 300px column).
+> `align` positions the *image content* within that widget slot (e.g. pin a
+> natural-size image to the top-left corner of the slot). They are independent.
+
+### Common overrides
+
+Fit a portrait photo inside a landscape card, centered:
+
+```c
+wlx_image(ctx, portrait_photo,
+    .width = 200, .height = 150,
+    .scale = WLX_IMAGE_SCALE_FIT,
+    .align = WLX_CENTER
+);
+```
+
+Fill a thumbnail slot, crop from the left edge:
+
+```c
+wlx_image(ctx, banner_texture,
+    .width = 80, .height = 80,
+    .scale = WLX_IMAGE_SCALE_FILL,
+    .align = WLX_LEFT
+);
+```
+
+Draw a spritesheet cell at natural size, pinned to the top-left:
+
+```c
+wlx_image(ctx, spritesheet,
+    .scale = WLX_IMAGE_SCALE_NONE,
+    .align = WLX_TOP_LEFT,
+    .src   = (WLX_Rect){ 0, 0, 32, 32 }
+);
+```
+
+Semi-transparent icon using tint alpha (also affected by the opacity stack):
+
+```c
+wlx_image(ctx, icon_texture,
+    .width = 32, .height = 32,
+    .tint  = (WLX_Color){ 255, 255, 255, 128 }
+);
+```
+
+### Notes
+
+- **Empty texture**: if `texture.width <= 0` or `texture.height <= 0`, no draw
+  command is emitted and the widget frame still closes cleanly so subsequent
+  widgets in the layout receive the correct slots. Under `-DWLX_DEBUG` an
+  assertion fires to catch unloaded textures early.
+- **Full texture by default**: `src.w <= 0` (including a zero-initialized `src`)
+  means "use the entire texture". Set `src` only when you need a sub-region.
+- **Spritesheet pattern**: combine `scale = WLX_IMAGE_SCALE_NONE` with a `src`
+  cell rect to stamp a fixed-size sprite at its natural pixel size, aligned
+  within the slot.
+- **Opacity stack**: `wlx_push_opacity(ctx, 0.5f)` before `wlx_image` halves
+  the effective alpha of `tint`. This matches the behavior of every other
+  Wollix widget that carries an alpha channel.
+- Texture loading is out of scope. Pass a `Texture2D` from
+  `LoadTexture()` (Raylib), a `SDL_Texture *` from `IMG_LoadTexture()` (SDL3),
+  or the equivalent for your backend. Wollix never performs I/O.
 
 ---
 

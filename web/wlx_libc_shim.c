@@ -181,6 +181,11 @@ float fmodf(float x, float y) {
 FILE _stderr_obj = { 2 };
 FILE *stderr = &_stderr_obj;
 
+int puts(const char *s) {
+    (void)s;
+    return 0;
+}
+
 static int fmt_int(char *buf, size_t remaining, int value) {
     char tmp[16];
     int len = 0;

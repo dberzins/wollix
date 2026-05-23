@@ -55,6 +55,7 @@ extern FILE *stderr;
 
 int snprintf(char *buf, size_t size, const char *fmt, ...);
 int vsnprintf(char *buf, size_t size, const char *fmt, __builtin_va_list ap);
+int puts(const char *s);
 
 // fprintf/printf: no-ops in bare-wasm builds (no fd_write).
 // WLX_TODO/WLX_UNREACHABLE call fprintf then abort — abort still works.

@@ -9,6 +9,10 @@ const WASM_FILE = "gallery.wasm";
 const CANVAS_ID = "wlx-canvas";
 const TARGET_FPS = 60; // 0 = uncapped (tracks monitor refresh rate)
 
+const TINT_CACHE_PIXEL_BUDGET = 8 * 1024 * 1024;
+const TINT_LARGE_TEXTURE_PIXEL_THRESHOLD = 1024 * 1024;
+const TINT_FILTER_PROBE_RGB = 0x7F7F7F;
+
 // ============================================================================
 // WLX_Input_State layout (must match C struct on wasm32)
 // ============================================================================
@@ -78,6 +82,81 @@ function cssColor(rgba) {
     return `rgba(${c.r},${c.g},${c.b},${c.a / 255})`;
 }
 
+function packTintKey(r, g, b) {
+    return (r << 16) | (g << 8) | b;
+}
+
+function buildTintFilterUrl(r, g, b) {
+    const fr = r / 255;
+    const fg = g / 255;
+    const fb = b / 255;
+    const matrix =
+        `${fr} 0 0 0 0 ` +
+        `0 ${fg} 0 0 0 ` +
+        `0 0 ${fb} 0 0 ` +
+        `0 0 0 1 0`;
+    const svg =
+        '<svg xmlns="http://www.w3.org/2000/svg">' +
+          '<filter id="t" color-interpolation-filters="sRGB">' +
+            `<feColorMatrix values="${matrix}"/>` +
+          '</filter>' +
+        '</svg>';
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '#t';
+}
+
+// OffscreenCanvas is missing on Safari < 16.4. Fall back to a detached
+// <canvas> element with the same draw semantics.
+const HAS_OFFSCREEN_CANVAS = typeof OffscreenCanvas !== "undefined";
+
+function createTextureCanvas(width, height) {
+    if (HAS_OFFSCREEN_CANVAS) {
+        return new OffscreenCanvas(width, height);
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+}
+
+// One-shot detection that Canvas2D `ctx.filter` honors an inline SVG
+// `feColorMatrix` reference. Browsers without filter support assign silently
+// and leave pixels untouched; we readback a known-zeroed channel to confirm.
+function probeCtxFilterSupported() {
+    try {
+        const r = (TINT_FILTER_PROBE_RGB >>> 16) & 0xFF;
+        const g = (TINT_FILTER_PROBE_RGB >>>  8) & 0xFF;
+        const b = (TINT_FILTER_PROBE_RGB >>>  0) & 0xFF;
+
+        const src = createTextureCanvas(1, 1);
+        const srcCtx = src.getContext("2d");
+        if (!srcCtx) return false;
+        srcCtx.fillStyle = `rgb(${r},${g},${b})`;
+        srcCtx.fillRect(0, 0, 1, 1);
+
+        const dst = createTextureCanvas(1, 1);
+        const dstCtx = dst.getContext("2d");
+        if (!dstCtx) return false;
+
+        const svg =
+            '<svg xmlns="http://www.w3.org/2000/svg">' +
+              '<filter id="t" color-interpolation-filters="sRGB">' +
+                '<feColorMatrix values="0 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0"/>' +
+              '</filter>' +
+            '</svg>';
+        const url = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '#t';
+
+        dstCtx.save();
+        dstCtx.filter = `url("${url}")`;
+        dstCtx.drawImage(src, 0, 0);
+        dstCtx.restore();
+
+        const px = dstCtx.getImageData(0, 0, 1, 1).data;
+        return px[0] === 0;
+    } catch (_e) {
+        return false;
+    }
+}
+
 // ============================================================================
 // Boot
 // ============================================================================
@@ -107,6 +186,163 @@ function cssColor(rgba) {
     let targetInterval = TARGET_FPS > 0 ? 1000 / TARGET_FPS : 0;
     let lastRenderedTime = 0;
 
+    // Texture registry: maps handle -> { canvas, w, h, variants, bypassed }.
+    // Handle 0 is reserved as invalid so the C side can short-circuit on a
+    // zeroed WLX_Texture.
+    const textures = new Map();
+    let nextTextureHandle = 1;
+    let liveScratchCanvas = null;
+    let liveScratchCtx = null;
+    let tintCachePixels = 0;
+    let tintLruCounter = 0;
+    let tintVariantGenerationCount = 0;
+    let ctxFilterSupported = false;
+
+    // Destination-sized scratch canvas used by the live-tint fallback when
+    // ctx.filter is unavailable. The variant cache owns its own per-texture
+    // canvases and does not consult this helper.
+    function getLiveScratchContext(width, height) {
+        if (!liveScratchCanvas) {
+            liveScratchCanvas = createTextureCanvas(width, height);
+            liveScratchCtx = liveScratchCanvas.getContext("2d");
+        } else if (liveScratchCanvas.width !== width || liveScratchCanvas.height !== height) {
+            liveScratchCanvas.width = width;
+            liveScratchCanvas.height = height;
+        }
+        return liveScratchCtx;
+    }
+
+    // Drain LRU variants across all texture entries until the cache can fit
+    // `neededPixels` within the budget. If a single new variant alone exceeds
+    // the budget the loop runs the cache to empty and exits; the caller is
+    // expected to fall back to a live-draw path in that case.
+    function evictLruIfNeeded(neededPixels) {
+        while (tintCachePixels + neededPixels > TINT_CACHE_PIXEL_BUDGET) {
+            let lruEntry = null;
+            let lruKey = -1;
+            let lruTick = Infinity;
+            for (const entry of textures.values()) {
+                for (const [key, variant] of entry.variants) {
+                    if (variant.lastUsed < lruTick) {
+                        lruTick = variant.lastUsed;
+                        lruEntry = entry;
+                        lruKey = key;
+                    }
+                }
+            }
+            if (lruEntry === null) return;
+            const variant = lruEntry.variants.get(lruKey);
+            lruEntry.variants.delete(lruKey);
+            tintCachePixels -= variant.pixels;
+        }
+    }
+
+    function generateVariantFilter(entry, r, g, b) {
+        try {
+            const destCanvas = createTextureCanvas(entry.w, entry.h);
+            const destCtx = destCanvas.getContext("2d");
+            if (!destCtx) return null;
+
+            const url = buildTintFilterUrl(r, g, b);
+            destCtx.save();
+            destCtx.filter = `url("${url}")`;
+            destCtx.drawImage(entry.canvas, 0, 0);
+            destCtx.restore();
+
+            tintVariantGenerationCount++;
+            return {
+                canvas: destCanvas,
+                lastUsed: ++tintLruCounter,
+                pixels: entry.w * entry.h,
+            };
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    function generateVariantScratch(entry, r, g, b) {
+        const destCanvas = createTextureCanvas(entry.w, entry.h);
+        const destCtx = destCanvas.getContext("2d");
+        if (!destCtx) return null;
+
+        destCtx.globalAlpha = 1;
+        destCtx.globalCompositeOperation = "source-over";
+        destCtx.drawImage(entry.canvas, 0, 0);
+        destCtx.globalCompositeOperation = "multiply";
+        destCtx.fillStyle = `rgb(${r},${g},${b})`;
+        destCtx.fillRect(0, 0, entry.w, entry.h);
+        destCtx.globalCompositeOperation = "destination-in";
+        destCtx.drawImage(entry.canvas, 0, 0);
+        destCtx.globalCompositeOperation = "source-over";
+
+        tintVariantGenerationCount++;
+        return {
+            canvas: destCanvas,
+            lastUsed: ++tintLruCounter,
+            pixels: entry.w * entry.h,
+        };
+    }
+
+    function ensureTintVariant(entry, r, g, b) {
+        const key = packTintKey(r, g, b);
+        const existing = entry.variants.get(key);
+        if (existing) {
+            existing.lastUsed = ++tintLruCounter;
+            return existing;
+        }
+        const needed = entry.w * entry.h;
+        evictLruIfNeeded(needed);
+        // Drained but still can't fit (e.g. TINT_CACHE_PIXEL_BUDGET=0 rollback
+        // config): signal the caller to take a live-draw path.
+        if (tintCachePixels + needed > TINT_CACHE_PIXEL_BUDGET) {
+            return null;
+        }
+        let variant = null;
+        if (ctxFilterSupported) {
+            variant = generateVariantFilter(entry, r, g, b);
+        }
+        if (!variant) {
+            variant = generateVariantScratch(entry, r, g, b);
+        }
+        if (!variant) return null;
+        entry.variants.set(key, variant);
+        tintCachePixels += variant.pixels;
+        return variant;
+    }
+
+    // Tint live every draw. Used by the large-texture bypass and by callers
+    // whose variant could not be cached. Caller is responsible for managing
+    // ctx.globalAlpha around the call.
+    function drawTextureLive(entry, r, g, b, sx, sy, sw, sh, dx, dy, dw, dh) {
+        if (ctxFilterSupported) {
+            const url = buildTintFilterUrl(r, g, b);
+            ctx.save();
+            ctx.filter = `url("${url}")`;
+            ctx.drawImage(entry.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+            ctx.restore();
+            return;
+        }
+        const tw = Math.max(1, Math.ceil(Math.abs(dw)));
+        const th = Math.max(1, Math.ceil(Math.abs(dh)));
+        const tctx = getLiveScratchContext(tw, th);
+        if (!tctx) {
+            ctx.drawImage(entry.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+            return;
+        }
+        tctx.clearRect(0, 0, tw, th);
+        tctx.globalAlpha = 1;
+        tctx.globalCompositeOperation = "source-over";
+        tctx.drawImage(entry.canvas, sx, sy, sw, sh, 0, 0, tw, th);
+        tctx.globalCompositeOperation = "multiply";
+        tctx.fillStyle = `rgb(${r},${g},${b})`;
+        tctx.fillRect(0, 0, tw, th);
+        tctx.globalCompositeOperation = "destination-in";
+        tctx.drawImage(entry.canvas, sx, sy, sw, sh, 0, 0, tw, th);
+        tctx.globalCompositeOperation = "source-over";
+
+        ctx.drawImage(liveScratchCanvas, 0, 0, tw, th, dx, dy, dw, dh);
+    }
+
     // ========================================================================
     // Read a NUL-terminated C string from wasm memory
     // ========================================================================
@@ -125,7 +361,8 @@ function cssColor(rgba) {
     let scissorActive = false;
 
     // ========================================================================
-    // "wlx" module imports — 10 rendering callbacks
+    // "wlx" module imports — rendering callbacks, texture registry,
+    // scissor stack, and frame-time accessor.
     // ========================================================================
     const wlxImports = {
         draw_rect(x, y, w, h, rgba) {
@@ -234,9 +471,71 @@ function cssColor(rgba) {
             f32[hIdx] = fontSize > 0 ? fontSize : 16;
         },
 
-        draw_texture(_handle, _sx, _sy, _sw, _sh,
-                     _dx, _dy, _dw, _dh, _tint) {
-            // Texture support is a stub for now
+        create_texture(rgbaPtr, width, height) {
+            if (rgbaPtr === 0 || width <= 0 || height <= 0) return 0;
+            const byteCount = width * height * 4;
+            const bufLen = memory.buffer.byteLength;
+            if (rgbaPtr < 0 || rgbaPtr + byteCount > bufLen) return 0;
+
+            // slice() copies the bytes so the registry never references
+            // memory.buffer (which detaches when WASM memory grows).
+            const src = new Uint8Array(memory.buffer, rgbaPtr, byteCount);
+            const pixels = new Uint8ClampedArray(byteCount);
+            pixels.set(src);
+
+            const imgData = new ImageData(pixels, width, height);
+            const canvas = createTextureCanvas(width, height);
+            const tctx = canvas.getContext("2d");
+            if (!tctx) return 0;
+            tctx.putImageData(imgData, 0, 0);
+
+            const handle = nextTextureHandle++;
+            textures.set(handle, {
+                canvas,
+                w: width,
+                h: height,
+                variants: new Map(),
+                bypassed: width * height > TINT_LARGE_TEXTURE_PIXEL_THRESHOLD,
+            });
+            return handle;
+        },
+
+        destroy_texture(handle) {
+            if (handle === 0) return;
+            const entry = textures.get(handle);
+            if (!entry) return;
+            for (const variant of entry.variants.values()) {
+                tintCachePixels -= variant.pixels;
+            }
+            textures.delete(handle);
+        },
+
+        // Non-white RGB tints are fully supported by this backend; do not
+        // reintroduce a per-session warning here for non-white tints.
+        draw_texture(handle, sx, sy, sw, sh, dx, dy, dw, dh, tint) {
+            const entry = textures.get(handle);
+            if (!entry) return;
+            if (sw <= 0 || sh <= 0 || dw === 0 || dh === 0) return;
+            const { r, g, b, a } = unpackColor(tint);
+            if (a === 0) return;
+
+            const prevAlpha = ctx.globalAlpha;
+            ctx.globalAlpha = a / 255;
+
+            if (r === 255 && g === 255 && b === 255) {
+                ctx.drawImage(entry.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+            } else if (entry.bypassed) {
+                drawTextureLive(entry, r, g, b, sx, sy, sw, sh, dx, dy, dw, dh);
+            } else {
+                const variant = ensureTintVariant(entry, r, g, b);
+                if (variant) {
+                    ctx.drawImage(variant.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+                } else {
+                    drawTextureLive(entry, r, g, b, sx, sy, sw, sh, dx, dy, dw, dh);
+                }
+            }
+
+            ctx.globalAlpha = prevAlpha;
         },
 
         begin_scissor(x, y, w, h) {
@@ -269,6 +568,12 @@ function cssColor(rgba) {
     const envImports = {
         abort() {
             throw new Error("wasm abort");
+        },
+
+        puts(strPtr) {
+            if (strPtr === 0) return 0;
+            console.log(readCString(strPtr));
+            return 0;
         },
 
         roundf(x) {
@@ -332,6 +637,135 @@ function cssColor(rgba) {
         inputPtr = inputStateExport.value;
     } else {
         throw new Error("wollix_wasm.js: missing input state export");
+    }
+
+    ctxFilterSupported = probeCtxFilterSupported();
+
+    const queryParams = new URLSearchParams(window.location.search);
+
+    // Debug-only hooks. Enabled by appending `?wlx_debug=1` to the page URL.
+    // wlx_debug_force_bypass(handle, on) flips the per-texture bypass flag so
+    // a cached-path texture can be rendered via the live-tint path for
+    // side-by-side inspection.
+    if (queryParams.get("wlx_debug") === "1") {
+        window.wlx_debug_force_bypass = (handle, on) => {
+            const entry = textures.get(handle);
+            if (!entry) return false;
+            entry.bypassed = !!on;
+            return true;
+        };
+        console.log(
+            "[wollix] debug hooks: wlx_debug_force_bypass(handle, on); " +
+            "ctxFilterSupported=" + ctxFilterSupported
+        );
+    }
+
+    // Validation harness hooks. Enabled by `?wlx_tint_tests=1`. Exposes the
+    // production import functions plus minimal read-only accessors so the
+    // harness can drive scenarios without re-implementing imports. The harness
+    // module is fetched only when the flag is set.
+    if (queryParams.get("wlx_tint_tests") === "1") {
+        window.__wlx_test_hooks__ = {
+            TINT_CACHE_PIXEL_BUDGET,
+            TINT_LARGE_TEXTURE_PIXEL_THRESHOLD,
+
+            destroy_texture: wlxImports.destroy_texture,
+            draw_texture: wlxImports.draw_texture,
+
+            createTextureFromPixels(pixelBytes, w, h) {
+                const imgData = new ImageData(
+                    new Uint8ClampedArray(pixelBytes), w, h
+                );
+                const tcanvas = createTextureCanvas(w, h);
+                const tctx = tcanvas.getContext("2d");
+                if (!tctx) return 0;
+                tctx.putImageData(imgData, 0, 0);
+                const handle = nextTextureHandle++;
+                textures.set(handle, {
+                    canvas: tcanvas,
+                    w, h,
+                    variants: new Map(),
+                    bypassed: w * h > TINT_LARGE_TEXTURE_PIXEL_THRESHOLD,
+                });
+                return handle;
+            },
+
+            getMainCtx() { return ctx; },
+
+            getState() {
+                return {
+                    ctxFilterSupported,
+                    tintCachePixels,
+                    tintLruCounter,
+                    tintVariantGenerationCount,
+                    textureCount: textures.size,
+                };
+            },
+
+            getTextureEntry(handle) {
+                const e = textures.get(handle);
+                if (!e) return null;
+                const variants = [];
+                for (const [key, v] of e.variants) {
+                    variants.push({
+                        key,
+                        lastUsed: v.lastUsed,
+                        pixels: v.pixels,
+                    });
+                }
+                return {
+                    w: e.w, h: e.h,
+                    bypassed: e.bypassed,
+                    variantCount: e.variants.size,
+                    variants,
+                };
+            },
+
+            getVariantImageData(handle, key) {
+                const e = textures.get(handle);
+                if (!e) return null;
+                const v = e.variants.get(key);
+                if (!v) return null;
+                const vctx = v.canvas.getContext("2d");
+                if (!vctx) return null;
+                return vctx.getImageData(0, 0, e.w, e.h);
+            },
+
+            generateVariantFilterDirect(handle, r, g, b) {
+                const e = textures.get(handle);
+                if (!e) return null;
+                return generateVariantFilter(e, r, g, b);
+            },
+
+            generateVariantScratchDirect(handle, r, g, b) {
+                const e = textures.get(handle);
+                if (!e) return null;
+                return generateVariantScratch(e, r, g, b);
+            },
+
+            evictLruIfNeeded,
+            packTintKey,
+
+            clearAllVariants() {
+                for (const e of textures.values()) {
+                    for (const v of e.variants.values()) {
+                        tintCachePixels -= v.pixels;
+                    }
+                    e.variants.clear();
+                }
+            },
+            setCtxFilterSupported(value) {
+                ctxFilterSupported = !!value;
+            },
+            resetVariantGenerationCount() {
+                tintVariantGenerationCount = 0;
+            },
+            getProbedCtxFilterSupported() {
+                return probeCtxFilterSupported();
+            },
+        };
+        import("./wollix_wasm_tint_tests.js")
+            .catch(err => console.error("[wollix] tint tests load failed:", err));
     }
 
     wasmInit();

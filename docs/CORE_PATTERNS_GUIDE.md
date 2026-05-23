@@ -38,10 +38,11 @@ WLX_Widget_Frame frame = wlx_widget_frame_begin(
     ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
 WLX_Rect wr = frame.rect;
 
-WLX_Interaction inter = wlx_get_interaction(
+WLX_Interaction inter = wlx_get_interaction_for(
     ctx,
     wr,
     WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD,
+    false,  // pass opt.disabled for widgets that carry WLX_WIDGET_STATE_FIELDS
     file, line
 );
 
@@ -65,8 +66,8 @@ wlx_widget_frame_end(ctx, frame);
 - Selects the slot rect, opens the command range, draws the container
   background, resolves padding, captures viewport dimensions for
   `WLX_SIZE_FILL` resolution.
-- Returns `frame.pushed_scope_id`; each begin impl copies it into
-  `l.pushed_scope_id` so `wlx_layout_frame_end` can pop the id at end.
+- Returns `frame.pushed_scope`; each begin impl copies it into
+  `l.pushed_scope` so `wlx_layout_frame_end` can pop the id at end.
 
 **Canonical example:** `wlx_layout_begin_impl()`.
 
@@ -78,7 +79,7 @@ WLX_Layout l = wlx_create_layout(ctx, frame.rect, count, orient, opt.gap);
 wlx_layout_apply_common(&l, WLX_LAYOUT_COMMON_OPT(opt), frame);
 l.viewport = (orient == WLX_HORZ) ? frame.viewport_horz : frame.viewport_vert;
 // ... CONTENT pre-resolution, slot offsets ...
-l.pushed_scope_id = frame.pushed_scope_id;
+l.pushed_scope = frame.pushed_scope;
 wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
 ```
 
@@ -115,7 +116,7 @@ wlx_scroll_panel_frame_end(ctx, state_sp);  // pops id if pushed
 - Calling `wlx_push_id()` / `wlx_pop_id()` manually inside a begin or end impl
   instead of delegating to the frame helper.
 - Returning early from a begin impl on a path that skips copying
-  `frame.pushed_scope_id` into the layout record, which would leave the id
+  `frame.pushed_scope` into the layout record, which would leave the id
   stack unbalanced.
 
 ---
@@ -124,14 +125,15 @@ wlx_scroll_panel_frame_end(ctx, state_sp);  // pops id if pushed
 
 **Where it lives:** `wlx_resolve_opt_*()` helpers, plus
 `wlx_resolve_typography()`, `wlx_resolve_border()`,
-`wlx_resolve_opacity_for()`, and `WLX_APPLY_OPACITY(...)` in `wollix.h`.
+`WLX_RESOLVE_VISUAL_STATE(...)`, `WLX_APPLY_DISABLED(...)`, and
+`WLX_APPLY_OPACITY(...)` in `wollix.h`.
 
 **What it does:**
 
 - Resolves `{0}` colors from the theme first.
 - Resolves shared typography and border fields through the common helpers.
-- Resolves inherited opacity from the context once.
-- Applies the resolved opacity to every widget color before the draw body runs.
+- Calls `WLX_RESOLVE_VISUAL_STATE` to handle opacity resolution, disabled-state
+  color/brightness shifts, and opacity premultiplication in one step.
 
 **Canonical example:** `wlx_resolve_opt_label()`.
 
@@ -140,16 +142,27 @@ if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
 if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
 wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
 wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color);
+WLX_RESOLVE_VISUAL_STATE(ctx, opt, false,
+    &opt->front_color, &opt->back_color, &opt->border_color);
 ```
+
+`WLX_RESOLVE_VISUAL_STATE(ctx, opt_ptr, disabled, ...)` expands to three steps:
+1. `wlx_resolve_opacity_for(ctx, opt->opacity)` -- context + theme opacity
+2. `WLX_APPLY_DISABLED(theme, disabled, &opt->opacity, ...)` -- shift colors by
+   `disabled_brightness` and scale opacity by `disabled_opacity` when true
+3. `WLX_APPLY_OPACITY(opt->opacity, ...)` -- premultiply into every color alpha
+
+Pass `disabled = opt.disabled` for interactive widgets; `false` for decoration.
 
 **Anti-pattern to avoid:**
 
 - Repeating theme fallback lists in the widget draw body.
 - Applying opacity before border/color resolution is complete.
-- Leaving one color field out of `WLX_APPLY_OPACITY(...)` so fill and border do
-  not share the same alpha contract.
+- Calling the old two-step `wlx_resolve_opacity_for` + `WLX_APPLY_OPACITY`
+  directly in new code; use `WLX_RESOLVE_VISUAL_STATE` instead so the
+  disabled treatment is never accidentally omitted.
+- Leaving one color field out of `WLX_RESOLVE_VISUAL_STATE(...)` so fill and
+  border do not share the same alpha and disabled treatment.
 
 Widget-specific pre-processing is still allowed before the shared helpers run.
 Keep the special case explicit, then rejoin the common pipeline.

@@ -18,6 +18,9 @@ library features. Build all demos with `./build.sh` or compile one directly
 | [slider.c](slider.c) | Volume, brightness, RGB, and speed sliders with colored thumbs and a live color preview |
 | [border_demo.c](border_demo.c) | Border system showcase covering labels, buttons, widgets, checkboxes, input boxes, sliders, and scroll panels |
 | [scroll_panel.c](scroll_panel.c) | Scrollable list of 30 items using auto content height (`-1`), custom scrollbar colors |
+| [image.c](image.c) | `wlx_image` scale modes (STRETCH/FIT/FILL/NONE), alignment anchors, and opacity-stack folding with procedurally-generated textures |
+| [button_image.c](button_image.c) | Image-capable `wlx_button`: text-only, image-only, and image+text modes; four placements (LEFT/RIGHT/TOP/BOTTOM) and four scale modes |
+| [label_image.c](label_image.c) | Image-capable `wlx_label`: four placements and four scale modes; documents the image-only label edge case |
 
 ## Layout demos
 
@@ -44,6 +47,7 @@ library features. Build all demos with `./build.sh` or compile one directly
 | [font_demo.c](font_demo.c) | Loading TTF fonts (DejaVu Sans, Mono, Bold), per-widget and theme-level font assignment |
 | [theme_demo.c](theme_demo.c) | Runtime theme builder with built-in presets, editable custom theme fields, and live widget previews |
 | [sdl3_demo.c](sdl3_demo.c) | SDL3 backend — same widgets (button, checkbox, slider) rendered via `wollix_sdl3.h` instead of Raylib |
+| [disabled_demo.c](disabled_demo.c) | Enabled vs disabled side-by-side for all interactive widgets; switch dark/light/glass preset via radio group at the top |
 
 ---
 

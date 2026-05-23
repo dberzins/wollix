@@ -31,7 +31,7 @@ Wollix uses several unset/default patterns depending on the field type and API:
 ### 1. `-1` for fields where negative is never valid
 
 Used for: `border_width`, `roundness`, `scrollbar_width`, `rounded_segments`,
-`width`, `height`, `opacity`, `padding` (panel/split), `ring_border_width`
+`width`, `height`, `opacity`, `content_padding` (all widgets), `ring_border_width`
 (radio), `gap` (split).
 
 The widget macro sets the default to `-1`. The resolve function uses
@@ -59,6 +59,20 @@ wlx_label(ctx, "Hello");                    // border_width = theme default
 wlx_label(ctx, "Hello", .border_width = 0); // no border
 wlx_label(ctx, "Hello", .border_width = 2); // 2px border
 ```
+
+> **`content_padding` has a second sentinel: `WLX_PADDING_USE_THEME` (`-2.0f`).** The
+> uniform `content_padding` field also accepts `WLX_PADDING_USE_THEME` to opt into the
+> theme's `padding` knob instead of defaulting to `0`. Any per-side value `>= 0` wins
+> over the uniform, and any per-side value `< 0` falls back to the resolved uniform.
+> Standard `-1` on the uniform means "resolve to 0 (no inset)" for leaf widgets, or
+> the widget's own literal default for compound widgets (`4` for split, `2` for panel,
+> `10` for inputbox).
+>
+> ```c
+> wlx_button(ctx, "OK");                                      // content_padding = 0
+> wlx_button(ctx, "OK", .content_padding = 8);               // 8px all sides
+> wlx_button(ctx, "OK", .content_padding = WLX_PADDING_USE_THEME); // theme->padding
+> ```
 
 ### 2. `WLX_FLOAT_UNSET` for fields where negative values are valid
 
@@ -176,8 +190,8 @@ This is a structural default contract, not theme inheritance.
 
 | Situation | Helper to use |
 |-----------|--------------|
-| Field uses `-1` sentinel; negative values are never meaningful (border_width, roundness, opacity, padding, scrollbar_width, ...) | `wlx_is_negative_unset(x)` |
-| Field uses `WLX_FLOAT_UNSET` sentinel; negative values are legitimate (hover_brightness, thumb_hover_brightness, scrollbar_hover_brightness) | `wlx_is_float_unset(x)` |
+| Field uses `-1` sentinel; negative values are never meaningful (border_width, roundness, opacity, disabled_opacity, content_padding, scrollbar_width, ...) | `wlx_is_negative_unset(x)` |
+| Field uses `WLX_FLOAT_UNSET` sentinel; negative values are legitimate (hover_brightness, thumb_hover_brightness, scrollbar_hover_brightness, disabled_brightness) | `wlx_is_float_unset(x)` |
 | Field uses all-zero `WLX_Slot_Size` as an omitted/default marker in a structural option path (currently split sizes) | `wlx_slot_size_is_zero(x)` |
 
 `WLX_ALIGN_NONE` does not have a generic helper-based unset contract. Treat it
@@ -213,6 +227,8 @@ wlx_layout_begin(ctx, 3, WLX_VERT, .roundness = 0.3f, .back_color = bg);
 | `hover_brightness` | `WLX_FLOAT_UNSET` | theme value | no hover effect |
 | `thumb_hover_brightness` | `WLX_FLOAT_UNSET` | theme value | no hover effect |
 | `scrollbar_hover_brightness` | `WLX_FLOAT_UNSET` | theme value | no hover effect |
+| `disabled_brightness` (theme) | `WLX_FLOAT_UNSET` | no brightness shift | no shift on disabled widgets |
+| `disabled_opacity` (theme) | `-1` | no alpha multiplier (factor `1.0`) | fully transparent disabled widgets |
 | `font_size` | `<= 0` | theme value | *(never valid)* |
 | `track_height` | `<= 0` | theme value | *(never valid)* |
 | `thumb_width` | `<= 0` | theme value | *(never valid)* |
@@ -220,5 +236,9 @@ wlx_layout_begin(ctx, 3, WLX_VERT, .roundness = 0.3f, .back_color = bg);
 | `title_align` (`WLX_Panel_Opt`) | `WLX_ALIGN_NONE` | `WLX_CENTER` | raw/no alignment in most other paths |
 | `first_size` (`WLX_Split_Opt`) | `{0}` `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | same representation as `WLX_SLOT_AUTO` |
 | `second_size` (`WLX_Split_Opt`) | `{0}` `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | same representation as `WLX_SLOT_AUTO` |
-| `fill_size` (`WLX_Split_Opt`) | `{0}` `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | same representation as `WLX_SLOT_AUTO` || `ring_border_width` (`WLX_Radio_Opt`) | `-1` | theme value | no border |
+| `fill_size` (`WLX_Split_Opt`) | `{0}` `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | same representation as `WLX_SLOT_AUTO` |
+| `ring_border_width` (`WLX_Radio_Opt`) | `-1` | theme value | no border |
 | `gap` (`WLX_Split_Opt`) | `-1` | `0` (no gap) | *(never valid as negative)* |
+| `content_padding` (uniform) | `-1` | `0` for leaf widgets; widget-specific default for compound | `0` (no inset) |
+| `content_padding` (uniform) | `WLX_PADDING_USE_THEME` (`-2.0f`) | theme's `padding` knob | *(only -1 and >= 0 are regular values)* |
+| `content_padding_top/right/bottom/left` | `-1` | falls back to uniform `content_padding` | `0` (no inset on that side) |

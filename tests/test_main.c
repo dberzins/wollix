@@ -2,6 +2,9 @@
 // Single-TU build: all test files are #included here.
 
 #define WLX_DEBUG
+// Disable the wlx_image empty-texture assert so test_image can exercise the
+// safe no-op fallback path without aborting the runner.
+#define WLX_IMAGE_ASSERT_TEXTURE_VALID(tex) ((void)(tex))
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
 
@@ -69,6 +72,48 @@
 // text counter, arena high-water, timer, and immediate-mode snapshot tests.
 #include "test_perf.c"
 
+// wlx_image scale modes, alignment anchors, src defaults, tint + opacity
+#include "test_image.c"
+
+// Image-capable wlx_button: text-only regression, image-only, image + text,
+// placement, scale parity, empty fallbacks, opacity, hover, slot consumption
+#include "test_button_image.c"
+
+// Image-capable wlx_label: text-only regression (no chrome by default),
+// image-only edge case, image + text, placement, scale parity with wlx_image,
+// empty fallbacks, opacity, hover, slot consumption, non-interactive contract
+#include "test_label_image.c"
+
+// Image-capable wlx_checkbox texture mode: per-state src and tint, white
+// default tint with opacity folding, both-textures-required activation,
+// fallback to native when either state texture is missing, hover and
+// check_color isolation, layout slot consumption.
+#include "test_checkbox_texture.c"
+
+// Content padding on wlx_label / wlx_button: default zero, uniform,
+// asymmetric per-side, per-side override, theme opt-in via
+// WLX_PADDING_USE_THEME, clamp on tight rect, chrome rect unchanged,
+// hit-rect unchanged, image-only inset, image+text inset, slot+content
+// padding composition.
+#include "test_content_padding.c"
+
+// Cross-widget invariants for the unified WLX_CONTENT_PADDING_FIELDS shape.
+#include "test_padding_alignment.c"
+
+// Inputbox per-side migration: visual stability, theme opt-in, clamp.
+#include "test_inputbox_padding.c"
+
+// Content padding on wlx_checkbox / wlx_radio / wlx_toggle / wlx_slider /
+// wlx_progress: per-widget chrome shifts in unison with the resolved
+// content_rect; hit-rect on checkbox keeps using wr when full_slot_hit is
+// set; progress clamps track height to the inset rect.
+#include "test_missing_padding.c"
+
+// Disabled-state model: interaction gating, hover-tint suppression,
+// brightness + opacity transforms, sentinel inheritance, theme defaults,
+// back-compat default behaviour.
+#include "test_disabled_state.c"
+
 int main(void) {
     RUN_SUITE(layout_math);
     RUN_SUITE(color);
@@ -96,5 +141,14 @@ int main(void) {
     RUN_SUITE(widget_wrapper);
     RUN_SUITE(container_scope);
     RUN_SUITE(perf);
+    RUN_SUITE(image);
+    RUN_SUITE(button_image);
+    RUN_SUITE(label_image);
+    RUN_SUITE(checkbox_texture);
+    RUN_SUITE(content_padding);
+    RUN_SUITE(padding_alignment);
+    RUN_SUITE(inputbox_padding);
+    RUN_SUITE(missing_padding);
+    RUN_SUITE(disabled_state);
     return test_summary();
 }

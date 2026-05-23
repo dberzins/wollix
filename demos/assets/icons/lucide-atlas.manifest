@@ -1,0 +1,93 @@
+name: lucide-atlas
+status: atlas-generated
+
+upstream_project: lucide-icons
+upstream_version: 1.14.0
+upstream_archive_url: https://github.com/lucide-icons/lucide/archive/refs/tags/1.14.0.zip
+upstream_archive_sha256: TBD
+upstream_scratch_dir: demos/assets/icons/lucide-icons-1.14.0
+local_source_dir: demos/assets/icons/lucide-svg
+license_notice: demos/assets/icons/LUCIDE_LICENSE
+
+source_format: svg
+generated_artifact: demos/assets/wlx_icons.h
+generated_artifact_status: generated
+generated_artifact_sha256: c6145197e00bf3af77f9e6cbca7577dd0e370e7be11b9f1051ca9ec9ab0a4aa9
+generated_artifact_rasterizer: rsvg-convert version 2.58.0
+generated_texture_model: rgba8 white-alpha atlas with embedded source-rect metadata
+
+target_icon_size_px: [16, 24, 32, 48]
+atlas_padding_px: 0
+atlas_layout: row-per-tier (ascending), per-row left-to-right by enum order, max-tier cell stride
+atlas_width_px: 1536
+atlas_height_px: 120
+atlas_max_tier_px: 48
+atlas_tier_row_y_offsets: [0, 16, 40, 72]
+
+icon_names:
+  - check
+  - x
+  - info
+  - triangle-alert
+  - image
+  - palette
+  - save
+  - rotate-ccw
+  - settings
+  - play
+  - square
+  - square-check
+  - app-window
+  - chevron-right
+  - house
+  - blocks
+  - layout-dashboard
+  - route
+  - sliders-horizontal
+  - type
+  - mouse-pointer-click
+  - text-cursor-input
+  - component
+  - align-horizontal-space-between
+  - grid-3x3
+  - stretch-horizontal
+  - layout-template
+  - scroll-text
+  - layers
+  - blend
+  - square-dashed
+  - toggle-left
+
+icon_enum_prefix: WLX_ICON_
+icon_enum_count_symbol: WLX_ICON_COUNT
+header_width_symbol: WLX_ICONS_WIDTH
+header_height_symbol: WLX_ICONS_HEIGHT
+header_pixel_symbol: wlx_icons_rgba
+header_rect_symbol: wlx_icon_rects
+header_rect_type: WLX_Icon_Rect
+
+checkbox_role_assignment:
+  checked:
+    icon: square-check
+    semantic_role: color_accent
+  unchecked:
+    icon: square
+    semantic_role: color_text_muted
+
+generation_toolchain: rsvg-convert (librsvg2-bin) for SVG-to-PNG; custom C (tools/gen_icon_atlas.c) with vendored tools/third_party/stb_image.h for atlas packing and header emission
+generation_command: bash tools/gen_icon_atlas.sh
+generation_currentcolor_preprocess: per-icon working-copy substitution currentColor -> white; committed SVGs under demos/assets/icons/lucide-svg/ are never modified in place
+normal_build_dependency: none
+
+decision_records:
+  - docs/dev/designe/ICONS_DESIGNE_ANALYSIS.md
+  - docs/dev/ADR_016_GALLERY_ICON_ATLAS_FORMAT.md
+  - docs/dev/designe/ATLASS_TOOLCHAIN_ANALYSIS.md
+  - docs/dev/designe/ICONS_DESIGNE_PLAN.md
+  - docs/dev/designe/ICONS_DESIGNE_PHASE1_DECISIONS.md
+
+notes:
+  - Normal builds should consume only the generated atlas header.
+  - The upstream Lucide scratch tree (upstream_scratch_dir) is gitignored and may be deleted after regeneration; it is recoverable from upstream_archive_url.
+  - The local_source_dir is the canonical committed regeneration input and is what tools/gen_icon_atlas.sh reads.
+  - Update this manifest whenever the upstream version, selected icon set, atlas dimensions, generation command, or role assignment changes.

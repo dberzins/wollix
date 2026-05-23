@@ -310,7 +310,7 @@ static void controls_panel(WLX_Context *ctx, App_State *state) {
         .back_color = ctx->theme->surface,
         .border_color = ctx->theme->border,
         .border_width = PANEL_BORDER_WIDTH,
-        .padding = 6,
+        .content_padding = 6,
         .gap = 5,
         .capacity = 64);
 
@@ -604,7 +604,7 @@ static void preview_panel(WLX_Context *ctx, App_State *state, const WLX_Theme *c
         .back_color = ctx->theme->surface,
         .border_color = ctx->theme->border,
         .border_width = PANEL_BORDER_WIDTH,
-        .padding = 6,
+        .content_padding = 6,
         .gap = 8,
         .capacity = 32);
 
@@ -736,7 +736,7 @@ int main(void) {
 
                 wlx_split_begin(ctx,
                     .first_size = WLX_SLOT_PCT_MINMAX(34, 320, 390),
-                    .padding = 0,
+                    .content_padding = 0,
                     .gap = 8,
                     .first_back_color = ctx->theme->background,
                     .second_back_color = ctx->theme->background);

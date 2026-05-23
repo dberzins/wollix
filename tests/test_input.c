@@ -495,9 +495,9 @@ TEST(input_cursor_position_uses_full_buffer_layout) {
     WLX_Rect wr = {0, 0, 74, 500};
     WLX_Rect input_rect = { wr.x + 4, wr.y + 4, wr.w - 8, wr.h - 8 };
     WLX_Rect text_rect = {
-        .x = input_rect.x + 2,
+        .x = input_rect.x + WLX_INPUTBOX_TEXT_INSET,
         .y = input_rect.y,
-        .w = input_rect.w - 6,
+        .w = input_rect.w - WLX_INPUTBOX_TEXT_INSET - WLX_INPUTBOX_CURSOR_WIDTH - WLX_INPUTBOX_CURSOR_PADDING,
         .h = input_rect.h,
     };
     float expected_x = text_rect.x;

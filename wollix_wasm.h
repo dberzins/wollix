@@ -1,6 +1,10 @@
 #ifndef WOLLIX_WASM_H_
 #define WOLLIX_WASM_H_
 
+#if defined(__INTELLISENSE__) && !defined(WOLLIX_H_)
+#include "wollix.h"
+#endif
+
 #ifndef WOLLIX_H_
 #error "Include wollix.h before wollix_wasm.h"
 #endif
@@ -266,6 +270,16 @@ WLX_WASM_IMPORT("draw_texture")
 extern void wlx_wasm_import_draw_texture(
     uintptr_t handle, float sx, float sy, float sw, float sh,
     float dx, float dy, float dw, float dh, uint32_t tint);
+
+// Texture authoring imports. The host owns texture storage; C passes RGBA8
+// pixel data and receives an opaque nonzero handle (or 0 on failure). Pixels
+// are copied during the create call, so the buffer can be freed on return.
+WLX_WASM_IMPORT("create_texture")
+extern uintptr_t wlx_wasm_import_create_texture(
+    const uint8_t *rgba, uint32_t width, uint32_t height);
+
+WLX_WASM_IMPORT("destroy_texture")
+extern void wlx_wasm_import_destroy_texture(uintptr_t handle);
 
 WLX_WASM_IMPORT("begin_scissor")
 extern void wlx_wasm_import_begin_scissor(
@@ -537,6 +551,23 @@ static inline void wlx_wasm_draw_texture(
 #ifdef WLX_PERF
     wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.texture_ns);
 #endif
+}
+
+static inline WLX_Texture wlx_wasm_texture_create(
+        const uint8_t *rgba, int width, int height) {
+    WLX_Texture tex = {0};
+    if (rgba == NULL || width <= 0 || height <= 0) return tex;
+    tex.handle = wlx_wasm_import_create_texture(
+        rgba, (uint32_t)width, (uint32_t)height);
+    if (tex.handle == 0) return (WLX_Texture){0};
+    tex.width  = width;
+    tex.height = height;
+    return tex;
+}
+
+static inline void wlx_wasm_texture_destroy(WLX_Texture tex) {
+    if (tex.handle == 0) return;
+    wlx_wasm_import_destroy_texture(tex.handle);
 }
 
 static inline void wlx_wasm_begin_scissor(WLX_Rect r) {

@@ -1,7 +1,7 @@
 /*
  * wollix.h - Woven layouts for C.
  *
- * Version: 0.4.0  (WOLLIX_VERSION / WLX_VERSION)
+ * Version: 0.5.0  (WOLLIX_VERSION / WLX_VERSION)
  *
  * Copyright (c) 2026 Dainis Berzins
  * Licensed under the MIT License. See LICENSE file for full text.
@@ -139,7 +139,7 @@
 #ifndef WOLLIX_H_
 #define WOLLIX_H_
 
-#define WOLLIX_VERSION "0.4.0"
+#define WOLLIX_VERSION "0.5.0"
 #define WLX_VERSION WOLLIX_VERSION
 
 #include <stdint.h>
@@ -561,7 +561,7 @@ typedef struct WLX_Layout {
     float     slot_border_width;
     float viewport;  // viewport dimension along orient axis (for WLX_SIZE_FILL)
     int cmd_range_idx;     // command range table index for this layout (-1 = none)
-    bool pushed_scope_id;  // true when a scope id was pushed at begin and must be popped at end
+    bool pushed_scope;  // true when a scope id was pushed at begin and must be popped at end
     bool clip_active;      // true when wlx_panel_begin set up a scissor that wlx_panel_end must release
 
     // Content-fit tracking (NULL when no CONTENT slots)
@@ -986,7 +986,7 @@ typedef struct WLX_Scroll_Panel_State {
     float drag_offset;        // mouse offset from scrollbar thumb top when drag started
     bool hovered;             // mouse is over this panel's rect this frame
     float wheel_scroll_speed;
-    const char *pushed_id;    // non-NULL when a scope id was pushed; popped in wlx_scroll_panel_end
+    bool pushed_scope;        // true when a scope id was pushed at begin; popped in wlx_scroll_panel_end
 
     // Saved outer auto-scroll context (for nesting non-auto panels inside auto panels)
     size_t saved_auto_scroll_panel_id;
@@ -1103,6 +1103,19 @@ static inline void wlx_arena_pool_destroy(WLX_Arena_Pool *pool) {
 // never valid (border_width, roundness).  Resolve checks: <= WLX_FLOAT_UNSET.
 #define WLX_FLOAT_UNSET (-1e30f)
 
+// Sentinel for WLX_CONTENT_PADDING_FIELDS uniform `content_padding`. Pass
+// `.content_padding = WLX_PADDING_USE_THEME` to opt a widget into the
+// project-wide inner padding knob (WLX_Theme.padding, defaulting to
+// WLX_STYLE_CONTENT_PADDING). Numerically distinct from the -1 "unset"
+// sentinel so the resolver can tell "unset" apart from "explicit theme
+// request".
+#define WLX_PADDING_USE_THEME (-2.0f)
+
+// Sentinel for WLX_Parent_Contribution slot_index / grid_row: skips the
+// per-slot CONTENT or per-row grid bucket update in the parent layout
+// while still contributing to accumulated_content_height.
+#define WLX_SLOT_SKIP SIZE_MAX
+
 typedef struct {
     // ── Global colors ───────────────────────────────────────────────
     WLX_Color background;        // window / panel clear color
@@ -1124,9 +1137,11 @@ typedef struct {
 
     // ── Interaction feedback ────────────────────────────────────────
     float hover_brightness;     // brightness shift on hover
+    float disabled_brightness;  // brightness shift applied when a widget is disabled (WLX_FLOAT_UNSET = no shift)
 
     // ── Opacity ─────────────────────────────────────────────────────
     float opacity;              // global opacity multiplier (<0 = unset sentinel, 0.0-1.0 = explicit)
+    float disabled_opacity;     // alpha multiplier applied when a widget is disabled (<0 = unset sentinel, 0.0-1.0 = explicit)
 
     // ── Widget-specific overrides (zero = use globals) ──────────────
     struct {
@@ -1312,6 +1327,7 @@ typedef struct {
     bool active;         // Is the active widget (being pressed, dragged, or focused)
     bool just_focused;   // Became focused this frame
     bool just_unfocused; // Lost focus this frame
+    bool disabled;       // Widget was queried with the disabled gate; clicked/pressed/focused/active are forced false
 } WLX_Interaction;
 
 typedef void (*WLX_Input_Handler)(WLX_Context *ctx);
@@ -1477,22 +1493,35 @@ WLXDEF void wlx_perf_reset(WLX_Context *ctx);
 #define WLX_SLOT_DECOR_DEFAULTS \
     .slot_back_color = {0}, .slot_border_color = {0}, .slot_border_width = 0
 
-#define WLX_PADDING_FIELDS \
-    float padding; \
-    float padding_top; \
-    float padding_right; \
-    float padding_bottom; \
-    float padding_left
+// Content padding: inset applied around a widget's content (text + image)
+// while the chrome (background, border) and hit rect remain at the full
+// widget rect. Field names are `content_padding*` so widgets that also
+// embed WLX_LAYOUT_SLOT_FIELDS (where the slot's own `padding*` is the
+// outer-margin knob) can carry both without name collision. Embedded by
+// every widget with chrome: wlx_label, wlx_button, wlx_inputbox,
+// wlx_split (compound), wlx_panel (compound). Per-side fields >= 0 win
+// over the uniform; a uniform default of -1 resolves to 0; a uniform of
+// WLX_PADDING_USE_THEME opts in to the theme's `padding` knob (default
+// WLX_STYLE_CONTENT_PADDING). The resolver clamps the resolved inset
+// proportionally so the content rect never has negative dimensions.
+#define WLX_CONTENT_PADDING_FIELDS \
+    float content_padding; \
+    float content_padding_top; \
+    float content_padding_right; \
+    float content_padding_bottom; \
+    float content_padding_left
 
-#define WLX_PADDING_DEFAULTS \
-    .padding = -1.0f, \
-    .padding_top = -1.0f, \
-    .padding_right = -1.0f, \
-    .padding_bottom = -1.0f, \
-    .padding_left = -1.0f
+#define WLX_CONTENT_PADDING_DEFAULTS \
+    .content_padding = -1.0f, \
+    .content_padding_top = -1.0f, \
+    .content_padding_right = -1.0f, \
+    .content_padding_bottom = -1.0f, \
+    .content_padding_left = -1.0f
 
-#define WLX_RESOLVE_PADDING(opt) \
-    wlx_resolve_padding((opt).padding, (opt).padding_top, (opt).padding_right, (opt).padding_bottom, (opt).padding_left)
+#define WLX_RESOLVE_CONTENT_PADDING(ctx, opt) \
+    wlx_resolve_content_padding((ctx)->theme, \
+        (opt).content_padding, (opt).content_padding_top, (opt).content_padding_right, \
+        (opt).content_padding_bottom, (opt).content_padding_left)
 
 typedef struct {
     WLX_LAYOUT_SLOT_FIELDS;
@@ -1662,15 +1691,33 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
     .min_width = 0, .min_height = 0, .max_width = 0, .max_height = 0, \
     .opacity = -1
 
+// Per-widget interaction-state fields. Currently a single `disabled` flag;
+// when true, the widget skips active-state interaction (click/press/focus/drag)
+// and the visual treatment is shifted by `theme->disabled_brightness` and
+// `theme->disabled_opacity`. Hover arbitration is preserved (tooltip anchor).
+#define WLX_WIDGET_STATE_FIELDS \
+    bool disabled
+
+#define WLX_WIDGET_STATE_DEFAULTS \
+    .disabled = false
+
 #define WLX_TEXT_TYPOGRAPHY_FIELDS \
     WLX_Font font; \
     int font_size; \
     WLX_Align align; \
-    bool wrap; \
     int spacing
 
 #define WLX_TEXT_TYPOGRAPHY_DEFAULTS \
     .font = WLX_FONT_DEFAULT, .font_size = 0, .align = WLX_LEFT, .spacing = 0
+
+// Paragraph-wrap toggle: separated from WLX_TEXT_TYPOGRAPHY_FIELDS so widgets
+// can opt in independently. Embed alongside the typography macro when the
+// widget renders multi-line text; omit (e.g. on slider) when wrap is meaningless.
+#define WLX_TEXT_WRAP_FIELDS \
+    bool wrap
+
+#define WLX_TEXT_WRAP_DEFAULTS \
+    .wrap = false
 
 #define WLX_TEXT_COLOR_FIELDS \
     WLX_Color front_color; \
@@ -1689,6 +1736,9 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
     .border_color = {0}, .border_width = -1, \
     .roundness = -1, .rounded_segments = -1
 
+// wlx_widget is a decoration primitive: it draws a rect and exposes hover
+// for tooltip anchoring but does not return a click/focus/active result.
+// It therefore does not carry .disabled.
 typedef struct {
     // Placement
     WLX_LAYOUT_SLOT_FIELDS;
@@ -1722,6 +1772,28 @@ typedef struct {
 WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget_Opt opt, const char *file, int line);
 #define wlx_widget(ctx, ...) wlx_widget_impl((ctx), wlx_default_widget_opt(__VA_ARGS__), __FILE__, __LINE__)
 
+// Shared image public types. Used by image-capable widgets such as wlx_image,
+// wlx_button, and wlx_label. STRETCH matches the raw draw_texture behavior;
+// FIT preserves aspect with letterbox/pillarbox; FILL preserves aspect by
+// cropping the source rect; NONE renders 1:1 pixels anchored by `align`.
+typedef enum {
+    WLX_IMAGE_SCALE_STRETCH = 0,
+    WLX_IMAGE_SCALE_FIT,
+    WLX_IMAGE_SCALE_FILL,
+    WLX_IMAGE_SCALE_NONE,
+} WLX_Image_Scale;
+
+// Where an image sits relative to text inside an image-capable widget.
+typedef enum {
+    WLX_IMAGE_PLACEMENT_LEFT = 0,
+    WLX_IMAGE_PLACEMENT_RIGHT,
+    WLX_IMAGE_PLACEMENT_TOP,
+    WLX_IMAGE_PLACEMENT_BOTTOM,
+} WLX_Image_Placement;
+
+// wlx_label is a non-interactive text widget: it exposes hover for tooltip
+// anchoring but does not return a click/focus/active result. It therefore
+// does not carry .disabled.
 typedef struct {
     // Placement
     WLX_LAYOUT_SLOT_FIELDS;
@@ -1731,6 +1803,7 @@ typedef struct {
 
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
+    WLX_TEXT_WRAP_FIELDS;
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
@@ -1738,6 +1811,22 @@ typedef struct {
 
     // Border
     WLX_BORDER_FIELDS;
+
+    // Content padding: inset around text + image only. Chrome (background,
+    // border) and the hit rect stay at the full widget rect. Defaults
+    // resolve to 0 for back-compat; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` to opt into the theme's
+    // `padding` value.
+    WLX_CONTENT_PADDING_FIELDS;
+
+    // Optional image content. .texture = {0} means text-only.
+    WLX_Texture         texture;
+    WLX_Rect            texture_src;     // src.w <= 0 -> full texture
+    WLX_Image_Scale     texture_scale;   // default WLX_IMAGE_SCALE_FIT
+    WLX_Color           texture_tint;    // {0} -> WLX_WHITE
+    WLX_Image_Placement image_placement; // default WLX_IMAGE_PLACEMENT_LEFT
+    float               image_size;      // <= 0 -> automatic
+    float               image_text_gap;  // < 0 -> font-derived
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
@@ -1752,12 +1841,23 @@ typedef struct {
         WLX_WIDGET_SIZING_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
+        WLX_TEXT_WRAP_DEFAULTS, \
         .wrap = true, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
         .show_background = false, \
         /* Border */ \
         WLX_BORDER_DEFAULTS, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
+        /* Image content (inert by default) */ \
+        .texture = {0}, \
+        .texture_src = {0}, \
+        .texture_scale = WLX_IMAGE_SCALE_FIT, \
+        .texture_tint = {0}, \
+        .image_placement = WLX_IMAGE_PLACEMENT_LEFT, \
+        .image_size = 0, \
+        .image_text_gap = -1, \
         __VA_ARGS__ \
     }
 
@@ -1771,14 +1871,34 @@ typedef struct {
     // Sizing
     WLX_WIDGET_SIZING_FIELDS;
 
+    // State
+    WLX_WIDGET_STATE_FIELDS;
+
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
+    WLX_TEXT_WRAP_FIELDS;
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
 
     // Border
     WLX_BORDER_FIELDS;
+
+    // Content padding: inset around text + image only. Chrome (background,
+    // border) and the hit rect stay at the full widget rect. Defaults
+    // resolve to 0 for back-compat; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` to opt into the theme's
+    // `padding` value.
+    WLX_CONTENT_PADDING_FIELDS;
+
+    // Optional image content. .texture = {0} means text-only.
+    WLX_Texture         texture;
+    WLX_Rect            texture_src;     // src.w <= 0 -> full texture
+    WLX_Image_Scale     texture_scale;   // default WLX_IMAGE_SCALE_FIT
+    WLX_Color           texture_tint;    // {0} -> WLX_WHITE
+    WLX_Image_Placement image_placement; // default WLX_IMAGE_PLACEMENT_LEFT
+    float               image_size;      // <= 0 -> automatic
+    float               image_text_gap;  // < 0 -> font-derived
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
@@ -1790,13 +1910,26 @@ typedef struct {
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
         WLX_WIDGET_SIZING_DEFAULTS, \
+        /* State */ \
+        WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
+        WLX_TEXT_WRAP_DEFAULTS, \
         .wrap = true, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
         /* Border */ \
         WLX_BORDER_DEFAULTS, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
+        /* Image content (inert by default) */ \
+        .texture = {0}, \
+        .texture_src = {0}, \
+        .texture_scale = WLX_IMAGE_SCALE_FIT, \
+        .texture_tint = {0}, \
+        .image_placement = WLX_IMAGE_PLACEMENT_LEFT, \
+        .image_size = 0, \
+        .image_text_gap = -1, \
         __VA_ARGS__ \
     }
 
@@ -1811,21 +1944,37 @@ typedef struct {
     // Sizing
     WLX_WIDGET_SIZING_FIELDS;
 
+    // State
+    WLX_WIDGET_STATE_FIELDS;
+
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
+    WLX_TEXT_WRAP_FIELDS;
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
     bool full_slot_hit;
-    WLX_Color border_color;
-    float     border_width;
-    float     roundness;
-    int       rounded_segments;
+    WLX_BORDER_FIELDS;
     WLX_Color check_color;
 
-    // Texture mode (when tex_checked.width > 0, uses texture rendering)
+    // Content padding: inset around the compound content (checkbox glyph +
+    // label) only. Chrome and hit rect stay at the full widget rect.
+    // Defaults resolve to 0; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` to opt into the theme's
+    // `padding` value.
+    WLX_CONTENT_PADDING_FIELDS;
+
+    // Texture mode: active only when both tex_checked and tex_unchecked
+    // are drawable. Each state has its own source rect and tint, matching
+    // the image-capable label/button/image contract.
+    //   tex_*_src  {0} -> full selected texture
+    //   tex_*_tint {0} -> WLX_WHITE
     WLX_Texture tex_checked;
     WLX_Texture tex_unchecked;
+    WLX_Rect    tex_checked_src;
+    WLX_Rect    tex_unchecked_src;
+    WLX_Color   tex_checked_tint;
+    WLX_Color   tex_unchecked_tint;
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
@@ -1837,17 +1986,22 @@ typedef struct {
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
         WLX_WIDGET_SIZING_DEFAULTS, \
+        /* State */ \
+        WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
-        .wrap = false, \
+        WLX_TEXT_WRAP_DEFAULTS, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
         .full_slot_hit = true, \
-        .border_color = {0}, \
-        .border_width = -1, \
-        .roundness = -1, \
-        .rounded_segments = -1, \
+        WLX_BORDER_DEFAULTS, \
         .check_color = {0}, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
+        .tex_checked_src = {0}, \
+        .tex_unchecked_src = {0}, \
+        .tex_checked_tint = {0}, \
+        .tex_unchecked_tint = {0}, \
         __VA_ARGS__ \
     }
 
@@ -1860,17 +2014,18 @@ typedef struct {
 
     // Sizing
     WLX_WIDGET_SIZING_FIELDS;
-    float content_padding;
+    WLX_CONTENT_PADDING_FIELDS;       // outer gutter around label/input rect (default: 10)
+
+    // State
+    WLX_WIDGET_STATE_FIELDS;
 
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
+    WLX_TEXT_WRAP_FIELDS;
 
     // Styles
     WLX_TEXT_COLOR_FIELDS;
-    WLX_Color border_color;
-    float     border_width;
-    float     roundness;
-    int       rounded_segments;
+    WLX_BORDER_FIELDS;
     WLX_Color border_focus_color;
     WLX_Color cursor_color;
 
@@ -1884,16 +2039,17 @@ typedef struct {
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
         WLX_WIDGET_SIZING_DEFAULTS, \
-        .content_padding = 10, \
+        WLX_CONTENT_PADDING_DEFAULTS, \
+        .content_padding = 10.0f, \
+        /* State */ \
+        WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
+        WLX_TEXT_WRAP_DEFAULTS, \
         .wrap = true, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
-        .border_color = {0}, \
-        .border_width = -1, \
-        .roundness = -1, \
-        .rounded_segments = -1, \
+        WLX_BORDER_DEFAULTS, \
         .border_focus_color = {0}, \
         .cursor_color = {0}, \
         __VA_ARGS__ \
@@ -1909,11 +2065,11 @@ typedef struct {
     // Sizing
     WLX_WIDGET_SIZING_FIELDS;
 
-    // Typography
-    WLX_Font font;
-    int font_size;
-    WLX_Align align;
-    int spacing;
+    // State
+    WLX_WIDGET_STATE_FIELDS;
+
+    // Typography (no wrap: slider renders single-line label + value text)
+    WLX_TEXT_TYPOGRAPHY_FIELDS;
     bool show_label;      // show value label next to slider
 
     // Styles
@@ -1931,6 +2087,13 @@ typedef struct {
     // Border
     WLX_BORDER_FIELDS;
 
+    // Content padding: inset around the label / track / value content. Slot
+    // contribution and the track-region hit rect are derived from the inset
+    // rect, so a padded slider stays interactive only inside the inset.
+    // Defaults resolve to 0; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` for the theme value.
+    WLX_CONTENT_PADDING_FIELDS;
+
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
 } WLX_Slider_Opt;
@@ -1942,11 +2105,10 @@ typedef struct {
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
         WLX_WIDGET_SIZING_DEFAULTS, \
+        /* State */ \
+        WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
-        .font = WLX_FONT_DEFAULT, \
-        .font_size = 0, \
-        .align = WLX_LEFT, \
-        .spacing = 0, \
+        WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
         .show_label = true, \
         /* Styles */ \
         .track_color = {0}, \
@@ -1961,6 +2123,8 @@ typedef struct {
         .max_value = 1.0f, \
         /* Border */ \
         WLX_BORDER_DEFAULTS, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         __VA_ARGS__ \
     }
 
@@ -1996,6 +2160,11 @@ typedef struct {
     float     track_height;       // 0 -> full widget height
     WLX_BORDER_FIELDS;
 
+    // Content padding: inset around the track. Slot contribution stays
+    // unchanged. Defaults resolve to 0; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` for the theme value.
+    WLX_CONTENT_PADDING_FIELDS;
+
     const char *id;
 } WLX_Progress_Opt;
 
@@ -2007,6 +2176,8 @@ typedef struct {
         .fill_color = {0}, \
         .track_height = 0, \
         WLX_BORDER_DEFAULTS, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         __VA_ARGS__ \
     }
 
@@ -2016,7 +2187,36 @@ WLXDEF void wlx_progress_impl(WLX_Context *ctx, float value, WLX_Progress_Opt op
 typedef struct {
     WLX_LAYOUT_SLOT_FIELDS;
     WLX_WIDGET_SIZING_FIELDS;
+
+    WLX_Image_Scale scale;   // default WLX_IMAGE_SCALE_STRETCH
+    WLX_Align       align;   // default WLX_CENTER (positions/crops the image inside the widget rect)
+    WLX_Color       tint;    // {0} -> WLX_WHITE
+    WLX_Rect        src;     // src.w <= 0 -> full texture
+
+    const char *id;
+} WLX_Image_Opt;
+
+#define wlx_default_image_opt(...) \
+    (WLX_Image_Opt) { \
+        WLX_LAYOUT_SLOT_DEFAULTS, \
+        WLX_WIDGET_SIZING_DEFAULTS, \
+        .scale = WLX_IMAGE_SCALE_STRETCH, \
+        .align = WLX_CENTER, \
+        .tint  = {0}, \
+        .src   = {0}, \
+        __VA_ARGS__ \
+    }
+
+WLXDEF void wlx_image_impl(WLX_Context *ctx, WLX_Texture texture, WLX_Image_Opt opt, const char *file, int line);
+#define wlx_image(ctx, texture, ...) \
+    wlx_image_impl((ctx), (texture), wlx_default_image_opt(__VA_ARGS__), __FILE__, __LINE__)
+
+typedef struct {
+    WLX_LAYOUT_SLOT_FIELDS;
+    WLX_WIDGET_SIZING_FIELDS;
+    WLX_WIDGET_STATE_FIELDS;
     WLX_TEXT_TYPOGRAPHY_FIELDS;
+    WLX_TEXT_WRAP_FIELDS;
     WLX_TEXT_COLOR_FIELDS;
 
     WLX_Color track_color;
@@ -2025,6 +2225,12 @@ typedef struct {
     float     hover_brightness;
     WLX_BORDER_FIELDS;
 
+    // Content padding: inset around the compound content (track + label).
+    // Chrome and the click/hover hit rect stay at the full widget rect.
+    // Defaults resolve to 0; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` for the theme value.
+    WLX_CONTENT_PADDING_FIELDS;
+
     const char *id;
 } WLX_Toggle_Opt;
 
@@ -2032,14 +2238,17 @@ typedef struct {
     (WLX_Toggle_Opt) { \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         WLX_WIDGET_SIZING_DEFAULTS, \
+        WLX_WIDGET_STATE_DEFAULTS, \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
-        .wrap = false, \
+        WLX_TEXT_WRAP_DEFAULTS, \
         WLX_TEXT_COLOR_DEFAULTS, \
         .track_color = {0}, \
         .track_active_color = {0}, \
         .thumb_color = {0}, \
         .hover_brightness = WLX_FLOAT_UNSET, \
         WLX_BORDER_DEFAULTS, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         __VA_ARGS__ \
     }
 
@@ -2049,13 +2258,21 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
 typedef struct {
     WLX_LAYOUT_SLOT_FIELDS;
     WLX_WIDGET_SIZING_FIELDS;
+    WLX_WIDGET_STATE_FIELDS;
     WLX_TEXT_TYPOGRAPHY_FIELDS;
+    WLX_TEXT_WRAP_FIELDS;
     WLX_TEXT_COLOR_FIELDS;
 
     WLX_Color ring_color;
     WLX_Color fill_color;
     float     ring_border_width;
     float     hover_brightness;
+
+    // Content padding: inset around the compound content (ring + label).
+    // Chrome and the click/hover hit rect stay at the full widget rect.
+    // Defaults resolve to 0; pass
+    // `.content_padding = WLX_PADDING_USE_THEME` for the theme value.
+    WLX_CONTENT_PADDING_FIELDS;
 
     const char *id;
 } WLX_Radio_Opt;
@@ -2064,13 +2281,16 @@ typedef struct {
     (WLX_Radio_Opt) { \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         WLX_WIDGET_SIZING_DEFAULTS, \
+        WLX_WIDGET_STATE_DEFAULTS, \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
-        .wrap = false, \
+        WLX_TEXT_WRAP_DEFAULTS, \
         WLX_TEXT_COLOR_DEFAULTS, \
         .ring_color = {0}, \
         .fill_color = {0}, \
         .ring_border_width = -1, \
         .hover_brightness = WLX_FLOAT_UNSET, \
+        /* Content padding */ \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         __VA_ARGS__ \
     }
 
@@ -2129,7 +2349,7 @@ typedef struct {
     WLX_Slot_Size first_size;       // default: WLX_SLOT_PX(280)
     WLX_Slot_Size second_size;      // default: WLX_SLOT_FLEX(1)
     WLX_Slot_Size fill_size;        // default: WLX_SLOT_FLEX(1) (fills parent slot)
-    WLX_PADDING_FIELDS;
+    WLX_CONTENT_PADDING_FIELDS;     // inner padding around panes (default: 4)
     float gap;                      // inter-pane spacing (default: -1 sentinel -> 0)
     WLX_Color first_back_color;     // first pane scroll panel bg (default: theme)
     WLX_Color second_back_color;    // second pane scroll panel bg (default: theme)
@@ -2142,7 +2362,8 @@ typedef struct {
         .first_size       = {0}, \
         .second_size      = {0}, \
         .fill_size        = {0}, \
-        WLX_PADDING_DEFAULTS, \
+        WLX_CONTENT_PADDING_DEFAULTS, \
+        .content_padding  = 4.0f, \
         .gap              = -1.0f, \
         .first_back_color = {0}, \
         .second_back_color = {0}, \
@@ -2186,7 +2407,7 @@ typedef struct {
     bool      clip;                  // clip body content to panel bounds. false = no clip
 
     // Layout options
-    WLX_PADDING_FIELDS;
+    WLX_CONTENT_PADDING_FIELDS;      // inner padding around panel body (default: 2)
     float gap;                       // inter-slot spacing (default: 0)
     int   capacity;                  // max child count (default: 32)
 
@@ -2206,7 +2427,8 @@ typedef struct {
         .border_width     = 0.0f, \
         .roundness        = 0.0f, \
         .clip             = false, \
-        WLX_PADDING_DEFAULTS, \
+        WLX_CONTENT_PADDING_DEFAULTS, \
+        .content_padding  = 2.0f, \
         .gap              = 0.0f, \
         .capacity         = 0, \
         __VA_ARGS__ \
@@ -2306,6 +2528,11 @@ static inline void wlx_perf_destroy(WLX_Context *ctx);
 // Theme preset definitions
 // ============================================================================
 
+// Shared default for disabled-state alpha multiplier across built-in presets.
+// Custom themes that omit `disabled_opacity` get the back-compat fall-back
+// (no multiply); the built-in presets opt into this dim treatment.
+#define WLX_DEFAULT_DISABLED_OPACITY 0.55f
+
 const WLX_Theme wlx_theme_dark = {
     .background       = { 27,  27,  27, 255},
     .foreground       = {200, 200, 200, 255},
@@ -2320,7 +2547,9 @@ const WLX_Theme wlx_theme_dark = {
     .rounded_segments = 0,
     .min_rounded_segments = 16,
     .hover_brightness = 0.08f,
+    .disabled_brightness = -0.35f,
     .opacity          = -1,
+    .disabled_opacity = WLX_DEFAULT_DISABLED_OPACITY,
     .input = {
         .border_focus = { 90, 140, 210, 255},
         .cursor       = {200, 200, 200, 255},
@@ -2375,7 +2604,9 @@ const WLX_Theme wlx_theme_light = {
     .rounded_segments = 0,
     .min_rounded_segments = 16,
     .hover_brightness = -0.08f,
+    .disabled_brightness = 0.30f,
     .opacity          = -1,
+    .disabled_opacity = WLX_DEFAULT_DISABLED_OPACITY,
     .input = {
         .border_focus = { 55,  80, 190, 255},
         .cursor       = { 30,  35,  50, 255},
@@ -2432,7 +2663,9 @@ const WLX_Theme wlx_theme_glass = {
     // .rounded_segments = 6,
     .min_rounded_segments = 16,
     .hover_brightness = 0.05f,
+    .disabled_brightness = -0.25f,
     .opacity          = -1,
+    .disabled_opacity = WLX_DEFAULT_DISABLED_OPACITY,
     .input = {
         .border_focus = { 90, 110, 200, 255},
         .cursor       = {210, 215, 235, 255},
@@ -2511,6 +2744,16 @@ static inline WLX_Color wlx_color_apply_opacity(WLX_Color c, float opacity) {
     if (opacity <= 0.0f) return (WLX_Color){ c.r, c.g, c.b, 0 };
     c.a = wlx_clamp_u8((int)roundf((float)c.a * opacity));
     return c;
+}
+
+// Hover-state brightness tint. Returns the input color unchanged when hover
+// is false or disabled is true; otherwise returns wlx_color_brightness(c,
+// brightness). Centralizes the (hover && !disabled) gate so it stays in
+// sync across widgets when future visual states (pressed, focus) join.
+static inline WLX_Color wlx_color_hover_tint(
+    WLX_Color c, bool hover, bool disabled, float brightness)
+{
+    return (hover && !disabled) ? wlx_color_brightness(c, brightness) : c;
 }
 
 // ============================================================================
@@ -2891,6 +3134,10 @@ typedef struct {
     float top, right, bottom, left;
 } WLX_Resolved_Padding;
 
+// Internal slot-padding resolver. Resolves uniform + per-side WLX_LAYOUT_SLOT
+// padding fields; per-side `>= 0` wins over the uniform, otherwise the
+// uniform is returned as-is (including negative sentinels). Public widget
+// padding goes through wlx_resolve_content_padding instead.
 static inline WLX_Resolved_Padding wlx_resolve_padding(
     float uniform, float pt, float pr, float pb, float pl) {
     return (WLX_Resolved_Padding){
@@ -2900,6 +3147,78 @@ static inline WLX_Resolved_Padding wlx_resolve_padding(
         .left   = (pl >= 0.0f) ? pl : uniform,
     };
 }
+
+// Resolve content padding for widgets where the default is "zero" (label,
+// button). Per-side values >= 0 win; otherwise the side falls back to the
+// uniform. If the resolved value is still < 0, the resolved side is 0 unless
+// the uniform is WLX_PADDING_USE_THEME, in which case the side resolves to
+// the theme's `padding` knob (WLX_STYLE_CONTENT_PADDING default).
+static inline WLX_Resolved_Padding wlx_resolve_content_padding(
+    const WLX_Theme *theme,
+    float uniform, float pt, float pr, float pb, float pl) {
+    bool theme_opt_in = (uniform == WLX_PADDING_USE_THEME);
+    float theme_value = theme ? theme->padding : (float)WLX_STYLE_CONTENT_PADDING;
+    float fallback = theme_opt_in ? theme_value : 0.0f;
+    float u = (uniform >= 0.0f) ? uniform : fallback;
+    return (WLX_Resolved_Padding){
+        .top    = (pt >= 0.0f) ? pt : u,
+        .right  = (pr >= 0.0f) ? pr : u,
+        .bottom = (pb >= 0.0f) ? pb : u,
+        .left   = (pl >= 0.0f) ? pl : u,
+    };
+}
+
+// Clamp resolved padding so that left+right <= max_w and top+bottom <= max_h.
+// Scales the opposing pair proportionally rather than clipping one side, so
+// the inset stays balanced. Never produces negative values. Mirrors the
+// inputbox content_padding clamp.
+static inline void wlx_clamp_resolved_padding(WLX_Resolved_Padding *rp, float max_w, float max_h) {
+    if (rp->left < 0.0f) rp->left = 0.0f;
+    if (rp->right < 0.0f) rp->right = 0.0f;
+    if (rp->top < 0.0f) rp->top = 0.0f;
+    if (rp->bottom < 0.0f) rp->bottom = 0.0f;
+
+    if (max_w < 0.0f) max_w = 0.0f;
+    if (max_h < 0.0f) max_h = 0.0f;
+
+    float hsum = rp->left + rp->right;
+    if (hsum > max_w && hsum > 0.0f) {
+        float s = max_w / hsum;
+        rp->left  *= s;
+        rp->right *= s;
+    }
+    float vsum = rp->top + rp->bottom;
+    if (vsum > max_h && vsum > 0.0f) {
+        float s = max_h / vsum;
+        rp->top    *= s;
+        rp->bottom *= s;
+    }
+}
+
+// Resolve content padding, clamp it to widget_rect, and return the inset
+// content rect. Collapses the three-line "resolve, clamp, inset" pattern
+// repeated by every content-padded leaf widget. Inputbox does not use this
+// helper because its min-input-width calculation needs the resolved padding
+// before the inset step.
+static inline WLX_Rect wlx_resolve_content_rect_full(
+    const WLX_Theme *theme, WLX_Rect widget_rect,
+    float content_padding,
+    float content_padding_top, float content_padding_right,
+    float content_padding_bottom, float content_padding_left)
+{
+    WLX_Resolved_Padding rp = wlx_resolve_content_padding(theme,
+        content_padding, content_padding_top, content_padding_right,
+        content_padding_bottom, content_padding_left);
+    wlx_clamp_resolved_padding(&rp, widget_rect.w, widget_rect.h);
+    return wlx_rect_inset_sides(widget_rect, rp.top, rp.right, rp.bottom, rp.left);
+}
+
+// Convenience macro for widgets that embed WLX_CONTENT_PADDING_FIELDS.
+#define WLX_RESOLVE_CONTENT_RECT(ctx, opt, widget_rect) \
+    wlx_resolve_content_rect_full((ctx)->theme, (widget_rect), \
+        (opt).content_padding, \
+        (opt).content_padding_top, (opt).content_padding_right, \
+        (opt).content_padding_bottom, (opt).content_padding_left)
 
 // Convenience helpers - non-consuming width/height of the innermost layout rect.
 static inline float wlx_get_available_width(WLX_Context *ctx) {
@@ -2985,6 +3304,40 @@ typedef struct {
         .align = (opt).widget_align, .overflow = (opt).overflow, \
     }
 
+// Aggregated description of a child's contribution to its parent layout's
+// content tracking. Pass WLX_SLOT_SKIP for slot_index / grid_row to skip
+// the per-slot CONTENT or per-row grid bucket update.
+typedef struct {
+    float  h_contrib;
+    size_t slot_index;
+    size_t grid_row;
+} WLX_Parent_Contribution;
+
+// Single entry point for "child contributes its measured height to parent
+// content tracking". Updates the parent's accumulated_content_height
+// (HORZ max, VERT/grid sum), the per-slot CONTENT bucket, and the per-row
+// grid bucket (max across cells in the same row).
+static inline void wlx_contribute_to_parent_layout(
+    WLX_Context *ctx, WLX_Layout *parent, WLX_Parent_Contribution c)
+{
+    if (parent->kind == WLX_LAYOUT_LINEAR && parent->linear.orient == WLX_HORZ) {
+        if (c.h_contrib > parent->accumulated_content_height)
+            parent->accumulated_content_height = c.h_contrib;
+    } else {
+        parent->accumulated_content_height += c.h_contrib;
+    }
+
+    if (parent->has_content_slot_heights && c.slot_index < WLX_CONTENT_SLOTS_MAX) {
+        wlx_layout_content_heights(ctx, parent)[c.slot_index] += c.h_contrib;
+    }
+
+    if (parent->has_grid_row_content_heights && c.grid_row < parent->grid.rows) {
+        float *rch = wlx_grid_row_content_heights(ctx, parent);
+        if (c.h_contrib > rch[c.grid_row])
+            rch[c.grid_row] = c.h_contrib;
+    }
+}
+
 static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layout ly)
 {
     WLX_Rect cell = wlx_get_widget_cell_rect(ctx, ly.pos, ly.span, ly.padding,
@@ -3000,40 +3353,13 @@ static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layo
         WLX_Layout *parent_l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
         float h_contrib = (ly.height > 0) ? ly.height
                        : (ly.min_h > cell.h) ? ly.min_h : cell.h;
-        // HORZ layouts: content height = max of children (side by side)
-        // VERT layouts: content height = sum of children (stacked)
-        if (parent_l->kind == WLX_LAYOUT_LINEAR && parent_l->linear.orient == WLX_HORZ) {
-            if (h_contrib > parent_l->accumulated_content_height)
-                parent_l->accumulated_content_height = h_contrib;
-        } else {
-            parent_l->accumulated_content_height += h_contrib;
-        }
-
-        // Per-slot content height tracking for CONTENT slots.
-        // l->index was just advanced by wlx_get_slot_rect, so the slot
-        // that this widget occupies is at (index - span).
-        WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-        if (l->has_content_slot_heights) {
-            size_t slot_idx = l->index - ly.span;
-            if (slot_idx < WLX_CONTENT_SLOTS_MAX) {
-                float contrib = (ly.height > 0) ? ly.height
-                              : (ly.min_h > cell.h) ? ly.min_h : cell.h;
-                wlx_layout_content_heights(ctx, l)[slot_idx] += contrib;
-            }
-        }
-
-        // Per-row content height tracking for grid CONTENT rows.
-        // Uses max() across cells in the same row.
-        if (l->has_grid_row_content_heights) {
-            size_t row = l->grid.last_placed_row;
-            if (row < l->grid.rows) {
-                float contrib = (ly.height > 0) ? ly.height
-                              : (ly.min_h > cell.h) ? ly.min_h : cell.h;
-                float *rch = wlx_grid_row_content_heights(ctx, l);
-                if (contrib > rch[row])
-                    rch[row] = contrib;
-            }
-        }
+        // l->index was just advanced by wlx_get_slot_rect, so the slot this
+        // widget occupies is at (index - span).
+        wlx_contribute_to_parent_layout(ctx, parent_l, (WLX_Parent_Contribution){
+            .h_contrib  = h_contrib,
+            .slot_index = parent_l->index - ly.span,
+            .grid_row   = parent_l->grid.last_placed_row,
+        });
     }
 
     // --- Widget rect resolution ---
@@ -3061,13 +3387,28 @@ static inline size_t wlx_hash_string(const char *s) {
     return h;
 }
 
+// Scope-id push/pop helpers: convert an optional string `id` into an id-stack
+// push, and remember whether a push happened so the matching pop can be a
+// single-condition branch. Used by every frame helper that supports a `.id`
+// scope (widget, layout, scroll-panel). The returned bool is the only state
+// the caller must retain.
+static inline bool wlx_scope_push(WLX_Context *ctx, const char *id) {
+    if (!id) return false;
+    wlx_push_id(ctx, wlx_hash_string(id));
+    return true;
+}
+
+static inline void wlx_scope_pop(WLX_Context *ctx, bool was_pushed) {
+    if (was_pushed) wlx_pop_id(ctx);
+}
+
 // Wraps the per-widget prologue/epilogue: push_id (if set), widget_begin, DBG.
 // Use wlx_widget_frame_begin / wlx_widget_frame_end in every widget _impl.
 // Store the returned frame and pass it to end: wlx_widget_frame_end(ctx, frame).
 typedef struct {
     WLX_Rect slot_rect;
     WLX_Rect rect;
-    const char *pushed_id;
+    bool pushed_scope;
 } WLX_Widget_Frame;
 
 static inline WLX_Widget_Frame wlx_widget_frame_begin(
@@ -3077,15 +3418,15 @@ static inline WLX_Widget_Frame wlx_widget_frame_begin(
     WLX_UNUSED(file);
     WLX_UNUSED(line);
 
-    if (id) wlx_push_id(ctx, wlx_hash_string(id));
+    bool pushed = wlx_scope_push(ctx, id);
     WLX_Widget_Rect wg = wlx_widget_begin(ctx, ly);
     WLX_DBG(widget_begin, ctx, wg.slot_rect, ly.height, (int)ly.span, ly.overflow, file, line);
-    return (WLX_Widget_Frame){ .slot_rect = wg.slot_rect, .rect = wg.rect, .pushed_id = id };
+    return (WLX_Widget_Frame){ .slot_rect = wg.slot_rect, .rect = wg.rect, .pushed_scope = pushed };
 }
 
 static inline void wlx_widget_frame_end(WLX_Context *ctx, WLX_Widget_Frame frame)
 {
-    if (frame.pushed_id) wlx_pop_id(ctx);
+    wlx_scope_pop(ctx, frame.pushed_scope);
 }
 
 WLXDEF WLX_Rect wlx_rect(float x, float y, float w, float h)
@@ -3762,6 +4103,15 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
         ctx->interaction.active_id = 0;
     }
 
+#ifdef WLX_DEBUG
+    // Scope push/pop balance: every wlx_scope_push (via frame helpers) and
+    // every direct wlx_push_id must be matched before frame end. The arena
+    // pool reset at wlx_begin clears id_stack to 0; if we exit non-zero,
+    // some scope or push_id is unpaired.
+    assert(ctx->arena.id_stack.count == 0
+        && "wlx_end: unbalanced wlx_push_id / wlx_scope_push (missing pop)");
+#endif
+
     if (ctx->immediate_mode || ctx->arena.commands.count == 0) {
         WLX_PERF_HOOK(frame_publish, ctx);
         return;
@@ -4041,7 +4391,7 @@ typedef struct {
     int cmd_range_idx;             // command range index for this layout
     float viewport_horz;           // horizontal viewport dimension for FILL resolution
     float viewport_vert;           // vertical viewport dimension for FILL resolution
-    bool pushed_scope_id;          // true when co.id was non-NULL and a scope id was pushed
+    bool pushed_scope;          // true when co.id was non-NULL and a scope id was pushed
 } WLX_Layout_Frame;
 
 // Common prologue for all layout-begin entry points: selects the slot rect or
@@ -4053,7 +4403,7 @@ static inline WLX_Layout_Frame wlx_layout_frame_begin(
     const char *file, int line)
 {
     (void)file; (void)line;
-    if (co.id) wlx_push_id(ctx, wlx_hash_string(co.id));
+    bool pushed = wlx_scope_push(ctx, co.id);
     WLX_Rect r;
     if (ctx->arena.layouts.count <= 0) {
         r = ctx->rect;
@@ -4083,7 +4433,7 @@ static inline WLX_Layout_Frame wlx_layout_frame_begin(
         .cmd_range_idx   = cmd_range_idx,
         .viewport_horz   = viewport_horz,
         .viewport_vert   = viewport_vert,
-        .pushed_scope_id = (co.id != NULL),
+        .pushed_scope = pushed,
     };
 }
 
@@ -4221,7 +4571,7 @@ WLXDEF void wlx_layout_begin_impl(WLX_Context *ctx, size_t count, WLX_Orient ori
         wlx_compute_slot_offsets(ctx, &l, opt.sizes);
     }
 
-    l.pushed_scope_id = frame.pushed_scope_id;
+    l.pushed_scope = frame.pushed_scope;
     wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
     // layout_begin(ctx, vb_force, sizes, count, orient, pos, span, file, line)
     //   vb_force=-1: auto-detect vert_bounded from parent chain
@@ -4244,7 +4594,7 @@ WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, floa
     wlx_layout_apply_common(&l, WLX_LAYOUT_COMMON_OPT(opt), frame);
     l.viewport = (orient == WLX_HORZ) ? frame.viewport_horz : frame.viewport_vert;
 
-    l.pushed_scope_id = frame.pushed_scope_id;
+    l.pushed_scope = frame.pushed_scope;
     wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
     // layout_begin: auto layouts have no sizes array - inherit parent vert_bounded only
     WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, NULL, 0);
@@ -4284,7 +4634,7 @@ WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_
         l.has_grid_row_content_heights = true;
     }
 
-    l.pushed_scope_id = frame.pushed_scope_id;
+    l.pushed_scope = frame.pushed_scope;
     wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
     // layout_begin: grid layouts - inherit parent vert_bounded, no per-slot FLEX/FILL check
     WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, NULL, 0);
@@ -4295,7 +4645,7 @@ WLXDEF void wlx_grid_begin_auto_impl(WLX_Context *ctx, size_t cols, float row_px
 
     WLX_Layout l = wlx_create_grid_auto(ctx, frame.rect, cols, row_px, opt.col_sizes, opt.gap);
     wlx_layout_apply_common(&l, WLX_LAYOUT_COMMON_OPT(opt), frame);
-    l.pushed_scope_id = frame.pushed_scope_id;
+    l.pushed_scope = frame.pushed_scope;
     wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
     // layout_begin: grid auto - inherit parent vert_bounded
     WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, NULL, 0);
@@ -4314,7 +4664,7 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
 
     WLX_Layout l = wlx_create_grid_auto(ctx, frame.rect, cols, tile_h, opt.col_sizes, opt.gap);
     wlx_layout_apply_common(&l, WLX_LAYOUT_COMMON_OPT(opt), frame);
-    l.pushed_scope_id = frame.pushed_scope_id;
+    l.pushed_scope = frame.pushed_scope;
     wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
     // layout_begin: grid auto tile - inherit parent vert_bounded
     WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, NULL, 0);
@@ -4323,9 +4673,9 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
 // Scope-pop half of the layout frame lifecycle: pops the layout from the stack
 // and pops the scope id if one was pushed at begin.
 static inline void wlx_layout_frame_end(WLX_Context *ctx, WLX_Layout *l) {
-    bool pop_scope = l->pushed_scope_id;
+    bool pop_scope = l->pushed_scope;
     ctx->arena.layouts.count -= 1;
-    if (pop_scope) wlx_pop_id(ctx);
+    wlx_scope_pop(ctx, pop_scope);
 }
 
 WLXDEF void wlx_layout_end(WLX_Context *ctx) {
@@ -4411,42 +4761,42 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
     if (ctx->arena.layouts.count > 1) {
         WLX_Layout *parent = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2];
         float child_h = l->accumulated_content_height + l->padding_top + l->padding_bottom;
+        // For VERT linear parents with explicitly-sized slots (PX or
+        // CONTENT), the child occupies exactly the slot's allocated
+        // height in the parent rect, regardless of how tall the child
+        // actually rendered. Use the slot height as the contribution
+        // so siblings placed in fixed-size slots that render shorter
+        // than their slot do not undercount the parent's total content
+        // height (which the auto-height scroll panel uses to compute
+        // max_scroll), and so children that overflow their slot do
+        // not overcount it (overflow is overdraw, not extra content).
+        // FLEX/FILL slots keep child_h (size depends on parent rect, would
+        // create runaway feedback inside auto-height scroll panels).
+        float contrib = child_h;
         if (parent->kind == WLX_LAYOUT_LINEAR
-            && parent->linear.orient == WLX_HORZ) {
-            if (child_h > parent->accumulated_content_height)
-                parent->accumulated_content_height = child_h;
-        } else {
-            // For VERT linear parents with explicitly-sized slots (PX or
-            // CONTENT), the child occupies exactly the slot's allocated
-            // height in the parent rect, regardless of how tall the child
-            // actually rendered. Use the slot height as the contribution
-            // so siblings placed in fixed-size slots that render shorter
-            // than their slot do not undercount the parent's total content
-            // height (which the auto-height scroll panel uses to compute
-            // max_scroll), and so children that overflow their slot do
-            // not overcount it (overflow is overdraw, not extra content).
-            // Skip for FLEX/FILL slots (size depends on parent rect, would
-            // create runaway feedback inside auto-height scroll panels).
-            float contrib = child_h;
-            if (parent->kind == WLX_LAYOUT_LINEAR
-                && parent->linear.orient == WLX_VERT
-                && parent->content_sizes != NULL
-                && parent->index > 0 && parent->index <= parent->count) {
-                WLX_Size_Kind k = parent->content_sizes[parent->index - 1].kind;
-                if (k == WLX_SIZE_PIXELS || k == WLX_SIZE_CONTENT) {
-                    const float *poff = wlx_layout_offsets(ctx, parent);
-                    float slot_h = poff[parent->index] - poff[parent->index - 1];
-                    // wlx_compute_offsets stores boundary positions, so the
-                    // delta between adjacent boundaries includes the trailing
-                    // inter-slot gap for non-last slots. Strip it here - the
-                    // parent adds total_gap once via the gap accumulation
-                    // step above (l->gap * (l->index - 1)).
-                    if (parent->index < parent->count) slot_h -= parent->gap;
-                    contrib = slot_h;
-                }
+            && parent->linear.orient == WLX_VERT
+            && parent->content_sizes != NULL
+            && parent->index > 0 && parent->index <= parent->count) {
+            WLX_Size_Kind k = parent->content_sizes[parent->index - 1].kind;
+            if (k == WLX_SIZE_PIXELS || k == WLX_SIZE_CONTENT) {
+                const float *poff = wlx_layout_offsets(ctx, parent);
+                float slot_h = poff[parent->index] - poff[parent->index - 1];
+                // wlx_compute_offsets stores boundary positions, so the
+                // delta between adjacent boundaries includes the trailing
+                // inter-slot gap for non-last slots. Strip it here - the
+                // parent adds total_gap once via the gap accumulation
+                // step above (l->gap * (l->index - 1)).
+                if (parent->index < parent->count) slot_h -= parent->gap;
+                contrib = slot_h;
             }
-            parent->accumulated_content_height += contrib;
         }
+        // Accumulated-only contribution: per-slot and per-row buckets were
+        // already updated earlier with the pre-gap, non-overridden child_h.
+        wlx_contribute_to_parent_layout(ctx, parent, (WLX_Parent_Contribution){
+            .h_contrib  = contrib,
+            .slot_index = WLX_SLOT_SKIP,
+            .grid_row   = WLX_SLOT_SKIP,
+        });
     }
 
     // --- Compute CONTENT slot deltas for deferred replay ---
@@ -4812,13 +5162,26 @@ static inline void wlx_interaction_handle_keyboard(WLX_Context *ctx, size_t id, 
     }
 }
 
-WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, const char *file, int line) {
-    // ID = hash(file, line) ^ id_stack_hash.
-    // Use wlx_push_id()/wlx_pop_id() for loop disambiguation.
+// Internal variant of wlx_get_interaction() that adds an explicit `disabled`
+// gate. When `disabled` is true, the global interaction state (hot_id and
+// active_id) is left untouched, all action booleans (clicked, pressed,
+// focused, active, just_focused, just_unfocused) are forced false, and
+// result.disabled is set. Hover is still reported when the WLX_INTERACT_HOVER
+// flag is set, but only as a local rect-containment check so a disabled
+// widget cannot claim hot ownership from a sibling.
+static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, bool disabled, const char *file, int line) {
     size_t id = wlx_interaction_make_id(ctx, file, line);
     WLX_Interaction result = { .id = id };
 
     bool mouse_over = wlx_interaction_mouse_over(ctx, rect);
+
+    if (disabled) {
+        if (flags & WLX_INTERACT_HOVER) {
+            result.hover = mouse_over;
+        }
+        result.disabled = true;
+        return result;
+    }
 
     if (flags & WLX_INTERACT_HOVER) {
         wlx_interaction_compute_hover(ctx, id, mouse_over, &result);
@@ -4847,6 +5210,12 @@ WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint
     }
 
     return result;
+}
+
+WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, const char *file, int line) {
+    // ID = hash(file, line) ^ id_stack_hash.
+    // Use wlx_push_id()/wlx_pop_id() for loop disambiguation.
+    return wlx_get_interaction_for(ctx, rect, flags, false, file, line);
 }
 
 // ---------------------------------------------------------------------------
@@ -4929,26 +5298,24 @@ WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget_Opt opt, const char *fi
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
-    WLX_Interaction inter = wlx_get_interaction(
+    // wlx_widget intentionally does not carry .disabled (see ADR_018
+    // coverage matrix); the _for form with disabled=false keeps the
+    // call shape consistent with the disabled-aware widgets and makes
+    // a future opt-in a one-line change.
+    WLX_Interaction inter = wlx_get_interaction_for(
         ctx,
         wr,
         WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD,
+        false,
         file, line
     );
 
-    if (inter.hover) {
-        opt.color        = wlx_color_brightness(opt.color,        ctx->theme->hover_brightness);
-        opt.border_color = wlx_color_brightness(opt.border_color, ctx->theme->hover_brightness);
-    }
+    opt.color = wlx_color_hover_tint(
+        opt.color, inter.hover, inter.disabled, ctx->theme->hover_brightness);
+    opt.border_color = wlx_color_hover_tint(
+        opt.border_color, inter.hover, inter.disabled, ctx->theme->hover_brightness);
 
-    WLX_Rect rect = {
-        .x = ceilf(wr.x),
-        .y = ceilf(wr.y),
-        .w = ceilf(wr.w),
-        .h = ceilf(wr.h),
-    };
-
-    wlx_draw_box(ctx, rect, (WLX_Box_Style){
+    wlx_draw_box(ctx, wr, (WLX_Box_Style){
         .fill             = opt.color,
         .border           = opt.border_color,
         .border_width     = opt.border_width,
@@ -5686,6 +6053,10 @@ static const float WLX_INPUTBOX_CURSOR_WIDTH = 2.0f;
 static const float WLX_INPUTBOX_CURSOR_PADDING = 2.0f;
 static const float WLX_INPUTBOX_CURSOR_BLINK_PERIOD = 1.0f;
 static const float WLX_INPUTBOX_CURSOR_VISIBLE_FRACTION = 0.5f;
+// Fixed inner x-axis inset between the input box rect and the editable text.
+// Preserves the historical `content_padding / 2` visual at the default
+// content_padding of 10.
+static const float WLX_INPUTBOX_TEXT_INSET = 5.0f;
 
 // Resolve widget opacity: if the per-widget value is unset (< 0), default to
 // fully opaque; then multiply by theme-level and context-stack opacity.
@@ -5705,6 +6076,40 @@ static inline float wlx_resolve_opacity_for(const WLX_Context *ctx, float opt_op
     WLX_Color *_cs[] = { __VA_ARGS__ };                          \
     for (size_t _i = 0; _i < sizeof(_cs)/sizeof(_cs[0]); ++_i)  \
         *_cs[_i] = wlx_color_apply_opacity(*_cs[_i], (opacity)); \
+} while (0)
+
+// Apply disabled-state visual transforms in place when `disabled` is true.
+// Each color is shifted by `theme->disabled_brightness` (skipped when the
+// theme value is WLX_FLOAT_UNSET), and `*opacity_ptr` is multiplied by
+// `theme->disabled_opacity` (skipped when the theme value is negative).
+// Intended to run after opacity resolution and before WLX_APPLY_OPACITY so
+// the adjusted opacity is premultiplied into color alphas downstream.
+#define WLX_APPLY_DISABLED(theme, disabled, opacity_ptr, /*WLX_Color* args*/ ...) do { \
+    if (disabled) {                                                                    \
+        const WLX_Theme *_wd_t = (theme);                                              \
+        float _wd_b = _wd_t->disabled_brightness;                                      \
+        if (!wlx_is_float_unset(_wd_b)) {                                              \
+            WLX_Color *_wd_cs[] = { __VA_ARGS__ };                                     \
+            for (size_t _wd_i = 0; _wd_i < sizeof(_wd_cs)/sizeof(_wd_cs[0]); ++_wd_i)  \
+                *_wd_cs[_wd_i] = wlx_color_brightness(*_wd_cs[_wd_i], _wd_b);          \
+        }                                                                              \
+        float _wd_o = _wd_t->disabled_opacity;                                         \
+        if (_wd_o >= 0.0f && (opacity_ptr) != NULL) {                                  \
+            *(opacity_ptr) = *(opacity_ptr) * _wd_o;                                   \
+        }                                                                              \
+    }                                                                                  \
+} while (0)
+
+// Unified resolver tail: resolve opacity, apply disabled-state transforms,
+// then premultiply opacity into the color list. The color list is named
+// exactly once, eliminating the "added a color to one list but forgot the
+// other" drift target. Pass `disabled = false` for purely decorative
+// resolvers (label, progress, image, widget, scroll-panel) so the call
+// shape is symmetric across all widgets.
+#define WLX_RESOLVE_VISUAL_STATE(ctx, opt_ptr, disabled, /*WLX_Color* args*/ ...) do { \
+    (opt_ptr)->opacity = wlx_resolve_opacity_for((ctx), (opt_ptr)->opacity);           \
+    WLX_APPLY_DISABLED((ctx)->theme, (disabled), &(opt_ptr)->opacity, __VA_ARGS__);    \
+    WLX_APPLY_OPACITY((opt_ptr)->opacity, __VA_ARGS__);                                \
 } while (0)
 
 static inline void wlx_resolve_roundness(const WLX_Theme *theme,
@@ -5739,9 +6144,20 @@ static inline void wlx_resolve_border(const WLX_Theme *theme,
 static void wlx_resolve_opt_widget(const WLX_Context *ctx, WLX_Widget_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->color, &opt->border_color);
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, false, &opt->color, &opt->border_color);
 }
+
+// Forward declarations for shared image helpers used by wlx_label_impl below.
+// Definitions live further down alongside wlx_button_impl.
+static void wlx_resolve_image_fit(WLX_Rect target, WLX_Rect src, WLX_Image_Scale scale,
+    WLX_Align align, WLX_Rect *out_src, WLX_Rect *out_dst);
+static inline bool wlx_widget_has_image(WLX_Texture texture);
+static inline WLX_Rect wlx_widget_image_src(WLX_Texture texture, WLX_Rect texture_src);
+static inline float wlx_widget_auto_image_size(float image_size, WLX_Image_Placement placement,
+    WLX_Rect widget_rect, float font_size, bool has_text);
+static inline void wlx_widget_layout_image_text(WLX_Rect widget_rect, WLX_Image_Placement placement,
+    float image_size, float gap, float text_w, float text_h, WLX_Align align,
+    WLX_Rect *out_image_rect, WLX_Rect *out_text_rect);
 
 static void wlx_resolve_opt_label(const WLX_Context *ctx, WLX_Label_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
@@ -5749,8 +6165,13 @@ static void wlx_resolve_opt_label(const WLX_Context *ctx, WLX_Label_Opt *opt) {
     if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color);
+
+    if (wlx_color_is_zero(opt->texture_tint)) opt->texture_tint = WLX_WHITE;
+    if (opt->image_text_gap < 0)              opt->image_text_gap = opt->font_size * 0.5f;
+    // image_size <= 0 stays unresolved; resolved against the frame rect later.
+
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, false,
+        &opt->front_color, &opt->back_color, &opt->border_color, &opt->texture_tint);
 }
 
 WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt, const char *file, int line)
@@ -5761,16 +6182,23 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
-    WLX_Interaction inter = wlx_get_interaction(
+    WLX_Rect content_rect = WLX_RESOLVE_CONTENT_RECT(ctx, opt, wr);
+
+    // wlx_label intentionally does not carry .disabled (see ADR_018
+    // coverage matrix); the _for form with disabled=false keeps the
+    // call shape consistent with the disabled-aware widgets and makes
+    // a future opt-in a one-line change.
+    WLX_Interaction inter = wlx_get_interaction_for(
         ctx,
         wr,
         WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD,
+        false,
         file, line
     );
 
     if (opt.show_background || opt.border_width > 0) {
         WLX_Color bg = opt.show_background
-            ? ((inter.hover) ? wlx_color_brightness(opt.back_color, ctx->theme->hover_brightness) : opt.back_color)
+            ? wlx_color_hover_tint(opt.back_color, inter.hover, inter.disabled, ctx->theme->hover_brightness)
             : (WLX_Color){0};
         wlx_draw_box(ctx, (WLX_Rect){wr.x, wr.y, wr.w, wr.h}, (WLX_Box_Style){
             .fill            = bg,
@@ -5781,20 +6209,251 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
         });
     }
 
-    wlx_draw_text_fitted(ctx, wr, text, (WLX_Text_Style){ .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing }, opt.align, opt.wrap);
+    size_t text_len = (text != NULL) ? strlen(text) : 0;
+    bool   has_text  = text_len > 0;
+    bool   has_image = wlx_widget_has_image(opt.texture);
+    WLX_Text_Style ts = {
+        .font      = opt.font,
+        .font_size = opt.font_size,
+        .color     = opt.front_color,
+        .spacing   = opt.spacing,
+    };
+
+    if (has_image && has_text) {
+        float text_w = 0.0f, text_h = 0.0f;
+        wlx_measure_text_slice(ctx, text, text_len, ts, &text_w, &text_h);
+
+        float image_size = wlx_widget_auto_image_size(opt.image_size, opt.image_placement, content_rect, opt.font_size, true);
+
+        WLX_Rect image_rect, text_rect;
+        wlx_widget_layout_image_text(content_rect, opt.image_placement, image_size, opt.image_text_gap,
+            text_w, text_h, opt.align, &image_rect, &text_rect);
+
+        WLX_Rect src = wlx_widget_image_src(opt.texture, opt.texture_src);
+        WLX_Rect tex_src, tex_dst;
+        wlx_resolve_image_fit(image_rect, src, opt.texture_scale, WLX_CENTER, &tex_src, &tex_dst);
+        wlx_draw_texture(ctx, opt.texture, tex_src, tex_dst, opt.texture_tint);
+
+        wlx_draw_text_fitted_slice(ctx, text_rect, text, text_len, ts, opt.align, opt.wrap);
+    } else if (has_image) {
+        WLX_Rect target = (opt.image_size > 0)
+            ? wlx_get_align_rect(content_rect, opt.image_size, opt.image_size, opt.align)
+            : content_rect;
+        WLX_Rect src = wlx_widget_image_src(opt.texture, opt.texture_src);
+        WLX_Rect tex_src, tex_dst;
+        wlx_resolve_image_fit(target, src, opt.texture_scale, opt.align, &tex_src, &tex_dst);
+        wlx_draw_texture(ctx, opt.texture, tex_src, tex_dst, opt.texture_tint);
+    } else if (has_text) {
+        wlx_draw_text_fitted_slice(ctx, content_rect, text, text_len, ts, opt.align, opt.wrap);
+    }
+    // No text and no image: chrome-only (if configured); label remains non-interactive.
 
     // Epilogue: close widget frame
     wlx_widget_frame_end(ctx, frame);
 }
 
+// Resolve drawing rects for an image fitted into a target rect using the
+// given scale mode and alignment. Inputs: target rect to fit into and a
+// normalized source rect (w, h > 0). Outputs: source rect to sample (FILL
+// may crop) and destination rect to draw into. Shared between wlx_image
+// and the image branch of wlx_button.
+static void wlx_resolve_image_fit(
+    WLX_Rect target,
+    WLX_Rect src,
+    WLX_Image_Scale scale,
+    WLX_Align align,
+    WLX_Rect *out_src,
+    WLX_Rect *out_dst)
+{
+
+    WLX_Rect s = src;
+    WLX_Rect dst = target;
+    switch (scale) {
+        case WLX_IMAGE_SCALE_STRETCH:
+            dst = target;
+            break;
+
+        case WLX_IMAGE_SCALE_NONE:
+            dst = wlx_get_align_rect(target, s.w, s.h, align);
+            break;
+
+        case WLX_IMAGE_SCALE_FIT: {
+            float sx = target.w / s.w;
+            float sy = target.h / s.h;
+            float k  = sx < sy ? sx : sy;
+            dst = wlx_get_align_rect(target, s.w * k, s.h * k, align);
+            break;
+        }
+
+        case WLX_IMAGE_SCALE_FILL: {
+            // Narrow s to match target's aspect; align selects which edge survives.
+            if (target.h > 0 && s.h > 0) {
+                float t_aspect = target.w / target.h;
+                float s_aspect = s.w  / s.h;
+                if (s_aspect > t_aspect) {
+                    float new_w = s.h * t_aspect;
+                    switch (align) {
+                        case WLX_LEFT: case WLX_TOP_LEFT: case WLX_BOTTOM_LEFT:
+                            break;
+                        case WLX_RIGHT: case WLX_TOP_RIGHT: case WLX_BOTTOM_RIGHT:
+                            s.x += (s.w - new_w);
+                            break;
+                        default:
+                            s.x += (s.w - new_w) * 0.5f;
+                            break;
+                    }
+                    s.w = new_w;
+                } else if (s_aspect < t_aspect) {
+                    float new_h = s.w / t_aspect;
+                    switch (align) {
+                        case WLX_TOP: case WLX_TOP_LEFT: case WLX_TOP_RIGHT: case WLX_TOP_CENTER:
+                            break;
+                        case WLX_BOTTOM: case WLX_BOTTOM_LEFT: case WLX_BOTTOM_RIGHT: case WLX_BOTTOM_CENTER:
+                            s.y += (s.h - new_h);
+                            break;
+                        default:
+                            s.y += (s.h - new_h) * 0.5f;
+                            break;
+                    }
+                    s.h = new_h;
+                }
+            }
+            dst = target;
+            break;
+        }
+    }
+    *out_src = s;
+    *out_dst = dst;
+}
+
+// True when a widget option carries a drawable texture.
+static inline bool wlx_widget_has_image(WLX_Texture texture) {
+    return texture.width > 0 && texture.height > 0;
+}
+
+// True when both checkbox state textures are drawable. Texture mode is
+// gated on this so a half-configured checkbox cannot draw a partial
+// texture path; if either state is missing, the native path runs instead.
+static inline bool wlx_checkbox_texture_mode_active(WLX_Texture checked, WLX_Texture unchecked) {
+    return wlx_widget_has_image(checked) && wlx_widget_has_image(unchecked);
+}
+
+// Resolve a widget's image source rect. An unset texture_src (w/h <= 0)
+// means use the full texture.
+static inline WLX_Rect wlx_widget_image_src(WLX_Texture texture, WLX_Rect texture_src) {
+    WLX_Rect s = texture_src;
+    if (s.w <= 0 || s.h <= 0) {
+        s = (WLX_Rect){ 0, 0, (float)texture.width, (float)texture.height };
+    }
+    return s;
+}
+
+// Compute a reserved square size for a widget's image content.
+//   image_size > 0      -> caller-specified, used as-is.
+//   has_text + horiz    -> derived from font_size, clamped to widget height.
+//   has_text + vert     -> derived from font_size, clamped to widget width.
+//   image-only          -> smaller of widget width/height.
+static inline float wlx_widget_auto_image_size(
+    float image_size,
+    WLX_Image_Placement placement,
+    WLX_Rect widget_rect,
+    float font_size,
+    bool has_text)
+{
+    if (image_size > 0) return image_size;
+
+    if (!has_text) {
+        float m = widget_rect.w < widget_rect.h ? widget_rect.w : widget_rect.h;
+        return m > 0 ? m : 0;
+    }
+    float s = font_size * 1.5f;
+
+    bool horizontal = (placement == WLX_IMAGE_PLACEMENT_LEFT || placement == WLX_IMAGE_PLACEMENT_RIGHT);
+
+    float clamp = horizontal ? widget_rect.h : widget_rect.w;
+    if (clamp > 0 && s > clamp) s = clamp;
+
+    return s > 0 ? s : 0;
+}
+
+// Compute image and text rects for an image+text widget. The combined block
+// (image + gap + text) is aligned inside widget_rect using `align`; the
+// reserved image rect is square (image_size x image_size) and centered on
+// the cross axis within the block.
+static inline void wlx_widget_layout_image_text(
+    WLX_Rect widget_rect,
+    WLX_Image_Placement placement,
+    float image_size,
+    float gap,
+    float text_w,
+    float text_h,
+    WLX_Align align,
+    WLX_Rect *out_image_rect,
+    WLX_Rect *out_text_rect)
+{
+    bool horizontal = (placement == WLX_IMAGE_PLACEMENT_LEFT || placement == WLX_IMAGE_PLACEMENT_RIGHT);
+
+    float block_w, block_h;
+    if (horizontal) {
+        block_w = image_size + gap + text_w;
+        block_h = image_size > text_h ? image_size : text_h;
+    } else {
+        block_w = image_size > text_w ? image_size : text_w;
+        block_h = image_size + gap + text_h;
+    }
+    if (block_w > widget_rect.w) block_w = widget_rect.w;
+    if (block_h > widget_rect.h) block_h = widget_rect.h;
+    if (block_w < 0) block_w = 0;
+    if (block_h < 0) block_h = 0;
+
+    WLX_Rect block = wlx_get_align_rect(widget_rect, block_w, block_h, align);
+
+    WLX_Rect img, txt;
+    if (horizontal) {
+        float img_y = block.y + (block.h - image_size) * 0.5f;
+        if (img_y < block.y) img_y = block.y;
+        float available_text_w = block.w - image_size - gap;
+        if (available_text_w < 0) available_text_w = 0;
+        if (placement == WLX_IMAGE_PLACEMENT_LEFT) {
+            img = (WLX_Rect){ block.x, img_y, image_size, image_size };
+            txt = (WLX_Rect){ block.x + image_size + gap, block.y, available_text_w, block.h };
+        } else {
+            txt = (WLX_Rect){ block.x, block.y, available_text_w, block.h };
+            img = (WLX_Rect){ block.x + available_text_w + gap, img_y, image_size, image_size };
+        }
+    } else {
+        float img_x = block.x + (block.w - image_size) * 0.5f;
+        if (img_x < block.x) img_x = block.x;
+        float available_text_h = block.h - image_size - gap;
+        if (available_text_h < 0) available_text_h = 0;
+        if (placement == WLX_IMAGE_PLACEMENT_TOP) {
+            img = (WLX_Rect){ img_x, block.y, image_size, image_size };
+            txt = (WLX_Rect){ block.x, block.y + image_size + gap, block.w, available_text_h };
+        } else {
+            txt = (WLX_Rect){ block.x, block.y, block.w, available_text_h };
+            img = (WLX_Rect){ img_x, block.y + available_text_h + gap, image_size, image_size };
+        }
+    }
+
+    *out_image_rect = img;
+    *out_text_rect = txt;
+}
+
 static void wlx_resolve_opt_button(const WLX_Context *ctx, WLX_Button_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
+
     if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
+
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color);
+
+    if (wlx_color_is_zero(opt->texture_tint)) opt->texture_tint = WLX_WHITE;
+    if (opt->image_text_gap < 0)              opt->image_text_gap = opt->font_size * 0.5f;
+    // image_size <= 0 stays unresolved; resolved against the frame rect later.
+
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
+        &opt->front_color, &opt->back_color, &opt->border_color, &opt->texture_tint);
 }
 
 WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt opt, const char *file, int line)
@@ -5805,15 +6464,19 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
-    WLX_Interaction inter = wlx_get_interaction(
+    WLX_Rect content_rect = WLX_RESOLVE_CONTENT_RECT(ctx, opt, wr);
+
+    WLX_Interaction inter = wlx_get_interaction_for(
         ctx,
         wr,
         WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD,
+        opt.disabled,
         file, line
     );
 
 
-    WLX_Color bg = (inter.hover) ? wlx_color_brightness(opt.back_color, ctx->theme->hover_brightness) : opt.back_color;
+    WLX_Color bg = wlx_color_hover_tint(
+        opt.back_color, inter.hover, inter.disabled, ctx->theme->hover_brightness);
 
     wlx_draw_box(ctx, (WLX_Rect){wr.x, wr.y, wr.w, wr.h}, (WLX_Box_Style){
         .fill            = bg,
@@ -5823,7 +6486,44 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
         .rounded_segments = opt.rounded_segments,
     });
 
-    wlx_draw_text_fitted(ctx, wr, text, (WLX_Text_Style){ .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing }, opt.align, opt.wrap);
+    size_t text_len = (text != NULL) ? strlen(text) : 0;
+    bool   has_text  = text_len > 0;
+    bool   has_image = wlx_widget_has_image(opt.texture);
+    WLX_Text_Style ts = {
+        .font      = opt.font,
+        .font_size = opt.font_size,
+        .color     = opt.front_color,
+        .spacing   = opt.spacing,
+    };
+
+    if (has_image && has_text) {
+        float text_w = 0.0f, text_h = 0.0f;
+        wlx_measure_text_slice(ctx, text, text_len, ts, &text_w, &text_h);
+
+        float image_size = wlx_widget_auto_image_size(opt.image_size, opt.image_placement, content_rect, opt.font_size, true);
+
+        WLX_Rect image_rect, text_rect;
+        wlx_widget_layout_image_text(content_rect, opt.image_placement, image_size, opt.image_text_gap,
+            text_w, text_h, opt.align, &image_rect, &text_rect);
+
+        WLX_Rect src = wlx_widget_image_src(opt.texture, opt.texture_src);
+        WLX_Rect tex_src, tex_dst;
+        wlx_resolve_image_fit(image_rect, src, opt.texture_scale, WLX_CENTER, &tex_src, &tex_dst);
+        wlx_draw_texture(ctx, opt.texture, tex_src, tex_dst, opt.texture_tint);
+
+        wlx_draw_text_fitted_slice(ctx, text_rect, text, text_len, ts, opt.align, opt.wrap);
+    } else if (has_image) {
+        WLX_Rect target = (opt.image_size > 0)
+            ? wlx_get_align_rect(content_rect, opt.image_size, opt.image_size, opt.align)
+            : content_rect;
+        WLX_Rect src = wlx_widget_image_src(opt.texture, opt.texture_src);
+        WLX_Rect tex_src, tex_dst;
+        wlx_resolve_image_fit(target, src, opt.texture_scale, opt.align, &tex_src, &tex_dst);
+        wlx_draw_texture(ctx, opt.texture, tex_src, tex_dst, opt.texture_tint);
+    } else if (has_text) {
+        wlx_draw_text_fitted_slice(ctx, content_rect, text, text_len, ts, opt.align, opt.wrap);
+    }
+    // No text and no image: chrome-only; click contract preserved.
 
     // Epilogue: close widget frame
     wlx_widget_frame_end(ctx, frame);
@@ -5833,16 +6533,22 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
 
 static void wlx_resolve_opt_checkbox(const WLX_Context *ctx, WLX_Checkbox_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
+
     if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
     if (wlx_color_is_zero(opt->check_color)) opt->check_color = theme->checkbox.check;
+    if (wlx_color_is_zero(opt->tex_checked_tint))   opt->tex_checked_tint   = WLX_WHITE;
+    if (wlx_color_is_zero(opt->tex_unchecked_tint)) opt->tex_unchecked_tint = WLX_WHITE;
     // Widget-specific border fallbacks before common helper
     if (wlx_color_is_zero(opt->border_color))         opt->border_color = theme->checkbox.border;
     if (wlx_is_negative_unset(opt->border_width)) opt->border_width = theme->checkbox.border_width;
+
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color, &opt->check_color);
+
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
+        &opt->front_color, &opt->back_color, &opt->border_color, &opt->check_color,
+        &opt->tex_checked_tint, &opt->tex_unchecked_tint);
 }
 
 WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked, WLX_Checkbox_Opt opt, const char *file, int line)
@@ -5853,8 +6559,10 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
+    WLX_Rect content_rect = WLX_RESOLVE_CONTENT_RECT(ctx, opt, wr);
+
     // Draw checkbox
-    float checkbox_size = (wr.h > opt.font_size) ? opt.font_size : wr.h * WLX_CHECKBOX_SIZE_RATIO;
+    float checkbox_size = (content_rect.h > opt.font_size) ? opt.font_size : content_rect.h * WLX_CHECKBOX_SIZE_RATIO;
     float text_w = 0;
     float text_h = 0;
     WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing };
@@ -5863,13 +6571,14 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
     float padding = opt.font_size * WLX_CHECKBOX_LABEL_PADDING_FACTOR;
 
     float height = text_h > checkbox_size ? text_h : checkbox_size;
-    WLX_Rect acr = wlx_get_align_rect(wr, checkbox_size + padding + text_w, height, opt.align);
+    WLX_Rect acr = wlx_get_align_rect(content_rect, checkbox_size + padding + text_w, height, opt.align);
     WLX_Rect hit_rect = (opt.full_slot_hit) ? wr : acr;
 
-    WLX_Interaction inter = wlx_get_interaction(
+    WLX_Interaction inter = wlx_get_interaction_for(
         ctx,
         hit_rect,
         WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD,
+        opt.disabled,
         file, line
     );
 
@@ -5879,17 +6588,21 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
         *checked = !(*checked);
     }
 
-    WLX_Color checkbox_bg = inter.hover ? wlx_color_brightness(opt.back_color, ctx->theme->hover_brightness) : opt.back_color;
+    WLX_Color checkbox_bg = wlx_color_hover_tint(
+        opt.back_color, inter.hover, inter.disabled, ctx->theme->hover_brightness);
 
-    if (opt.tex_checked.width > 0) {
-        // Texture mode - draw checked/unchecked texture
-        WLX_Texture current_tex = (checked != NULL && *checked) ? opt.tex_checked : opt.tex_unchecked;
+    if (wlx_checkbox_texture_mode_active(opt.tex_checked, opt.tex_unchecked)) {
+        bool        is_checked   = (checked != NULL && *checked);
+        WLX_Texture current_tex  = is_checked ? opt.tex_checked      : opt.tex_unchecked;
+        WLX_Rect    current_src  = is_checked ? opt.tex_checked_src  : opt.tex_unchecked_src;
+        WLX_Color   current_tint = is_checked ? opt.tex_checked_tint : opt.tex_unchecked_tint;
+        WLX_Rect    src          = wlx_widget_image_src(current_tex, current_src);
         wlx_draw_texture(
             ctx,
             current_tex,
-            (WLX_Rect){0, 0, (float)current_tex.width, (float)current_tex.height},
+            src,
             (WLX_Rect){checkbox_rect.x, checkbox_rect.y, checkbox_rect.w, checkbox_rect.h},
-            checkbox_bg
+            current_tint
         );
     } else {
         // Native mode - draw box + checkmark lines
@@ -5926,7 +6639,7 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
       .x = acr.x + checkbox_size + padding,
       .y = acr.y,
       .w = acr.w - checkbox_size - padding,
-      .h = wr.y + wr.h - acr.y
+      .h = content_rect.y + content_rect.h - acr.y
     };
     wlx_draw_text_fitted_slice(ctx, text_rect, text, text_len, ts, WLX_ALIGN_NONE, opt.wrap);
 
@@ -5938,23 +6651,26 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
 
 static void wlx_resolve_opt_inputbox(const WLX_Context *ctx, WLX_Inputbox_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
+
     if (wlx_color_is_zero(opt->front_color))        opt->front_color        = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))         opt->back_color         = theme->surface;
     // Widget-specific border_width fallback before common helper
     if (wlx_is_negative_unset(opt->border_width))   opt->border_width       = theme->input.border_width;
     if (wlx_color_is_zero(opt->border_focus_color)) opt->border_focus_color = theme->input.border_focus;
     if (wlx_color_is_zero(opt->cursor_color))       opt->cursor_color       = theme->input.cursor;
+
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color,
-                      &opt->border_focus_color, &opt->cursor_color);
+
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
+        &opt->front_color, &opt->back_color, &opt->border_color,
+        &opt->border_focus_color, &opt->cursor_color);
 }
 
 // Handle keyboard input for an active inputbox: cursor movement, text insertion,
 // and backspace deletion. Called each frame while the inputbox is focused.
 static void wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state,
-                                      char *buffer, size_t buffer_size, bool just_focused)
+    char *buffer, size_t buffer_size, bool just_focused)
 {
     size_t current_len = strlen(buffer);
     bool changed_cursor_or_text = false;
@@ -6031,35 +6747,33 @@ static void wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state
     if (changed_cursor_or_text) state->cursor_blink_time = 0.0f;
 }
 
-WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_size, WLX_Inputbox_Opt opt, const char *file, int line) {
+WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_size,
+    WLX_Inputbox_Opt opt, const char *file, int line)
+{
     assert(ctx != NULL);
     assert(buffer != NULL && "inputbox buffer must not be NULL");
     assert(buffer_size >= 2 && "buffer_size must hold at least 1 char + null terminator");
     wlx_resolve_opt_inputbox(ctx, &opt);
 
-    // Ensure height can fit the font plus content_padding on both sides.
-    float min_h = (float)(opt.font_size + opt.content_padding * 2 + 4);
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
+
+    // Ensure height can fit the font plus content padding on both sides.
+    float min_h = (float)opt.font_size + rp.top + rp.bottom + 4.0f;
     if (opt.height > 0 && opt.height < min_h) opt.height = min_h;
 
     // Prologue: compute widget frame and interaction state
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
-    // If the layout slot constrained wr.h below the requested height,
-    // shrink content_padding so the text area can still fit the font.
-    {
-        float available_text_h = wr.h - opt.content_padding * 2;
-        if (available_text_h < (float)opt.font_size) {
-            float needed = (wr.h - (float)opt.font_size) / 2.0f;
-            if (needed < 0) needed = 0;
-            opt.content_padding = needed;
-        }
-    }
+    // Scale the resolved padding so the content rect never has negative
+    // dimensions even when the layout slot constrains wr below opt.height.
+    wlx_clamp_resolved_padding(&rp, wr.w, wr.h);
 
-    WLX_Interaction inter = wlx_get_interaction(
+    WLX_Interaction inter = wlx_get_interaction_for(
         ctx,
         wr,
         WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS,
+        opt.disabled,
         file, line
     );
 
@@ -6078,16 +6792,16 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
         size_t label_len = strlen(label);
         float label_h = 0;
         wlx_measure_text_slice(ctx, label, label_len, ts, &label_width, &label_h);
-        label_width += opt.content_padding;
+        label_width += rp.left;
 
-        float label_x = wr.x + opt.content_padding;
+        float label_x = wr.x + rp.left;
         float label_y;
         switch (opt.align) {
             case WLX_TOP: case WLX_TOP_LEFT: case WLX_TOP_CENTER: case WLX_TOP_RIGHT:
-                label_y = wr.y + opt.content_padding;
+                label_y = wr.y + rp.top;
                 break;
             case WLX_BOTTOM: case WLX_BOTTOM_LEFT: case WLX_BOTTOM_CENTER: case WLX_BOTTOM_RIGHT:
-                label_y = wr.y + wr.h - label_h - opt.content_padding;
+                label_y = wr.y + wr.h - label_h - rp.bottom;
                 break;
             default:
                 label_y = wr.y + (wr.h - label_h) / 2;
@@ -6107,24 +6821,27 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
     // Input box rectangle - guarantee a minimum width so the text fieldinput
     // doesn't vanish when the label consumes most of the widget width.
     float min_input_w = (float)(opt.font_size * 3);
-    if (label_width > 0 && (wr.w - label_width - opt.content_padding * 2) < min_input_w) {
-        label_width = wr.w - min_input_w - opt.content_padding * 2;
+    float horz_pad = rp.left + rp.right;
+    if (label_width > 0 && (wr.w - label_width - horz_pad) < min_input_w) {
+        label_width = wr.w - min_input_w - horz_pad;
         if (label_width < 0) label_width = 0;
     }
 
-    float input_x = wr.x + label_width + opt.content_padding;
-    float input_w = wr.w - label_width - opt.content_padding * 2;
+    float input_x = wr.x + label_width + rp.left;
+    float input_w = wr.w - label_width - horz_pad;
     input_w = input_w < 0 ? 0 : input_w;
 
-    float input_h = wr.h - opt.content_padding * 2;
+    float input_h = wr.h - rp.top - rp.bottom;
+    if (input_h < 0) input_h = 0;
 
-    WLX_Rect input_rect = { input_x, wr.y + opt.content_padding, input_w, input_h };
+    WLX_Rect input_rect = { input_x, wr.y + rp.top, input_w, input_h };
 
-    // Draw input box background and border
-    WLX_Color bg_color = opt.back_color;
-    if (inter.hover && !inter.focused) {
-        bg_color = wlx_color_brightness(opt.back_color, ctx->theme->hover_brightness * 0.5f);
-    }
+    // Draw input box background and border. Focus suppresses hover-tint by
+    // gating the hover flag at the call site, preserving the existing
+    // hover-vs-focus precedence after the helper extraction.
+    WLX_Color bg_color = wlx_color_hover_tint(
+        opt.back_color, inter.hover && !inter.focused, inter.disabled,
+        ctx->theme->hover_brightness * 0.5f);
     WLX_Color bdr_color = inter.focused ? opt.border_focus_color : opt.border_color;
     wlx_draw_box(ctx, input_rect, (WLX_Box_Style){
         .fill            = bg_color,
@@ -6138,9 +6855,9 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
     if (opt.font_size > 0 && buffer != NULL) {
         float border_inset = opt.border_width > 0 ? opt.border_width + 1.0f : 0.0f;
         WLX_Rect text_rect = {
-            .x = input_rect.x + opt.content_padding / 2,
+            .x = input_rect.x + WLX_INPUTBOX_TEXT_INSET,
             .y = input_rect.y + border_inset,
-            .w = input_rect.w - opt.content_padding / 2 - WLX_INPUTBOX_CURSOR_WIDTH - WLX_INPUTBOX_CURSOR_PADDING,
+            .w = input_rect.w - WLX_INPUTBOX_TEXT_INSET - WLX_INPUTBOX_CURSOR_WIDTH - WLX_INPUTBOX_CURSOR_PADDING,
             .h = input_rect.h - border_inset * 2
         };
 
@@ -6181,25 +6898,29 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
 
 static void wlx_resolve_opt_slider(const WLX_Context *ctx, WLX_Slider_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
-    if (wlx_color_is_zero(opt->track_color))        opt->track_color            = theme->slider.track;
-    if (wlx_color_is_zero(opt->thumb_color))        opt->thumb_color            = theme->slider.thumb;
-    if (wlx_color_is_zero(opt->label_color))        opt->label_color            = theme->slider.label;
-    if (wlx_color_is_zero(opt->border_color))       opt->border_color           = theme->border;
-    if (wlx_is_negative_unset(opt->border_width))   opt->border_width           = theme->border_width;
-    if (opt->font == WLX_FONT_DEFAULT)              opt->font                   = theme->font;
-    if (opt->font_size              <= 0)           opt->font_size              = theme->font_size;
-    if (opt->track_height           <= 0)           opt->track_height           = theme->slider.track_height;
-    if (opt->thumb_width            <= 0)           opt->thumb_width            = theme->slider.thumb_width;
-    if (opt->min_height             <= 0)           opt->min_height             = (float)opt->font_size;
-    if (wlx_is_negative_unset(opt->roundness))      opt->roundness              = theme->roundness;
-    if (wlx_is_negative_unset(opt->rounded_segments)) opt->rounded_segments     = theme->rounded_segments;
 
+    // Widget-specific fallbacks
+    if (wlx_color_is_zero(opt->track_color)) opt->track_color = theme->slider.track;
+    if (wlx_color_is_zero(opt->thumb_color)) opt->thumb_color = theme->slider.thumb;
+    if (wlx_color_is_zero(opt->label_color)) opt->label_color = theme->slider.label;
+    if (opt->track_height <= 0)              opt->track_height = theme->slider.track_height;
+    if (opt->thumb_width  <= 0)              opt->thumb_width  = theme->slider.thumb_width;
 
-    if (opt->rounded_segments < ctx->theme->min_rounded_segments) opt->rounded_segments = ctx->theme->min_rounded_segments;
-    if (wlx_is_float_unset(opt->hover_brightness))       opt->hover_brightness       = theme->hover_brightness;
-    if (wlx_is_float_unset(opt->thumb_hover_brightness)) opt->thumb_hover_brightness = opt->hover_brightness * 0.5f;
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->track_color, &opt->thumb_color, &opt->label_color, &opt->border_color);
+    // Common helpers (typography, border, roundness)
+    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
+    wlx_resolve_border(theme, &opt->border_color, &opt->border_width,
+                       &opt->roundness, &opt->rounded_segments);
+    if (opt->rounded_segments < theme->min_rounded_segments)
+        opt->rounded_segments = theme->min_rounded_segments;
+
+    // Brightness derivations: thumb defaults to half of base hover.
+    if (wlx_is_float_unset(opt->hover_brightness))
+        opt->hover_brightness = theme->hover_brightness;
+    if (wlx_is_float_unset(opt->thumb_hover_brightness))
+        opt->thumb_hover_brightness = opt->hover_brightness * 0.5f;
+
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
+        &opt->track_color, &opt->thumb_color, &opt->label_color, &opt->border_color);
 }
 
 WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, WLX_Slider_Opt opt, const char *file, int line) {
@@ -6210,6 +6931,8 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
     // Prologue: compute widget frame and interaction state
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
+
+    WLX_Rect content_rect = WLX_RESOLVE_CONTENT_RECT(ctx, opt, wr);
 
     bool changed = false;
 
@@ -6244,10 +6967,10 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
     }
 
     // Track area
-    float track_x = wr.x + label_width;
-    float track_w = wr.w - label_width - value_text_width;
+    float track_x = content_rect.x + label_width;
+    float track_w = content_rect.w - label_width - value_text_width;
     if (track_w < opt.thumb_width) track_w = opt.thumb_width;
-    float track_y = wr.y + (wr.h - opt.track_height) / 2.0f;
+    float track_y = content_rect.y + (content_rect.h - opt.track_height) / 2.0f;
 
     // Usable range for the thumb center (half thumb on each side)
     float half_thumb = opt.thumb_width / 2.0f;
@@ -6265,21 +6988,22 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
 
     float thumb_cx = roundf(usable_x + t * usable_w);
     float thumb_min_h = opt.track_height + 4.0f;
-    float thumb_max_h = wr.h - 4.0f;
+    float thumb_max_h = content_rect.h - 4.0f;
     if (thumb_max_h < opt.track_height) thumb_max_h = opt.track_height;
     float thumb_h = opt.thumb_width;
     if (thumb_h < thumb_min_h) thumb_h = thumb_min_h;
     if (thumb_h > thumb_max_h) thumb_h = thumb_max_h;
     if (thumb_h < 1.0f) thumb_h = 1.0f;
-    float thumb_y = roundf(wr.y + (wr.h - thumb_h) / 2.0f);
+    float thumb_y = roundf(content_rect.y + (content_rect.h - thumb_h) / 2.0f);
 
     // Interaction via unified handler (drag mode for continuous value updates)
-    WLX_Rect hit_rect = { track_x, wr.y, track_w, wr.h };
+    WLX_Rect hit_rect = { track_x, content_rect.y, track_w, content_rect.h };
 
-    WLX_Interaction inter = wlx_get_interaction(
+    WLX_Interaction inter = wlx_get_interaction_for(
         ctx,
         hit_rect,
         WLX_INTERACT_HOVER | WLX_INTERACT_DRAG,
+        opt.disabled,
         file, line
     );
 
@@ -6300,16 +7024,17 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
     }
 
     bool is_active = inter.active;
-    bool is_hover = inter.hover;
+    bool is_hover = inter.hover && !inter.disabled;
 
     // Draw label
     if (label != NULL && opt.font_size > 0) {
-        WLX_Rect label_rect = { wr.x, wr.y, label_width, wr.h };
+        WLX_Rect label_rect = { content_rect.x, content_rect.y, label_width, content_rect.h };
         wlx_draw_text_fitted_slice(ctx, label_rect, label, label_len, ts, WLX_LEFT, false);
     }
 
     // Draw track
-    WLX_Color color_track = is_hover || is_active ? wlx_color_brightness(opt.track_color, opt.hover_brightness) : opt.track_color;
+    WLX_Color color_track = wlx_color_hover_tint(
+        opt.track_color, is_hover || is_active, inter.disabled, opt.hover_brightness);
     WLX_Rect track_rect = { track_x, track_y, track_w, opt.track_height };
     wlx_draw_rect_rounded(ctx, track_rect, opt.roundness, opt.rounded_segments, color_track);
 
@@ -6327,12 +7052,15 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
         wlx_draw_rect_rounded(ctx, fill_rect, opt.roundness, opt.rounded_segments, fill_color);
     }
 
-    // Draw thumb
+    // Draw thumb: active takes priority over hover; both gate disabled
+    // through the helper for parity with other widgets.
     WLX_Color color_thumb = opt.thumb_color;
     if (is_active) {
-        color_thumb = wlx_color_brightness(color_thumb, opt.hover_brightness);
-    } else if (is_hover) {
-        color_thumb = wlx_color_brightness(color_thumb, opt.thumb_hover_brightness);
+        color_thumb = wlx_color_hover_tint(
+            color_thumb, true, inter.disabled, opt.hover_brightness);
+    } else {
+        color_thumb = wlx_color_hover_tint(
+            color_thumb, is_hover, inter.disabled, opt.thumb_hover_brightness);
     }
     WLX_Rect thumb_rect = { thumb_cx - half_thumb, thumb_y, opt.thumb_width, thumb_h };
     wlx_draw_rect_rounded(ctx, thumb_rect, opt.roundness, opt.rounded_segments, color_thumb);
@@ -6342,7 +7070,7 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
         // Recalculate value string in case it changed during drag
         snprintf(value_str, sizeof(value_str), "%.2f", *value);
         float vt_x = track_x + track_w;
-        WLX_Rect value_rect = { vt_x, wr.y, value_text_width + padding, wr.h };
+        WLX_Rect value_rect = { vt_x, content_rect.y, value_text_width + padding, content_rect.h };
         wlx_draw_text_fitted(ctx, value_rect, value_str, ts, WLX_LEFT, false);
     }
 
@@ -6351,22 +7079,27 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
     return changed;
 }
 
+static void wlx_resolve_opt_separator(const WLX_Context *ctx, WLX_Separator_Opt *opt) {
+    if (wlx_color_is_zero(opt->color)) opt->color = ctx->theme->border;
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, false, &opt->color);
+}
+
 WLXDEF void wlx_separator_impl(WLX_Context *ctx, WLX_Separator_Opt opt, const char *file, int line)
 {
+    wlx_resolve_opt_separator(ctx, &opt);
+
     // Prologue: compute widget frame (no interaction for separator)
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
-    WLX_Color color = wlx_color_is_zero(opt.color) ? ctx->theme->border : opt.color;
     float t = opt.thickness;
-
     float cx = wr.x + wr.w * 0.5f;
     float cy = wr.y + wr.h * 0.5f;
 
     if (wr.w >= wr.h) {
-        wlx_draw_line(ctx, wr.x, cy, wr.x + wr.w, cy, t, color);
+        wlx_draw_line(ctx, wr.x, cy, wr.x + wr.w, cy, t, opt.color);
     } else {
-        wlx_draw_line(ctx, cx, wr.y, cx, wr.y + wr.h, t, color);
+        wlx_draw_line(ctx, cx, wr.y, cx, wr.y + wr.h, t, opt.color);
     }
 
     // Epilogue: close widget frame
@@ -6382,8 +7115,8 @@ static void wlx_resolve_opt_progress(const WLX_Context *ctx, WLX_Progress_Opt *o
     if (opt->track_height <= 0)               opt->track_height = theme->progress.track_height > 0 ? theme->progress.track_height : theme->slider.track_height;
     if (opt->min_height <= 0)                 opt->min_height   = opt->track_height;
     wlx_resolve_roundness(theme, &opt->roundness, &opt->rounded_segments);
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->track_color, &opt->fill_color, &opt->border_color);
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, false,
+        &opt->track_color, &opt->fill_color, &opt->border_color);
 }
 
 WLXDEF void wlx_progress_impl(WLX_Context *ctx, float value, WLX_Progress_Opt opt, const char *file, int line) {
@@ -6395,11 +7128,14 @@ WLXDEF void wlx_progress_impl(WLX_Context *ctx, float value, WLX_Progress_Opt op
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
+    WLX_Rect content_rect = WLX_RESOLVE_CONTENT_RECT(ctx, opt, wr);
+
     if (value < 0.0f) value = 0.0f;
     if (value > 1.0f) value = 1.0f;
 
-    float th = opt.track_height > 0 ? opt.track_height : wr.h;
-    WLX_Rect track = { wr.x, wr.y + (wr.h - th) / 2.0f, wr.w, th };
+    float th = opt.track_height > 0 ? opt.track_height : content_rect.h;
+    if (th > content_rect.h) th = content_rect.h;
+    WLX_Rect track = { content_rect.x, content_rect.y + (content_rect.h - th) / 2.0f, content_rect.w, th };
 
     wlx_draw_box(ctx, track, (WLX_Box_Style){
         .fill            = opt.track_color,
@@ -6422,6 +7158,52 @@ WLXDEF void wlx_progress_impl(WLX_Context *ctx, float value, WLX_Progress_Opt op
     wlx_widget_frame_end(ctx, frame);
 }
 
+static void wlx_resolve_opt_image(const WLX_Context *ctx, WLX_Image_Opt *opt) {
+    if (wlx_color_is_zero(opt->tint)) opt->tint = WLX_WHITE;
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, false, &opt->tint);
+}
+
+WLXDEF void wlx_image_impl(WLX_Context *ctx, WLX_Texture texture, WLX_Image_Opt opt, const char *file, int line) {
+    assert(ctx != NULL);
+
+    wlx_resolve_opt_image(ctx, &opt);
+
+    WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
+    WLX_Rect wr = frame.rect;
+
+    // Empty / unloaded texture: assert under WLX_DEBUG, no-op the draw in
+    // release. The frame still closes so layout indices and IDs stay
+    // consistent for subsequent widgets. Tests that intentionally exercise
+    // the no-op path may pre-define WLX_IMAGE_ASSERT_TEXTURE_VALID as a noop.
+    #ifndef WLX_IMAGE_ASSERT_TEXTURE_VALID
+    #define WLX_IMAGE_ASSERT_TEXTURE_VALID(tex) \
+        assert((tex).width > 0 && (tex).height > 0 \
+               && "wlx_image: texture appears unloaded (width/height <= 0)")
+    #endif
+    WLX_IMAGE_ASSERT_TEXTURE_VALID(texture);
+    if (texture.width <= 0 || texture.height <= 0) {
+        wlx_widget_frame_end(ctx, frame);
+        return;
+    }
+
+    WLX_Rect s = opt.src;
+    if (s.w <= 0 || s.h <= 0) {
+        s = (WLX_Rect){ 0, 0, (float)texture.width, (float)texture.height };
+    }
+
+    WLX_Rect dst;
+    wlx_resolve_image_fit(wr, s, opt.scale, opt.align, &s, &dst);
+
+    assert(s.x >= 0.0f && s.y >= 0.0f
+           && s.x + s.w <= (float)texture.width  + 0.5f
+           && s.y + s.h <= (float)texture.height + 0.5f
+           && "wlx_image: FILL crop produced out-of-bounds src rect");
+
+    wlx_draw_texture(ctx, texture, s, dst, opt.tint);
+
+    wlx_widget_frame_end(ctx, frame);
+}
+
 static void wlx_resolve_opt_toggle(const WLX_Context *ctx, WLX_Toggle_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
     opt->track_color        = wlx_color_or(opt->track_color,        wlx_color_or(theme->toggle.track, theme->slider.track));
@@ -6431,9 +7213,9 @@ static void wlx_resolve_opt_toggle(const WLX_Context *ctx, WLX_Toggle_Opt *opt) 
     if (wlx_is_float_unset(opt->hover_brightness))  opt->hover_brightness = theme->hover_brightness;
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->track_color, &opt->track_active_color, &opt->thumb_color,
-                      &opt->front_color, &opt->border_color);
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
+        &opt->track_color, &opt->track_active_color, &opt->thumb_color,
+        &opt->front_color, &opt->border_color);
 }
 
 WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WLX_Toggle_Opt opt, const char *file, int line) {
@@ -6445,6 +7227,8 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
     // Prologue: determine geometry of toggle components (track, thumb, label) and interaction state
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
+
+    WLX_Rect content_rect = WLX_RESOLVE_CONTENT_RECT(ctx, opt, wr);
 
     float track_h = opt.font_size;
     float thr = ctx->theme->toggle.track_to_height_ratio > 0.0f
@@ -6462,7 +7246,7 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
 
     float content_w = track_w + (label_w > 0.0f ? padding + label_w : 0.0f);
     float content_h = track_h > label_h ? track_h : label_h;
-    WLX_Rect acr = wlx_get_align_rect(wr, content_w, content_h, opt.align);
+    WLX_Rect acr = wlx_get_align_rect(content_rect, content_w, content_h, opt.align);
 
     float track_x = acr.x;
     float track_y = acr.y + (acr.h - track_h) / 2.0f;
@@ -6471,9 +7255,10 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
     int segs = opt.rounded_segments;
     if (segs < ctx->theme->min_rounded_segments) segs = ctx->theme->min_rounded_segments;
 
-    WLX_Interaction inter = wlx_get_interaction(
+    WLX_Interaction inter = wlx_get_interaction_for(
         ctx, wr,
         WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD,
+        opt.disabled,
         file, line
     );
 
@@ -6484,7 +7269,8 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
     bool on = *value;
 
     WLX_Color color_track = on ? opt.track_active_color : opt.track_color;
-    if (inter.hover) color_track = wlx_color_brightness(color_track, opt.hover_brightness);
+    color_track = wlx_color_hover_tint(
+        color_track, inter.hover, inter.disabled, opt.hover_brightness);
     wlx_draw_rect_rounded(ctx, track_rect, 1.0f, segs, color_track);
 
     if (opt.border_width > 0) {
@@ -6503,7 +7289,8 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
     WLX_Rect thumb_rect = { thumb_x, thumb_y, thumb_size, thumb_size };
 
     WLX_Color color_thumb = opt.thumb_color;
-    if (inter.hover) color_thumb = wlx_color_brightness(color_thumb, opt.hover_brightness * 0.5f);
+    color_thumb = wlx_color_hover_tint(
+        color_thumb, inter.hover, inter.disabled, opt.hover_brightness * 0.5f);
     wlx_draw_rect_rounded(ctx, thumb_rect, 1.0f, segs, color_thumb);
 
     if (label != NULL && label_w > 0) {
@@ -6531,8 +7318,8 @@ static void wlx_resolve_opt_radio(const WLX_Context *ctx, WLX_Radio_Opt *opt) {
     if (wlx_is_float_unset(opt->hover_brightness))
                                               opt->hover_brightness  = theme->hover_brightness;
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->ring_color, &opt->fill_color, &opt->front_color);
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
+        &opt->ring_color, &opt->fill_color, &opt->front_color);
 }
 
 WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int index, WLX_Radio_Opt opt, const char *file, int line) {
@@ -6544,6 +7331,8 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
     // Prologue: determine geometry of radio components (ring, fill, label) and interaction state
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
+
+    WLX_Rect content_rect = WLX_RESOLVE_CONTENT_RECT(ctx, opt, wr);
 
     bool selected = (*active == index);
 
@@ -6558,9 +7347,10 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
         wlx_measure_text_slice(ctx, label, label_len, ts, &label_w, &label_h);
     }
 
-    WLX_Interaction inter = wlx_get_interaction(
+    WLX_Interaction inter = wlx_get_interaction_for(
         ctx, wr,
         WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD,
+        opt.disabled,
         file, line
     );
 
@@ -6570,7 +7360,7 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
 
     float content_w = circle_size + (label_w > 0.0f ? padding + label_w : 0.0f);
     float content_h = circle_size > label_h ? circle_size : label_h;
-    WLX_Rect acr = wlx_get_align_rect(wr, content_w, content_h, opt.align);
+    WLX_Rect acr = wlx_get_align_rect(content_rect, content_w, content_h, opt.align);
 
     float circle_x = acr.x;
     float circle_y = acr.y + (acr.h - circle_size) / 2.0f;
@@ -6580,7 +7370,8 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
     if (segs < ctx->theme->min_rounded_segments) segs = ctx->theme->min_rounded_segments;
 
     WLX_Color color_ring = opt.ring_color;
-    if (inter.hover) color_ring = wlx_color_brightness(color_ring, opt.hover_brightness);
+    color_ring = wlx_color_hover_tint(
+        color_ring, inter.hover, inter.disabled, opt.hover_brightness);
 
     if (opt.ring_border_width > 0) {
         wlx_draw_rect_rounded_lines(ctx, ring_rect, 1.0f,
@@ -6627,8 +7418,8 @@ static void wlx_resolve_opt_scroll_panel(const WLX_Context *ctx, WLX_Scroll_Pane
     if (wlx_is_negative_unset(opt->border_width))            opt->border_width               = theme->border_width;
     if (wlx_is_float_unset(opt->scrollbar_hover_brightness)) opt->scrollbar_hover_brightness = theme->hover_brightness;
     if (wlx_is_negative_unset(opt->scrollbar_width))       opt->scrollbar_width            = theme->scrollbar.width;
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->back_color, &opt->scrollbar_color, &opt->border_color);
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, false,
+        &opt->back_color, &opt->scrollbar_color, &opt->border_color);
     opt->roundness        = 0.0f;
     opt->rounded_segments = 0;
 }
@@ -6647,32 +7438,16 @@ static inline void wlx_scroll_panel_resolve_rect(
 
 // Helper: contribute scroll panel's viewport height to the parent layout's content tracking.
 static inline void wlx_scroll_panel_contribute_to_parent(WLX_Context *ctx, float vp_contrib) {
-    if (ctx->arena.layouts.count > 0) {
-        WLX_Layout *parent_l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-        if (parent_l->kind == WLX_LAYOUT_LINEAR && parent_l->linear.orient == WLX_HORZ) {
-            if (vp_contrib > parent_l->accumulated_content_height)
-                parent_l->accumulated_content_height = vp_contrib;
-        } else {
-            parent_l->accumulated_content_height += vp_contrib;
-        }
-        // Per-slot content height for WLX_SIZE_CONTENT parents (e.g. panels).
-        // index was already advanced by wlx_get_slot_rect above.
-        if (parent_l->has_content_slot_heights && parent_l->index > 0) {
-            size_t slot_idx = parent_l->index - 1;
-            if (slot_idx < WLX_CONTENT_SLOTS_MAX) {
-                float *csh = wlx_layout_content_heights(ctx, parent_l);
-                csh[slot_idx] += vp_contrib;
-            }
-        }
-        if (parent_l->has_grid_row_content_heights) {
-            size_t row = parent_l->grid.last_placed_row;
-            if (row < parent_l->grid.rows) {
-                float *rch = wlx_grid_row_content_heights(ctx, parent_l);
-                if (vp_contrib > rch[row])
-                    rch[row] = vp_contrib;
-            }
-        }
-    }
+    if (ctx->arena.layouts.count == 0) return;
+    WLX_Layout *parent_l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    // Per-slot bucket needs parent_l->index > 0 (index was already advanced
+    // by wlx_get_slot_rect); guard by clamping the index when not eligible.
+    size_t slot_index = (parent_l->index > 0) ? (parent_l->index - 1) : WLX_SLOT_SKIP;
+    wlx_contribute_to_parent_layout(ctx, parent_l, (WLX_Parent_Contribution){
+        .h_contrib  = vp_contrib,
+        .slot_index = slot_index,
+        .grid_row   = parent_l->grid.last_placed_row,
+    });
 }
 
 // Helper: compute the scrollbar handle rect from panel geometry and scroll state.
@@ -6777,7 +7552,7 @@ static inline WLX_Scroll_Panel_Frame wlx_scroll_panel_frame_begin(
     WLX_Context *ctx, float content_height, WLX_Scroll_Panel_Opt *opt,
     const char *file, int line)
 {
-    if (opt->id) wlx_push_id(ctx, wlx_hash_string(opt->id));
+    bool pushed = wlx_scope_push(ctx, opt->id);
 
     wlx_resolve_opt_scroll_panel(ctx, opt);
 
@@ -6829,7 +7604,7 @@ static inline WLX_Scroll_Panel_Frame wlx_scroll_panel_frame_begin(
     state->hovered = wlx_point_in_rect(ctx->input.mouse_x, ctx->input.mouse_y, wr.x, wr.y, wr.w, wr.h);
 
     // Record whether an id was pushed so wlx_scroll_panel_end can pop it.
-    state->pushed_id = opt->id;
+    state->pushed_scope = pushed;
 
     // Push onto scroll panel stack so wlx_scroll_panel_end can handle wheel events.
     wlx_pool_push(&ctx->arena.scroll_panels, WLX_Scroll_Panel_State *, state);
@@ -6887,7 +7662,7 @@ WLXDEF void wlx_scroll_panel_begin_impl(WLX_Context *ctx, float content_height, 
 // Scope-pop half of the scroll panel frame lifecycle: pops the scope id if one
 // was pushed at begin.
 static inline void wlx_scroll_panel_frame_end(WLX_Context *ctx, WLX_Scroll_Panel_State *state) {
-    if (state->pushed_id) wlx_pop_id(ctx);
+    wlx_scope_pop(ctx, state->pushed_scope);
 }
 
 WLXDEF void wlx_scroll_panel_end(WLX_Context *ctx) {
@@ -6974,10 +7749,10 @@ WLXDEF void wlx_split_begin_impl(WLX_Context *ctx, WLX_Split_Opt opt,
         opt.first_size = WLX_SLOT_PX(280);
     if (wlx_slot_size_is_zero(opt.second_size))
         opt.second_size = WLX_SLOT_FLEX(1);
-    if (opt.padding < 0.0f)
-        opt.padding = 4.0f;
     if (opt.gap < 0.0f)
         opt.gap = 0.0f;
+
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
 
     WLX_DBG(split_begin, ctx);
 
@@ -6990,9 +7765,9 @@ WLXDEF void wlx_split_begin_impl(WLX_Context *ctx, WLX_Split_Opt opt,
     // [2] HORZ split with two pane slots
     WLX_Slot_Size split_sizes[] = { opt.first_size, opt.second_size };
     wlx_layout_begin_impl(ctx, 2, WLX_HORZ,
-        wlx_default_layout_opt(.sizes = split_sizes, .padding = opt.padding,
-            .padding_top = opt.padding_top, .padding_right = opt.padding_right,
-            .padding_bottom = opt.padding_bottom, .padding_left = opt.padding_left,
+        wlx_default_layout_opt(.sizes = split_sizes,
+            .padding_top = rp.top, .padding_right = rp.right,
+            .padding_bottom = rp.bottom, .padding_left = rp.left,
             .gap = opt.gap),
         file, line);
     WLX_DBG(split_suppress_warn, ctx, false);
@@ -7039,8 +7814,9 @@ WLXDEF void wlx_panel_begin_impl(WLX_Context *ctx, WLX_Panel_Opt opt,
     if (opt.title_font_size <= 0) opt.title_font_size = 18;
     if (opt.title_height <= 0)    opt.title_height = 32;
     if (opt.title_align == WLX_ALIGN_NONE) opt.title_align = WLX_CENTER;
-    if (opt.padding < 0.0f)       opt.padding = 2.0f;
     if (opt.capacity <= 0)        opt.capacity = 32;
+
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
 
     // Capacity includes the title slot (if present)
     int total = opt.capacity;
@@ -7060,9 +7836,9 @@ WLXDEF void wlx_panel_begin_impl(WLX_Context *ctx, WLX_Panel_Opt opt,
 
     // Create VERT layout with all-CONTENT slots, forwarding body frame options.
     wlx_layout_begin_impl(ctx, (size_t)total, WLX_VERT,
-        wlx_default_layout_opt(.sizes = sizes, .padding = opt.padding,
-            .padding_top = opt.padding_top, .padding_right = opt.padding_right,
-            .padding_bottom = opt.padding_bottom, .padding_left = opt.padding_left,
+        wlx_default_layout_opt(.sizes = sizes,
+            .padding_top = rp.top, .padding_right = rp.right,
+            .padding_bottom = rp.bottom, .padding_left = rp.left,
             .gap = opt.gap, .id = opt.id,
             .back_color = opt.back_color,
             .border_color = opt.border_color,
