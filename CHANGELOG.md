@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Internal: unified resolver visual-state tail and hover-tint gate.** Added
+  internal `WLX_RESOLVE_VISUAL_STATE(ctx, opt_ptr, disabled, /*colors...*/)`
+  macro that names the color list exactly once and folds
+  `wlx_resolve_opacity_for` + `WLX_APPLY_DISABLED` + `WLX_APPLY_OPACITY` into
+  a single resolver-tail call. Every `wlx_resolve_opt_*` resolver (button,
+  checkbox, inputbox, slider, toggle, radio, plus the decorative label,
+  progress, image, widget, scroll-panel set called with `disabled=false`)
+  now ends with one macro invocation. Added internal `wlx_color_hover_tint`
+  helper that centralizes the `(hover && !disabled) ? brightness : c` gate
+  for button, checkbox, toggle, radio, inputbox, slider hover-tint sites
+  (`wlx_widget_impl` / `wlx_label_impl` keep the unguarded brightness call
+  pending the disabled-coverage decision in the next phase). No public API
+  change; no observable behavior change (full test suite + demos pass).
 - **Internal: converged parent content-tracking contribution into a single
   helper.** Added internal `WLX_Parent_Contribution` struct and
   `wlx_contribute_to_parent_layout`, used by `wlx_widget_begin`,

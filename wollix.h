@@ -2736,6 +2736,16 @@ static inline WLX_Color wlx_color_apply_opacity(WLX_Color c, float opacity) {
     return c;
 }
 
+// Hover-state brightness tint. Returns the input color unchanged when hover
+// is false or disabled is true; otherwise returns wlx_color_brightness(c,
+// brightness). Centralizes the (hover && !disabled) gate so it stays in
+// sync across widgets when future visual states (pressed, focus) join.
+static inline WLX_Color wlx_color_hover_tint(
+    WLX_Color c, bool hover, bool disabled, float brightness)
+{
+    return (hover && !disabled) ? wlx_color_brightness(c, brightness) : c;
+}
+
 // ============================================================================
 // Implementation: command recording (strict deferral)
 // ============================================================================
@@ -6033,6 +6043,18 @@ static inline float wlx_resolve_opacity_for(const WLX_Context *ctx, float opt_op
     }                                                                                  \
 } while (0)
 
+// Unified resolver tail: resolve opacity, apply disabled-state transforms,
+// then premultiply opacity into the color list. The color list is named
+// exactly once, eliminating the "added a color to one list but forgot the
+// other" drift target. Pass `disabled = false` for purely decorative
+// resolvers (label, progress, image, widget, scroll-panel) so the call
+// shape is symmetric across all widgets.
+#define WLX_RESOLVE_VISUAL_STATE(ctx, opt_ptr, disabled, /*WLX_Color* args*/ ...) do { \
+    (opt_ptr)->opacity = wlx_resolve_opacity_for((ctx), (opt_ptr)->opacity);           \
+    WLX_APPLY_DISABLED((ctx)->theme, (disabled), &(opt_ptr)->opacity, __VA_ARGS__);    \
+    WLX_APPLY_OPACITY((opt_ptr)->opacity, __VA_ARGS__);                                \
+} while (0)
+
 static inline void wlx_resolve_roundness(const WLX_Theme *theme,
                                           float *roundness,
                                           int *segments)
@@ -6065,8 +6087,7 @@ static inline void wlx_resolve_border(const WLX_Theme *theme,
 static void wlx_resolve_opt_widget(const WLX_Context *ctx, WLX_Widget_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->color, &opt->border_color);
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, false, &opt->color, &opt->border_color);
 }
 
 // Forward declarations for shared image helpers used by wlx_label_impl below.
@@ -6092,8 +6113,8 @@ static void wlx_resolve_opt_label(const WLX_Context *ctx, WLX_Label_Opt *opt) {
     if (opt->image_text_gap < 0)              opt->image_text_gap = opt->font_size * 0.5f;
     // image_size <= 0 stays unresolved; resolved against the frame rect later.
 
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color, &opt->texture_tint);
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, false,
+        &opt->front_color, &opt->back_color, &opt->border_color, &opt->texture_tint);
 }
 
 WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt, const char *file, int line)
@@ -6371,10 +6392,8 @@ static void wlx_resolve_opt_button(const WLX_Context *ctx, WLX_Button_Opt *opt) 
     if (opt->image_text_gap < 0)              opt->image_text_gap = opt->font_size * 0.5f;
     // image_size <= 0 stays unresolved; resolved against the frame rect later.
 
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_DISABLED(theme, opt->disabled, &opt->opacity,
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
         &opt->front_color, &opt->back_color, &opt->border_color, &opt->texture_tint);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color, &opt->texture_tint);
 }
 
 WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt opt, const char *file, int line)
@@ -6398,7 +6417,8 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
     );
 
 
-    WLX_Color bg = (inter.hover && !inter.disabled) ? wlx_color_brightness(opt.back_color, ctx->theme->hover_brightness) : opt.back_color;
+    WLX_Color bg = wlx_color_hover_tint(
+        opt.back_color, inter.hover, inter.disabled, ctx->theme->hover_brightness);
 
     wlx_draw_box(ctx, (WLX_Rect){wr.x, wr.y, wr.w, wr.h}, (WLX_Box_Style){
         .fill            = bg,
@@ -6468,11 +6488,7 @@ static void wlx_resolve_opt_checkbox(const WLX_Context *ctx, WLX_Checkbox_Opt *o
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
 
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_DISABLED(theme, opt->disabled, &opt->opacity,
-        &opt->front_color, &opt->back_color, &opt->border_color, &opt->check_color,
-        &opt->tex_checked_tint, &opt->tex_unchecked_tint);
-    WLX_APPLY_OPACITY(opt->opacity,
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
         &opt->front_color, &opt->back_color, &opt->border_color, &opt->check_color,
         &opt->tex_checked_tint, &opt->tex_unchecked_tint);
 }
@@ -6516,7 +6532,8 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
         *checked = !(*checked);
     }
 
-    WLX_Color checkbox_bg = (inter.hover && !inter.disabled) ? wlx_color_brightness(opt.back_color, ctx->theme->hover_brightness) : opt.back_color;
+    WLX_Color checkbox_bg = wlx_color_hover_tint(
+        opt.back_color, inter.hover, inter.disabled, ctx->theme->hover_brightness);
 
     if (wlx_checkbox_texture_mode_active(opt.tex_checked, opt.tex_unchecked)) {
         bool        is_checked   = (checked != NULL && *checked);
@@ -6589,11 +6606,8 @@ static void wlx_resolve_opt_inputbox(const WLX_Context *ctx, WLX_Inputbox_Opt *o
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
    
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_DISABLED(theme, opt->disabled, &opt->opacity,
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
         &opt->front_color, &opt->back_color, &opt->border_color,
-        &opt->border_focus_color, &opt->cursor_color);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->front_color, &opt->back_color, &opt->border_color,
         &opt->border_focus_color, &opt->cursor_color);
 }
 
@@ -6766,11 +6780,12 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
 
     WLX_Rect input_rect = { input_x, wr.y + rp.top, input_w, input_h };
 
-    // Draw input box background and border
-    WLX_Color bg_color = opt.back_color;
-    if (inter.hover && !inter.focused && !inter.disabled) {
-        bg_color = wlx_color_brightness(opt.back_color, ctx->theme->hover_brightness * 0.5f);
-    }
+    // Draw input box background and border. Focus suppresses hover-tint by
+    // gating the hover flag at the call site, preserving the existing
+    // hover-vs-focus precedence after the helper extraction.
+    WLX_Color bg_color = wlx_color_hover_tint(
+        opt.back_color, inter.hover && !inter.focused, inter.disabled,
+        ctx->theme->hover_brightness * 0.5f);
     WLX_Color bdr_color = inter.focused ? opt.border_focus_color : opt.border_color;
     wlx_draw_box(ctx, input_rect, (WLX_Box_Style){
         .fill            = bg_color,
@@ -6846,10 +6861,8 @@ static void wlx_resolve_opt_slider(const WLX_Context *ctx, WLX_Slider_Opt *opt) 
     if (wlx_is_float_unset(opt->hover_brightness))       opt->hover_brightness       = theme->hover_brightness;
     if (wlx_is_float_unset(opt->thumb_hover_brightness)) opt->thumb_hover_brightness = opt->hover_brightness * 0.5f;
     
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_DISABLED(theme, opt->disabled, &opt->opacity,
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
         &opt->track_color, &opt->thumb_color, &opt->label_color, &opt->border_color);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->track_color, &opt->thumb_color, &opt->label_color, &opt->border_color);
 }
 
 WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, WLX_Slider_Opt opt, const char *file, int line) {
@@ -6964,7 +6977,8 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
     }
 
     // Draw track
-    WLX_Color color_track = is_hover || is_active ? wlx_color_brightness(opt.track_color, opt.hover_brightness) : opt.track_color;
+    WLX_Color color_track = wlx_color_hover_tint(
+        opt.track_color, is_hover || is_active, inter.disabled, opt.hover_brightness);
     WLX_Rect track_rect = { track_x, track_y, track_w, opt.track_height };
     wlx_draw_rect_rounded(ctx, track_rect, opt.roundness, opt.rounded_segments, color_track);
 
@@ -6982,12 +6996,15 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
         wlx_draw_rect_rounded(ctx, fill_rect, opt.roundness, opt.rounded_segments, fill_color);
     }
 
-    // Draw thumb
+    // Draw thumb: active takes priority over hover; both gate disabled
+    // through the helper for parity with other widgets.
     WLX_Color color_thumb = opt.thumb_color;
     if (is_active) {
-        color_thumb = wlx_color_brightness(color_thumb, opt.hover_brightness);
-    } else if (is_hover) {
-        color_thumb = wlx_color_brightness(color_thumb, opt.thumb_hover_brightness);
+        color_thumb = wlx_color_hover_tint(
+            color_thumb, true, inter.disabled, opt.hover_brightness);
+    } else {
+        color_thumb = wlx_color_hover_tint(
+            color_thumb, is_hover, inter.disabled, opt.thumb_hover_brightness);
     }
     WLX_Rect thumb_rect = { thumb_cx - half_thumb, thumb_y, opt.thumb_width, thumb_h };
     wlx_draw_rect_rounded(ctx, thumb_rect, opt.roundness, opt.rounded_segments, color_thumb);
@@ -7037,8 +7054,8 @@ static void wlx_resolve_opt_progress(const WLX_Context *ctx, WLX_Progress_Opt *o
     if (opt->track_height <= 0)               opt->track_height = theme->progress.track_height > 0 ? theme->progress.track_height : theme->slider.track_height;
     if (opt->min_height <= 0)                 opt->min_height   = opt->track_height;
     wlx_resolve_roundness(theme, &opt->roundness, &opt->rounded_segments);
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->track_color, &opt->fill_color, &opt->border_color);
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, false,
+        &opt->track_color, &opt->fill_color, &opt->border_color);
 }
 
 WLXDEF void wlx_progress_impl(WLX_Context *ctx, float value, WLX_Progress_Opt opt, const char *file, int line) {
@@ -7084,8 +7101,7 @@ WLXDEF void wlx_progress_impl(WLX_Context *ctx, float value, WLX_Progress_Opt op
 
 static void wlx_resolve_opt_image(const WLX_Context *ctx, WLX_Image_Opt *opt) {
     if (wlx_color_is_zero(opt->tint)) opt->tint = WLX_WHITE;
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->tint);
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, false, &opt->tint);
 }
 
 WLXDEF void wlx_image_impl(WLX_Context *ctx, WLX_Texture texture, WLX_Image_Opt opt, const char *file, int line) {
@@ -7138,12 +7154,9 @@ static void wlx_resolve_opt_toggle(const WLX_Context *ctx, WLX_Toggle_Opt *opt) 
     if (wlx_is_float_unset(opt->hover_brightness))  opt->hover_brightness = theme->hover_brightness;
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_DISABLED(theme, opt->disabled, &opt->opacity,
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
         &opt->track_color, &opt->track_active_color, &opt->thumb_color,
         &opt->front_color, &opt->border_color);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->track_color, &opt->track_active_color, &opt->thumb_color,
-                      &opt->front_color, &opt->border_color);
 }
 
 WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WLX_Toggle_Opt opt, const char *file, int line) {
@@ -7199,7 +7212,8 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
     bool on = *value;
 
     WLX_Color color_track = on ? opt.track_active_color : opt.track_color;
-    if (inter.hover && !inter.disabled) color_track = wlx_color_brightness(color_track, opt.hover_brightness);
+    color_track = wlx_color_hover_tint(
+        color_track, inter.hover, inter.disabled, opt.hover_brightness);
     wlx_draw_rect_rounded(ctx, track_rect, 1.0f, segs, color_track);
 
     if (opt.border_width > 0) {
@@ -7218,7 +7232,8 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
     WLX_Rect thumb_rect = { thumb_x, thumb_y, thumb_size, thumb_size };
 
     WLX_Color color_thumb = opt.thumb_color;
-    if (inter.hover && !inter.disabled) color_thumb = wlx_color_brightness(color_thumb, opt.hover_brightness * 0.5f);
+    color_thumb = wlx_color_hover_tint(
+        color_thumb, inter.hover, inter.disabled, opt.hover_brightness * 0.5f);
     wlx_draw_rect_rounded(ctx, thumb_rect, 1.0f, segs, color_thumb);
 
     if (label != NULL && label_w > 0) {
@@ -7246,10 +7261,8 @@ static void wlx_resolve_opt_radio(const WLX_Context *ctx, WLX_Radio_Opt *opt) {
     if (wlx_is_float_unset(opt->hover_brightness))
                                               opt->hover_brightness  = theme->hover_brightness;
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_DISABLED(theme, opt->disabled, &opt->opacity,
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
         &opt->ring_color, &opt->fill_color, &opt->front_color);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->ring_color, &opt->fill_color, &opt->front_color);
 }
 
 WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int index, WLX_Radio_Opt opt, const char *file, int line) {
@@ -7302,7 +7315,8 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
     if (segs < ctx->theme->min_rounded_segments) segs = ctx->theme->min_rounded_segments;
 
     WLX_Color color_ring = opt.ring_color;
-    if (inter.hover && !inter.disabled) color_ring = wlx_color_brightness(color_ring, opt.hover_brightness);
+    color_ring = wlx_color_hover_tint(
+        color_ring, inter.hover, inter.disabled, opt.hover_brightness);
 
     if (opt.ring_border_width > 0) {
         wlx_draw_rect_rounded_lines(ctx, ring_rect, 1.0f,
@@ -7349,8 +7363,8 @@ static void wlx_resolve_opt_scroll_panel(const WLX_Context *ctx, WLX_Scroll_Pane
     if (wlx_is_negative_unset(opt->border_width))            opt->border_width               = theme->border_width;
     if (wlx_is_float_unset(opt->scrollbar_hover_brightness)) opt->scrollbar_hover_brightness = theme->hover_brightness;
     if (wlx_is_negative_unset(opt->scrollbar_width))       opt->scrollbar_width            = theme->scrollbar.width;
-    opt->opacity = wlx_resolve_opacity_for(ctx, opt->opacity);
-    WLX_APPLY_OPACITY(opt->opacity, &opt->back_color, &opt->scrollbar_color, &opt->border_color);
+    WLX_RESOLVE_VISUAL_STATE(ctx, opt, false,
+        &opt->back_color, &opt->scrollbar_color, &opt->border_color);
     opt->roundness        = 0.0f;
     opt->rounded_segments = 0;
 }
