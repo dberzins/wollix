@@ -2,6 +2,18 @@ name: Deploy WASM Demo to GitHub Pages
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'demos/dashboard/**'
+      - 'demos/gallery.c'
+      - 'demos/gallery_perf.h'
+      - 'demos/assets/**'
+      - 'web/**'
+      - 'wollix.h'
+      - 'wollix_wasm.h'
+      - 'Makefile'
+      - '.github/workflows/wasm-demo-pages.yml'
 
 permissions:
   contents: read
@@ -16,15 +28,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Verify toolchain
         run: |
           clang --version
           ld.lld --version || sudo apt-get install -y lld
 
-      - name: Build packaged site
-        run: make wasm-site
+      - name: Build packaged site (dashboard at root + gallery under /gallery)
+        run: make pages-site
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4

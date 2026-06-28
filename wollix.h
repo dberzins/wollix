@@ -1,7 +1,7 @@
 /*
  * wollix.h - Woven layouts for C.
  *
- * Version: 0.5.0  (WOLLIX_VERSION / WLX_VERSION)
+ * Version: 0.6.0  (WOLLIX_VERSION / WLX_VERSION)
  *
  * Copyright (c) 2026 Dainis Berzins
  * Licensed under the MIT License. See LICENSE file for full text.
@@ -154,7 +154,7 @@
 #ifndef WOLLIX_H_
 #define WOLLIX_H_
 
-#define WOLLIX_VERSION "0.5.0"
+#define WOLLIX_VERSION "0.6.0"
 #define WLX_VERSION WOLLIX_VERSION
 
 #include <stdint.h>

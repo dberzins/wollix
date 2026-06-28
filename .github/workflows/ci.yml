@@ -67,6 +67,9 @@ jobs:
       - name: Build all Raylib demos
         run: make all
 
+      - name: Build dashboard (raylib + perf)
+        run: make dashboard dashboard_perf
+
   build-sdl3:
     runs-on: ubuntu-latest
     steps:
@@ -120,6 +123,22 @@ jobs:
 
       - name: Build SDL3 demo
         run: make sdl3_demo
+
+      - name: Build SDL3 dashboard + gallery
+        run: make dashboard_sdl3 gallery_sdl3
+
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install WASM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld
+
+      - name: Build packaged WASM sites (dashboard at root + gallery under /gallery)
+        run: make pages-site
 
   test-werror:
     runs-on: ubuntu-latest

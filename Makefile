@@ -50,9 +50,12 @@ DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
 WASM_SITE_TARGETS = $(WASM_SITE_DIR)/dashboard.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js $(WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 GALLERY_WASM_SITE_TARGETS = $(GALLERY_WASM_SITE_DIR)/gallery.wasm $(GALLERY_WASM_SITE_DIR)/index.html $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 
-.PHONY: all clean debug release help test test-single-pass perf-test test-demos wasm-bare wasm-site gallery-wasm-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
+.PHONY: all clean debug release help test test-single-pass perf-test test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
 
-all: $(DEFAULT_TARGETS)
+# The dashboard is the primary showcase, so the default build includes it. It
+# keeps its own -DWLX_PERF recipe ($(DASHBOARD_BIN)) rather than joining the
+# generic RAYLIB_DEMOS rule.
+all: $(DEFAULT_TARGETS) $(DASHBOARD_BIN)
 
 $(DEMO_NAMES): %: $(DEMO_DIR)/%
 
@@ -140,6 +143,20 @@ $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js: $(WASM_SRC_DIR)/wollix_wasm.js | $(GALL
 $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js: $(WASM_SRC_DIR)/wollix_wasm_tint_tests.js | $(GALLERY_WASM_SITE_DIR)
 	cp $< $@
 
+# ── Combined GitHub Pages tree ────────────────────────────────────────────────
+# The published site serves the dashboard at the root and nests the gallery under
+# /gallery (so it loads at <pages-url>/gallery/). Both bare-WASM sites build into
+# their own dirs first; the gallery's files are then copied alongside the
+# dashboard. All asset references are relative, so the gallery works under the
+# subpath unchanged. This is the target the GitHub Pages workflow deploys.
+pages-site: wasm-site gallery-wasm-site
+	mkdir -p $(WASM_SITE_DIR)/gallery
+	cp $(GALLERY_WASM_SITE_DIR)/gallery.wasm \
+	   $(GALLERY_WASM_SITE_DIR)/index.html \
+	   $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js \
+	   $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js \
+	   $(WASM_SITE_DIR)/gallery/
+
 debug: CFLAGS += -DDEBUG -O0
 debug: layout
 
@@ -191,7 +208,7 @@ clean:
 # Help target
 help:
 	@echo "Available targets:"
-	@echo "  all          - Build all Raylib demos into ./$(DEMO_DIR)/ (default)"
+	@echo "  all          - Build all Raylib demos + the dashboard showcase into ./$(DEMO_DIR)/ (default)"
 	@echo "  debug        - Build ./$(DEMO_DIR)/layout with debug flags"
 	@echo "  release      - Build ./$(DEMO_DIR)/layout with release optimization"
 	@echo "  clean        - Remove built demo executables from ./$(DEMO_DIR)/"
@@ -206,6 +223,7 @@ help:
 	@echo "  wasm-site    - Package the bare-WASM dashboard showcase into ./$(WASM_SITE_DIR)/ (GitHub Pages artifact)"
 	@echo "  dashboard-wasm-site - Alias for wasm-site"
 	@echo "  gallery-wasm-site - Package the bare-WASM gallery into ./$(GALLERY_WASM_SITE_DIR)/ (coexisting reference)"
+	@echo "  pages-site   - Assemble the GitHub Pages tree: dashboard at root + gallery under ./$(WASM_SITE_DIR)/gallery/"
 	@echo "  wasm-bare    - Alias for wasm-site"
 	@echo "  test         - Build and run the unit test suite"
 	@echo "  perf-test    - Build and run tests with WLX_PERF enabled"

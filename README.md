@@ -9,9 +9,10 @@
 Wollix is a lightweight, header-only C library for building immediate-mode UI
 layouts. Define rows, columns, and grids — widgets interlock into place.
 
-![Wollix gallery demo](demos/gallery.png)
+[![Wollix dashboard demo](demos/dashboard/dashboard.png)](https://dberzins.github.io/wollix/)
 
-Live dashboard demo: [https://dberzins.github.io/wollix/](https://dberzins.github.io/wollix/)
+The dashboard is the primary Wollix showcase. Try the live demo:
+[https://dberzins.github.io/wollix/](https://dberzins.github.io/wollix/)
 
 - Single header: [wollix.h](wollix.h)
 - Zero dependencies in the core library
@@ -22,7 +23,7 @@ Live dashboard demo: [https://dberzins.github.io/wollix/](https://dberzins.githu
     fixed/auto-growing grid helpers
 - Container decoration: per-side borders, per-corner rounding, vertical
     gradient fills, and glow/shadow effects
-- Current version: `WOLLIX_VERSION` = `"0.5.0"`
+- Current version: `WOLLIX_VERSION` = `"0.6.0"`
 
 ## Quick Start
 
@@ -102,7 +103,7 @@ layout_end(&ctx);
 | `wollix_sdl3.h` | SDL3 backend adapter |
 | `wollix_wasm.h` | Bare WASM32 backend adapter (no libc) |
 | `web/` | WASM host runtime, HTML shell, and libc shim |
-| `docs/` | Performance diagnostics guide, design system guide, dashboard design system guide, API reference, layout model, widget guide, opacity guide, core patterns guide, sentinel rules |
+| `docs/` | Performance diagnostics guide, design system guide (canonical: core theme contract + dashboard "Mechanical Glass"), gallery design system guide (secondary), API reference, layout model, widget guide, opacity guide, core patterns guide, sentinel rules |
 | `demos/` | Standalone demo translation units (one per feature); `gallery.c` also includes the local `gallery_perf.h` benchmark companion header |
 | `tests/` | Unit test suite |
 
@@ -157,6 +158,20 @@ The library includes the following widgets and layout/container primitives:
 - **Linear layouts** - Horizontal and vertical slot-based layouting
 - **Grid layouts** - Fixed and auto-growing grid layout helpers
 
+## Secondary demo: widget gallery
+
+The widget gallery is the secondary, cross-backend reference demo: it exercises
+the full public widget and layout surface across Raylib, SDL3, and bare WASM.
+The dashboard above is the primary showcase.
+
+[![Wollix widget gallery](demos/gallery.png)](https://dberzins.github.io/wollix/gallery/)
+
+Try the live gallery:
+[https://dberzins.github.io/wollix/gallery/](https://dberzins.github.io/wollix/gallery/)
+
+Build it with `make gallery` (Raylib), `make gallery_sdl3` (SDL3), or
+`make gallery-wasm-site` (bare WASM into `dist/gallery-demo/`).
+
 ## Themes & Design System
 
 Wollix ships three built-in theme presets: `dark`, `light`, and `glass`.
@@ -183,11 +198,11 @@ For build targets, gallery benchmark commands, and output interpretation, see
 ### Using Makefile
 
 ```bash
-make                # Build all Raylib demos (default)
+make                # Build all Raylib demos + the dashboard showcase (default)
 make test           # Build and run the unit test suite
 make perf-test      # Build and run the unit test suite with WLX_PERF enabled
-make test-demos     # Build all Raylib demos and verify they compile
-make all            # Build all Raylib demos (same as bare make)
+make test-demos     # Build all Raylib demos + the dashboard and verify they compile
+make all            # Build all Raylib demos + the dashboard (same as bare make)
 make sdl3_demo      # Build the SDL3 backend demo
 make gallery_perf   # Build the Raylib gallery with WLX_PERF enabled
 make gallery_sdl3_perf # Build the SDL3 gallery with WLX_PERF enabled

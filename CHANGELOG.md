@@ -5,9 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
 ## [0.6.0] - 2026-06-28
+
+### Changed
+- **Design-system docs renamed and re-scoped.** `docs/DESIGN_SYSTEM.md` is now
+  the canonical design reference: the core `WLX_Theme` contract folded in as a
+  foundational section ahead of the "Mechanical Glass" showcase token model and
+  recipes (the content formerly in `docs/DASHBOARD_DESIGN_SYSTEM.md`, now
+  retired). The gallery's application-local layer (`Gallery_Semantic_Theme`,
+  `Gallery_Semantic_Spacing`, Brand) moved to `docs/GALLERY_DESIGN_SYSTEM.md`.
+- **Dashboard is the primary demo across build and docs.** `make` / `make all`
+  now also build `demos/dashboard/dashboard`; the README leads with a dashboard
+  screenshot linked to the live demo and presents the gallery as a clearly
+  labeled secondary demo.
+
+### Internal
+- CI builds the dashboard (raylib + perf) and `dashboard_sdl3` + `gallery_sdl3`,
+  and a new `build-wasm` job compiles the published site via `make pages-site`.
+- **GitHub Pages now publishes both showcases.** A new `make pages-site` target
+  assembles the dashboard at the site root and nests the gallery under
+  `dist/wasm-demo/gallery/`, so the live URLs are the dashboard at
+  `https://dberzins.github.io/wollix/` and the gallery at
+  `https://dberzins.github.io/wollix/gallery/`. The Pages workflow auto-deploys
+  this tree on path-filtered pushes to `main` while keeping the manual
+  `workflow_dispatch` run.
 
 ### Changed (Breaking) — v0.6 coordinated API group (V05 R9b)
 
@@ -25,7 +46,7 @@ existing designated initializers compile unchanged; migrate before 0.7.
 - **`wlx_panel`: `border_width` unset sentinel is `-1` + theme inheritance.**
   An unset panel border now inherits `theme->border_width` (and a `{0}`
   `border_color` inherits `theme->border`), matching widget resolution -
-  previously a panel could never inherit the theme border. All bundled theme
+  previously a panel co## [uld never inherit the theme border. All bundled theme
   presets ship `border_width = 0`, so default rendering is unchanged with
   stock themes; under a custom theme with a non-zero `border_width`, panels
   that relied on default-no-border must now pass an explicit
