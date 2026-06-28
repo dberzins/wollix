@@ -391,10 +391,35 @@ TEST(scroll_horz_layout_max_height) {
 }
 
 // ============================================================================
+// Transparent background: the no-fill flag keeps a zero back_color so the
+// container shows through; the default still resolves to the theme background.
+// ============================================================================
+
+TEST(scroll_transparent_background_keeps_zero_fill) {
+    WLX_Context ctx = {0};
+    ctx.backend = mock_backend();
+    ctx.theme = &wlx_theme_dark;
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    // Default: a zero back_color resolves to the theme background (opaque fill).
+    WLX_Scroll_Panel_Opt opaque = wlx_default_scroll_panel_opt();
+    wlx_resolve_opt_scroll_panel(&ctx, &opaque);
+    ASSERT_FALSE(wlx_color_is_zero(opaque.back_color));
+
+    // Transparent: the zero back_color is left zero, so wlx_draw_box draws no fill.
+    WLX_Scroll_Panel_Opt clear = wlx_default_scroll_panel_opt(.transparent_background = true);
+    wlx_resolve_opt_scroll_panel(&ctx, &clear);
+    ASSERT_TRUE(wlx_color_is_zero(clear.back_color));
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
 SUITE(scroll_panel) {
+    RUN_TEST(scroll_transparent_background_keeps_zero_fill);
     RUN_TEST(scroll_initial_zero);
     RUN_TEST(scroll_wheel_down);
     RUN_TEST(scroll_wheel_up);

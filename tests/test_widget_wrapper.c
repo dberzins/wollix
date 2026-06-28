@@ -97,7 +97,7 @@ TEST(widget_wrapper_opacity_fill) {
 
     test_frame_begin(&ctx, -1, -1, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_widget(&ctx, .color = WLX_RGBA(200, 100, 50, 255), .opacity = 0.5f);
+    wlx_widget(&ctx, .back_color = WLX_RGBA(200, 100, 50, 255), .opacity = 0.5f);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -125,7 +125,7 @@ TEST(widget_wrapper_opacity_border) {
     test_frame_begin(&ctx, -1, -1, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
     wlx_widget(&ctx,
-        .color        = WLX_RGBA(200, 100, 50, 255),
+        .back_color        = WLX_RGBA(200, 100, 50, 255),
         .border_color = WLX_RGBA(100, 50, 200, 255),
         .border_width = 2.0f,
         .opacity      = 0.5f);
@@ -164,7 +164,7 @@ TEST(widget_wrapper_hover_brightness_border) {
     test_frame_begin(&ctx, 200, 150, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
     wlx_widget(&ctx,
-        .color        = WLX_RGBA(80, 80, 80, 255),
+        .back_color        = WLX_RGBA(80, 80, 80, 255),
         .border_color = base_border,
         .border_width = 2.0f);
     wlx_layout_end(&ctx);

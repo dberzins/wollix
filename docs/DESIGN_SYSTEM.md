@@ -1,5 +1,12 @@
 # Design System
 
+> **Superseded as the showcase reference.** The canonical Wollix showcase is now
+> the dashboard, and its **"Mechanical Glass"** design system in
+> [DASHBOARD_DESIGN_SYSTEM.md](DASHBOARD_DESIGN_SYSTEM.md) is the canonical design
+> reference for the showcase. This document remains the reference for the **core
+> public theme contract** (`WLX_Theme`, sentinel inheritance, and semantic-role
+> derivation) that the dashboard system is built on.
+
 Wollix keeps its design system small and close to the C API. Themes provide
 the base values, widget options inherit those values by default, and
 application code can derive semantic roles when it needs a larger UI surface.

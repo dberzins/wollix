@@ -11,14 +11,17 @@ layouts. Define rows, columns, and grids — widgets interlock into place.
 
 ![Wollix gallery demo](demos/gallery.png)
 
-Live gallery demo: [https://dberzins.github.io/wollix/](https://dberzins.github.io/wollix/)
+Live dashboard demo: [https://dberzins.github.io/wollix/](https://dberzins.github.io/wollix/)
 
 - Single header: [wollix.h](wollix.h)
 - Zero dependencies in the core library
 - Backend adapters for Raylib, SDL3, and bare WASM32 included
 - Built-in widgets and compound helpers: labels, buttons, checkboxes,
     toggles, radios, input boxes, sliders, progress bars, separators, scroll
-    panels, panels, split layouts, and fixed/auto-growing grid helpers
+    panels, panels, split layouts, list clipper for virtualized rows, and
+    fixed/auto-growing grid helpers
+- Container decoration: per-side borders, per-corner rounding, vertical
+    gradient fills, and glow/shadow effects
 - Current version: `WOLLIX_VERSION` = `"0.5.0"`
 
 ## Quick Start
@@ -99,7 +102,7 @@ layout_end(&ctx);
 | `wollix_sdl3.h` | SDL3 backend adapter |
 | `wollix_wasm.h` | Bare WASM32 backend adapter (no libc) |
 | `web/` | WASM host runtime, HTML shell, and libc shim |
-| `docs/` | Performance diagnostics guide, design system guide, API reference, layout model, widget guide, opacity guide, core patterns guide, sentinel rules |
+| `docs/` | Performance diagnostics guide, design system guide, dashboard design system guide, API reference, layout model, widget guide, opacity guide, core patterns guide, sentinel rules |
 | `demos/` | Standalone demo translation units (one per feature); `gallery.c` also includes the local `gallery_perf.h` benchmark companion header |
 | `tests/` | Unit test suite |
 
@@ -145,9 +148,10 @@ The library includes the following widgets and layout/container primitives:
 - **Radio** - Single-choice radio control with label alignment options
 - **Input Box** - Text input field with cursor and wrapped visual layout
 - **Slider** - Value slider with label and drag interaction
-- **Progress Bar** - Read-only progress indicator with theme-aware track/fill styling
+- **Progress Bar** - Read-only progress indicator with continuous or segmented track/fill styling
 - **Separator** - Horizontal or vertical divider for grouping related controls
 - **Scrollable Panel** - Vertical scrolling container for long content
+- **List Clipper** - Row virtualization helper that builds only visible rows inside a scroll panel
 - **Split** - Two-pane compound layout with independent scroll panels
 - **Panel** - Capacity-based compound layout with optional heading
 - **Linear layouts** - Horizontal and vertical slot-based layouting
@@ -162,7 +166,7 @@ create custom themes by overriding the fields they need.
 For the full theme model, inheritance rules, semantic color guidance, and
 custom-theme examples, see [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md).
 For a working runtime theme builder, see [demos/theme_demo.c](demos/theme_demo.c).
-For visual theme exploration, use the live gallery:
+For visual theme exploration, use the live dashboard showcase:
 [https://dberzins.github.io/wollix/](https://dberzins.github.io/wollix/).
 
 ## Performance Diagnostics
@@ -187,7 +191,9 @@ make all            # Build all Raylib demos (same as bare make)
 make sdl3_demo      # Build the SDL3 backend demo
 make gallery_perf   # Build the Raylib gallery with WLX_PERF enabled
 make gallery_sdl3_perf # Build the SDL3 gallery with WLX_PERF enabled
-make wasm-site      # Package the WASM gallery demo into dist/wasm-demo/
+make dashboard      # Build the dashboard showcase (Raylib)
+make wasm-site      # Package the WASM dashboard showcase into dist/wasm-demo/ (the published site)
+make gallery-wasm-site # Package the WASM gallery into dist/gallery-demo/ (coexisting reference)
 make debug          # Build demos/layout with debug flags
 make release        # Build demos/layout with release optimization
 make clean          # Remove all built executables
@@ -203,10 +209,4 @@ make slider         # → demos/slider
 ```
 
 All executables are written to `./demos/`.
-
-### Using the original build script
-
-```bash
-./build.sh
-```
 

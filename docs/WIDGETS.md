@@ -99,8 +99,173 @@ directly even though it does not use the macro.
 |-------|------|---------|-------------|
 | `border_color` | `WLX_Color` | `{0}` | Border color. `{0}` = theme or widget-specific border fallback |
 | `border_width` | `float` | `-1` | Border width. `-1` = theme/widget default, `0` = no border |
-| `roundness` | `float` | `-1` | Corner roundness. `-1` = theme default |
+| `roundness` | `float` | `-1` | Corner roundness (fraction of the shorter side). `-1` = theme default |
+| `corner_radius` | `float` | `0` | Absolute corner radius in **pixels**. `> 0` overrides `roundness`; `0` = unset |
 | `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
+| `rounded_corners` | `int` | `0` | `WLX_CORNERS_*` mask selecting which corners use the radius. `0` = all four |
+| `border_color_top` / `_right` / `_bottom` / `_left` | `WLX_Color` | `{0}` | Per-side border color. `{0}` inherits `border_color` |
+| `border_width_top` / `_right` / `_bottom` / `_left` | `float` | `-1` | Per-side border width. `< 0` inherits `border_width`; `0` switches that edge off |
+
+#### Absolute corner radius (`corner_radius`)
+
+`roundness` is a fraction of the element's shorter side, so a single constant
+rounds differently sized elements by different pixel amounts. `corner_radius`
+expresses the radius in **pixels** instead, for design systems that specify a
+fixed corner (e.g. an 8 px `rounded-lg`). It is resolved centrally at draw time
+against the element's final rect using `clamp(2 * corner_radius / min(w,h), 0, 1)`,
+so two differently sized panels with the same `corner_radius` get the same pixel
+corner.
+
+Precedence and sentinel:
+
+- `corner_radius > 0` -> pixel mode: the resolved fraction replaces `roundness`
+  (and the widget `-1` theme-roundness fallback) for that element.
+- `corner_radius == 0` (default) -> unset: current behavior exactly; `roundness`
+  (or its theme fallback) drives rounding. A literal sharp corner stays
+  `roundness = 0`; `0` here only gates the pixel feature off.
+- A `corner_radius` larger than `min(w,h)/2` clamps to a full pill/capsule
+  (fraction `1.0`) and never overshoots.
+
+#### Per-corner rounding (`rounded_corners`)
+
+`corner_radius` / `roundness` set the radius; `rounded_corners` selects **which**
+corners use it. It is a bitmask of `WLX_CORNER_TOP_LEFT`, `WLX_CORNER_TOP_RIGHT`,
+`WLX_CORNER_BOTTOM_RIGHT`, `WLX_CORNER_BOTTOM_LEFT`, with the convenience masks
+`WLX_CORNERS_ALL` / `_TOP` / `_BOTTOM` / `_LEFT` / `_RIGHT`. A flush header band on
+a rounded panel, for example, uses `rounded_corners = WLX_CORNERS_TOP` so the top
+follows the panel and the bottom stays square against the body.
+
+- `rounded_corners == 0` (default) -> all four corners rounded; output is identical
+  to before the feature existed.
+- Corners absent from the mask are squared off by overdrawing their corner box with
+  the fill color (no backend change). This applies to the **solid fill only**;
+  gradient fills and rounded **borders** stay uniform. For an edge accent on a
+  squared corner, use the per-side straight border (`border_*_bottom`, etc.).
+
+corner_radius` is honored on everything drawn through the shared
+decor path: containers (`wlx_layout_begin`, grids), panels, scroll panels, and
+the rectangular chrome of `widget`, `label`, `button`, and `inputbox`. It is
+accepted but **ignored** on widget primitives that draw their own rounded
+shapes - `checkbox`, `slider`, `progress`, `scrollbar`, and `radio` - which keep
+their fractional `roundness` (mostly circular) behavior. Only the fill follows
+the pixel radius; per-side (two-tone) borders stay sharp spans (see below).
+
+#### Per-side borders
+
+The eight per-side fields express a two-tone bevel (per-side color) or a
+single-edge accent bar (per-side width) without raw command emitters. Sentinels:
+a per-side color `{0}` inherits the uniform `border_color`; a per-side width
+`< 0` inherits `border_width`; an explicit `0` switches that edge off (express a
+transparent edge with width `0`, not a zero color); a width `> 0` wins.
+
+When all four edges resolve equal, the border draws through the uniform
+rounded/sharp path (no behavior change). When any edge differs, the fill draws
+as usual and each active edge draws as an independent **sharp** rectangle span —
+per-side strokes never follow corner roundness, so a rounded fill may show small
+corner gaps under a bevel or bar.
+
+Per-side colors receive the **same hover tint and disabled treatment** as the
+uniform `border_color`, so a beveled or single-edge widget keeps its interaction
+feedback. Per-side fields apply only to a widget's **rectangular bounding
+chrome**: pill/ring/circular indicators (the toggle thumb track, the radio ring,
+and the circular checkbox mark) keep their existing non-rectangular draw path
+and ignore these fields. `slider` and `toggle` draw no rectangular chrome
+through the shared border path, so the fields are inert there.
+
+### Glow and shadow fields (`WLX_GLOW_FIELDS` / `WLX_SHADOW_FIELDS`)
+
+A soft outer glow and a soft drop shadow are first-class decoration fields. They
+ride on the same `WLX_BORDER_FIELDS` group as the border (and on the matching
+container decor group), so any widget or container that already carries those
+fields can request an effect through options alone — no raw command emitters.
+Both effects draw **before** (behind) the element's fill, share its corner
+roundness, and are clipped by whatever scissor the element rides under.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `shadow_color` | `WLX_Color` | `{0}` | Shadow color. `{0}` disables the shadow (enable gate). |
+| `shadow_offset_x` | `float` | `0` | Shadow shift right, in px. A literal `0` means no horizontal shift. |
+| `shadow_offset_y` | `float` | `0` | Shadow shift down, in px. A literal `0` means no vertical shift. |
+| `shadow_blur` | `float` | `0` | Approx blur radius (px). `<= 0` resolves to the theme value, then `8`. Consumed by a native `draw_shadow` callback only; the software fallback does not grow the shadow by `blur` this cut. |
+| `shadow_layers` | `int` | `0` | Software-fallback layer count. `0` resolves to the theme value, then `4`. |
+| `glow_color` | `WLX_Color` | `{0}` | Glow color. `{0}` disables the glow (enable gate). |
+| `glow_spread` | `float` | `0` | Outward growth per ring (px). `<= 0` resolves to the theme value, then `4`. |
+| `glow_rings` | `int` | `0` | Software-fallback ring count. `0` resolves to the theme value, then `3`. |
+
+**Enable gate.** An effect is emitted only when its color is non-zero
+(`shadow_color` / `glow_color`). All fields zero-initialize, so a widget that
+sets neither color is bit-for-bit unchanged and pays no cost.
+
+**Numeric defaults.** Each numeric knob (`shadow_blur`, `shadow_layers`,
+`glow_spread`, `glow_rings`) resolves `<= 0` / `== 0` to the matching
+[`WLX_Theme.shadow` / `WLX_Theme.glow`](API_REFERENCE.md) sub-struct value, then
+to a hard fallback (`8` px blur, `4` layers, `4` px spread, `3` rings). The
+built-in presets leave these zero, so the hard fallbacks are active by default.
+
+**Rendering.** When the backend provides the optional `draw_shadow` /
+`draw_glow` callback the effect is one native call; otherwise a software
+fallback draws the shadow as `layers` translucent offset rounded rects (each
+fainter, the most-offset layer most opaque) and the glow as `rings` concentric
+rounded outlines expanding by `glow_spread` per ring (innermost strongest). All
+in-tree backends use the fallback this cut. Effect colors flow through the same
+effective-opacity premultiply as the fill (see [OPACITY.md](OPACITY.md)).
+
+**Applicability.** Emission is wired at the single full-element chrome box of
+`widget`, `label`, `button`, `checkbox`, `inputbox`, and the scroll panel, plus
+the layout/grid container decor path. `slider`, `progress`, and `toggle` have no
+single full-element chrome box, so they decorate the semantically active
+sub-rect instead: the slider and toggle render the effect behind the **thumb**,
+continuous `progress` renders it behind the **track**, and segmented `progress`
+renders it behind the **bounding run of filled cells** (only when at least one
+cell is filled). `wlx_panel` declares its decor fields explicitly (not via the
+macros) and so carries no effect fields.
+
+```c
+// A button with a soft accent glow and a drop shadow.
+wlx_button(ctx, "Launch", .height = 44,
+    .glow_color   = WLX_RGBA(80, 160, 255, 120),  // {0} would disable the glow
+    .glow_spread  = 5,                             // 0 -> theme, then 4
+    .glow_rings   = 3,
+    .shadow_color = WLX_RGBA(0, 0, 0, 90),
+    .shadow_offset_y = 4,                          // 4 px down, no x shift
+    .shadow_layers   = 4);                         // 0 -> theme, then 4
+```
+
+### Gradient fill fields (`WLX_GRADIENT_FIELDS`)
+
+A vertical two-stop gradient fill. Like glow/shadow it rides on the same
+`WLX_BORDER_FIELDS` group (and the container decor group), so any widget or
+container can request it through options alone. The gradient draws **in place of**
+the solid fill — after any glow/shadow, before the border — and shares the
+element's corner roundness and scissor.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `gradient_top` | `WLX_Color` | `{0}` | Top stop. `{0}` disables the gradient (enable gate); the element renders its solid `back_color` / `color` fill instead. |
+| `gradient_bottom` | `WLX_Color` | `{0}` | Bottom stop. `{0}` is treated as equal to `gradient_top`, giving a uniform fill through the gradient path. |
+
+**Enable gate.** The gradient is emitted only when `gradient_top` is non-zero.
+All fields zero-initialize, so an element that sets neither stop is bit-for-bit
+unchanged and pays no cost. When active, the gradient replaces the solid fill;
+the border still draws on top.
+
+**Rendering.** When the backend provides the optional `draw_gradient_v` callback
+the gradient is one native call (Raylib uses `DrawRectangleGradientV` for sharp
+rects); otherwise — and for rounded rects on Raylib — a software fallback slices
+the rect into `max(1, rect.h / 4)` solid bands interpolating the two stops. The
+band approximation is intentional; SDL3 and WASM render through it.
+Gradient stops flow through the same effective-opacity premultiply as the fill on
+the widget path (see [OPACITY.md](OPACITY.md)).
+
+```c
+// A panel container filled with a deep cyan -> dark vertical gradient.
+wlx_layout_begin(ctx, 1, WLX_VERT,
+    .gradient_top    = WLX_RGBA(0, 209, 255, 60),
+    .gradient_bottom = WLX_RGBA(10, 15, 20, 255),
+    .roundness = 0.06f, .rounded_segments = 8,
+    .border_color = WLX_RGBA(255, 255, 255, 13), .border_width = 1.0f);
+wlx_layout_end(ctx);
+```
 
 ### Content padding (`WLX_CONTENT_PADDING_FIELDS`)
 
@@ -181,7 +346,7 @@ not.
 |--------|-------------------|-------|
 | `wlx_button` | yes | Reports `clicked`; gates click/focus when disabled |
 | `wlx_checkbox` | yes | Reports `clicked`; gates click when disabled |
-| `wlx_inputbox` | yes | Reports `focused` / typing; gates focus when disabled |
+| `wlx_inputbox` | yes | Reports text changes (focus via `.out_focused`); gates focus when disabled |
 | `wlx_slider` | yes | Reports drag / `active`; gates drag when disabled |
 | `wlx_toggle` | yes | Reports `clicked`; gates click when disabled |
 | `wlx_radio` | yes | Reports `clicked`; gates click when disabled |
@@ -290,6 +455,8 @@ Mode is selected purely by the inputs — there is no separate
 | `content_padding_right` | `float` | `-1` | Right-side override. |
 | `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
 | `content_padding_left` | `float` | `-1` | Left-side override. |
+| `style` | `WLX_Text_Style` | `{0}` | Optional aggregate typography (`font`, `font_size`, `color`, `spacing`). When `style.font_size > 0` the aggregate overrides the individual `font`, `font_size`, `spacing`, and `front_color` fields. A `style.color` of all-zero falls back to the resolved `front_color`. Setting both `style.font_size > 0` and `font_size > 0` is a misuse: `style` wins and `WLX_DEBUG` builds emit a once-per-site warning. |
+| `vertical_metric` | `WLX_Vertical_Metric` | `WLX_VMETRIC_LINE_HEIGHT` | Vertical centering basis. `WLX_VMETRIC_LINE_HEIGHT` (default) centers using the backend's reported line height. `WLX_VMETRIC_FONT_SIZE` centers using the font size (em box), which produces consistent cap-height placement across backends whose line heights differ from the font size. |
 
 All shared placement, sizing, typography, color, and border fields also apply.
 Label content uses the same fitted line/run layout as `wlx_button`, so
@@ -451,6 +618,8 @@ function or option struct.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Per-call hover brightness shift for the fill. Unset uses `theme->hover_brightness`; a negative value darkens (useful when an already-bright accent fill would not visibly brighten). |
+| `hover_back_color` | `WLX_Color` | `{0}` | Per-call hover fill replacement. When set, replaces `back_color` while hovered instead of using the brightness path. `{0}` = unset. |
 | `texture` | `WLX_Texture` | zero handle | Optional image content. `width <= 0` or `height <= 0` means no image. |
 | `texture_src` | `WLX_Rect` | `{0}` | Source sub-rect. `w <= 0` or `h <= 0` means full texture. |
 | `texture_scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_FIT` | How the texture fits its image rect (same modes as `wlx_image`). |
@@ -466,7 +635,8 @@ function or option struct.
 
 Shared placement, sizing, typography, color, and border fields also apply.
 The button always draws a filled `back_color` rectangle — hover brightens it
-automatically using the theme's `hover_brightness`. Button captions use the
+automatically using the theme's `hover_brightness`, or the per-call
+`hover_brightness` / `hover_back_color` override. Button captions use the
 same fitted line/run layout as `wlx_label`, so centered or wrapped captions
 align per visible line.
 
@@ -725,7 +895,9 @@ the removed `wlx_checkbox_tex` compatibility macro.
 ## `wlx_inputbox`
 
 Text input field. Click to focus, type to edit, press Enter or Escape (or
-click elsewhere) to unfocus. Returns `true` while the field is focused.
+click elsewhere) to unfocus. Returns `true` when the buffer text changed this
+frame (typed or deleted) — since v0.6; focus state is reported through the
+`.out_focused` out-param (the pre-v0.6 return value).
 
 Uses persistent state internally (`WLX_Inputbox_State`) to track cursor
 position and blink timer across frames. The buffer is edited as one UTF-8 byte
@@ -770,6 +942,12 @@ if (wlx_inputbox(ctx, "Name:", name, sizeof(name), .height = 40)) {
 | `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
 | `border_focus_color` | `WLX_Color` | `{0}` | Border color when focused. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Blinking cursor color. `{0}` = theme `input.cursor` |
+| `texture` | `WLX_Texture` | zero handle | Optional icon drawn **inside** the field. `width <= 0` or `height <= 0` means no icon. |
+| `texture_src` | `WLX_Rect` | `{0}` | Source sub-rect (e.g. an atlas cell). `w <= 0` or `h <= 0` means full texture. |
+| `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the icon. `{0}` resolves to `WLX_WHITE`. |
+| `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Which interior edge the icon sits on. Only `LEFT` and `RIGHT` are meaningful; `TOP`/`BOTTOM` are treated as `LEFT`. |
+| `image_size` | `float` | `0` | Reserved square size for the icon. `<= 0` is automatic (derived from `font_size`, clamped to the field interior). |
+| `image_text_gap` | `float` | `-1` | Gap between the icon band and the text. `< 0` is font-derived (`font_size * 0.5`). |
 
 All shared placement, sizing, typography, and color fields also apply.
 Default `wrap` is `true` for inputbox, so long buffers display over multiple
@@ -785,6 +963,30 @@ the input rect, and the vertical centering of content. The text cursor rect
 asymmetric gutters should use `content_padding_left` / `content_padding_right`
 to shift the input rect, not the internal text offset.
 
+### Inner icon
+
+Set `texture` to render an icon **inside** the field frame on the leading
+(`LEFT`, default) or trailing (`RIGHT`) interior edge — a search glyph, a clear
+affordance, etc. The icon is centered vertically within the field interior,
+independent of `align` (a glyph is not text and does not follow a multi-line
+text band). The reserved band — `image_size + image_text_gap` wide — insets the
+text and caret so they never overlap the icon, and the band width is clamped so
+a narrow field never produces a negative-width text band. A zero `texture`
+leaves the field text-only with byte-identical geometry to before, so existing
+call sites are unaffected. The icon is texture-based (a `WLX_Texture` plus a
+source sub-rect and tint), matching the image content of `wlx_label`,
+`wlx_button`, and `wlx_checkbox`.
+
+```c
+// Search field with a leading magnifier glyph from an atlas, inside the box.
+wlx_inputbox(ctx, NULL, query, sizeof(query),
+    .height = 34,
+    .texture = icon_atlas, .texture_src = search_glyph_src,
+    .texture_tint = (WLX_Color){150, 160, 170, 255},
+    .image_placement = WLX_IMAGE_PLACEMENT_LEFT,
+    .image_size = 18, .image_text_gap = 8);
+```
+
 ### Common overrides
 
 Form-style input with fixed height:
@@ -797,12 +999,17 @@ wlx_inputbox(ctx, "Email:", email_buf, sizeof(email_buf),
 );
 ```
 
-Tracking focus transitions:
+Reacting to edits and tracking focus transitions:
 
 ```c
 static bool was_focused = false;
-bool focused = wlx_inputbox(ctx, "Search:", query, sizeof(query), .height = 35);
+bool focused = false;
+bool changed = wlx_inputbox(ctx, "Search:", query, sizeof(query),
+    .height = 35, .out_focused = &focused);
 
+if (changed) {
+    update_search_results(query);   // text mutated this frame
+}
 if (focused && !was_focused) {
     printf("Search field gained focus\n");
 }
@@ -855,7 +1062,7 @@ It also omits `wrap` — all slider text is single-line.
 | `font_size` | `int` | `0` | Font size. `0` = use theme default |
 | `align` | `WLX_Align` | `WLX_LEFT` | Text alignment for the label |
 | `spacing` | `int` | `0` | Opt-in extra tracking for label and value text. `0` = natural backend spacing |
-| `show_label` | `bool` | `true` | Show the numeric value to the right of the track |
+| `show_value` | `bool` | `true` | Show the numeric value readout to the right of the track. `show_label` is a deprecated alias (same storage), removed one minor version after 0.6 |
 | `track_color` | `WLX_Color` | `{0}` | Track bar background color. `{0}` = derive from theme `slider.track` |
 | `thumb_color` | `WLX_Color` | `{0}` | Thumb handle color. `{0}` = theme `slider.thumb` |
 | `label_color` | `WLX_Color` | `{0}` | Text label color. `{0}` = theme `slider.label` |
@@ -927,7 +1134,7 @@ wlx_separator(ctx, .height = 1);
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `color` | `WLX_Color` | `{0}` | Divider color. `{0}` = theme `border` |
+| `back_color` | `WLX_Color` | `{0}` | Divider color. `{0}` = theme `border`. `color` is a deprecated alias, removed one minor version after 0.6 |
 | `thickness` | `float` | `1.0` | Line thickness in pixels |
 
 Shared placement and sizing fields also apply.
@@ -982,6 +1189,8 @@ wlx_progress(ctx, download_progress,
 | `track_color` | `WLX_Color` | `{0}` | Track color. `{0}` = theme `progress.track`, then `slider.track` |
 | `fill_color` | `WLX_Color` | `{0}` | Fill color. `{0}` = theme `progress.fill`, then `accent` |
 | `track_height` | `float` | `0` | Centered track height. `0` = theme/default progress height |
+| `segments` | `int` | `0` | `0` = continuous bar (default). `> 0` = discrete segmented mode drawing this many equal cells |
+| `segment_gap` | `float` | `0` | Pixel gap between cells in segmented mode. `<= 0` = theme `progress.segment_gap`, then a `2px` fallback |
 | `content_padding` | `float` | `-1` | Uniform inner inset around the track rect. See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
 | `content_padding_top` | `float` | `-1` | Top-side override. |
 | `content_padding_right` | `float` | `-1` | Right-side override. |
@@ -993,6 +1202,27 @@ Shared placement, sizing, and border fields also apply.
 `content_padding*` insets the track rect. The rendered track height is
 additionally clamped to the inset height so a tall `track_height` cannot
 overflow into the padding.
+
+### Segmented mode
+
+Setting `segments > 0` switches the bar to discrete cells: `round(value *
+segments)` cells are drawn in `fill_color` and the rest in `track_color`.
+Cells have equal floor-rounded widths (the last cell absorbs the sub-pixel
+remainder), separated by `segment_gap`. In this mode the bar draws **only** the
+cells: there is no continuous track box and no border, so the inactive cells act
+as the track and the gaps are transparent. `roundness` / `rounded_segments`
+still apply per cell.
+
+The segmented bar self-contains within its track at narrow widths: every cell
+stays inside the track rect regardless of `segments` and `segment_gap`. When the
+track is too narrow for the nominal layout, the gap is compressed (down to 0)
+and cell widths fall to a 1px floor; cells that still cannot fit collapse to
+zero width at the track's right edge rather than spilling past it. The minimum
+bar width is therefore `segments` px (1px per cell, gap 0).
+
+```c
+wlx_progress(ctx, cpu_load, .segments = 16, .segment_gap = 3);
+```
 
 ### Common overrides
 
@@ -1198,6 +1428,7 @@ wlx_scroll_panel_end(ctx);
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `back_color` | `WLX_Color` | `{0}` | Panel background color. `{0}` = theme background |
+| `transparent_background` | `bool` | `false` | `true` draws no panel fill so the container behind shows through (distinct from `back_color = {0}`, which uses the theme background) |
 | `scrollbar_color` | `WLX_Color` | `{0}` | Scrollbar thumb color. `{0}` = theme `scrollbar.bar` |
 | `scrollbar_hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Brightness shift when hovering the scrollbar. Unset = theme default |
 | `scrollbar_width` | `float` | `-1` | Width of the scrollbar. `-1` = theme default |
@@ -1249,6 +1480,61 @@ wlx_scroll_panel_begin(ctx, -1,
     wlx_layout_end(ctx);
 wlx_scroll_panel_end(ctx);
 ```
+
+---
+
+## `wlx_list_clipper_begin` / `wlx_list_clipper_end`
+
+Virtualizes a long list inside a scroll panel: only rows within the viewport are
+built, while spacers reserve the off-screen extent so the scrollbar geometry
+stays correct. Per-frame cost (layout, text measurement, command recording,
+replay) becomes proportional to *visible* rows rather than total rows, so large
+or fast-growing lists stay cheap.
+
+Drive the panel with an explicit content height from `wlx_list_clipper_height`
+(not `WLX_SCROLL_AUTO_HEIGHT` — auto-height would measure only the visible slice
+and break scrolling).
+
+Fixed-pitch rows:
+
+```c
+#define ROW_H 22.0f
+float h = wlx_list_clipper_height(count, ROW_H, NULL);
+wlx_scroll_panel_begin(ctx, h, .id = "log");
+    WLX_List_Clipper c = wlx_list_clipper_begin(ctx, count, ROW_H,
+        .id = "rows", .overscan = ROW_H);
+    for (int i = c.first; i < c.last; i++) {
+        // build row i (e.g. a HORZ layout with labels)
+    }
+    wlx_list_clipper_end(ctx, &c);
+wlx_scroll_panel_end(ctx);
+```
+
+Variable-height rows: pass a prefix-sum `item_offsets` array (length
+`count + 1`, `[0] == 0`) and size each visible row before building it:
+
+```c
+WLX_List_Clipper c = wlx_list_clipper_begin(ctx, count, fallback_h,
+    .id = "rows", .item_offsets = offsets);
+for (int i = c.first; i < c.last; i++) {
+    wlx_layout_auto_slot_px(ctx, wlx_list_clipper_item_height(&c, i));
+    // build row i
+}
+wlx_list_clipper_end(ctx, &c);
+```
+
+**Options** (`WLX_List_Clipper_Opt`): `id` (content-layout id), `item_offsets`
+(variable mode; `NULL` = fixed pitch), `overscan` (extra pixels of rows built
+above/below the viewport — use it to keep a margin of pre-built rows).
+
+**Caveat:** rows outside `[first, last)` are not produced, so they get no ids,
+interactions, or persistent state that frame. Do not place stateful or
+interactive widgets in virtualized rows expecting per-frame execution, or widen
+the range with `overscan`.
+
+To additionally trim over-drawn bounded fills/borders elsewhere, enable
+`wlx_set_cull_offscreen(ctx, true)`. Note that text is never culled, so the
+clipper (not culling) is what keeps a text row list cheap.
 
 ---
 
@@ -1415,9 +1701,10 @@ wlx_panel_end(ctx);
 | `title_align` | `WLX_Align` | `WLX_CENTER` | Heading text alignment |
 | `title_back_color` | `WLX_Color` | `{0}` | Heading background color |
 | `back_color` | `WLX_Color` | `{0}` | Panel body background color. `{0}` = transparent |
-| `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = none |
-| `border_width` | `float` | `0` | Border thickness in pixels. `0` = no border |
-| `roundness` | `float` | `0` | Corner roundness for border/background. `0` = sharp |
+| `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = theme `border` (v0.6) |
+| `border_width` | `float` | `-1` | Border thickness in pixels. `-1` (unset) inherits theme `border_width` (v0.6); explicit `0` = borderless |
+| `roundness` | `float` | `0` | Corner roundness for border/background (fraction of the shorter side). `0` = sharp |
+| `corner_radius` | `float` | `0` | Absolute corner radius in **pixels**. `> 0` overrides `roundness`; `0` = unset. See [Absolute corner radius](#absolute-corner-radius-corner_radius) |
 | `clip` | `bool` | `false` | Clip body content to panel bounds |
 | `content_padding` | `float` | `2` | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |
 | `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
@@ -1494,7 +1781,7 @@ void wlx_widget(WLX_Context *ctx, ...options);
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `color` | `WLX_Color` | `{0}` | Fill color of the rectangle |
+| `back_color` | `WLX_Color` | `{0}` | Fill color of the rectangle. `color` is a deprecated alias, removed one minor version after 0.6 |
 
 All shared placement, sizing, and border fields also apply.
 

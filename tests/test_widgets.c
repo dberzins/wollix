@@ -9,7 +9,16 @@ static int _wgt_draw_rect_count;
 static WLX_Rect _wgt_draw_rect_last;
 static WLX_Color _wgt_draw_rect_last_color;
 
+// Per-call log so tests can inspect individual cell rects/colors (segmented mode).
+#define WGT_REC_MAX 64
+static WLX_Rect  _wgt_rect_log[WGT_REC_MAX];
+static WLX_Color _wgt_rect_color_log[WGT_REC_MAX];
+
 static void wgt_rec_draw_rect(WLX_Rect r, WLX_Color c) {
+    if (_wgt_draw_rect_count < WGT_REC_MAX) {
+        _wgt_rect_log[_wgt_draw_rect_count] = r;
+        _wgt_rect_color_log[_wgt_draw_rect_count] = c;
+    }
     _wgt_draw_rect_count++;
     _wgt_draw_rect_last = r;
     _wgt_draw_rect_last_color = c;
@@ -84,7 +93,7 @@ TEST(slider_default_thumb_is_compact) {
 
     float value = 0.5f;
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_slider(&ctx, NULL, &value, .height = 40, .show_label = false);
+    wlx_slider(&ctx, NULL, &value, .height = 40, .show_value = false);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -104,7 +113,7 @@ TEST(slider_explicit_zero_roundness_stays_sharp) {
 
     float value = 0.5f;
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_slider(&ctx, NULL, &value, .height = 40, .show_label = false, .roundness = 0);
+    wlx_slider(&ctx, NULL, &value, .height = 40, .show_value = false, .roundness = 0);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -198,6 +207,187 @@ TEST(progress_resolves_theme_colors) {
     ASSERT_FALSE(wlx_color_is_zero(opt.fill_color));
     ASSERT_EQ_INT(opt.track_color.r, theme.slider.track.r);
     ASSERT_EQ_INT(opt.fill_color.r, theme.accent.r);
+}
+
+// ============================================================================
+// Segmented progress tests
+// ============================================================================
+
+// Discrete-fill rule: round(value * segments) clamped to [0, segments].
+TEST(progress_filled_count_rounds_and_clamps) {
+    ASSERT_EQ_INT(wlx_progress_filled_count(0.0f, 16), 0);
+    ASSERT_EQ_INT(wlx_progress_filled_count(1.0f, 16), 16);
+    ASSERT_EQ_INT(wlx_progress_filled_count(0.5f, 16), 8);
+    ASSERT_EQ_INT(wlx_progress_filled_count(0.25f, 8), 2);
+    ASSERT_EQ_INT(wlx_progress_filled_count(0.9375f, 16), 15);
+    ASSERT_EQ_INT(wlx_progress_filled_count(-0.5f, 16), 0);   // negative -> 0
+    ASSERT_EQ_INT(wlx_progress_filled_count(2.0f, 16), 16);   // > 1 -> total
+    ASSERT_EQ_INT(wlx_progress_filled_count(0.5f, 0), 0);     // segments <= 0 -> 0
+    ASSERT_EQ_INT(wlx_progress_filled_count(0.5f, -4), 0);
+}
+
+// Cell geometry: equal floor-rounded widths, gap between cells, last cell
+// absorbs the remainder so the cells + gaps exactly span the track.
+TEST(progress_cell_rect_geometry) {
+    // Evenly divisible: 4 cells of (100 - 3*2)/... check equal widths + gap.
+    WLX_Rect track = wlx_rect(10, 5, 100, 12);
+    float gap = 4.0f;
+    int segs = 4;
+
+    WLX_Rect c0 = wlx_progress_cell_rect(track, segs, gap, 0);
+    WLX_Rect c1 = wlx_progress_cell_rect(track, segs, gap, 1);
+    WLX_Rect c2 = wlx_progress_cell_rect(track, segs, gap, 2);
+
+    // y/h pass through unchanged.
+    ASSERT_EQ_F(c0.y, track.y, 0.001f);
+    ASSERT_EQ_F(c0.h, track.h, 0.001f);
+    // First cell starts at track origin.
+    ASSERT_EQ_F(c0.x, track.x, 0.001f);
+    // Equal widths for cells 0..N-2.
+    ASSERT_EQ_F(c0.w, c1.w, 0.001f);
+    ASSERT_EQ_F(c1.w, c2.w, 0.001f);
+    // Gap between consecutive cells equals `gap`.
+    ASSERT_EQ_F(c1.x - (c0.x + c0.w), gap, 0.001f);
+    ASSERT_EQ_F(c2.x - (c1.x + c1.w), gap, 0.001f);
+}
+
+// Remainder: a width/gap that does not divide evenly; the last cell absorbs
+// the fraction so sum(widths) + gap*(N-1) == track.w exactly.
+TEST(progress_cell_rect_last_absorbs_remainder) {
+    WLX_Rect track = wlx_rect(0, 0, 203, 10);
+    float gap = 3.0f;
+    int segs = 4;
+
+    float total_w = 0.0f;
+    for (int i = 0; i < segs; i++) {
+        total_w += wlx_progress_cell_rect(track, segs, gap, i).w;
+    }
+    // Cells + (N-1) gaps span the full track width.
+    ASSERT_EQ_F(total_w + gap * (float)(segs - 1), track.w, 0.001f);
+}
+
+// segments == 1: a single cell spanning the full track width.
+TEST(progress_cell_rect_single_segment) {
+    WLX_Rect track = wlx_rect(7, 2, 64, 9);
+    WLX_Rect c0 = wlx_progress_cell_rect(track, 1, 4.0f, 0);
+    ASSERT_EQ_F(c0.x, track.x, 0.001f);
+    ASSERT_EQ_F(c0.w, track.w, 0.001f);
+}
+
+// Narrow track: cell width clamps to >= 1px rather than going to zero/negative.
+TEST(progress_cell_rect_narrow_clamps_to_1px) {
+    WLX_Rect track = wlx_rect(0, 0, 6, 10);  // 16 cells + gaps won't fit
+    WLX_Rect c0 = wlx_progress_cell_rect(track, 16, 2.0f, 0);
+    ASSERT_TRUE(c0.w >= 1.0f);
+}
+
+// Render path: 4 segments at value 0.5 draws exactly 4 cells (no track box),
+// the first 2 use fill_color and the last 2 use track_color.
+TEST(progress_segmented_half_colors_cells) {
+    wgt_rec_reset();
+    WLX_Context ctx = {0};
+    ctx.backend = wgt_rec_backend();
+    WLX_Theme theme = wlx_theme_dark;
+    theme.roundness = 0;
+    theme.rounded_segments = 0;
+    ctx.theme = &theme;
+    ctx.rect = wlx_rect(0, 0, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    WLX_Color track_c = (WLX_Color){ 10, 20, 30, 255 };
+    WLX_Color fill_c  = (WLX_Color){ 200, 100, 50, 255 };
+
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_progress(&ctx, 0.5f, .segments = 4,
+                 .track_color = track_c, .fill_color = fill_c);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    // Exactly 4 cells, no continuous track box.
+    ASSERT_EQ_INT(_wgt_draw_rect_count, 4);
+    ASSERT_EQ_COLOR(_wgt_rect_color_log[0], fill_c);
+    ASSERT_EQ_COLOR(_wgt_rect_color_log[1], fill_c);
+    ASSERT_EQ_COLOR(_wgt_rect_color_log[2], track_c);
+    ASSERT_EQ_COLOR(_wgt_rect_color_log[3], track_c);
+    wlx_context_destroy(&ctx);
+}
+
+// Render path: value 0 -> all cells inactive (track_color), no fill.
+TEST(progress_segmented_zero_all_track_color) {
+    wgt_rec_reset();
+    WLX_Context ctx = {0};
+    ctx.backend = wgt_rec_backend();
+    WLX_Theme theme = wlx_theme_dark;
+    theme.roundness = 0;
+    theme.rounded_segments = 0;
+    ctx.theme = &theme;
+    ctx.rect = wlx_rect(0, 0, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    WLX_Color track_c = (WLX_Color){ 10, 20, 30, 255 };
+    WLX_Color fill_c  = (WLX_Color){ 200, 100, 50, 255 };
+
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_progress(&ctx, 0.0f, .segments = 4,
+                 .track_color = track_c, .fill_color = fill_c);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT(_wgt_draw_rect_count, 4);
+    for (int i = 0; i < 4; i++) ASSERT_EQ_COLOR(_wgt_rect_color_log[i], track_c);
+    wlx_context_destroy(&ctx);
+}
+
+// Render path: value 1 -> all cells active (fill_color).
+TEST(progress_segmented_full_all_fill_color) {
+    wgt_rec_reset();
+    WLX_Context ctx = {0};
+    ctx.backend = wgt_rec_backend();
+    WLX_Theme theme = wlx_theme_dark;
+    theme.roundness = 0;
+    theme.rounded_segments = 0;
+    ctx.theme = &theme;
+    ctx.rect = wlx_rect(0, 0, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    WLX_Color track_c = (WLX_Color){ 10, 20, 30, 255 };
+    WLX_Color fill_c  = (WLX_Color){ 200, 100, 50, 255 };
+
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_progress(&ctx, 1.0f, .segments = 4,
+                 .track_color = track_c, .fill_color = fill_c);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT(_wgt_draw_rect_count, 4);
+    for (int i = 0; i < 4; i++) ASSERT_EQ_COLOR(_wgt_rect_color_log[i], fill_c);
+    wlx_context_destroy(&ctx);
+}
+
+// segment_gap default: per-call 0 and theme gap 0 resolve to the 2px fallback.
+TEST(progress_segment_gap_resolves_default) {
+    WLX_Progress_Opt opt = wlx_default_progress_opt();
+    WLX_Theme theme = wlx_theme_dark;  // no explicit segment_gap -> 0
+    WLX_Context ctx = {0};
+    ctx.backend = mock_backend();
+    ctx.theme = &theme;
+
+    ASSERT_EQ_F(opt.segment_gap, 0.0f, 0.001f);
+    wlx_resolve_opt_progress(&ctx, &opt);
+    ASSERT_EQ_F(opt.segment_gap, 2.0f, 0.001f);
+}
+
+// Theme-provided segment_gap wins over the 2px fallback.
+TEST(progress_segment_gap_uses_theme_value) {
+    WLX_Progress_Opt opt = wlx_default_progress_opt();
+    WLX_Theme theme = wlx_theme_dark;
+    theme.progress.segment_gap = 5.0f;
+    WLX_Context ctx = {0};
+    ctx.backend = mock_backend();
+    ctx.theme = &theme;
+
+    wlx_resolve_opt_progress(&ctx, &opt);
+    ASSERT_EQ_F(opt.segment_gap, 5.0f, 0.001f);
 }
 
 // ============================================================================
@@ -646,7 +836,7 @@ TEST(widget_opacity_applied_to_fill) {
 
     test_frame_begin(&ctx, -1, -1, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_widget(&ctx, .color = WLX_RGBA(200, 100, 50, 255), .opacity = 0.5f);
+    wlx_widget(&ctx, .back_color = WLX_RGBA(200, 100, 50, 255), .opacity = 0.5f);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -748,6 +938,16 @@ SUITE(widgets) {
     RUN_TEST(progress_zero_draws_no_fill);
     RUN_TEST(progress_full_draws_fill);
     RUN_TEST(progress_resolves_theme_colors);
+    RUN_TEST(progress_filled_count_rounds_and_clamps);
+    RUN_TEST(progress_cell_rect_geometry);
+    RUN_TEST(progress_cell_rect_last_absorbs_remainder);
+    RUN_TEST(progress_cell_rect_single_segment);
+    RUN_TEST(progress_cell_rect_narrow_clamps_to_1px);
+    RUN_TEST(progress_segmented_half_colors_cells);
+    RUN_TEST(progress_segmented_zero_all_track_color);
+    RUN_TEST(progress_segmented_full_all_fill_color);
+    RUN_TEST(progress_segment_gap_resolves_default);
+    RUN_TEST(progress_segment_gap_uses_theme_value);
     RUN_TEST(toggle_click_flips_value);
     RUN_TEST(toggle_draws_active_track_when_on);
     RUN_TEST(toggle_resolves_theme_defaults);

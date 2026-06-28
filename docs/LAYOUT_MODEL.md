@@ -295,10 +295,19 @@ A `0` for min or max means unconstrained.
 
 ### Advanced: Redistribute Mode
 
-By default, clamping is single-pass — surplus or deficit from clamped slots is
-not redistributed. Define `WLX_SLOT_MINMAX_REDISTRIBUTE` before including
-`wollix.h` to enable iterative freeze-and-redistribute, which ensures
-`offsets[count] == total` with no gap.
+By default, clamping uses iterative freeze-and-redistribute: when a slot clamps
+to its min or max, its surplus or deficit is handed to unfrozen flex/auto
+siblings so the resolved boundary stays at `total` (no gap, no overflow). Define
+`WLX_SLOT_SINGLE_PASS_CLAMP` before including `wollix.h` to opt out and use the
+simpler O(n) single-pass clamp, which may leave a gap or overflow when min/max
+fires. (`WLX_SLOT_MINMAX_REDISTRIBUTE`, the former opt-in symbol, is now a
+deprecated no-op kept for source compatibility.)
+
+Redistribution cannot remove a *physical* floor: if the fixed and min-clamped
+sizes together exceed the container, there is no slack to redistribute and the
+boundary still overflows. Contain that with an opt-in layout `.clip`; under
+`WLX_DEBUG` an over-allocating layout emits a one-time warning unless it (or an
+ancestor) clips.
 
 ---
 
@@ -561,6 +570,102 @@ Widget option structs share these field groups, depending on widget type:
 |-------|---------|-------------|
 | `content_padding` | `-1` | Uniform inset around widget content; `WLX_PADDING_USE_THEME` opts into `theme.padding` |
 | `content_padding_top/right/bottom/left` | `-1` | Per-side content inset; values `>= 0` override the uniform value |
+
+**Border** (bordered widgets, from `WLX_BORDER_FIELDS`):
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `border_color` | `{0}` | Uniform border color (`{0}` = theme/widget fallback) |
+| `border_width` | `-1` | Uniform border width (`-1` = theme default, `0` = none) |
+| `roundness` / `rounded_segments` | `-1` | Corner roundness (fraction of shorter side) and segment count |
+| `corner_radius` | `0` | Absolute corner radius in **pixels**; `> 0` overrides `roundness`, `0` = unset |
+| `border_color_top/right/bottom/left` | `{0}` | Per-side border color; `{0}` inherits `border_color` |
+| `border_width_top/right/bottom/left` | `-1` | Per-side border width; `< 0` inherits `border_width`, `0` switches that edge off |
+
+### Per-side container decor
+
+`wlx_layout_begin`, `wlx_grid_begin`, `wlx_grid_begin_auto`, and the
+`WLX_Panel_Opt` body carry the same container decor (`back_color`,
+`border_color`, `border_width`, `roundness`) **plus** the eight per-side fields
+above. They let a container draw a two-tone bevel (per-side color) or a
+single-edge accent bar (per-side width) declaratively, keeping the chrome inside
+the container's own draw range (correct clip/layer/opacity ordering) instead of
+reaching for raw command emitters.
+
+Sentinels match the widget border: a per-side color `{0}` inherits
+`border_color`, a per-side width `< 0` inherits `border_width`, and `0` switches
+an edge off. When every edge resolves equal the uniform rounded/sharp path is
+used unchanged; when any edge differs, each active edge draws as a **sharp**
+span (per-side strokes do not follow corner roundness). To make a container's
+own background or border react to hover, see [Interactive containers](#interactive-containers).
+
+```c
+// Glass module surface: light top/left, dark bottom/right, translucent fill.
+wlx_layout_begin(ctx, 1, WLX_VERT,
+    .back_color = glass_fill, .roundness = 0.10f, .rounded_segments = 8,
+    .border_color_top = edge_light, .border_color_left = edge_light,
+    .border_color_bottom = edge_dark, .border_color_right = edge_dark,
+    .border_width_top = 1, .border_width_left = 1,
+    .border_width_bottom = 1, .border_width_right = 1);
+```
+
+### Interactive containers
+
+Containers can be made hover/click-reactive directly, without a probe widget, by
+setting `interact` on the begin opt. `begin` resolves the interaction on the
+container rect (using its scope id), styles its own chrome from the hover-variant
+colors, and hands the raw `WLX_Interaction` back through `interact_out` for child
+styling and side effects. `interact = 0` (the default) skips the query, so
+non-interactive containers pay nothing.
+
+```c
+WLX_Interaction it;
+wlx_layout_begin(ctx, 1, WLX_VERT, .id = row_id,
+    .interact = WLX_INTERACT_CLICK | WLX_INTERACT_HOVER, .interact_out = &it,
+    .back_color = (WLX_Color){0}, .hover_back_color = wash,
+    .border_width_left = 2, .border_color_left = (WLX_Color){0},
+    .hover_border_color_left = accent);   // bar appears on hover
+    // body reads it.hover for child text / icon colors
+wlx_layout_end(ctx);
+if (it.clicked) navigate();
+```
+
+- **Color-only, replace semantics.** Hover twins exist for the background and
+  the uniform/per-side border colors only (`hover_back_color`,
+  `hover_border_color`, `hover_border_color_top/right/bottom/left`). A non-zero
+  twin replaces its base color while hovered; a `{0}` twin keeps the base. There
+  are no hover-variant width/gradient/shadow/glow fields — an *appearing* border
+  is a constant width with a transparent base color toggled to an accent twin.
+- **Supported flags.** `HOVER`, `CLICK`, `KEYBOARD`. `FOCUS`/`DRAG` are not
+  supported on containers, and the auto-counted begins (`wlx_layout_begin_auto`,
+  `wlx_grid_begin_auto`, `wlx_grid_begin_auto_tile`) lack a stable call-site id
+  and do not support `interact`.
+- **Non-interactive children only.** A `CLICK` container is queried before its
+  children and captures the press first (click capture is first-writer), so a
+  nested interactive child can never fire its own click. Keep interactive
+  containers to composite regions of non-interactive content. For a clickable
+  region that owns a button, give the *child* the click and use `HOVER` only on
+  the container.
+
+### Absolute corner radius (`corner_radius`)
+
+`roundness` is a fraction of the container's shorter side, so a layout of
+differently sized panels rounded with one constant gets a different pixel corner
+per panel. `corner_radius` declares the radius in **pixels** instead. It is
+resolved centrally at draw time against the container's final rect with
+`clamp(2 * corner_radius / min(w,h), 0, 1)`, so panels of any size share the same
+pixel corner. `corner_radius > 0` overrides `roundness` for that container; the
+default `0` leaves the existing fractional behavior untouched (a sharp corner is
+still `roundness = 0`). Values past `min(w,h)/2` clamp to a full pill. Only the
+fill follows the radius - per-side (two-tone) borders stay sharp spans. The field
+is carried by every container decor path (`wlx_layout_begin`, `wlx_grid_begin`,
+`wlx_grid_begin_auto`, and the `WLX_Panel_Opt` body); widget primitives that
+draw their own rounded shapes ignore it in v1.
+
+```c
+// Two differently sized modules, identical 8 px corner regardless of size.
+wlx_layout_begin(ctx, 1, WLX_VERT, .back_color = glass_fill, .corner_radius = 8.0f);
+```
 
 ### Widget Quick Reference
 

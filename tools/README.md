@@ -1,21 +1,30 @@
 # tools/
 
-Manual regeneration tooling for gallery assets. Nothing here runs on the
-default build, test, or demo paths. Contributors only invoke these
-scripts when the underlying asset source changes.
+Manual regeneration tooling for gallery and dashboard assets. Nothing
+here runs on the default build, test, or demo paths. Contributors only
+invoke these scripts when the underlying asset source changes.
 
 ## gen_icon_atlas.sh - icon atlas regenerator
 
-Regenerates `demos/assets/wlx_icons.h` from the 32 committed Lucide
-1.14.0 SVGs under `demos/assets/icons/lucide-svg/`. The first 12 cover
-widget-demo icons (`check`, `x`, `info`, `triangle-alert`, `image`,
-`palette`, `save`, `rotate-ccw`, `settings`, `play`, `square`,
-`square-check`); the remaining 20 cover gallery chrome and navigation
-(`app-window`, `chevron-right`, `house`, `blocks`, `layout-dashboard`,
-`route`, `sliders-horizontal`, `type`, `mouse-pointer-click`,
-`text-cursor-input`, `component`, `align-horizontal-space-between`,
-`grid-3x3`, `stretch-horizontal`, `layout-template`, `scroll-text`,
-`layers`, `blend`, `square-dashed`, `toggle-left`).
+Regenerates `demos/assets/wlx_icons.h` from the 47 committed Lucide
+1.14.0 SVGs under `demos/assets/icons/lucide-svg/`. The atlas has two
+consumers: the widget gallery (`demos/gallery.c`) and the Stitch
+dashboard demo (`demos/dashboard/dashboard.c`, via
+`demos/dashboard/dashboard_icons.h`).
+
+The first 12 cover widget-demo icons (`check`, `x`, `info`,
+`triangle-alert`, `image`, `palette`, `save`, `rotate-ccw`, `settings`,
+`play`, `square`, `square-check`); the next 20 cover gallery chrome and
+navigation (`app-window`, `chevron-right`, `house`, `blocks`,
+`layout-dashboard`, `route`, `sliders-horizontal`, `type`,
+`mouse-pointer-click`, `text-cursor-input`, `component`,
+`align-horizontal-space-between`, `grid-3x3`, `stretch-horizontal`,
+`layout-template`, `scroll-text`, `layers`, `blend`, `square-dashed`,
+`toggle-left`); the final 15 were appended for the dashboard (`search`,
+`bell`, `square-minus`, `database`, `square-pen`, `list`, `droplet`,
+`contact`, `code-xml`, `zap`, `folder-git-2`, `flask-conical`,
+`file-text`, `circle-question-mark`, `circle-user`). New entries are
+appended after `toggle-left`, so existing enum indices stay stable.
 
 ### Prerequisites
 
@@ -57,7 +66,7 @@ intermediate PNGs, compiled packer binary) are created under
 5. Runs the packer, which:
    - decodes each `tier_<n>/<icon>.png` via vendored
      `tools/third_party/stb_image.h`;
-   - composes a single 1536x120 RGBA atlas laid out as one row per tier
+   - composes a single 2256x120 RGBA atlas laid out as one row per tier
      in ascending tier order (16 px row at the top, then 24, 32, 48);
    - within each row, every icon cell occupies `tier x tier` pixels at
      `x = icon_index * 48` (the max tier), leaving transparent
@@ -67,14 +76,14 @@ intermediate PNGs, compiled packer binary) are created under
      alpha channel (white-alpha encoding; color comes from the
      gallery's call-site tint);
    - emits `demos/assets/wlx_icons.h` with the banner, atlas
-     dimensions (`WLX_ICONS_WIDTH = 1536`, `WLX_ICONS_HEIGHT = 120`),
-     `WLX_Icon` enum (32 entries), the tier metadata
+     dimensions (`WLX_ICONS_WIDTH = 2256`, `WLX_ICONS_HEIGHT = 120`),
+     `WLX_Icon` enum (47 entries), the tier metadata
      (`WLX_ICON_TIER_COUNT`, `wlx_icon_tier_sizes[]`,
      `wlx_icon_tier_y[]`), the 2D source-rect table
      `wlx_icon_rects_tiered[TIER][ICON]`, a 1D
      `wlx_icon_rects[]` mirror for the 16 px tier (backward
-     compatibility), and the 737280-byte `wlx_icons_rgba[]` array
-     (1536 * 4 bytes per source line).
+     compatibility), and the 1082880-byte `wlx_icons_rgba[]` array
+     (2256 * 4 bytes per source line).
 
 ### Determinism
 

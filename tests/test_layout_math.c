@@ -143,12 +143,13 @@ TEST(offsets_zero_remaining_for_flex) {
 }
 
 // ============================================================================
-// wlx_compute_offsets - min/max constraints (single-pass clamp)
+// wlx_compute_offsets - min/max constraints (redistribute is the default)
 // ============================================================================
 
 TEST(offsets_flex_with_min) {
-    // 3 flex(1) in 300px -> each 100px, but slot 0 has min=150 -> gets 150
-    // Without redistribute, slots 1&2 still get 100 each (single-pass clamp)
+    // 3 flex(1) in 300px -> each 100px, but slot 0 has min=150 -> gets 150.
+    // Redistribute (default) freezes slot 0 at 150 and splits the remaining
+    // 150px across slots 1&2 (75 each), so the boundary stays at total.
     WLX_Slot_Size sizes[] = {
         WLX_SLOT_FLEX_MIN(1, 150),
         WLX_SLOT_FLEX(1),
@@ -157,13 +158,15 @@ TEST(offsets_flex_with_min) {
     float off[4];
     wlx_compute_offsets(off, 3, 300.0f, 300.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
-    ASSERT_EQ_F(off[1], 150.0f, EPS);  // clamped up to min
-    ASSERT_EQ_F(off[2], 250.0f, EPS);  // 100
-    ASSERT_EQ_F(off[3], 350.0f, EPS);  // 100 (overflows total without redistribute)
+    ASSERT_EQ_F(off[1], 150.0f, EPS);  // clamped up to min, then frozen
+    ASSERT_EQ_F(off[2], 225.0f, EPS);  // 75 (remaining 150 split across 2 flex)
+    ASSERT_EQ_F(off[3], 300.0f, EPS);  // 75; boundary == total, no overflow
 }
 
 TEST(offsets_flex_with_max) {
-    // 2 flex(1) in 400px -> each 200px, but slot 0 has max=100 -> gets 100
+    // 2 flex(1) in 400px -> each 200px, but slot 0 has max=100 -> gets 100.
+    // Redistribute (default) freezes slot 0 at 100 and hands the surplus to
+    // slot 1, which absorbs the full remaining 300px.
     WLX_Slot_Size sizes[] = {
         WLX_SLOT_FLEX_MAX(1, 100),
         WLX_SLOT_FLEX(1),
@@ -171,8 +174,8 @@ TEST(offsets_flex_with_max) {
     float off[3];
     wlx_compute_offsets(off, 2, 400.0f, 400.0f, sizes, 0.0f);
     ASSERT_EQ_F(off[0],   0.0f, EPS);
-    ASSERT_EQ_F(off[1], 100.0f, EPS);  // clamped down to max
-    ASSERT_EQ_F(off[2], 300.0f, EPS);  // 200 (single-pass, no redistribute)
+    ASSERT_EQ_F(off[1], 100.0f, EPS);  // clamped down to max, then frozen
+    ASSERT_EQ_F(off[2], 400.0f, EPS);  // 300; boundary == total, no gap
 }
 
 TEST(offsets_pct_minmax) {

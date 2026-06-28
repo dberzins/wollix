@@ -275,7 +275,7 @@ static void color_controls(WLX_Context *ctx, const char *name, Color_Edit *color
 
             wlx_widget(ctx,
                 .height = 70,
-                .color = preview,
+                .back_color = preview,
                 .border_color = ctx->theme->border,
                 .border_width = PANEL_BORDER_WIDTH);
 
@@ -284,17 +284,17 @@ static void color_controls(WLX_Context *ctx, const char *name, Color_Edit *color
                     .height = 22,
                     .font_size = 12,
                     .thumb_color = (WLX_Color){230, 88, 80, 255},
-                    .show_label = false);
+                    .show_value = false);
                 wlx_slider(ctx, "G", &color->g,
                     .height = 22,
                     .font_size = 12,
                     .thumb_color = (WLX_Color){80, 190, 120, 255},
-                    .show_label = false);
+                    .show_value = false);
                 wlx_slider(ctx, "B", &color->b,
                     .height = 22,
                     .font_size = 12,
                     .thumb_color = (WLX_Color){80, 130, 230, 255},
-                    .show_label = false);
+                    .show_value = false);
             wlx_layout_end(ctx);
 
         wlx_layout_end(ctx);
@@ -414,15 +414,15 @@ static void preview_card(WLX_Context *ctx, const char *name, const char *tag,
                 .align = WLX_CENTER,
                 .front_color = blend_color(theme->foreground, theme->surface, 92));
             wlx_layout_begin(ctx, 5, WLX_HORZ, .padding = 0, .gap = 3);
-                wlx_widget(ctx, .height = 24, .color = theme->background,
+                wlx_widget(ctx, .height = 24, .back_color = theme->background,
                     .border_color = theme->border, .border_width = PANEL_BORDER_WIDTH);
-                wlx_widget(ctx, .height = 24, .color = theme->surface,
+                wlx_widget(ctx, .height = 24, .back_color = theme->surface,
                     .border_color = theme->border, .border_width = PANEL_BORDER_WIDTH);
-                wlx_widget(ctx, .height = 24, .color = theme->foreground,
+                wlx_widget(ctx, .height = 24, .back_color = theme->foreground,
                     .border_color = theme->border, .border_width = PANEL_BORDER_WIDTH);
-                wlx_widget(ctx, .height = 24, .color = theme->border,
+                wlx_widget(ctx, .height = 24, .back_color = theme->border,
                     .border_color = theme->border, .border_width = PANEL_BORDER_WIDTH);
-                wlx_widget(ctx, .height = 24, .color = theme->accent,
+                wlx_widget(ctx, .height = 24, .back_color = theme->accent,
                     .border_color = theme->border, .border_width = PANEL_BORDER_WIDTH);
             wlx_layout_end(ctx);
             tiny_preview_widgets(ctx);
@@ -460,7 +460,7 @@ static void token_swatch(WLX_Context *ctx, const char *name, WLX_Color color, si
             .border_width = PANEL_BORDER_WIDTH);
             wlx_widget(ctx,
                 .height = 34,
-                .color = color,
+                .back_color = color,
                 .border_color = ctx->theme->border,
                 .border_width = PANEL_BORDER_WIDTH);
             wlx_label(ctx, name,

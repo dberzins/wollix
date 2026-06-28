@@ -140,9 +140,9 @@ TEST(separator_vertical) {
 
     wlx_layout_begin(&ctx, 3, WLX_HORZ,
         .sizes = (WLX_Slot_Size[]){ WLX_SLOT_FLEX(1), WLX_SLOT_PX(4), WLX_SLOT_FLEX(1) });
-    wlx_widget(&ctx, .color = (WLX_Color){0,0,0,255});
+    wlx_widget(&ctx, .back_color = (WLX_Color){0,0,0,255});
     wlx_separator(&ctx);
-    wlx_widget(&ctx, .color = (WLX_Color){0,0,0,255});
+    wlx_widget(&ctx, .back_color = (WLX_Color){0,0,0,255});
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -184,7 +184,7 @@ TEST(layout_background_draws_when_back_color_set) {
 
     wlx_layout_begin(&ctx, 1, WLX_VERT,
         .back_color = (WLX_Color){30, 30, 30, 255});
-    wlx_widget(&ctx, .color = (WLX_Color){50, 50, 50, 255}, .roundness = 0);
+    wlx_widget(&ctx, .back_color = (WLX_Color){50, 50, 50, 255}, .roundness = 0);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -203,7 +203,7 @@ TEST(layout_background_not_drawn_when_zero) {
 
     // No back_color set -> no background drawing
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_widget(&ctx, .color = (WLX_Color){50, 50, 50, 255}, .roundness = 0);
+    wlx_widget(&ctx, .back_color = (WLX_Color){50, 50, 50, 255}, .roundness = 0);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -226,7 +226,7 @@ TEST(layout_background_rounded) {
         .border_width = 1.0f,
         .roundness = 0.1f,
         .rounded_segments = 8);
-    wlx_widget(&ctx, .color = (WLX_Color){50, 50, 50, 255}, .roundness = 0);
+    wlx_widget(&ctx, .back_color = (WLX_Color){50, 50, 50, 255}, .roundness = 0);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -249,7 +249,7 @@ TEST(grid_background_draws) {
     wlx_grid_begin(&ctx, 1, 1,
         .back_color = (WLX_Color){30, 30, 30, 255});
     wlx_grid_cell(&ctx, 0, 0);
-    wlx_widget(&ctx, .color = (WLX_Color){50, 50, 50, 255}, .roundness = 0);
+    wlx_widget(&ctx, .back_color = (WLX_Color){50, 50, 50, 255}, .roundness = 0);
     wlx_grid_end(&ctx);
     test_frame_end(&ctx);
 

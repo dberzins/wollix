@@ -264,11 +264,11 @@ int main(void) {
                         WLX_SIZES(WLX_SLOT_PX(CARD_PAD), WLX_SLOT_FLEX(1),
                                   WLX_SLOT_PX(40), WLX_SLOT_FLEX(1), WLX_SLOT_PX(CARD_PAD)));
                         wlx_label(ctx, "", .width = -1);
-                        wlx_separator(ctx, .color = (WLX_Color){60, 70, 110, 140});
+                        wlx_separator(ctx, .back_color = (WLX_Color){60, 70, 110, 140});
                         wlx_label(ctx, "OR",
                             .font_size = 12, .align = WLX_CENTER,
                             .front_color = (Color){80, 90, 130, 200});
-                        wlx_separator(ctx, .color = (WLX_Color){60, 70, 110, 140});
+                        wlx_separator(ctx, .back_color = (WLX_Color){60, 70, 110, 140});
                         wlx_label(ctx, "", .width = -1);
                     wlx_layout_end(ctx);
 

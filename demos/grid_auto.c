@@ -108,7 +108,7 @@ int main(void) {
                         .back_color = (Color){30, 40, 30, 255},
                         .align = WLX_CENTER);
 
-                    wlx_scroll_panel_begin(ctx, -1);
+                    wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT);
                         wlx_grid_begin_auto(ctx, 3, 32,
                             .col_sizes = (WLX_Slot_Size[]){
                                 WLX_SLOT_PX(140),    // Name
@@ -174,7 +174,7 @@ int main(void) {
                         .back_color = (Color){40, 30, 30, 255},
                         .align = WLX_CENTER);
 
-                    wlx_scroll_panel_begin(ctx, -1);
+                    wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT);
                         float tile_size = 80.0f;
                         wlx_grid_begin_auto_tile(ctx, tile_size, tile_size);
                             for (int i = 0; i < record_count; i++) {

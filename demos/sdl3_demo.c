@@ -156,16 +156,16 @@ int main(void) {
         wlx_layout_end(ctx);
 
         wlx_layout_begin(ctx, 4, WLX_HORZ, .padding = 4);
-            wlx_widget(ctx, .height = 70, .color = WLX_RGBA(180, 80, 80, 255),
+            wlx_widget(ctx, .height = 70, .back_color = WLX_RGBA(180, 80, 80, 255),
                     .roundness = roundness,
                     .border_color = WLX_RGBA(255, 120, 120, 255), .border_width = 2);
-            wlx_widget(ctx, .height = 70, .color = WLX_RGBA(80, 140, 180, 255),
+            wlx_widget(ctx, .height = 70, .back_color = WLX_RGBA(80, 140, 180, 255),
                     .roundness = roundness,
                     .border_color = WLX_RGBA(120, 200, 255, 255), .border_width = 2);
-            wlx_widget(ctx, .height = 70, .color = WLX_RGBA(80, 180, 100, 255),
+            wlx_widget(ctx, .height = 70, .back_color = WLX_RGBA(80, 180, 100, 255),
                     .roundness = roundness,
                     .border_color = WLX_RGBA(120, 255, 140, 255), .border_width = 2);
-            wlx_widget(ctx, .height = 70, .width = 70, .color = WLX_RGBA(200, 160, 60, 255),
+            wlx_widget(ctx, .height = 70, .width = 70, .back_color = WLX_RGBA(200, 160, 60, 255),
                     .roundness = 1.0f, .widget_align = WLX_CENTER);
         wlx_layout_end(ctx);
 

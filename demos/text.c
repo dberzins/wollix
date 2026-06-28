@@ -98,11 +98,11 @@ int main(void) {
                     wlx_layout_end(ctx);
 
                     wlx_layout_begin(ctx, 5, WLX_HORZ);
-                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .color = WLX_SCROLLBAR_COLOR);
-                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .color = RED);
-                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .color = BLUE);
-                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .color = YELLOW);
-                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .color = MAGENTA);
+                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .back_color = WLX_SCROLLBAR_COLOR);
+                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .back_color = RED);
+                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .back_color = BLUE);
+                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .back_color = YELLOW);
+                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .back_color = MAGENTA);
                     wlx_layout_end(ctx);
                 wlx_layout_end(ctx);
 

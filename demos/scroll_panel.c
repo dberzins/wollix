@@ -36,7 +36,7 @@ int main(void) {
                 wlx_layout_begin(ctx, 2, WLX_HORZ);
 
                     // Left panel: scrollable list with auto content height (-1)
-                    wlx_scroll_panel_begin(ctx, -1,
+                    wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
                         .back_color = (Color){25, 25, 25, 255},
                         .scrollbar_color = (Color){60, 60, 60, 255}
                     );
@@ -64,7 +64,7 @@ int main(void) {
                     wlx_scroll_panel_end(ctx);
 
                     // Right panel: another scroll panel with auto height
-                    wlx_scroll_panel_begin(ctx, -1,
+                    wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
                         .back_color = (Color){20, 20, 30, 255},
                         .scrollbar_color = (Color){80, 60, 60, 255}
                     );

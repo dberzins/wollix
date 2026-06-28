@@ -166,7 +166,7 @@ TEST(perf_text_measure_counter) {
     test_frame_begin(&ctx, 0, 0, false, false);
     float w = 0, h = 0;
     ctx.backend.measure_text("test", (WLX_Text_Style){.font_size = 10}, &w, &h);
-    WLX_PERF_HOOK(text_measure, &ctx, "test");
+    WLX_PERF_HOOK(text_measure, &ctx, 4); // "test" = 4 bytes
     test_frame_end(&ctx);
 
     const WLX_Perf_Frame *f = wlx_perf_get_last_frame(&ctx);
@@ -323,6 +323,46 @@ TEST(perf_immediate_mode_zero_commands) {
     wlx_context_destroy(&ctx);
 }
 
+// Steady-state frames of a static UI perform zero heap allocations: the
+// warm-up frames grow the arenas and seed the state map, after which every
+// frame-lifetime buffer rides the frame arena. The constrained wide layout
+// (slot count above WLX_OFFSET_STACK_LIMIT) forces the min/max redistribution
+// pass to allocate its working buffers, which must come from the frame arena,
+// not the heap.
+TEST(perf_steady_state_zero_allocations) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+
+    WLX_Perf_Allocator_Stats stats = {0};
+    wlx_perf_allocator_sink = &stats;
+
+    enum { WIDE = WLX_OFFSET_STACK_LIMIT + 8 };
+    WLX_Slot_Size sizes[WIDE];
+    for (size_t i = 0; i < WIDE; i++) sizes[i] = WLX_SLOT_FLEX_MIN(1, 2);
+
+    for (int frame = 0; frame < 5; frame++) {
+        if (frame == 2) {
+            // Arenas and state map are at steady size; count from here.
+            memset(&stats, 0, sizeof(stats));
+        }
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin(&ctx, 3, WLX_VERT);
+        wlx_label(&ctx, "steady");
+        (void)wlx_button(&ctx, "state");
+        wlx_layout_begin(&ctx, WIDE, WLX_HORZ, .sizes = sizes);
+        wlx_layout_end(&ctx);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+
+    ASSERT_EQ_INT((int)stats.alloc_calls, 0);
+    ASSERT_EQ_INT((int)stats.calloc_calls, 0);
+    ASSERT_EQ_INT((int)stats.realloc_calls, 0);
+
+    wlx_perf_allocator_sink = NULL;
+    wlx_context_destroy(&ctx);
+}
+
 #endif // WLX_PERF
 
 // ============================================================================
@@ -347,5 +387,6 @@ SUITE(perf) {
     RUN_TEST(perf_no_timer_fields_zero);
     RUN_TEST(perf_timer_available_when_set);
     RUN_TEST(perf_immediate_mode_zero_commands);
+    RUN_TEST(perf_steady_state_zero_allocations);
 #endif
 }

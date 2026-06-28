@@ -50,6 +50,21 @@ static const IconEntry icons[] = {
     {"blend",                          "BLEND"                         },
     {"square-dashed",                  "SQUARE_DASHED"                 },
     {"toggle-left",                    "TOGGLE_LEFT"                   },
+    {"search",                         "SEARCH"                        },
+    {"bell",                           "BELL"                          },
+    {"square-minus",                   "SQUARE_MINUS"                  },
+    {"database",                       "DATABASE"                      },
+    {"square-pen",                     "SQUARE_PEN"                    },
+    {"list",                           "LIST"                          },
+    {"droplet",                        "DROPLET"                       },
+    {"contact",                        "CONTACT"                       },
+    {"code-xml",                       "CODE_XML"                      },
+    {"zap",                            "ZAP"                           },
+    {"folder-git-2",                   "FOLDER_GIT_2"                  },
+    {"flask-conical",                  "FLASK_CONICAL"                 },
+    {"file-text",                      "FILE_TEXT"                     },
+    {"circle-question-mark",           "CIRCLE_QUESTION_MARK"          },
+    {"circle-user",                    "CIRCLE_USER"                   },
 };
 
 #define ICON_COUNT ((int)(sizeof(icons) / sizeof(icons[0])))

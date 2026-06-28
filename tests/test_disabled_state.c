@@ -49,7 +49,7 @@ static bool _ds_inputbox_disabled(WLX_Context *ctx, char *buf, size_t sz) {
     return wlx_inputbox(ctx, "Name", buf, sz, .disabled = true);
 }
 static bool _ds_slider_disabled(WLX_Context *ctx, float *val) {
-    return wlx_slider(ctx, NULL, val, .height = 40, .show_label = false,
+    return wlx_slider(ctx, NULL, val, .height = 40, .show_value = false,
                                        .disabled = true);
 }
 

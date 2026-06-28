@@ -80,7 +80,7 @@ int main(void) {
 
                     // ---- OUTER scroll panel -----------------------------
                     // This is the main scrollable area
-                    wlx_scroll_panel_begin(ctx, -1,
+                    wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
                         .back_color = (Color){22, 24, 28, 255},
                         .scrollbar_color = (Color){60, 50, 70, 255},
                         .span = 8

@@ -12,18 +12,25 @@
 #endif
 
 // Helper: call `wlx_inputbox_impl()` from a stable source location.
-// Returns true if focused (same as `wlx_inputbox_impl()`'s return value).
+// Returns true if focused, reported through the v0.6 `.out_focused`
+// out-param (the impl's return value is now "text changed this frame").
 // The caller must have an active layout.
 static bool do_inputbox_A(WLX_Context *ctx, char *buf, size_t buf_size) {
-    return wlx_inputbox_impl(ctx, "Label:", buf, buf_size,
-        wlx_default_inputbox_opt(.height = 40, .content_padding = 4, .font_size = 10),
+    bool focused = false;
+    (void)wlx_inputbox_impl(ctx, "Label:", buf, buf_size,
+        wlx_default_inputbox_opt(.height = 40, .content_padding = 4, .font_size = 10,
+            .out_focused = &focused),
         __FILE__, __LINE__);
+    return focused;
 }
 
 static bool do_inputbox_B(WLX_Context *ctx, char *buf, size_t buf_size) {
-    return wlx_inputbox_impl(ctx, "Other:", buf, buf_size,
-        wlx_default_inputbox_opt(.height = 40, .content_padding = 4, .font_size = 10),
+    bool focused = false;
+    (void)wlx_inputbox_impl(ctx, "Other:", buf, buf_size,
+        wlx_default_inputbox_opt(.height = 40, .content_padding = 4, .font_size = 10,
+            .out_focused = &focused),
         __FILE__, __LINE__);
+    return focused;
 }
 
 static int _input_cursor_draw_count = 0;
@@ -126,9 +133,12 @@ static inline void test_ctx_init_clip_line_capture(WLX_Context *ctx, float w, fl
 }
 
 static bool do_inputbox_long_cursor(WLX_Context *ctx, char *buf, size_t buf_size) {
-    return wlx_inputbox_impl(ctx, NULL, buf, buf_size,
-        wlx_default_inputbox_opt(.height = 500, .content_padding = 4, .font_size = 10, .wrap = true, .border_width = 0),
+    bool focused = false;
+    (void)wlx_inputbox_impl(ctx, NULL, buf, buf_size,
+        wlx_default_inputbox_opt(.height = 500, .content_padding = 4, .font_size = 10, .wrap = true, .border_width = 0,
+            .out_focused = &focused),
         __FILE__, __LINE__);
+    return focused;
 }
 
 // ============================================================================
@@ -229,6 +239,68 @@ TEST(input_unfocus_click_away) {
 // ============================================================================
 // Typing tests
 // ============================================================================
+
+// v0.6 return contract: the impl returns "text changed this frame" (typing,
+// backspace), not focus. Focus is reported through `.out_focused`.
+// Stable call site so every frame addresses the same widget id.
+static bool do_inputbox_changed(WLX_Context *ctx, char *buf, size_t buf_size,
+                                bool *focused) {
+    return wlx_inputbox_impl(ctx, "L:", buf, buf_size,
+        wlx_default_inputbox_opt(.height = 40, .font_size = 10,
+            .out_focused = focused),
+        __FILE__, __LINE__);
+}
+
+TEST(input_return_reports_text_changed_not_focus) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "";
+    bool focused = false;
+
+    // Frame 1: click to focus. No text typed -> changed must be false even
+    // though the box gains focus.
+    test_frame_begin(&ctx, 200, 150, true, true);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    bool changed = do_inputbox_changed(&ctx, buf, sizeof(buf), &focused);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_FALSE(changed);
+    ASSERT_TRUE(focused);
+
+    // Frame 2: type 'A' -> changed true, still focused.
+    test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
+                         NULL, NULL, "A");
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    changed = do_inputbox_changed(&ctx, buf, sizeof(buf), &focused);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_TRUE(changed);
+    ASSERT_TRUE(focused);
+    ASSERT_EQ_STR(buf, "A");
+
+    // Frame 3: focused, idle (no input) -> changed false.
+    test_frame_begin(&ctx, 200, 150, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    changed = do_inputbox_changed(&ctx, buf, sizeof(buf), &focused);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_FALSE(changed);
+    ASSERT_TRUE(focused);
+
+    // Frame 4: backspace -> changed true.
+    bool keys_pressed[WLX_KEY_COUNT] = {0};
+    keys_pressed[WLX_KEY_BACKSPACE] = true;
+    test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
+                         NULL, keys_pressed, NULL);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    changed = do_inputbox_changed(&ctx, buf, sizeof(buf), &focused);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_TRUE(changed);
+    ASSERT_EQ_STR(buf, "");
+
+    wlx_context_destroy(&ctx);
+}
 
 TEST(input_type_char) {
     WLX_Context ctx;
@@ -514,13 +586,15 @@ TEST(input_cursor_position_uses_full_buffer_layout) {
     bool focused = do_inputbox_long_cursor(&ctx, buf, sizeof(buf));
     ASSERT_TRUE(focused);
 
-    ASSERT_TRUE(wlx_calc_cursor_position_for_text(&ctx, text_rect, buf, ts, WLX_TOP_LEFT, true, 520,
+    // The inputbox draws its text vertically centered (WLX_LEFT), so the
+    // reference cursor layout must use the same alignment to match the draw.
+    ASSERT_TRUE(wlx_calc_cursor_position_for_text(&ctx, text_rect, buf, ts, WLX_LEFT, true, 520,
         &expected_x, &expected_y));
     if (expected_x > text_rect.x) expected_x += WLX_INPUTBOX_CURSOR_PADDING;
 
     memcpy(legacy_prefix, buf, WLX_INPUTBOX_CURSOR_TEMP_SIZE - 1);
     legacy_prefix[WLX_INPUTBOX_CURSOR_TEMP_SIZE - 1] = '\0';
-    ASSERT_TRUE(wlx_calc_cursor_position(&ctx, text_rect, legacy_prefix, ts, WLX_TOP_LEFT, true,
+    ASSERT_TRUE(wlx_calc_cursor_position(&ctx, text_rect, legacy_prefix, ts, WLX_LEFT, true,
         &legacy_x, &legacy_y));
     if (legacy_x > text_rect.x) legacy_x += WLX_INPUTBOX_CURSOR_PADDING;
 
@@ -573,9 +647,11 @@ TEST(inputbox_draws_when_line_height_exceeds_text_rect) {
 
     test_frame_begin(&ctx, 40, 20, true, true);
     wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
-    bool focused = wlx_inputbox_impl(&ctx, NULL, buf, sizeof(buf),
+    bool focused = false;
+    (void)wlx_inputbox_impl(&ctx, NULL, buf, sizeof(buf),
         wlx_default_inputbox_opt(.height = 40, .content_padding = 10,
-            .font_size = 16, .wrap = false, .border_width = 1),
+            .font_size = 16, .wrap = false, .border_width = 1,
+            .out_focused = &focused),
         __FILE__, __LINE__);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
@@ -585,7 +661,14 @@ TEST(inputbox_draws_when_line_height_exceeds_text_rect) {
     ASSERT_EQ_STR(_input_text_draw_text, "abc");
     ASSERT_EQ_INT(1, _input_cursor_draw_count);
     ASSERT_EQ_F(_input_cursor_x1, 41.0f, 0.1f);
-    ASSERT_EQ_F(_input_cursor_y1, 12.0f, 0.1f);
+    // The 20px reported line height exceeds the 16px (border-inset) interior,
+    // so a 16px caret centered on the line would span the whole box and sit on
+    // both borders. The caret is clamped to the interior with a 1px breathing
+    // margin: input_rect.y=10, border_inset=2, so the interior runs y=12..28
+    // and the caret is pinned to 13..27 -- clear of the box borders (y=10/30)
+    // while still matching the text extent rather than shrinking below it.
+    ASSERT_EQ_F(_input_cursor_y1, 13.0f, 0.1f);
+    ASSERT_EQ_F(_input_cursor_y2, 27.0f, 0.1f);
 }
 
 // ============================================================================
@@ -945,6 +1028,7 @@ TEST(inputbox_typing_resets_cursor_blink) {
 // ============================================================================
 
 SUITE(input) {
+    RUN_TEST(input_return_reports_text_changed_not_focus);
     // Focus
     RUN_TEST(input_focus_on_click);
     RUN_TEST(input_unfocus_enter);

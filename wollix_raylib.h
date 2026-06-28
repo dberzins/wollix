@@ -381,6 +381,35 @@ static inline void wlx_raylib_draw_rect_rounded_lines(WLX_Rect rect, float round
 #endif
 }
 
+// Native vertical two-stop gradient. Sharp rects use raylib's float-precise
+// DrawRectangleGradientEx (top stops on the top corners, bottom stops on the
+// bottom corners). Raylib has no rounded gradient, so rounded rects fall back to
+// stacked rounded bands (the same approximation the core software fallback uses).
+static inline void wlx_raylib_draw_gradient_v(WLX_Rect rect, WLX_Color top, WLX_Color bottom,
+                                              float roundness, int rounded_segs) {
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
+#endif
+    WLX_RAYLIB_PERF_INC(geometry_submit_calls);
+    if (roundness <= 0.0f) {
+        DrawRectangleGradientEx((Rectangle){rect.x, rect.y, rect.w, rect.h},
+                                top, bottom, bottom, top);
+    } else {
+        int bands = (int)(rect.h / WLX_GRADIENT_FALLBACK_BAND_HEIGHT_PX);
+        if (bands < 1) bands = 1;
+        float band_h = rect.h / (float)bands;
+        for (int i = 0; i < bands; i++) {
+            float t = (bands == 1) ? 0.0f : (float)i / (float)(bands - 1);
+            WLX_Color c = wlx_color_lerp(top, bottom, t);
+            DrawRectangleRounded((Rectangle){rect.x, rect.y + (float)i * band_h,
+                                             rect.w, band_h + 1.0f}, roundness, rounded_segs, c);
+        }
+    }
+#ifdef WLX_PERF
+    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.geometry_ns);
+#endif
+}
+
 static inline void wlx_raylib_draw_circle(float cx, float cy, float radius, int segments, WLX_Color color) {
 #ifdef WLX_PERF
     uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
@@ -704,6 +733,7 @@ static inline WLX_Backend wlx_backend_raylib(void) {
         .draw_rect_rounded_lines = wlx_raylib_draw_rect_rounded_lines,
         .draw_circle = wlx_raylib_draw_circle,
         .draw_ring = wlx_raylib_draw_ring,
+        .draw_gradient_v = wlx_raylib_draw_gradient_v,
         .draw_line = wlx_raylib_draw_line,
         .draw_text = wlx_raylib_draw_text,
         .measure_text = wlx_raylib_measure_text,

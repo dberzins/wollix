@@ -168,6 +168,23 @@ Because the layers multiply, setting all three to moderate values produces
 a more transparent result than any one alone. For example,
 `0.5 * 0.5 * 0.5 = 0.125`.
 
+### Effect colors (glow / shadow) and gradient stops
+
+The first-class glow/shadow effect colors (`glow_color`, `shadow_color` — see
+[WIDGETS.md § Glow and shadow fields](WIDGETS.md)) and the gradient stops
+(`gradient_top`, `gradient_bottom` — see
+[WIDGETS.md § Gradient fill fields](WIDGETS.md)) flow through the **same
+effective-opacity premultiply** as a widget's fill and border. On the widget
+path these colors are added to the resolver color list, so the combined opacity
+is baked into the color before it reaches the chrome. The software fallback's
+per-layer / per-ring alpha falloff (glow/shadow) is then applied on top of that
+already-scaled alpha; gradient band colours derive from the already-dimmed stops
+(no second dim), so fading a widget fades its glow, shadow, and gradient with it.
+
+Container decor is the one exception, matching its `back_color` handling: the
+plain layout/grid decor path does not premultiply opacity, so container effect
+colors and gradient stops pass through unscaled just like `back_color`.
+
 ---
 
 ## Configuration

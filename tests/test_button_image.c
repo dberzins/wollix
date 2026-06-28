@@ -270,6 +270,47 @@ TEST(button_image_placement_bottom) {
 }
 
 // ============================================================================
+// Squeezed image + text: the image keeps its requested size and crops at the
+// content edge (widget drawing is not scissored, so the overflow is removed
+// geometrically) -- the destination shrinks to the visible sub-rect and the
+// source narrows proportionally so the image is not stretched.
+// ============================================================================
+
+TEST(button_image_squeezed_width_crops_image_at_content_edge) {
+    // 13-wide button slot, image_size 18, gap 8, text 80 wide. The 18x18 glyph
+    // sits at (0, 91) but content is only 13 wide, so the right 5px crop away:
+    // dst keeps its 18px height and full size but x-extent clips to 13, and the
+    // source narrows to the matching 13/18 of its width (50 * 13/18).
+    WLX_Context ctx;
+    bi_begin(&ctx);
+    wlx_layout_begin(&ctx, 2, WLX_HORZ,
+        .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(13), WLX_SLOT_FLEX(1) });
+    wlx_button(&ctx, "Launch Lab", .texture = bi_make_texture(50, 50),
+               .image_size = 18, .image_text_gap = 8, .font_size = 16);
+    wlx_layout_end(&ctx);
+    bi_end(&ctx);
+
+    ASSERT_EQ_INT(_bi_tex_count, 1);
+    ASSERT_EQ_RECT(_bi_tex_dst, ((WLX_Rect){0, 91, 13, 18}), 0.001f);
+    ASSERT_EQ_RECT(_bi_tex_src, ((WLX_Rect){0, 0, 50.0f * 13.0f / 18.0f, 50}), 0.001f);
+}
+
+TEST(button_image_unsqueezed_image_not_cropped) {
+    // Counterpart: when the widget has room, the crop is a no-op -- the source
+    // stays the full texture and the destination is the laid-out image rect.
+    // (200x200 button, 50x50 glyph, LEFT placement, block height 50 -> y=75.)
+    WLX_Context ctx;
+    bi_begin(&ctx);
+    wlx_button(&ctx, "Save", .texture = bi_make_texture(50, 50),
+               .image_size = 50, .image_text_gap = 10, .font_size = 16);
+    bi_end(&ctx);
+
+    ASSERT_EQ_INT(_bi_tex_count, 1);
+    ASSERT_EQ_RECT(_bi_tex_dst, ((WLX_Rect){0, 75, 50, 50}), 0.001f);
+    ASSERT_EQ_RECT(_bi_tex_src, ((WLX_Rect){0, 0, 50, 50}), 0.001f);
+}
+
+// ============================================================================
 // Custom texture_src honored
 // ============================================================================
 
@@ -531,6 +572,9 @@ SUITE(button_image) {
     RUN_TEST(button_image_placement_right);
     RUN_TEST(button_image_placement_top);
     RUN_TEST(button_image_placement_bottom);
+
+    RUN_TEST(button_image_squeezed_width_crops_image_at_content_edge);
+    RUN_TEST(button_image_unsqueezed_image_not_cropped);
 
     RUN_TEST(button_image_custom_texture_src_passed_through);
 

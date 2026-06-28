@@ -485,13 +485,13 @@ static void section_slider(WLX_Context *ctx, Gallery_State *st) {
             wlx_slider(ctx, "Value      ", &st->slider_demo_value,
                 .height = ROW_H, .font_size = 18,
                 .min_value = st->slider_min, .max_value = st->slider_max,
-                .show_label = st->slider_show_label);
+                .show_value = st->slider_show_label);
 
             SUB_HEADING(ctx, "Integer Range (0 - 100)");
             wlx_slider(ctx, "Percent    ", &st->slider_int_value,
                 .height = ROW_H, .font_size = 18,
                 .min_value = 0.0f, .max_value = 100.0f,
-                .show_label = st->slider_show_label);
+                .show_value = st->slider_show_label);
 
             SUB_HEADING(ctx, "Color Mixer");
             wlx_slider(ctx, "Red        ", &st->color_r,
@@ -507,7 +507,7 @@ static void section_slider(WLX_Context *ctx, Gallery_State *st) {
                 WLX_Color preview = to_color(st->color_r, st->color_g, st->color_b, 1.0f);
                 wlx_widget(ctx,
                     .widget_align = WLX_CENTER, .width = -1, .height = 40,
-                    .color = preview);
+                    .back_color = preview);
             }
 
             SUB_HEADING(ctx, "Custom Track & Thumb");
@@ -600,7 +600,7 @@ static void section_scroll_panel(WLX_Context *ctx, Gallery_State *st) {
         .font_size = 16, .height = 30);
 
     SUB_HEADING(ctx, "Auto-Height (20 items)");
-    wlx_scroll_panel_begin(ctx, -1,
+    wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
         .height = 200,
         .back_color = heading_color(ctx->theme, 4, 4, 10),
         .scrollbar_color = heading_color(ctx->theme, 37, 37, 47),
@@ -632,7 +632,7 @@ static void section_scroll_panel(WLX_Context *ctx, Gallery_State *st) {
 
     SUB_HEADING(ctx, "Nested Scroll Panels");
     wlx_layout_begin(ctx, 2, WLX_HORZ, .padding = 4);
-        wlx_scroll_panel_begin(ctx, -1,
+        wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
             .height = 180,
             .back_color = heading_color(ctx->theme, 2, 6, 10),
             .scrollbar_color = heading_color(ctx->theme, 32, 42, 52));
@@ -648,7 +648,7 @@ static void section_scroll_panel(WLX_Context *ctx, Gallery_State *st) {
             wlx_layout_end(ctx);
         wlx_scroll_panel_end(ctx);
 
-        wlx_scroll_panel_begin(ctx, -1,
+        wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
             .height = 180,
             .back_color = heading_color(ctx->theme, 6, 2, 10),
             .scrollbar_color = heading_color(ctx->theme, 42, 32, 52));
@@ -693,12 +693,12 @@ static void section_widget(WLX_Context *ctx, Gallery_State *st) {
     SUB_HEADING(ctx, "Color Swatch");
     wlx_widget(ctx,
         .widget_align = WLX_CENTER, .width = 120, .height = 40,
-        .color = WLX_RGBA(0, 120, 255, 255));
+        .back_color = WLX_RGBA(0, 120, 255, 255));
 
     SUB_HEADING(ctx, "Divider / Spacer");
     wlx_widget(ctx,
         .widget_align = WLX_CENTER, .width = -1, .height = 2,
-        .color = WLX_RGBA(80, 80, 80, 255));
+        .back_color = WLX_RGBA(80, 80, 80, 255));
 
     SUB_HEADING(ctx, "Alignment Grid");
     wlx_label(ctx, "12 alignment values shown as 30x30 swatches inside grid cells:",
@@ -721,7 +721,7 @@ static void section_widget(WLX_Context *ctx, Gallery_State *st) {
             wlx_push_id(ctx, (size_t)i);
             wlx_widget(ctx,
                 .widget_align = all_aligns[i], .width = 30, .height = 30,
-                .color = swatch_colors[i]);
+                .back_color = swatch_colors[i]);
             wlx_pop_id(ctx);
         }
     wlx_layout_end(ctx);
@@ -1277,7 +1277,7 @@ static void section_theming(WLX_Context *ctx, Gallery_State *st) {
                             wlx_push_id(ctx, (size_t)i);
                             wlx_widget(ctx,
                                 .widget_align = WLX_CENTER, .width = 40, .height = 30,
-                                .color = swatches[i].c);
+                                .back_color = swatches[i].c);
                             wlx_pop_id(ctx);
                         }
                     wlx_layout_end(ctx);
@@ -1372,7 +1372,7 @@ static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
                             }
                             wlx_widget(ctx,
                                 .widget_align = WLX_CENTER, .width = -1, .height = 20,
-                                .color = WLX_RGBA(0, 120, 255, (unsigned char)(levels[i] * 255)));
+                                .back_color = WLX_RGBA(0, 120, 255, (unsigned char)(levels[i] * 255)));
                         wlx_layout_end(ctx);
                         wlx_pop_id(ctx);
                     }
@@ -1389,7 +1389,7 @@ static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
                         .opacity = st->opacity_control);
                     wlx_widget(ctx,
                         .widget_align = WLX_CENTER, .width = -1, .height = 40,
-                        .color = WLX_RGBA(200, 80, 60, (unsigned char)(st->opacity_control * 255)));
+                        .back_color = WLX_RGBA(200, 80, 60, (unsigned char)(st->opacity_control * 255)));
                 wlx_layout_end(ctx);
 
                 SUB_HEADING(ctx, "Context Stack (push_opacity)");
@@ -1455,7 +1455,7 @@ static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
                         {
                             static float sv = 0.5f;
                             wlx_slider(ctx, "", &sv, .height = 50, .font_size = 12,
-                                .show_label = false,
+                                .show_value = false,
                                 .opacity = st->opacity_control);
                         }
                         wlx_pop_id(ctx);
@@ -1528,7 +1528,7 @@ static void section_id_stack(WLX_Context *ctx, Gallery_State *st) {
                     wlx_layout_auto_slot_px(ctx, 2);
                     wlx_widget(ctx,
                         .widget_align = WLX_CENTER, .width = -1, .height = 2,
-                        .color = heading_color(ctx->theme, 32, 32, 42));
+                        .back_color = heading_color(ctx->theme, 32, 32, 42));
 
                     wlx_pop_id(ctx);
                 }
@@ -1564,7 +1564,7 @@ static void section_borders(WLX_Context *ctx, Gallery_State *st) {
 
                 wlx_label(ctx, "Preview", .font_size = 14, .height = 24);
                 wlx_widget(ctx, .height = 30,
-                    .color = bdr, .border_color = WLX_RGBA(255, 255, 255, 80), .border_width = 1);
+                    .back_color = bdr, .border_color = WLX_RGBA(255, 255, 255, 80), .border_width = 1);
 
                 wlx_slider(ctx, "Slider ", &st->border_slider,
                     .height = 36, .font_size = 14);
@@ -1612,16 +1612,16 @@ static void section_borders(WLX_Context *ctx, Gallery_State *st) {
                 SUB_HEADING(ctx, "Widgets");
                 wlx_layout_begin(ctx, 4, WLX_HORZ, .padding = 4);
                     wlx_widget(ctx, .height = 50,
-                        .color = WLX_RGBA(60, 20, 20, 255),
+                        .back_color = WLX_RGBA(60, 20, 20, 255),
                         .border_color = WLX_RGBA(255, 100, 100, 255), .border_width = bw);
                     wlx_widget(ctx, .height = 50,
-                        .color = WLX_RGBA(20, 60, 20, 255),
+                        .back_color = WLX_RGBA(20, 60, 20, 255),
                         .border_color = WLX_RGBA(100, 255, 100, 255), .border_width = bw);
                     wlx_widget(ctx, .height = 50,
-                        .color = WLX_RGBA(20, 20, 60, 255),
+                        .back_color = WLX_RGBA(20, 20, 60, 255),
                         .border_color = WLX_RGBA(100, 100, 255, 255), .border_width = bw);
                     wlx_widget(ctx, .height = 50,
-                        .color = WLX_RGBA(50, 50, 50, 255),
+                        .back_color = WLX_RGBA(50, 50, 50, 255),
                         .border_color = bdr, .border_width = bw);
                 wlx_layout_end(ctx);
 
@@ -1940,7 +1940,7 @@ void wlx_wasm_frame(float width, float height) {
             WLX_SIZES(WLX_SLOT_PX(200), WLX_SLOT_FLEX(1)));
 
             // -- Sidebar --
-            wlx_scroll_panel_begin(ctx, -1,
+            wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
                 .back_color = heading_color(ctx->theme, 4, 4, 10));
                 wlx_layout_begin_auto(ctx, WLX_VERT, 36);
                     for (int i = 0; i < SECTION_COUNT; i++) {
@@ -1960,7 +1960,7 @@ void wlx_wasm_frame(float width, float height) {
             wlx_scroll_panel_end(ctx);
 
             // -- Content area --
-            wlx_scroll_panel_begin(ctx, -1);
+            wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT);
                 if (g.active_section >= 0 && g.active_section < SECTION_COUNT) {
                     sections[g.active_section].render(ctx, &g);
                 }

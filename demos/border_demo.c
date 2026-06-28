@@ -96,13 +96,13 @@ int main(void) {
 
                 // Color preview
                 wlx_widget(ctx,
-                    .height = 30, .color = bdr,
+                    .height = 30, .back_color = bdr,
                     .border_color = WLX_WHITE, .border_width = 1);
 
             wlx_layout_end(ctx);
 
             // ── Demo widgets ──
-            wlx_scroll_panel_begin(ctx, -1,
+            wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
                 .border_color = bdr, .border_width = bw);
                 wlx_layout_begin(ctx, 12, WLX_VERT);
 
@@ -156,19 +156,19 @@ int main(void) {
 
                     wlx_layout_begin(ctx, 4, WLX_HORZ, .padding = 6);
                         wlx_widget(ctx, .height = 60,
-                            .color = (WLX_Color){60, 20, 20, 255},
+                            .back_color = (WLX_Color){60, 20, 20, 255},
                             .border_color = (WLX_Color){255, 100, 100, 255},
                             .border_width = bw);
                         wlx_widget(ctx, .height = 60,
-                            .color = (WLX_Color){20, 60, 20, 255},
+                            .back_color = (WLX_Color){20, 60, 20, 255},
                             .border_color = (WLX_Color){100, 255, 100, 255},
                             .border_width = bw);
                         wlx_widget(ctx, .height = 60,
-                            .color = (WLX_Color){20, 20, 60, 255},
+                            .back_color = (WLX_Color){20, 20, 60, 255},
                             .border_color = (WLX_Color){100, 100, 255, 255},
                             .border_width = bw);
                         wlx_widget(ctx, .height = 60,
-                            .color = (WLX_Color){50, 50, 50, 255},
+                            .back_color = (WLX_Color){50, 50, 50, 255},
                             .border_color = bdr, .border_width = bw);
                     wlx_layout_end(ctx);
 

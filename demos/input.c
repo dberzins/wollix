@@ -62,9 +62,11 @@ int main(void) {
                             .widget_align = WLX_LEFT, .height = 30, .font_size = 16, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
                         );
 
-                        // Username input
+                        // Username input (focus reported via .out_focused;
+                        // the return value is "text changed this frame")
                         static bool username_was_focused = false;
-                        bool username_focused = wlx_inputbox(ctx, "Username:", app.username, sizeof(app.username), .height = 45, .wrap = true);
+                        bool username_focused = false;
+                        wlx_inputbox(ctx, "Username:", app.username, sizeof(app.username), .height = 45, .wrap = true, .out_focused = &username_focused);
 
                         if (username_focused && !username_was_focused) {
                             printf("Username field focused! Active ID: %zu. Type to enter text.\n", ctx->interaction.active_id);
@@ -75,7 +77,8 @@ int main(void) {
                         username_was_focused = username_focused;
 
                         // Password input (note: this is just a demo, real password fields would hide characters)
-                        bool password_focused = wlx_inputbox(ctx, "Password:", app.password, sizeof(app.password), .height = 45);
+                        bool password_focused = false;
+                        wlx_inputbox(ctx, "Password:", app.password, sizeof(app.password), .height = 45, .out_focused = &password_focused);
                         if (password_focused && ctx->input.text_input[0] != '\0') {
                             printf("Text input this frame: '%s' | Password buffer: '%s'\n", ctx->input.text_input, app.password);
                         }

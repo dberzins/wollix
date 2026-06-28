@@ -94,7 +94,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
         // (total / count). The .height param only *shrinks* within that
         // cell, never grows.  So we use a uniform ROW_H for every item.
         #define ROW_H 40
-        wlx_scroll_panel_begin(ctx, -1,
+        wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
             .back_color = (Color){22, 22, 28, 255},
             .scrollbar_color = (Color){55, 55, 65, 255}
         );
@@ -193,7 +193,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
                 .height = 30, .font_size = 18,
                 .back_color = (Color){35, 25, 25, 255}, .align = WLX_CENTER);
 
-            wlx_scroll_panel_begin(ctx, -1,
+            wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
                 .back_color = (Color){20, 20, 24, 255},
                 .scrollbar_color = (Color){70, 40, 40, 255}
             );
@@ -227,7 +227,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
 
         // ---- LEFT: sliders in a scroll panel ----------------------------
         #define S_ROW 40
-        wlx_scroll_panel_begin(ctx, -1,
+        wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
             .back_color = (Color){22, 26, 22, 255},
             .scrollbar_color = (Color){50, 70, 50, 255}
         );
@@ -273,7 +273,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
                         (unsigned char)(app.b * 255),
                         (unsigned char)(app.brightness * 255),
                     };
-                    wlx_widget(ctx, .widget_align = WLX_CENTER, .width = -1, .height = S_ROW, .color = preview);
+                    wlx_widget(ctx, .widget_align = WLX_CENTER, .width = -1, .height = S_ROW, .back_color = preview);
                 }
 
                 char color_hex[64];
@@ -297,7 +297,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
 
         // ---- RIGHT: nested scroll panel with settings summary -----------
         #define R_ROW 40
-        wlx_scroll_panel_begin(ctx, -1);
+        wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT);
             wlx_layout_begin(ctx, 10, WLX_VERT);
 
                 wlx_label(ctx, "Quick Notes",
@@ -369,7 +369,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
 // --- Tab 2: Dynamic (wlx_push_id / wlx_pop_id demo) -------------------------
 static void render_dynamic_tab(WLX_Context *ctx, int layout_span) {
     #define D_ROW 80
-    wlx_scroll_panel_begin(ctx, -1,
+    wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
         .back_color = (Color){22, 24, 30, 255},
         .scrollbar_color = (Color){55, 60, 70, 255}, .span = layout_span
     );
@@ -422,7 +422,7 @@ static void render_dynamic_tab(WLX_Context *ctx, int layout_span) {
 // --- Tab 3: About ----------------------------------------------------------
 static void render_about_tab(WLX_Context *ctx, int layout_span) {
     #define A_ROW 32
-    wlx_scroll_panel_begin(ctx, -1, .span = layout_span);
+    wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT, .span = layout_span);
         wlx_layout_begin(ctx, 16, WLX_VERT);
 
             wlx_label(ctx, "Wollix Library - Demo",

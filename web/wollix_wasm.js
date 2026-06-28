@@ -5,7 +5,14 @@
 // Usage: <script type="module" src="wollix_wasm.js"></script>
 //        with a <canvas id="wlx-canvas"> in the page.
 
-const WASM_FILE = "gallery.wasm";
+// The module to load. Defaults to the gallery; a host page can point the same
+// JS host at another build by setting window.WLX_WASM_FILE or a ?wasm= query
+// param before this module runs (used by the dashboard site).
+const WASM_FILE =
+    (typeof window !== "undefined" && window.WLX_WASM_FILE) ||
+    (typeof location !== "undefined" &&
+        new URLSearchParams(location.search).get("wasm")) ||
+    "gallery.wasm";
 const CANVAS_ID = "wlx-canvas";
 const TARGET_FPS = 60; // 0 = uncapped (tracks monitor refresh rate)
 
@@ -559,6 +566,18 @@ function probeCtxFilterSupported() {
 
         get_frame_time() {
             return frameTime;
+        },
+
+        // Open a URL from a NUL-terminated wasm-memory C string in a new tab.
+        // The dashboard's reference links route through here on the WASM backend.
+        open_url(strPtr) {
+            if (strPtr === 0) return;
+            const url = readCString(strPtr);
+            try {
+                window.open(url, "_blank", "noopener");
+            } catch (e) {
+                console.warn("open_url failed:", e);
+            }
         },
     };
 

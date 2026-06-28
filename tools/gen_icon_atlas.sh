@@ -49,6 +49,21 @@ ICONS=(
     blend
     square-dashed
     toggle-left
+    search
+    bell
+    square-minus
+    database
+    square-pen
+    list
+    droplet
+    contact
+    code-xml
+    zap
+    folder-git-2
+    flask-conical
+    file-text
+    circle-question-mark
+    circle-user
 )
 
 # Atlas tier sizes (px). Must stay in sync with the TIERS[] table in

@@ -64,7 +64,7 @@ static void draw_widget_column(WLX_Context *ctx, float op) {
         wlx_slider(ctx, "", &sv,
             .min_value = 0.0f, .max_value = 1.0f,
             .height = 26, .font_size = 11,
-            .show_label = false, .opacity = op);
+            .show_value = false, .opacity = op);
 
         char buf[64];
         strncpy(buf, app.input_buf, sizeof(buf) - 1);
@@ -204,7 +204,7 @@ int main(void) {
                                 float sv = 0.6f;
                                 wlx_slider(ctx, "", &sv,
                                     .height = 26, .font_size = 11,
-                                    .show_label = false);
+                                    .show_value = false);
                                 wlx_label(ctx, "Both stacks compound",
                                     .font_size = 11, .align = WLX_CENTER,
                                     .show_background = true, .height = 24,

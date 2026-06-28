@@ -7,6 +7,438 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-28
+
+### Changed (Breaking) — v0.6 coordinated API group (V05 R9b)
+
+One release, four changes. Renamed fields keep a deprecated alias of the same
+storage (an anonymous-union member) for **one minor version after 0.6**, so
+existing designated initializers compile unchanged; migrate before 0.7.
+
+- **`wlx_widget` / `wlx_separator`: `.color` -> `.back_color`.** The fill
+  field now matches every other widget. Migration: rename the initializer;
+  `.color` still compiles via the deprecated alias.
+- **`wlx_slider`: `.show_label` -> `.show_value`.** The field always toggled
+  the numeric value readout, never the label text; the name now says so.
+  Migration: rename the initializer; `.show_label` still compiles via the
+  deprecated alias.
+- **`wlx_panel`: `border_width` unset sentinel is `-1` + theme inheritance.**
+  An unset panel border now inherits `theme->border_width` (and a `{0}`
+  `border_color` inherits `theme->border`), matching widget resolution -
+  previously a panel could never inherit the theme border. All bundled theme
+  presets ship `border_width = 0`, so default rendering is unchanged with
+  stock themes; under a custom theme with a non-zero `border_width`, panels
+  that relied on default-no-border must now pass an explicit
+  `.border_width = 0`.
+- **`wlx_inputbox` returns *changed*, not *focused*.** The return value is now
+  "the buffer text was mutated this frame" (insert or delete; cursor-only
+  movement does not count), which is what callers almost always want. Focus
+  state - the old return value - is available through the new
+  `.out_focused = &flag` out-param. Migration:
+  `bool focused = wlx_inputbox(...)` becomes
+  `bool focused; wlx_inputbox(..., .out_focused = &focused)`.
+
+### Added
+- **Interactive containers (`interact` / `interact_out`).** Container begin opts
+  (`WLX_Layout_Opt`, grids, and `WLX_Panel_Opt` via `WLX_CONTAINER_DECOR_FIELDS`)
+  gain `uint32_t interact` (a `WLX_Interact_Flags` mask; `0` = non-interactive,
+  the default and zero-overhead) and `WLX_Interaction *interact_out` (optional).
+  When `interact != 0`, `wlx_layout_begin` resolves the interaction on the
+  container rect (folding in the container's scope id) **before** recording its
+  chrome, writes the raw `WLX_Interaction` through `interact_out`, and applies
+  hover-variant colors with replace semantics: new `hover_back_color`,
+  `hover_border_color`, and `hover_border_color_top/right/bottom/left` twins each
+  replace their base color while hovered (a `{0}` twin keeps the base). Color-only
+  - there is no hover-variant width/gradient/shadow/glow; an *appearing* border is
+  a constant width with a transparent base color toggled to an accent twin.
+  Supported flags are `HOVER`, `CLICK`, `KEYBOARD` (`FOCUS`/`DRAG` are unsupported
+  on containers; the auto-counted begins lack a stable call-site id and do not
+  support `interact`). A `CLICK` container is queried before its children and
+  captures the press first (first-writer), so keep interactive containers to
+  composite regions of non-interactive content. Existing containers are bit-for-bit
+  unchanged (`interact = 0`). Covered by `tests/test_interactive_container.c`. See
+  `docs/LAYOUT_MODEL.md` § Interactive containers.
+- **List clipper for virtualized rows, plus opt-in offscreen command culling.**
+  `wlx_list_clipper_begin` / `wlx_list_clipper_end` (with helpers
+  `wlx_list_clipper_height` and `wlx_list_clipper_item_height`) build only the
+  rows of a long list that fall within the enclosing scroll panel's viewport,
+  reserving the off-screen extent with empty spacers so the scrollbar stays
+  correct. Fixed pitch or variable heights (a prefix-sum `item_offsets` array) are
+  both supported, plus an `overscan` band. New `wlx_get_scroll_panel_offset`
+  exposes the innermost panel's scroll offset to pair with
+  `wlx_get_scroll_panel_viewport`. Rows outside the returned `[first, last)` are
+  not produced (no ids, interactions, or persistent state that frame) - keep
+  stateful or interactive widgets out of virtualized rows, or widen the range with
+  `overscan`. Separately, `wlx_set_cull_offscreen(ctx, true)` (default off) makes
+  the deferred recorder skip rect-bounded draw commands (rect, rect-lines, rounded
+  fill/lines, vertical gradient, texture) that lie fully outside the active clip,
+  trimming command-buffer size and backend replay; output is unchanged because
+  only provably-invisible commands drop, and immediate mode is unaffected. Covered
+  by `tests/test_list_clipper.c` and `tests/test_offscreen_cull.c`. See
+  `docs/WIDGETS.md` and `docs/API_REFERENCE.md`.
+- **Per-corner rounding (`rounded_corners`):** a new `int rounded_corners`
+  decoration field on every bordered widget and container (`WLX_BORDER_FIELDS` /
+  `WLX_CONTAINER_DECOR_FIELDS`, default `0`) selects **which** corners use the
+  resolved `corner_radius` / `roundness`. It is a `WLX_Corner` bitmask
+  (`WLX_CORNER_TOP_LEFT` ... `WLX_CORNER_BOTTOM_LEFT`) with the convenience masks
+  `WLX_CORNERS_ALL` / `_TOP` / `_BOTTOM` / `_LEFT` / `_RIGHT`; `0` (unset) is
+  treated as all four corners, so existing output is byte-for-byte unchanged.
+  Corners absent from the mask are squared off by overdrawing their corner box
+  with the fill color (no command-buffer or backend change). It applies to the
+  **solid fill only** - gradient fills and rounded borders stay uniform; use a
+  per-side straight border for an edge accent on a squared corner. Honored on the
+  shared decor path (containers, grids, panels, scroll panels, and the chrome of
+  `widget` / `label` / `button` / `inputbox`); the widget primitives that draw
+  their own rounded shapes accept but ignore it. Covered by
+  `tests/test_corner_radius.c`. See `docs/WIDGETS.md` § Per-corner rounding.
+- **Scroll panel transparent background:** `WLX_Scroll_Panel_Opt` gains
+  `bool transparent_background` (default `false`). When `true`, the panel draws no
+  fill so the container behind it shows through - distinct from `back_color = {0}`,
+  which resolves to the theme background. Existing panels are unchanged.
+- **`wlx_button` per-call hover override:** `WLX_Button_Opt` gains
+  `hover_brightness` (default `WLX_FLOAT_UNSET` -> `theme->hover_brightness`) and
+  `hover_back_color` (default `{0}`), mirroring `wlx_toggle` / `wlx_radio` /
+  `wlx_slider`. A non-zero `hover_back_color` replaces the fill while hovered;
+  otherwise the brightness path applies. Inert by default, so existing buttons
+  render unchanged.
+- **`wlx_inputbox`: inner icon support.** `WLX_Inputbox_Opt` gains the
+  image-capable fields (`texture`, `texture_src`, `texture_tint`,
+  `image_placement`, `image_size`, `image_text_gap`) so a leading (`LEFT`,
+  default) or trailing (`RIGHT`) icon renders **inside** the field frame instead
+  of as a detached sibling widget. The icon is centered vertically independent of
+  `align`, and the reserved band insets the text and caret so they never overlap
+  the glyph. A zero `texture` keeps the field text-only with byte-identical
+  geometry, so existing call sites are unaffected. The dashboard top-bar search
+  now uses this to put the magnifier glyph inside the box (via a new
+  `dashboard_icon_inputbox` demo helper).
+- **Dashboard showcase ("Mechanical Glass") -- the canonical cross-backend demo
+  (ADR_026):** `demos/dashboard/` is a single-translation-unit, demo-local
+  dashboard that builds and runs on raylib, SDL3, and bare WASM. A shared top bar
+  and sidebar route between distinct, persistent views -- Overview, Tokens,
+  Components, Layouts, Theme Lab -- through a dashboard-local section dispatch
+  table. The Overview shows library-honest metrics (backend FPS, and in a
+  `WLX_PERF` build the draw-call count and wollix arena memory, plus desktop
+  process RSS where measurable), and reference links open real repository/doc
+  URLs through a per-backend open-URL hook (raylib `OpenURL`, SDL3 `SDL_OpenURL`,
+  a `window.open` shim on WASM). Tokens/Components/Layouts/Theme Lab demonstrate
+  the full public widget and layout surface (label, button, checkbox, toggle,
+  radio, slider, progress, input, image, widget; linear/grid/flex/auto layout,
+  opacity stack, ID stack, borders, scroll panel; tokens, theme presets, and a
+  component-state matrix). The core (`wollix.h`) and backend headers are
+  unchanged; the only host addition is an additive `window.open` shim in
+  `web/wollix_wasm.js`. `make dashboard` / `dashboard_sdl3` / `dashboard_perf`
+  build the desktop binaries. See
+  `docs/dev/ADR_026_DASHBOARD_REPLACES_GALLERY.md` and
+  `docs/DASHBOARD_DESIGN_SYSTEM.md`.
+- **API hygiene, additive (V05 R9a):**
+  - `WLX_SCROLL_AUTO_HEIGHT` names the `-1` auto-height sentinel for
+    `wlx_scroll_panel_begin`; all in-tree call sites converted.
+  - `wlx_rect_contains(WLX_Rect, float, float)` is the new canonical
+    float-precision point-in-rect query; `wlx_point_in_rect` remains as an
+    int-based shim, and internal hit tests now route through the new query.
+  - `WLX_Panel_Opt` now embeds the full container decor set
+    (`WLX_CONTAINER_DECOR_FIELDS` + `WLX_SLOT_DECOR_FIELDS`): panels gain
+    `rounded_segments`, shadow/glow/gradient, and per-slot decor, forwarded to
+    the panel body layout. All new knobs default to off; existing panels
+    render unchanged (panel `border_width` keeps its 0-as-unset convention).
+  - `wlx_split_next` now goes through `wlx_default_split_next_opt`, aligning
+    it with the default-opt pattern.
+  - `WLX_SHORT_NAMES` gains `image`, `slot_style`, `grid_cell_style`,
+    `push_id`/`pop_id`, `push_opacity`/`pop_opacity`.
+  - Docs: a "Widget Return Semantics" table in API_REFERENCE.md (clicked vs
+    changed vs focused), and the unset-sentinel rule is written down next to
+    `WLX_FLOAT_UNSET` in the header.
+- **`WLX_HARD_ASSERT` - memory-safety guards survive release builds (V05 R1):**
+  guards whose failure would corrupt memory no longer compile out under
+  `NDEBUG`: scissor-stack push, the CONTENT-slot count in layout begin/end,
+  persistent-state size collisions in `wlx_get_state_impl`, and every internal
+  allocation result now abort with a `wollix fatal:` message instead of writing
+  out of bounds or dereferencing NULL. Exception: a layout whose slot count
+  exceeds `WLX_CONTENT_SLOTS_MAX` with CONTENT slots present clamps in release
+  (warns on stderr and disables CONTENT tracking for that layout - CONTENT
+  slots fall back to min size) rather than aborting. The assert-vs-hard-assert
+  policy is documented in the header preamble (ASSERTION POLICY). Covered by
+  the new `tests/test_hard_assert.c` NDEBUG death-test binary, wired into
+  `make test`.
+- **Layout over-allocation diagnostic (`WLX_DEBUG`):** a linear layout whose slot
+  sizes resolve to a boundary past its own extent (so the trailing slot overflows
+  onto its neighbor) now emits a one-time warning through the existing debug warn
+  channel (`warn_count` / `warn_cb`). The warning is suppressed when the layout or
+  an ancestor clips (the overflow is contained) and is deduplicated per call-site.
+  Zero footprint in release builds. Covered by `tests/test_slot_redistribute.c`.
+- **Absolute pixel corner radius (`corner_radius`):** an opt-in `float
+  corner_radius` decoration field on every bordered widget and container
+  (`WLX_BORDER_FIELDS` / `WLX_CONTAINER_DECOR_FIELDS`, default `0`) declares the
+  corner radius in **pixels**, where `roundness` is a fraction of the shorter
+  side. `corner_radius > 0` overrides `roundness`; it is resolved centrally at
+  draw time inside `wlx_draw_box` to the fraction the backends already consume
+  (`clamp(2 * corner_radius / min(w,h), 0, 1)`), so two differently sized
+  elements share the same pixel corner and the recorded command still carries a
+  fraction - no command-buffer or backend change. Existing callers are
+  bit-for-bit unchanged (`0` = unset). v1 honors it on the decor path
+  (containers, grids, panels, scroll panels, and the chrome of `widget` /
+  `label` / `button` / `inputbox`); widget primitives that draw their own
+  rounded shapes (`checkbox`, `slider`, `progress`, `scrollbar`, `radio`) accept
+  but ignore it. See `docs/dev/ADR_025_ABSOLUTE_CORNER_RADIUS.md`.
+- **First-class vertical gradient fill:** a two-stop vertical gradient is now a
+  decoration field on every bordered widget and container. New
+  `WLX_GRADIENT_FIELDS` (`gradient_top`, `gradient_bottom`) embed in
+  `WLX_BORDER_FIELDS` and `WLX_CONTAINER_DECOR_FIELDS`; both zero-initialize to
+  "disabled" (`gradient_top = {0}` is the enable gate, a zero `gradient_bottom`
+  resolves to `gradient_top` for a uniform fill), so existing callers are
+  bit-for-bit unchanged. `wlx_draw_box` emits the gradient **in place of** the
+  solid fill, after soft effects and before borders, via a new command type
+  `WLX_CMD_GRADIENT_V` (public `wlx_cmd_record_gradient_v`); the
+  `wlx_draw_layout_decor` gate fires for a gradient-only container. At replay
+  (and in immediate mode) the optional `WLX_Backend.draw_gradient_v` callback
+  renders natively (Raylib: `DrawRectangleGradientV` sharp, rounded-band
+  approximation for rounded rects) else a software fallback slices the rect into
+  `max(1, rect.h / 4)` solid bands interpolating the stops. Widget-path stops
+  carry the effective opacity (container stops pass through like `back_color`);
+  `WLX_PERF` counts one command per element. New `wlx_color_lerp` helper; v1 is
+  vertical two-stop only (ADR_023). Covered by `tests/test_gradient.c`. See
+  `docs/WIDGETS.md` § Gradient fill fields.
+- **Opt-in layout clipping:** `WLX_Layout_Opt` gains `.clip` (default `false`).
+  When set, `wlx_layout_begin` clips its children to the post-padding content
+  rect by beginning a scissor at begin and releasing it at end. The clip rect is
+  intersected with the active clip before installing, so a `clip` layout inside a
+  scroll panel (or another clip layout) never widens the visible region. The
+  container's own chrome (background/border/glow/shadow) is recorded before the
+  scissor and is never cropped; a child's effects are inside the clip and are
+  cropped to the parent content rect. `wlx_panel_begin(.clip = true)` now routes
+  through this shared path, and `wlx_layout_end` is the single owner of the
+  scissor release (`wlx_panel_end` no longer ends the scissor itself); panel clip
+  output is unchanged. Backends without `begin_scissor`/`end_scissor` no-op the
+  recorded commands at replay. Grids do not expose `clip`; wrap a grid in a
+  `clip` layout for cell containment.
+- **Segmented progress self-containment:** `wlx_progress_cell_rect` now keeps
+  every segmented cell inside its track at all widths. The inter-cell gap is
+  compressed (down to 0) when the nominal gaps would fill the track, cell widths
+  keep a 1px floor, and a trailing cell that still cannot fit is clamped to the
+  track's right edge (collapsing to zero width) instead of drawing past it. The
+  minimum segmented bar width drops to `segments` px (1px per cell, gap 0). This
+  is an internal geometry fix; no public API or option change.
+- **First-class glow and shadow:** a soft outer glow and a soft drop shadow are
+  now decoration fields on every bordered widget and container. New
+  `WLX_GLOW_FIELDS` (`glow_color`, `glow_spread`, `glow_rings`) and
+  `WLX_SHADOW_FIELDS` (`shadow_color`, `shadow_offset_x`, `shadow_offset_y`,
+  `shadow_blur`, `shadow_layers`) embed in `WLX_BORDER_FIELDS` and
+  `WLX_CONTAINER_DECOR_FIELDS`; all fields zero-initialize to "effect disabled"
+  (non-zero color is the enable gate), so existing callers are bit-for-bit
+  unchanged. Each numeric knob resolves `<= 0` / `== 0` to the new
+  `WLX_Theme.shadow` / `WLX_Theme.glow` sub-structs, then to a hard fallback
+  (`8` px blur / `4` layers / `4` px spread / `3` rings); built-in presets need
+  no edit. `wlx_draw_box` emits the effects before the element fill via two new
+  command types `WLX_CMD_SHADOW` / `WLX_CMD_GLOW` (recorded with the public
+  `wlx_cmd_record_shadow` / `wlx_cmd_record_glow`). At replay (and in immediate
+  mode) the optional `WLX_Backend.draw_shadow` / `draw_glow` callbacks render
+  natively when set, else a software fallback draws layered offset rounded rects
+  / concentric expanding rounded rings; all in-tree backends use the fallback
+  this cut. Effect colors flow through the same effective-opacity premultiply as
+  fill/border. Emission is wired for `wlx_widget` / `wlx_label` / `wlx_button` /
+  `wlx_checkbox` / `wlx_inputbox` / the scroll panel and the layout/grid
+  container decor path. `wlx_slider` and `wlx_toggle` render the effect behind
+  their thumb; continuous `wlx_progress` renders it behind the track and
+  segmented `wlx_progress` behind the bounding run of filled cells. The
+  dashboard demo's `dashboard_draw_glow` / `dashboard_draw_shadow` now delegate
+  to the new recorders, and `dashboard_segmented_progress` expresses its neon
+  run-glow through the `wlx_progress` glow options instead of a manual emitter.
+- **`wlx_progress` segmented mode:** `WLX_Progress_Opt` gains `.segments`
+  (`0` = continuous, the default; `> 0` = discrete cells) and `.segment_gap`
+  (pixel gap between cells; `<= 0` resolves to the theme default). A new
+  `WLX_Theme.progress.segment_gap` field supplies that default, falling back to
+  `2px` when zero (built-in presets need no edit). In segmented mode the bar
+  draws `round(value * segments)` filled cells in `fill_color` and the rest in
+  `track_color`, with equal floor-rounded widths (the last cell absorbs the
+  remainder) and transparent gaps - no continuous track box or border. The
+  continuous path is unchanged for `segments == 0`. The dashboard demo's
+  `dashboard_segmented_progress` helper now delegates its cells to
+  `wlx_progress` (keeping its neon glow) and the demo-local
+  `dashboard_segments_filled` helper is retired.
+- **`wlx_label` aggregate text style and vertical metric:** `WLX_Label_Opt`
+  gains an optional `.style` (`WLX_Text_Style`) and `.vertical_metric`
+  (`WLX_Vertical_Metric`). When `.style.font_size > 0` the aggregate
+  overrides the individual `font`/`font_size`/`spacing`/`front_color`
+  fields (a fully-zero `style.color` falls back to the resolved
+  `front_color`); otherwise existing per-field behavior is preserved.
+  `.vertical_metric` defaults to `WLX_VMETRIC_LINE_HEIGHT` (no change);
+  `WLX_VMETRIC_FONT_SIZE` centers fitted text on the font-size em box
+  for consistent cap-height placement across backends whose line height
+  exceeds the font size. Setting both `.style.font_size > 0` and the
+  field `font_size > 0` emits a once-per-site warning under
+  `WLX_DEBUG`. The dashboard demo's `dashboard_slot_text` helper now
+  uses `wlx_label` with `.style` and `.vertical_metric = WLX_VMETRIC_FONT_SIZE`.
+- **Dashboard demo scaffold (Stitch "Mechanical Glass"):** new `demos/dashboard/dashboard.c`
+  plus demo-local `demos/dashboard/dashboard_theme.h` stub (included only by that TU,
+  extending the `gallery_perf.h` local-header convention). Opens a themed Raylib window,
+  clears to the Stitch dark background (`#0f1419`), and renders a placeholder label. New
+  `make dashboard` target, wired into `make test-demos`. `wollix.h` and backends unchanged.
+- **Vendored fonts:** Geist (Regular/Medium/SemiBold/Bold) and JetBrains Mono
+  (Regular/Medium/Bold) under `demos/assets/` with their SIL Open Font License files, for the
+  dashboard typography roles.
+- **Dashboard token model (dark + light):** `demos/dashboard/dashboard_theme.h` now carries the
+  Stitch-derived, dashboard-local design tokens as pure data - color roles + surface-container
+  ramp, on-colors, status, table, glass-edge and glow colors, typography roles (family/weight
+  intent + size + line-height + integer tracking), a strict 4px spacing scale, a radius scale,
+  and per-effect intent - as `dashboard_tokens_dark` / `dashboard_tokens_light`. A runtime
+  resolver (`dashboard_font_resolve` / `dashboard_type_font`) maps typography intent to loaded
+  Geist / JetBrains Mono handles. New `tests/test_dashboard_tokens.c` token-integrity suite.
+  `wollix.h` and backends remain unchanged.
+- **Dashboard `WLX_Theme` mapper:** `dashboard_wlx_theme(mode, fonts)` in
+  `demos/dashboard/dashboard_theme.h` builds a `WLX_Theme` from the active mode's tokens each
+  frame - baseline subset (background, foreground, surface, border, accent, padding, roundness,
+  font/size) plus widget overrides for input focus, slider, checkbox, toggle, radio, progress,
+  and scrollbar. The dashboard demo now renders a token-driven title and the ordinary widgets
+  under the mapped theme, switching dark/light with `M` (or a `light` argv). New
+  `tests/test_dashboard_theme.c` mapper suite.
+- **Dashboard component recipes:** `demos/dashboard/dashboard_components.h` adds dashboard-local
+  components built from existing primitives + the token model - glass module with asymmetric
+  edge strokes, technical primary / glass secondary buttons, technical input, status
+  chip / badge / pulsing pip, dense data table (header bg, zebra, grid lines), segmented
+  progress bar, navigation sidebar, and a responsive 12-to-4 column grid helper. The demo gains
+  a components showcase view (`TAB` switches views; a `widgets` argv starts on the widgets view).
+  New `tests/test_dashboard_components.c` suite covers the pure geometry/state helpers.
+  `wollix.h` and backends remain unchanged.
+- **Dashboard Overview screen (Stitch replica):** the dashboard demo's primary view is now a
+  faithful rebuild of the Stitch dark "Wollix Explorer | Overview" reference - a top navigation
+  bar, a left sidebar (nav links + Deploy Build + footer), and a scrollable main area with three
+  hero stat cards (segmented usage bars) and a 12-column grid (Basic Widgets + Structural
+  Layouts, a tabbed feature-card panel + a scanline Terminal Logs panel, Integrations + a
+  gradient Visual Laboratory). Colors adapt per mode to track both the Stitch dark and light
+  references (cyan vs blue accent, light-on-dark vs dark-on-light overlays, and the
+  terminal/log treatment), with identical layout and content. Radii, borders, typography roles,
+  and the scroll/clip regions track the references. Material-Symbols icons and the remote images
+  are drawn as geometric placeholders. `TAB` switches to the ordinary-widgets mapping view; a `widgets` argv
+  starts there. New `WLX_DASHBOARD_SHOT=<file>` env captures a screenshot for offline
+  verification. `wollix.h` and backends remain unchanged.
+- **Dashboard visual effects (primitive-only):** `demos/dashboard/dashboard_effects.h` adds
+  layered-primitive approximations - outer glow / highlight, soft shadow, vertical gradient,
+  scanline overlay, and a frosted backdrop-blur stand-in (darkened/desaturated translucent
+  fill) - plus pure color helpers (lerp, desaturate, blur tint, glow falloff). Wired into the
+  demo as module shadows, a page gradient backdrop, an active segmented-bar glow, and a
+  dedicated "Visual effects" section. New `tests/test_dashboard_effects.c` suite. A per-effect
+  fidelity assessment is recorded under `docs/dev/dashboard/`; true backdrop blur is deferred
+  to an ADR-gated core change. `wollix.h` and backends remain unchanged.
+
+### Changed
+- **The published web demo and canonical showcase are now the dashboard
+  (ADR_026).** `make wasm-site` now packages the bare-WASM **dashboard** into
+  `dist/wasm-demo/` (the GitHub Pages artifact), so the demo URL is unchanged but
+  serves the dashboard. The gallery keeps building and coexists: `make gallery`,
+  `make gallery_sdl3`, and the new `make gallery-wasm-site` (into
+  `dist/gallery-demo/`); `make dashboard-wasm-site` is now an alias of
+  `make wasm-site`. `docs/DASHBOARD_DESIGN_SYSTEM.md` is now the canonical
+  showcase design reference and supersedes `docs/DESIGN_SYSTEM.md`, which remains
+  the reference for the core public theme contract.
+- **Dashboard Overview elements are now functional, not decorative.** The Overview
+  landing's previously static controls gained real, library-honest behavior (all
+  demo-local; no core change): the Basic Widgets and Structural Layouts lists and the
+  capability cards deep-link into the Components/Layouts sections; the top-bar search
+  filters those lists in place; the "Active State"/"Preview" tabs switch and persist
+  (Active State hosts live checkbox/toggle/slider/button controls); Terminal Logs now
+  renders a live in-app action log (navigation, theme changes, deploy, tab switches)
+  in a scroll panel, newest first with timestamps, replacing the hardcoded lines;
+  Deploy Build posts a real build sequence to that log; the bell tints to the accent
+  while the log holds unread entries and clears on click; Settings and "Launch Lab"
+  open the Theme Lab section; and the "Visual Laboratory" panel's fictional
+  physics/luminosity copy was rewritten to describe Theme Lab honestly. The identity
+  avatar stays intentionally static (no fabricated account).
+- **Image-capable `button` / `label` crop an oversized image to the widget instead
+  of overflowing it.** Widget drawing is not scissored, so an explicit `image_size`
+  (or a fixed image beside text) larger than a squeezed content rect previously drew
+  past the control's edge. The image + text path now keeps the image at its requested
+  size and crops it to the content rect via a new geometric blit-clip
+  (`wlx_clip_textured_blit`: intersect the destination, then narrow the source
+  proportionally), clipping the glyph at the edge rather than scaling it down; the
+  image-only path sizes through `wlx_get_align_rect`, which already clamps to the
+  content rect; an image fully outside the rect draws nothing. Covered by
+  `tests/test_button_image.c`.
+- **Per-side border forwarding behind one macro (V05 R7, internal):** the
+  eight per-side border fields every chrome-drawing widget forwards into
+  `wlx_border_sides_for_widget` now go through `WLX_BORDER_SIDES_ARGS(opt)`
+  at all seven call sites; adding a per-side field is a one-macro change.
+- **Min/max redistribution scratch rides the frame arena (V05 R4, internal):**
+  the freeze-and-redistribute pass in the offset solver no longer heap-allocates
+  its working buffers when a constrained layout exceeds `WLX_OFFSET_STACK_LIMIT`
+  slots. The new context-aware entry `wlx_compute_offsets_ctx` takes one
+  combined block from the frame byte-scratch arena (reclaimed by the per-frame
+  reset); the ctx-less `wlx_compute_offsets` remains for standalone callers
+  with a hard-checked heap fallback. A steady-state frame of a static UI now
+  performs **zero** heap allocations, locked in by a new `WLX_PERF` test
+  (`perf_steady_state_zero_allocations`). Offset math is unchanged.
+- **Label/button content emission unified (V05 R5, internal):** the
+  three-branch image/text block (measure, auto-size, layout, fit, draw) and
+  the tint/gap resolver tail that were pasted into both widgets now live in
+  `wlx_draw_widget_content` / `wlx_resolve_widget_content`. Rendering is
+  unchanged; button text keeps line-height centering (the `.vertical_metric`
+  cap-height knob remains label-only by decision).
+- **Glyph + label row layout unified (V05 R6, internal):** checkbox, toggle,
+  and radio share `wlx_layout_glyph_row` for the measure / combined-block /
+  align / split sequence. Per-widget row quirks are preserved exactly
+  (checkbox: always-reserved label padding, top-aligned glyph, label height
+  extending to the content bottom, optional `full_slot_hit`; toggle/radio:
+  collapsed empty-label space, vertically centered glyph).
+  `WLX_CHECKBOX_LABEL_PADDING_FACTOR` was renamed to the shared
+  `WLX_GLYPH_ROW_LABEL_PADDING_FACTOR` (internal constant).
+- **Scratch allocation converged on the sub-arena primitives (V05 R3,
+  internal):** `wlx_scratch_alloc`, `wlx_dyn_scratch_alloc`, and
+  `wlx_scratch_alloc_bytes` are now thin wrappers over `wlx_sub_arena_alloc` /
+  `_alloc_bytes`, restoring the alignment power-of-two and `size_t`-overflow
+  asserts the byte path had dropped. A new `wlx_sub_arena_extend_to` primitive
+  replaces the four hand-rolled reserve/count/high-water sequences in
+  `wlx_create_layout_auto`, `wlx_create_grid_auto`, and both dynamic-growth
+  paths in `wlx_get_slot_rect`; every bump of the arena invariant now lives
+  inside `wlx_sub_arena_*`. No allocation-pattern or layout-behavior change.
+- **Slot min/max redistribution is now the default.** When a slot clamps to its
+  min or max, its surplus/deficit is redistributed to unfrozen flex/auto siblings
+  so the resolved boundary stays at `total`. This changes resolved sizes only for
+  layouts that use min/max-constrained slots; constraint-free layouts are
+  byte-for-byte unchanged (gated on `has_constraints`). Define
+  `WLX_SLOT_SINGLE_PASS_CLAMP` to opt out and restore the legacy single-pass
+  clamp. The former opt-in `WLX_SLOT_MINMAX_REDISTRIBUTE` is now a deprecated
+  no-op, accepted but ignored for source compatibility. Redistribution cannot
+  remove a physical overflow when fixed + min sizes exceed the container; use an
+  opt-in layout `.clip` to contain that. See `docs/LAYOUT_MODEL.md` § Redistribute
+  Mode.
+- **Dashboard chrome on native surfaces:** the dashboard demo no longer hand-places
+  `wlx_cmd_record_*` chrome against parent rects. Topbar/sidebar/terminal fills, hairlines,
+  and panel outlines moved onto container `.back_color` and (per-side) border decor; icon
+  boxes, the terminal window dots, and the status-chip/status-pip discs moved onto
+  slot-claiming `wlx_widget`s (square + `roundness = 1.0` renders true discs via the
+  box->circle fallback); the badge pill is now a single `wlx_label` `.show_background`; the
+  data table expresses its header/zebra fills and grid rules through per-row `.back_color`
+  and per-cell borders; the status-pip halo uses first-class `.glow_*`. The unused
+  `dashboard_draw_glow` / `dashboard_draw_shadow` / `dashboard_draw_frost` helpers were
+  deleted (redundant with first-class glow/shadow decor and container tints); the pure color
+  helpers and the scanline draw are retained. The live Overview render is unchanged within
+  sub-pixel border-resolver tolerance. The visual-lab image gradient now uses the first-class
+  `.gradient_top` / `.gradient_bottom` decor (see Added), so `dashboard.c` is free of raw
+  `wlx_cmd_record_*` calls; the scanline overlay is the lone documented demo-local residual.
+
+### Fixed
+- **Slice-only backends pass the readiness check (V05 R8):**
+  `wlx_backend_is_ready` required the legacy NUL-terminated `draw_text` /
+  `measure_text` callbacks even though the slice entry points are the
+  documented preferred contract, so a slice-only backend failed the readiness
+  assert. Readiness now accepts either form per direction. Also fixed an
+  `||`/`&&` precedence slip in `wlx_draw_text_slice`'s immediate-mode assert
+  that bound the message to the wrong operand. Covered by the new
+  `tests/test_slice_backend.c` suite (readiness matrix plus deferred and
+  immediate rendering through the slice callback).
+- **Toggle and radio honor `.wrap` (V05 R9a):** both option structs carried
+  the wrap field but the draw call hardcoded no-wrap; the field is now passed
+  through like checkbox. Default remains `false`, so behavior changes only
+  for callers who set it.
+- **One-byte out-of-bounds read on the legacy text fallback (V05 R2):**
+  `wlx_span_measure_text` and `wlx_draw_text_span_immediate` probed
+  `text[len] == '\0'` to skip the temporary copy; for a slice ending exactly at
+  the end of an allocation that read one byte past the span. The legacy path
+  (backends without `draw_text_slice` / `measure_text_slice`) now always copies
+  via a new shared `wlx_cstr_tmp_begin/end` helper, which also replaces the
+  three hand-rolled stack-or-heap copy blocks (measure, draw, deferred-replay
+  dispatch). No in-tree backend is affected - all implement the slice
+  callbacks.
+
 ## [0.5.0] - 2026-05-23
 
 ### Added

@@ -97,7 +97,7 @@ int main(void) {
                                 (unsigned char)(app.b * 255),
                                 (unsigned char)(app.brightness * 255)
                             };
-                            wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 500, .height = 60, .color = preview);
+                            wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 500, .height = 60, .back_color = preview);
                         }
 
                     wlx_layout_end(ctx);

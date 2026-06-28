@@ -76,7 +76,7 @@ int main(void) {
                 //     .back_color = (Color){30, 35, 42, 255},
                 //     .align = LEFT);
 
-                wlx_scroll_panel_begin(ctx, -1,
+                wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
                     .back_color = (Color){22, 24, 28, 255},
                     .scrollbar_color = (Color){60, 50, 70, 255},
                 );
@@ -85,7 +85,7 @@ int main(void) {
                         wlx_button(ctx, "MAIN PANEL",
                             .widget_align = WLX_CENTER, .font_size = 20, .height = 200, .back_color = RED, .align = WLX_CENTER
                         );
-                        wlx_scroll_panel_begin(ctx, -1,
+                        wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
                             .back_color = (Color){22, 24, 28, 255},
                             .scrollbar_color = (Color){60, 50, 70, 255},
                         );
@@ -95,7 +95,7 @@ int main(void) {
                         );
                         wlx_scroll_panel_end(ctx);
 
-                        // wlx_scroll_panel_begin(ctx, -1,
+                        // wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
                         //     .back_color = (Color){22, 24, 28, 255},
                         //     .scrollbar_color = (Color){60, 50, 70, 255},
                         //     .span = 5

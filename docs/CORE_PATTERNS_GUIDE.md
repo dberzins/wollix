@@ -226,7 +226,7 @@ if (wlx_is_float_unset(opt->hover_brightness))
 - Using `-1` as the unset test for `hover_brightness`-style fields where
   negative values are meaningful.
 
-See also: [SENTINEL.md](../../SENTINEL.md)
+See also: [SENTINEL.md](SENTINEL.md)
 
 ---
 

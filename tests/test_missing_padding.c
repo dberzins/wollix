@@ -330,14 +330,14 @@ TEST(missing_padding_toggle_asymmetric_per_side) {
 
 // ============================================================================
 // Slider: track drawn via wlx_draw_rect_rounded. With label=NULL and
-// show_label=false the track spans content_rect.w.
+// show_value=false the track spans content_rect.w.
 // ============================================================================
 
 TEST(missing_padding_slider_default_zero_inset) {
     WLX_Context ctx;
     mp_begin(&ctx);
     float value = 0.0f;
-    wlx_slider(&ctx, NULL, &value, .show_label = false, .font_size = 16);
+    wlx_slider(&ctx, NULL, &value, .show_value = false, .font_size = 16);
     mp_end(&ctx);
 
     ASSERT_TRUE(_mp_rounded_count >= 1);
@@ -349,7 +349,7 @@ TEST(missing_padding_slider_uniform_shifts_track) {
     WLX_Context ctx;
     mp_begin(&ctx);
     float value = 0.0f;
-    wlx_slider(&ctx, NULL, &value, .show_label = false, .font_size = 16,
+    wlx_slider(&ctx, NULL, &value, .show_value = false, .font_size = 16,
                .content_padding = 20);
     mp_end(&ctx);
 
@@ -365,7 +365,7 @@ TEST(missing_padding_slider_asymmetric_per_side) {
     WLX_Context ctx;
     mp_begin(&ctx);
     float value = 0.0f;
-    wlx_slider(&ctx, NULL, &value, .show_label = false, .font_size = 16,
+    wlx_slider(&ctx, NULL, &value, .show_value = false, .font_size = 16,
                .content_padding_top = 40, .content_padding_bottom = 0);
     mp_end(&ctx);
 

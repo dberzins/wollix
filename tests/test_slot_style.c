@@ -93,7 +93,7 @@ TEST(slot_style_no_decoration_no_draw) {
     static const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
     wlx_grid_begin(&ctx, 2, 2, .row_sizes = rows, .col_sizes = cols);
         for (int i = 0; i < 4; i++) {
-            wlx_widget(&ctx, .color = WGT_C);
+            wlx_widget(&ctx, .back_color = WGT_C);
         }
     wlx_grid_end(&ctx);
     test_frame_end(&ctx);
@@ -116,7 +116,7 @@ TEST(slot_style_grid_uniform_bg) {
     wlx_grid_begin(&ctx, 2, 2, .row_sizes = rows, .col_sizes = cols,
         .slot_back_color = SLOT_BG);
         for (int i = 0; i < 4; i++) {
-            wlx_widget(&ctx, .color = WGT_C);
+            wlx_widget(&ctx, .back_color = WGT_C);
         }
     wlx_grid_end(&ctx);
     test_frame_end(&ctx);
@@ -137,7 +137,7 @@ TEST(slot_style_grid_uniform_border) {
     wlx_grid_begin(&ctx, 2, 2, .row_sizes = rows, .col_sizes = cols,
         .slot_border_color = BORD_C, .slot_border_width = 1.0f);
         for (int i = 0; i < 4; i++) {
-            wlx_widget(&ctx, .color = WGT_C);
+            wlx_widget(&ctx, .back_color = WGT_C);
         }
     wlx_grid_end(&ctx);
     test_frame_end(&ctx);
@@ -158,7 +158,7 @@ TEST(slot_style_grid_layout_border_only) {
     wlx_grid_begin(&ctx, 2, 2, .row_sizes = rows, .col_sizes = cols,
         .border_color = GRID_C, .border_width = 1.0f);
         for (int i = 0; i < 4; i++) {
-            wlx_widget(&ctx, .color = WGT_C);
+            wlx_widget(&ctx, .back_color = WGT_C);
         }
     wlx_grid_end(&ctx);
     test_frame_end(&ctx);
@@ -181,7 +181,7 @@ TEST(slot_style_grid_layout_and_cell_borders) {
         .border_color = GRID_C, .border_width = 1.0f,
         .slot_border_color = BORD_C, .slot_border_width = 1.0f);
         for (int i = 0; i < 4; i++) {
-            wlx_widget(&ctx, .color = WGT_C);
+            wlx_widget(&ctx, .back_color = WGT_C);
         }
     wlx_grid_end(&ctx);
     test_frame_end(&ctx);
@@ -203,9 +203,9 @@ TEST(slot_style_linear_uniform) {
     };
     wlx_layout_begin(&ctx, 3, WLX_VERT, .sizes = slots,
         .slot_back_color = SLOT_BG);
-        wlx_widget(&ctx, .color = WGT_C, .height = 50);
-        wlx_widget(&ctx, .color = WGT_C, .height = 50);
-        wlx_widget(&ctx, .color = WGT_C, .height = 50);
+        wlx_widget(&ctx, .back_color = WGT_C, .height = 50);
+        wlx_widget(&ctx, .back_color = WGT_C, .height = 50);
+        wlx_widget(&ctx, .back_color = WGT_C, .height = 50);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -227,12 +227,12 @@ TEST(slot_style_grid_cell_style) {
     wlx_grid_begin(&ctx, 1, 3, .row_sizes = rows, .col_sizes = cols,
         .slot_back_color = SLOT_BG);
         // cell (0,0): uniform
-        wlx_widget(&ctx, .color = WGT_C);
+        wlx_widget(&ctx, .back_color = WGT_C);
         // cell (0,1): override
         wlx_grid_cell_style(&ctx, .back_color = SLOT_OVR);
-        wlx_widget(&ctx, .color = WGT_C);
+        wlx_widget(&ctx, .back_color = WGT_C);
         // cell (0,2): override consumed, back to uniform
-        wlx_widget(&ctx, .color = WGT_C);
+        wlx_widget(&ctx, .back_color = WGT_C);
     wlx_grid_end(&ctx);
     test_frame_end(&ctx);
 
@@ -255,12 +255,12 @@ TEST(slot_style_grid_cell_opt_decoration) {
     wlx_grid_begin(&ctx, 1, 3, .row_sizes = rows, .col_sizes = cols,
         .slot_back_color = SLOT_BG);
         // cell (0,0): uniform
-        wlx_widget(&ctx, .color = WGT_C);
+        wlx_widget(&ctx, .back_color = WGT_C);
         // cell (0,1): inline decoration via wlx_grid_cell
         wlx_grid_cell(&ctx, 0, 1, .back_color = SLOT_OVR);
-        wlx_widget(&ctx, .color = WGT_C);
+        wlx_widget(&ctx, .back_color = WGT_C);
         // cell (0,2): override consumed, back to uniform
-        wlx_widget(&ctx, .color = WGT_C);
+        wlx_widget(&ctx, .back_color = WGT_C);
     wlx_grid_end(&ctx);
     test_frame_end(&ctx);
 
@@ -282,12 +282,12 @@ TEST(slot_style_linear_slot_style) {
     wlx_layout_begin(&ctx, 3, WLX_VERT, .sizes = slots,
         .slot_back_color = SLOT_BG);
         // slot 0: uniform
-        wlx_widget(&ctx, .color = WGT_C, .height = 50);
+        wlx_widget(&ctx, .back_color = WGT_C, .height = 50);
         // slot 1: override
         wlx_slot_style(&ctx, .back_color = SLOT_OVR);
-        wlx_widget(&ctx, .color = WGT_C, .height = 50);
+        wlx_widget(&ctx, .back_color = WGT_C, .height = 50);
         // slot 2: override consumed, back to uniform
-        wlx_widget(&ctx, .color = WGT_C, .height = 50);
+        wlx_widget(&ctx, .back_color = WGT_C, .height = 50);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -311,12 +311,12 @@ TEST(slot_style_override_consumed_after_one) {
     // No uniform slot decoration — only override for cell 1.
     wlx_grid_begin(&ctx, 1, 3, .row_sizes = rows, .col_sizes = cols);
         // cell (0,0): no decoration
-        wlx_widget(&ctx, .color = WGT_C);
+        wlx_widget(&ctx, .back_color = WGT_C);
         // cell (0,1): override fires
         wlx_grid_cell_style(&ctx, .back_color = SLOT_OVR);
-        wlx_widget(&ctx, .color = WGT_C);
+        wlx_widget(&ctx, .back_color = WGT_C);
         // cell (0,2): override consumed — no decoration
-        wlx_widget(&ctx, .color = WGT_C);
+        wlx_widget(&ctx, .back_color = WGT_C);
     wlx_grid_end(&ctx);
     test_frame_end(&ctx);
 
@@ -338,9 +338,9 @@ TEST(slot_style_override_wins_over_uniform) {
         .slot_back_color = SLOT_BG);
         // cell (0,0): override — must NOT draw SLOT_BG for this cell
         wlx_grid_cell_style(&ctx, .back_color = SLOT_OVR);
-        wlx_widget(&ctx, .color = WGT_C);
+        wlx_widget(&ctx, .back_color = WGT_C);
         // cell (0,1): uniform
-        wlx_widget(&ctx, .color = WGT_C);
+        wlx_widget(&ctx, .back_color = WGT_C);
     wlx_grid_end(&ctx);
     test_frame_end(&ctx);
 
