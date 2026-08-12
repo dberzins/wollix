@@ -434,6 +434,128 @@ TEST(input_backspace_empty) {
 }
 
 // ============================================================================
+// Held-repeat + forward delete tests
+// ============================================================================
+
+// Helper: run one frame with a single key flagged as an OS auto-repeat tick
+// (keys_repeated, not keys_pressed).
+static void frame_key_repeated(WLX_Context *ctx, char *buf, size_t buf_size, WLX_Key_Code key) {
+    bool keys_repeated[WLX_KEY_COUNT] = {0};
+    keys_repeated[key] = true;
+    test_frame_begin_full(ctx, 200, 150, false, false, false, 0.0f,
+                          NULL, NULL, keys_repeated, 0, NULL);
+    wlx_layout_begin(ctx, 1, WLX_VERT);
+    do_inputbox_A(ctx, buf, buf_size);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
+// Helper: run one frame with a single key freshly pressed.
+static void frame_key_pressed(WLX_Context *ctx, char *buf, size_t buf_size, WLX_Key_Code key) {
+    bool keys_pressed[WLX_KEY_COUNT] = {0};
+    keys_pressed[key] = true;
+    test_frame_begin_ex(ctx, 200, 150, false, false, false, 0.0f,
+                        NULL, keys_pressed, NULL);
+    wlx_layout_begin(ctx, 1, WLX_VERT);
+    do_inputbox_A(ctx, buf, buf_size);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
+// Helper: focus the (single, full-rect) inputbox with a click frame.
+static void frame_focus_click(WLX_Context *ctx, char *buf, size_t buf_size) {
+    test_frame_begin(ctx, 200, 150, true, true);
+    wlx_layout_begin(ctx, 1, WLX_VERT);
+    do_inputbox_A(ctx, buf, buf_size);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
+TEST(input_backspace_held_repeat) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "ABCDE";
+
+    frame_focus_click(&ctx, buf, sizeof(buf));
+
+    // Initial press deletes one, then two auto-repeat ticks delete two more.
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE);
+    frame_key_repeated(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE);
+    frame_key_repeated(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE);
+
+    ASSERT_EQ_STR(buf, "AB");
+}
+
+TEST(input_delete_forward) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "ABC";
+
+    frame_focus_click(&ctx, buf, sizeof(buf));
+
+    // Move cursor to start, then forward-delete removes 'A'.
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_LEFT);
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_LEFT);
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_LEFT);
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_DELETE);
+
+    ASSERT_EQ_STR(buf, "BC");
+
+    // Cursor stays at 0: typing lands before 'B'.
+    test_frame_begin_ex(&ctx, 200, 150, false, false, false, 0.0f,
+                        NULL, NULL, "X");
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    do_inputbox_A(&ctx, buf, sizeof(buf));
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_STR(buf, "XBC");
+}
+
+TEST(input_delete_at_end_noop) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "AB";
+
+    // Focus puts the cursor at the end; forward delete must be a no-op there.
+    frame_focus_click(&ctx, buf, sizeof(buf));
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_DELETE);
+
+    ASSERT_EQ_STR(buf, "AB");
+}
+
+TEST(input_delete_utf8_forward) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    // "oB" with o-umlaut: 2 + 1 = 3 bytes
+    char buf[64] = "\xC3\xB6\x42";
+
+    frame_focus_click(&ctx, buf, sizeof(buf));
+
+    // Cursor to byte 0, forward delete removes the whole 2-byte codepoint.
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_LEFT);
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_LEFT);
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_DELETE);
+
+    ASSERT_EQ_STR(buf, "B");
+}
+
+TEST(input_delete_held_repeat) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "ABCD";
+
+    frame_focus_click(&ctx, buf, sizeof(buf));
+
+    // Cursor to start, then press + one repeat tick delete two codepoints.
+    for (int i = 0; i < 4; i++) frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_LEFT);
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_DELETE);
+    frame_key_repeated(&ctx, buf, sizeof(buf), WLX_KEY_DELETE);
+
+    ASSERT_EQ_STR(buf, "CD");
+}
+
+// ============================================================================
 // Cursor movement tests
 // ============================================================================
 
@@ -512,6 +634,174 @@ TEST(input_cursor_move_left_insert) {
 }
 
 // ============================================================================
+// Navigation: arrow repeat, word motion, HOME/END
+// ============================================================================
+
+// The editing command modifier resolved for the platform under test, matching
+// wlx_mod_command_down().
+static uint32_t command_modifier(void) {
+#if defined(__APPLE__)
+    return WLX_MOD_SUPER;
+#else
+    return WLX_MOD_CTRL;
+#endif
+}
+
+// Helper: run one frame with a single key pressed while modifier bits are held.
+static void frame_key_with_mods(WLX_Context *ctx, char *buf, size_t buf_size,
+                                WLX_Key_Code key, uint32_t mods) {
+    bool keys_pressed[WLX_KEY_COUNT] = {0};
+    keys_pressed[key] = true;
+    test_frame_begin_full(ctx, 200, 150, false, false, false, 0.0f,
+                          NULL, keys_pressed, NULL, mods, NULL);
+    wlx_layout_begin(ctx, 1, WLX_VERT);
+    do_inputbox_A(ctx, buf, buf_size);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
+// Helper: run one frame typing the given text.
+static void frame_type_text(WLX_Context *ctx, char *buf, size_t buf_size, const char *text) {
+    test_frame_begin_ex(ctx, 200, 150, false, false, false, 0.0f,
+                        NULL, NULL, text);
+    wlx_layout_begin(ctx, 1, WLX_VERT);
+    do_inputbox_A(ctx, buf, buf_size);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
+TEST(input_arrow_held_repeat) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "ABC";
+
+    frame_focus_click(&ctx, buf, sizeof(buf));
+
+    // Two auto-repeat ticks (no fresh press) move the cursor from 3 to 1.
+    frame_key_repeated(&ctx, buf, sizeof(buf), WLX_KEY_LEFT);
+    frame_key_repeated(&ctx, buf, sizeof(buf), WLX_KEY_LEFT);
+    frame_type_text(&ctx, buf, sizeof(buf), "X");
+
+    ASSERT_EQ_STR(buf, "AXBC");
+}
+
+TEST(input_word_motion_left_right) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "foo bar baz";
+
+    frame_focus_click(&ctx, buf, sizeof(buf));
+
+    // Ctrl+LEFT jumps to the start of "baz" (byte 8).
+    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, WLX_MOD_CTRL);
+    frame_type_text(&ctx, buf, sizeof(buf), "X");
+    ASSERT_EQ_STR(buf, "foo bar Xbaz");
+
+    // Two more Ctrl+LEFT land at buffer start (through "X..." and "bar"),
+    // one more at "foo"; then Ctrl+RIGHT stops at the end of "foo" (byte 3).
+    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, WLX_MOD_CTRL);
+    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, WLX_MOD_CTRL);
+    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, WLX_MOD_CTRL);
+    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_RIGHT, WLX_MOD_CTRL);
+    frame_type_text(&ctx, buf, sizeof(buf), "Y");
+    ASSERT_EQ_STR(buf, "fooY bar Xbaz");
+}
+
+TEST(input_word_motion_alt_modifier) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "ab cd";
+
+    frame_focus_click(&ctx, buf, sizeof(buf));
+
+    // Alt+LEFT must also trigger word motion (Apple convention).
+    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, WLX_MOD_ALT);
+    frame_type_text(&ctx, buf, sizeof(buf), "X");
+    ASSERT_EQ_STR(buf, "ab Xcd");
+}
+
+TEST(input_home_end_single_line) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "ABC";
+
+    frame_focus_click(&ctx, buf, sizeof(buf));
+
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_HOME);
+    frame_type_text(&ctx, buf, sizeof(buf), "X");
+    ASSERT_EQ_STR(buf, "XABC");
+
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_END);
+    frame_type_text(&ctx, buf, sizeof(buf), "Y");
+    ASSERT_EQ_STR(buf, "XABCY");
+}
+
+TEST(input_home_end_visual_line_with_newline) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "AB\nCD";
+
+    // Focus: cursor at end (byte 5), on the "CD" line.
+    frame_focus_click(&ctx, buf, sizeof(buf));
+
+    // HOME jumps to the start of the second visual line (byte 3), not byte 0.
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_HOME);
+    frame_type_text(&ctx, buf, sizeof(buf), "X");
+    ASSERT_EQ_STR(buf, "AB\nXCD");
+
+    // END jumps to the end of that same line.
+    frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_END);
+    frame_type_text(&ctx, buf, sizeof(buf), "Y");
+    ASSERT_EQ_STR(buf, "AB\nXCDY");
+}
+
+TEST(input_command_home_end_whole_buffer) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "AB\nCD";
+
+    frame_focus_click(&ctx, buf, sizeof(buf));
+
+    // Command+HOME jumps to the buffer start even from another visual line.
+    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_HOME, command_modifier());
+    frame_type_text(&ctx, buf, sizeof(buf), "X");
+    ASSERT_EQ_STR(buf, "XAB\nCD");
+
+    // Command+END jumps to the buffer end.
+    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_END, command_modifier());
+    frame_type_text(&ctx, buf, sizeof(buf), "Y");
+    ASSERT_EQ_STR(buf, "XAB\nCDY");
+}
+
+TEST(input_visual_line_bounds_wrapped) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    // Mock measure: 5px per char at font_size 10. A 26px rect holds 5 chars,
+    // so "AAAA BBBB" wraps into "AAAA " / "BBBB" (character-level wrap keeps
+    // the space on the first line).
+    WLX_Rect rect = {0, 0, 26, 100};
+    WLX_Text_Style ts = { .font_size = 10 };
+    const char *text = "AAAA BBBB";
+    size_t start = 99, end = 99;
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    // Offset inside the second wrapped line.
+    ASSERT_TRUE(wlx_inputbox_visual_line_bounds(&ctx, rect, text, strlen(text), ts,
+        WLX_LEFT, true, 7, &start, &end));
+    ASSERT_EQ_INT(5, (int)start);
+    ASSERT_EQ_INT(9, (int)end);
+
+    // Offset inside the first wrapped line.
+    ASSERT_TRUE(wlx_inputbox_visual_line_bounds(&ctx, rect, text, strlen(text), ts,
+        WLX_LEFT, true, 2, &start, &end));
+    ASSERT_EQ_INT(0, (int)start);
+    ASSERT_EQ_INT(5, (int)end);
+
+    test_frame_end(&ctx);
+}
+
+// ============================================================================
 // Buffer overflow protection
 // ============================================================================
 
@@ -558,18 +848,22 @@ TEST(input_no_type_when_unfocused) {
     ASSERT_EQ_STR(buf, "");
 }
 
+// Size of the truncated prefix the pre-slice cursor path measured; kept
+// as this test's own constant since the core no longer defines it.
+#define TEST_INPUT_CURSOR_TEMP_SIZE 512
+
 TEST(input_cursor_position_uses_full_buffer_layout) {
     WLX_Context ctx;
     test_ctx_init_cursor_capture(&ctx, 74, 500);
     char buf[700];
-    char legacy_prefix[WLX_INPUTBOX_CURSOR_TEMP_SIZE];
+    char legacy_prefix[TEST_INPUT_CURSOR_TEMP_SIZE];
     WLX_Text_Style ts = { .font_size = 10 };
     WLX_Rect wr = {0, 0, 74, 500};
     WLX_Rect input_rect = { wr.x + 4, wr.y + 4, wr.w - 8, wr.h - 8 };
     WLX_Rect text_rect = {
-        .x = input_rect.x + WLX_INPUTBOX_TEXT_INSET,
+        .x = input_rect.x + WLX_TEXT_FIELD_INSET,
         .y = input_rect.y,
-        .w = input_rect.w - WLX_INPUTBOX_TEXT_INSET - WLX_INPUTBOX_CURSOR_WIDTH - WLX_INPUTBOX_CURSOR_PADDING,
+        .w = input_rect.w - WLX_TEXT_FIELD_INSET - WLX_TEXT_CARET_WIDTH - WLX_TEXT_CARET_PADDING,
         .h = input_rect.h,
     };
     float expected_x = text_rect.x;
@@ -579,24 +873,43 @@ TEST(input_cursor_position_uses_full_buffer_layout) {
 
     memset(buf, 'A', 520);
     buf[520] = '\0';
-    input_reset_cursor_capture();
 
+    // Frame 1: click to focus. The click also places the caret at the text
+    // boundary under the pointer, so a second frame moves it to the buffer
+    // end (byte 520, past the legacy temp capacity) with command+END.
     test_frame_begin(&ctx, 20, 250, true, true);
     wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
     bool focused = do_inputbox_long_cursor(&ctx, buf, sizeof(buf));
+    ASSERT_TRUE(focused);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    input_reset_cursor_capture();
+
+    bool keys_end[WLX_KEY_COUNT] = {0};
+    keys_end[WLX_KEY_END] = true;
+#if defined(__APPLE__)
+    uint32_t cmd_mod = WLX_MOD_SUPER;
+#else
+    uint32_t cmd_mod = WLX_MOD_CTRL;
+#endif
+    test_frame_begin_full(&ctx, 20, 250, false, false, false, 0.0f,
+                          NULL, keys_end, NULL, cmd_mod, NULL);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+    focused = do_inputbox_long_cursor(&ctx, buf, sizeof(buf));
     ASSERT_TRUE(focused);
 
     // The inputbox draws its text vertically centered (WLX_LEFT), so the
     // reference cursor layout must use the same alignment to match the draw.
     ASSERT_TRUE(wlx_calc_cursor_position_for_text(&ctx, text_rect, buf, ts, WLX_LEFT, true, 520,
         &expected_x, &expected_y));
-    if (expected_x > text_rect.x) expected_x += WLX_INPUTBOX_CURSOR_PADDING;
+    if (expected_x > text_rect.x) expected_x += WLX_TEXT_CARET_PADDING;
 
-    memcpy(legacy_prefix, buf, WLX_INPUTBOX_CURSOR_TEMP_SIZE - 1);
-    legacy_prefix[WLX_INPUTBOX_CURSOR_TEMP_SIZE - 1] = '\0';
+    memcpy(legacy_prefix, buf, TEST_INPUT_CURSOR_TEMP_SIZE - 1);
+    legacy_prefix[TEST_INPUT_CURSOR_TEMP_SIZE - 1] = '\0';
     ASSERT_TRUE(wlx_calc_cursor_position(&ctx, text_rect, legacy_prefix, ts, WLX_LEFT, true,
         &legacy_x, &legacy_y));
-    if (legacy_x > text_rect.x) legacy_x += WLX_INPUTBOX_CURSOR_PADDING;
+    if (legacy_x > text_rect.x) legacy_x += WLX_TEXT_CARET_PADDING;
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
@@ -1043,9 +1356,25 @@ SUITE(input) {
     RUN_TEST(input_backspace);
     RUN_TEST(input_backspace_empty);
 
+    // Held-repeat + forward delete
+    RUN_TEST(input_backspace_held_repeat);
+    RUN_TEST(input_delete_forward);
+    RUN_TEST(input_delete_at_end_noop);
+    RUN_TEST(input_delete_utf8_forward);
+    RUN_TEST(input_delete_held_repeat);
+
     // Cursor movement
     RUN_TEST(input_cursor_move_left_right);
     RUN_TEST(input_cursor_move_left_insert);
+
+    // Navigation: repeat, word motion, HOME/END
+    RUN_TEST(input_arrow_held_repeat);
+    RUN_TEST(input_word_motion_left_right);
+    RUN_TEST(input_word_motion_alt_modifier);
+    RUN_TEST(input_home_end_single_line);
+    RUN_TEST(input_home_end_visual_line_with_newline);
+    RUN_TEST(input_command_home_end_whole_buffer);
+    RUN_TEST(input_visual_line_bounds_wrapped);
 
     // Buffer limits
     RUN_TEST(input_buffer_overflow);

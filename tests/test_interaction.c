@@ -23,6 +23,10 @@ static WLX_Interaction interact_widget_B(WLX_Context *ctx, WLX_Rect r, uint32_t 
     return wlx_get_interaction(ctx, r, flags, __FILE__, __LINE__);
 }
 
+static WLX_Interaction interact_widget_C(WLX_Context *ctx, WLX_Rect r, uint32_t flags) {
+    return wlx_get_interaction(ctx, r, flags, __FILE__, __LINE__);
+}
+
 // ============================================================================
 // HOVER tests
 // ============================================================================
@@ -269,6 +273,166 @@ TEST(focus_transfer) {
     ASSERT_TRUE(sA2.just_unfocused);
     ASSERT_TRUE(sB2.focused);
     ASSERT_TRUE(sB2.just_focused);
+    test_frame_end(&ctx);
+}
+
+// ============================================================================
+// FOCUS contract extensions (ADR_032): Escape-blur, FOCUS_HOLD_ENTER,
+// same-frame Enter consumption, hover gate while focused
+// ============================================================================
+
+TEST(focus_escape_unfocus) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+
+    // Frame 1: click to focus
+    test_frame_begin(&ctx, 150, 120, true, true);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
+    test_frame_end(&ctx);
+
+    // Frame 2: press Escape -> unfocused (ADR_032 Decision 3)
+    bool keys_pressed[WLX_KEY_COUNT] = {0};
+    keys_pressed[WLX_KEY_ESCAPE] = true;
+    test_frame_begin_ex(&ctx, 150, 120, false, false, false, 0.0f,
+                         NULL, keys_pressed, NULL);
+    WLX_Interaction s = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
+    ASSERT_FALSE(s.focused);
+    ASSERT_TRUE(s.just_unfocused);
+    ASSERT_FALSE(s.active);
+    test_frame_end(&ctx);
+}
+
+TEST(focus_hold_enter_keeps_focus) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+    uint32_t flags = WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS | WLX_INTERACT_FOCUS_HOLD_ENTER;
+
+    // Frame 1: click to focus
+    test_frame_begin(&ctx, 150, 120, true, true);
+    interact_widget_A(&ctx, r, flags);
+    test_frame_end(&ctx);
+
+    // Frame 2: press Enter -> stays focused (ADR_032 Decision 2)
+    bool keys_pressed[WLX_KEY_COUNT] = {0};
+    keys_pressed[WLX_KEY_ENTER] = true;
+    test_frame_begin_ex(&ctx, 150, 120, false, false, false, 0.0f,
+                         NULL, keys_pressed, NULL);
+    WLX_Interaction s = interact_widget_A(&ctx, r, flags);
+    ASSERT_TRUE(s.focused);
+    ASSERT_FALSE(s.just_unfocused);
+    ASSERT_TRUE(s.active);
+    test_frame_end(&ctx);
+}
+
+TEST(focus_hold_enter_escape_blurs) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+    uint32_t flags = WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS | WLX_INTERACT_FOCUS_HOLD_ENTER;
+
+    // Frame 1: click to focus
+    test_frame_begin(&ctx, 150, 120, true, true);
+    interact_widget_A(&ctx, r, flags);
+    test_frame_end(&ctx);
+
+    // Frame 2: Escape blurs even with HOLD_ENTER (ADR_032 Decision 3)
+    bool keys_pressed[WLX_KEY_COUNT] = {0};
+    keys_pressed[WLX_KEY_ESCAPE] = true;
+    test_frame_begin_ex(&ctx, 150, 120, false, false, false, 0.0f,
+                         NULL, keys_pressed, NULL);
+    WLX_Interaction s = interact_widget_A(&ctx, r, flags);
+    ASSERT_FALSE(s.focused);
+    ASSERT_TRUE(s.just_unfocused);
+    test_frame_end(&ctx);
+}
+
+TEST(focus_hold_enter_click_away_blurs) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+    uint32_t flags = WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS | WLX_INTERACT_FOCUS_HOLD_ENTER;
+
+    // Frame 1: click to focus
+    test_frame_begin(&ctx, 150, 120, true, true);
+    interact_widget_A(&ctx, r, flags);
+    test_frame_end(&ctx);
+
+    // Frame 2: click outside -> unfocused (HOLD_ENTER only affects Enter)
+    test_frame_begin(&ctx, 0, 0, true, true);
+    WLX_Interaction s = interact_widget_A(&ctx, r, flags);
+    ASSERT_FALSE(s.focused);
+    ASSERT_TRUE(s.just_unfocused);
+    test_frame_end(&ctx);
+}
+
+TEST(enter_blur_no_same_frame_activation) {
+    // ADR_032 guardrail 5: the Enter press that blurs a focused field must not
+    // keyboard-activate another hot widget in the same frame, regardless of
+    // declaration order. B is processed before the field, C after; B and C
+    // overlap under the mouse so either could become hot.
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    WLX_Rect r_field = wlx_rect(100, 100, 200, 50);
+    WLX_Rect r_btn   = wlx_rect(400, 100, 200, 50);
+
+    // Frame 1: click the field to focus it
+    test_frame_begin(&ctx, 150, 120, true, true);
+    interact_widget_A(&ctx, r_field, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
+    test_frame_end(&ctx);
+
+    // Frame 2: mouse hovers the buttons, Enter pressed.
+    // B (before the field): hover gate blocks hot while the field holds active_id.
+    // C (after the field): becomes hot once the blur clears active_id, but the
+    // consumed Enter must not click it.
+    bool keys_pressed[WLX_KEY_COUNT] = {0};
+    keys_pressed[WLX_KEY_ENTER] = true;
+    test_frame_begin_ex(&ctx, 450, 120, false, false, false, 0.0f,
+                         NULL, keys_pressed, NULL);
+    WLX_Interaction sB = interact_widget_B(&ctx, r_btn, WLX_INTERACT_HOVER | WLX_INTERACT_KEYBOARD);
+    WLX_Interaction sA = interact_widget_A(&ctx, r_field, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
+    WLX_Interaction sC = interact_widget_C(&ctx, r_btn, WLX_INTERACT_HOVER | WLX_INTERACT_KEYBOARD);
+    ASSERT_FALSE(sB.hover);    // hover gate: field still held active_id
+    ASSERT_FALSE(sB.clicked);
+    ASSERT_TRUE(sA.just_unfocused);
+    ASSERT_TRUE(sC.hover);     // active_id cleared by the blur
+    ASSERT_FALSE(sC.clicked);  // Enter was consumed by the blur
+    test_frame_end(&ctx);
+
+    // Frame 3: fresh Enter press with nothing focused -> C activates normally
+    test_frame_begin_ex(&ctx, 450, 120, false, false, false, 0.0f,
+                         NULL, keys_pressed, NULL);
+    interact_widget_B(&ctx, r_btn, WLX_INTERACT_HOVER | WLX_INTERACT_KEYBOARD);
+    interact_widget_A(&ctx, r_field, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
+    WLX_Interaction sC3 = interact_widget_C(&ctx, r_btn, WLX_INTERACT_HOVER | WLX_INTERACT_KEYBOARD);
+    ASSERT_TRUE(sC3.clicked);
+    test_frame_end(&ctx);
+}
+
+TEST(hover_gate_unchanged_while_focused) {
+    // While a field holds focus (active_id), a hovered widget cannot become
+    // hot; keyboard activation on it stays impossible.
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    WLX_Rect r_field = wlx_rect(100, 100, 200, 50);
+    WLX_Rect r_btn   = wlx_rect(400, 100, 200, 50);
+
+    // Frame 1: click the field to focus it
+    test_frame_begin(&ctx, 150, 120, true, true);
+    interact_widget_A(&ctx, r_field, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
+    test_frame_end(&ctx);
+
+    // Frame 2: hover the button with Space pressed -> not hot, no click
+    bool keys_pressed[WLX_KEY_COUNT] = {0};
+    keys_pressed[WLX_KEY_SPACE] = true;
+    test_frame_begin_ex(&ctx, 450, 120, false, false, false, 0.0f,
+                         NULL, keys_pressed, NULL);
+    WLX_Interaction sA = interact_widget_A(&ctx, r_field, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
+    WLX_Interaction sB = interact_widget_B(&ctx, r_btn, WLX_INTERACT_HOVER | WLX_INTERACT_KEYBOARD);
+    ASSERT_TRUE(sA.focused);
+    ASSERT_FALSE(sB.hover);
+    ASSERT_FALSE(sB.clicked);
     test_frame_end(&ctx);
 }
 
@@ -690,6 +854,14 @@ SUITE(interaction) {
     RUN_TEST(focus_click_away);
     RUN_TEST(focus_enter_unfocus);
     RUN_TEST(focus_transfer);
+
+    // Focus contract extensions (ADR_032)
+    RUN_TEST(focus_escape_unfocus);
+    RUN_TEST(focus_hold_enter_keeps_focus);
+    RUN_TEST(focus_hold_enter_escape_blurs);
+    RUN_TEST(focus_hold_enter_click_away_blurs);
+    RUN_TEST(enter_blur_no_same_frame_activation);
+    RUN_TEST(hover_gate_unchanged_while_focused);
 
     // Drag
     RUN_TEST(drag_while_held);

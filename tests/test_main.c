@@ -7,6 +7,7 @@
 #define WLX_IMAGE_ASSERT_TEXTURE_VALID(tex) ((void)(tex))
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
+#include "wollix_editor.h"
 
 #include "tests.h"
 #include "test_mock_backend.h"
@@ -23,6 +24,12 @@
 #include "test_interaction.c"
 #include "test_scroll_panel.c"
 #include "test_input.c"
+#include "test_input_contract.c"
+#include "test_input_selection.c"
+#include "test_input_clipboard.c"
+#include "test_input_modes.c"
+#include "test_input_multiline.c"
+#include "test_input_scroll.c"
 #include "test_auto_layout.c"
 
 // fuzz + edge cases
@@ -178,6 +185,46 @@
 // edge-touch, excluded text, and nested-clip intersection (superset safety).
 #include "test_offscreen_cull.c"
 
+// Windowed text-build entries: build-from-offset window/tail equivalence and
+// non-wrap truncate-and-continue (per-record budget, tail skip, source tiling).
+#include "test_editor_pipeline.c"
+
+// wlx_editor windowed view: line index construction + guards, anchor clamp,
+// wheel consume/leave rules, exact vertical thumb, window draw at the anchor.
+#include "test_editor_view.c"
+
+// wlx_editor caret/selection/hit-test: mouse caret in scrolled windows,
+// multi-click, drag auto-scroll both axes, keyboard motion incl. sticky
+// column and caret-coupled paging, caret-follow, strip press exclusion.
+// Included after test_editor_view.c to reuse its ev_* fixture.
+#include "test_editor_caret.c"
+
+// wlx_editor editing: typing/Enter/Tab/Backspace/Delete incl. word variants,
+// clipboard cut/copy/paste, length in/out contract, rebuild-on-edit,
+// revision interplay, read-only rejection, next-tab-stop geometry.
+#include "test_editor_edit.c"
+
+// wlx_editor wrapped mode: band-wide rows, row-space scrolling, overflow
+// probe, top/bottom clamps, thumb drag to end, mode toggles, gutter rows.
+// Included after test_editor_view.c to reuse its ev_* fixture.
+#include "test_editor_wrap.c"
+
+// wlx_editor retained line geometry: replay equivalence vs the measuring
+// build, edit/external/environment invalidation, key shifting, LRU bounds,
+// zero-measure idle frames.
+#include "test_editor_geom_cache.c"
+
+// measure_text_advances backend callback: records, caret x, hit tests,
+// selection spans, and whole-frame draw commands identical with the
+// callback present vs absent over a mixed corpus, both wrap modes.
+#include "test_advances_parity.c"
+
+// No-wrap windowed horizontal origin: seam agreement across caret /
+// hit-test / selection / draw on budget-deep lines, origin hysteresis,
+// stitching continuity, tab restart at the origin, END and far-offset
+// editing, and line-start origins for near content.
+#include "test_editor_windowed_origin.c"
+
 int main(void) {
     RUN_SUITE(layout_math);
     RUN_SUITE(slot_redistribute);
@@ -188,6 +235,12 @@ int main(void) {
     RUN_SUITE(interaction);
     RUN_SUITE(scroll_panel);
     RUN_SUITE(input);
+    RUN_SUITE(input_contract);
+    RUN_SUITE(input_selection);
+    RUN_SUITE(input_clipboard);
+    RUN_SUITE(input_modes);
+    RUN_SUITE(input_multiline);
+    RUN_SUITE(input_scroll);
     RUN_SUITE(auto_layout);
     RUN_SUITE(fuzz);
     RUN_SUITE(edge_cases);
@@ -231,5 +284,13 @@ int main(void) {
     RUN_SUITE(slice_backend);
     RUN_SUITE(list_clipper);
     RUN_SUITE(offscreen_cull);
+    RUN_SUITE(editor_pipeline);
+    RUN_SUITE(editor_view);
+    RUN_SUITE(editor_caret);
+    RUN_SUITE(editor_edit);
+    RUN_SUITE(editor_wrap);
+    RUN_SUITE(editor_geom_cache);
+    RUN_SUITE(advances_parity);
+    RUN_SUITE(editor_windowed_origin);
     return test_summary();
 }

@@ -60,6 +60,8 @@ demos/image
 demos/button_image
 demos/label_image
 demos/disabled_demo
+tests/perf_editor
+demos/editor
 demos/assets/icons/lucide-icons-1.14.0
 demos/dashboard/dashboard
 demos/dashboard/dashboard_sdl3

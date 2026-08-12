@@ -5,6 +5,182 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.7.0] - 2026-08-10
+
+The editor release: a new windowed text-editor widget shipping as the
+`wollix_editor.h` companion header, a full inputbox editing overhaul
+(selection, clipboard, multiline), and a retained text-geometry layer
+that drops steady-frame measure traffic to zero.
+
+### Added
+- **`wlx_editor` — windowed text editor widget (`wollix_editor.h`).** A
+  non-wrapping editor over a caller-owned flat buffer
+  (`wlx_editor(ctx, label, buffer, cap, &length, ...)`): only the visible
+  window of lines is measured and drawn, so frame cost is O(viewport) up
+  to the 10 MB / 1,000,000-line envelope. Context-owned per-widget line
+  index, `(first_line, y_frac)` scroll anchor, exact vertical scrollbar,
+  horizontal bar + Shift+wheel, caret-follow on both axes, the full
+  caret/selection/editing vocabulary (PageUp/PageDown, Ctrl/Cmd+Home/End,
+  literal Tab with tab-stop expansion via `.tab_columns`), an optional
+  line-number gutter, and `.read_only`. Per-line geometry budget
+  `WLX_EDITOR_MAX_LINE_UNITS` (default 1024). New demo `demos/editor.c`.
+- **`wlx_editor` wrapped mode (`.wrap`).** Opt-in per widget: hard lines
+  break into band-wide rows at the same envelope with no O(document)
+  measure work — anchor-relative row geometry (no stored row count),
+  row-based caret/selection/hit-testing with a sticky column, a
+  structural bottom clamp, and a vertical thumb that maps hard lines.
+  Runtime-toggleable; byte-offset caret and selection survive switches.
+- **Retained editor line geometry.** Each touched line's measured unit
+  advances live in a context-owned, LRU-bounded per-id store: idle and
+  post-scroll frames issue zero line measures, typing re-measures only
+  the edited line; eviction costs traffic, never geometry. Benches:
+  Raylib no-wrap idle 172 -> 6 ms, SDL3 horizontally-scrolled steady
+  state 1111 -> 8 ms per frame.
+- **`measure_text_advances` backend primitive.** Optional `WLX_Backend`
+  callback fills one run's cumulative advances at core-supplied unit
+  ends in chunked requests (`WLX_TEXT_ADVANCES_CHUNK`, default 256), so
+  a retained line's geometry costs O(line) backend work; the per-unit
+  measuring walk stays the parity-tested fallback. All three adapters
+  implement it (SDL3 needs SDL_ttf >= 3.3.0). Measured: prose cold build
+  3,821 -> 21 measure calls, typing frames Raylib ~21 -> ~7 ms and
+  SDL3 ~30 -> ~4 ms.
+- **Windowed horizontal origin: giant single-line documents are editable
+  end-to-end.** In no-wrap mode line geometry re-enters a line at a
+  measure origin near the view once the unit budget cannot reach it from
+  the line start — the budget is a per-window cap, not a reach limit.
+  END on a 300 KB single-line document reaches the true end (~2.46M px,
+  previously frozen at ~7.4K px) and per-frame cost is independent of
+  scroll depth (asserted by the perf gate). Far jumps onto unmeasured
+  content estimate the origin's x from the measured average advance — a
+  documented x-space approximation; byte offsets stay exact. New suite:
+  `tests/test_editor_windowed_origin.c`.
+- **Editor measure-traffic perf gate.** `make perf-editor` counts backend
+  measure calls and bytes per frame class (cold, idle, scroll, typing,
+  END on a giant line) through a deterministic counting backend, bounded
+  at recorded baselines +15%, so traffic regressions trip exactly even
+  on a loaded machine.
+- **Multiline input (`.multiline` / `wlx_textarea`).** Enter inserts
+  `\n` and keeps focus; UP/DOWN cross hard and wrapped visual lines with
+  a sticky column; content taller than the field scrolls internally with
+  caret-follow, wheel capture, a draggable scrollbar
+  (`.show_scrollbar`), and drag-select auto-scroll. Composes with
+  `.password` (forces multiline off) and `.read_only`. Own budgets:
+  `WLX_INPUTBOX_MULTILINE_MAX_UNITS` / `_MAX_LINES`.
+- **Inputbox text-editing overhaul** (all UTF-8 codepoint safe): forward
+  DELETE, held-key auto-repeat, Ctrl/Alt word motion, HOME/END on the
+  visual line, full mouse selection (click/drag, double-click word,
+  triple-click all, SHIFT+click), selection highlight
+  (`selection_color`), clipboard command+C/X/V/A, `.password` (masked
+  render, copy/cut suppressed), and `.read_only`.
+- **Core input + focus contract extension (all three backends).** New
+  keycodes `WLX_KEY_DELETE/HOME/END/PAGE_UP/PAGE_DOWN`;
+  `keys_repeated[]` (OS auto-repeat) and a `modifiers` bitfield with
+  `wlx_is_key_actuated` / `wlx_mod_down` / `wlx_mod_command_down`; new
+  `WLX_INTERACT_FOCUS_HOLD_ENTER` flag; Escape blurs any focused field;
+  keyboard activation is gated while another widget owns `active_id`.
+- **Clipboard transport.** Optional `WLX_Backend.clipboard_get/set`
+  hooks (NULL = safe no-op) wired for Raylib, SDL3, and bare WASM
+  (best-effort cached), plus public `wlx_clipboard_set_text` /
+  `wlx_clipboard_get_copy` with UTF-8-boundary truncation.
+- **Docs: `docs/EDITOR_MODEL.md` and `docs/TEXT_PIPELINE_MAP.md`.** The
+  editor's windowed-text model split out of LINE_RUN_MODEL.md (which
+  stays canonical for the shared pipeline), plus a code map of the text
+  pipeline with a glossary, comment conventions, and mermaid diagrams.
+
+### Changed
+- **`wlx_editor` moves to the companion header `wollix_editor.h`.**
+  Migration: add `#include "wollix_editor.h"` after `wollix.h` in every
+  TU that uses `wlx_editor`; it expands under the same
+  `WOLLIX_IMPLEMENTATION`, and everything else is source-compatible.
+  `wlx_inputbox` / `wlx_textarea` and the text pipeline stay in the core.
+- **Raylib default bitmap font renders with natural inter-glyph
+  spacing.** The adapter derives an effective spacing for
+  `WLX_FONT_DEFAULT` (whose glyphs store no advances):
+  `font_size / baseSize`, min 1 px, added to `style.spacing` — so
+  `spacing = 0` means natural backend spacing at every size instead of
+  edge-to-edge glyphs. Loaded fonts are unchanged.
+- **One text-edit key vocabulary and one selection-highlight loop for
+  the inputbox and the editor.** The inputbox gains Ctrl/Alt word
+  deletes; sticky-column invalidation is on-change-only everywhere; both
+  widgets draw selections through the tab-aware prefix-difference
+  measure (sub-pixel span shifts possible on shaping backends). Password
+  fields keep the hard copy/cut gate, pinned by a negative test.
+- **Tab-heavy editor documents stop re-measuring tab segments every
+  frame.** The window draw replays tab presence and segment x positions
+  from retained line geometry when an entry covers the drawn record;
+  uncovered records keep the byte-scan-and-measure path.
+- **Editor perf gate: relative edit-frame envelope.** The worst-case
+  edit check bounds against an in-process raw byte-work floor (one
+  full-buffer memmove + one newline scan) instead of an absolute
+  wall-clock bound, so it holds on loaded machines; a loose 50 ms
+  absolute backstop remains.
+
+### Removed
+- **The v0.6 deprecated field aliases.** As announced in the v0.6.0 notes
+  (aliases kept for one minor version), the anonymous-union aliases are
+  gone: `wlx_widget` / `wlx_separator` `.color` (use `.back_color`) and
+  `wlx_slider` `.show_label` (use `.show_value`). Initializers still
+  using the old names now fail to compile; rename the field.
+
+### Fixed
+- **End-of-line caret on long no-wrap lines was unreachable.** The
+  horizontal scroll limit clamped short of the caret margin, so the
+  caret at the end of any over-wide line was culled one frame after
+  typing stopped. `wlx_editor_h_extent` now reserves the margin, shared
+  by the scroll limit and both thumb-range computations.
+- **Dashboard/gallery Raylib caret drift after typing.** The demos'
+  font-size-scaling text shims did not wrap the new
+  `measure_text_advances`, so retained geometry used nominal sizes while
+  text drew scaled. The shims scale it now, and the `WLX_Backend`
+  contract documents that decorated backends must wrap all four text
+  callbacks together.
+- **Column-0 caret no longer clips, vanishes, or jumps to the row end.**
+  The wrapped caret measured an empty prefix that SDL_ttf's "length 0
+  means NUL-terminated" convention turned into a whole-row width;
+  zero-length slices now measure empty and column 0 short-circuits. The
+  shared caret draw clamps the caret body inside the clip on every
+  backend, and SDL3 `draw_line` now honors `thick` for axis-aligned
+  lines (carets, dividers).
+- **Far-jump origin gap probe capped at four unit budgets.** A single
+  jump deep into a giant line walked the entire unmeasured gap counting
+  units; past the cap the estimate goes byte-proportional, inside the
+  documented x-space approximation class.
+- **Editor caret-follow fires on anchor-only keyboard changes** (e.g.
+  select-all with the caret parked offscreen).
+- **Editor label honors the vertical component of `.align`** (was
+  hardcoded top-left).
+- **Editor horizontal scrollbar releases the max-seen width when the
+  widest line is deleted**, re-growing it from the visible window on
+  every index rebuild instead of staying inflated forever.
+
+### Internal
+- Memory-write entry guards stay active in release (NDEBUG) builds:
+  `WLX_HARD_ASSERT` on the editor/inputbox buffer contracts and size_t
+  overflow guards on scratch and store growth multiplies.
+- Wrapped-mode frames run 2.5-4x faster on heavily wrapped documents
+  (frame-local row-count memo; tab precheck hoisted out of the build
+  loop's prefix measures), and wrapped row counts answer directly from
+  complete retained entries, skipping the streaming recount.
+- UTF-8 stepping consolidated on `wlx_text_unit_next` (malformed bytes
+  as one-byte units, pinned by tests) and tab stops on
+  `wlx_tab_stop_next`; the inputbox and editor share one key handler,
+  mouse-gesture driver, thumb-drag gesture, and caret/thumb draw
+  helpers; both frame functions decomposed into named phase helpers
+  (editor 807 -> 249 lines, inputbox 464 -> 116), behavior-identical.
+- Consistency batches V06/V07: shared text-widget constants carry the
+  neutral `WLX_TEXT_*` prefix, the retained-geometry store renamed to
+  the `wlx_text_geom_*` family with its policy constants named, dead
+  constants and typos swept.
+- `WLX_SDL3_TEXT_CACHE_CAP` stays 4096, now with a permanent sizing
+  rationale (must hold one frame's distinct measured strings; 1024
+  thrashed the LRU into 5x slower frames).
+- The inputbox builds its line records once per frame into a shared
+  scratch (previously 2-5 rebuilds), and the wrap-mode scrollbar-width
+  decision predicts from last frame's visibility, saving a second build
+  per steadily overflowing frame.
+
 ## [0.6.0] - 2026-06-28
 
 ### Changed

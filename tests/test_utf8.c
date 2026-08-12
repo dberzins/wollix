@@ -249,6 +249,48 @@ TEST(utf8_next_4byte) {
     ASSERT_EQ_INT(5, wlx_utf8_next(s, 4, len)); // skip B
 }
 
+// Malformed input steps one byte at a time - the same one-byte fallback
+// units the line build walks, so caret motion, forward delete, and the
+// password-mask mapping agree with layout over invalid bytes. A stray
+// lead byte must never swallow the real character after it.
+TEST(utf8_next_malformed_lead_steps_one_byte) {
+    // Stray 2-byte lead followed by ASCII: the 'A' is a real character.
+    const char *s = "\xC3\x41";
+    ASSERT_EQ_INT(1, wlx_utf8_next(s, 0, 2)); // stray lead alone
+    ASSERT_EQ_INT(2, wlx_utf8_next(s, 1, 2)); // then the 'A'
+    // Stray 3- and 4-byte leads before ASCII behave the same.
+    ASSERT_EQ_INT(1, wlx_utf8_next("\xE2\x41\x42", 0, 3));
+    ASSERT_EQ_INT(1, wlx_utf8_next("\xF0\x41\x42\x43", 0, 4));
+}
+
+TEST(utf8_next_malformed_continuation_steps_one_byte) {
+    // A bare continuation byte is a one-byte unit.
+    const char *s = "\x80\x41";
+    ASSERT_EQ_INT(1, wlx_utf8_next(s, 0, 2));
+    // A 3-byte lead whose second continuation is broken: one byte.
+    ASSERT_EQ_INT(1, wlx_utf8_next("\xE2\x82\x41", 0, 3));
+}
+
+TEST(utf8_next_truncated_sequence_at_end) {
+    // A lead byte whose sequence runs past the end steps to the end.
+    ASSERT_EQ_INT(2, wlx_utf8_next("\x41\xC3", 1, 2));
+    ASSERT_EQ_INT(3, wlx_utf8_next("\x41\x42\xE2", 2, 3));
+}
+
+TEST(text_unit_next_agrees_with_utf8_next) {
+    // The two steppers are one family: identical results on valid,
+    // malformed, and boundary input (parameter order differs).
+    const char *cases[] = { "\xC3\x41", "\x80\x41", ("A\xC3\xB6" "B"), "\xFF\xFE", "" };
+    for (size_t c = 0; c < wlx_array_len(cases); c++) {
+        const char *s = cases[c];
+        size_t len = strlen(s);
+        for (size_t pos = 0; pos <= len; pos++) {
+            ASSERT_EQ_INT((int)wlx_text_unit_next(s, len, pos),
+                (int)wlx_utf8_next(s, pos, len));
+        }
+    }
+}
+
 // ============================================================================
 // Round-trip: encode then decode
 // ============================================================================
@@ -315,6 +357,10 @@ SUITE(utf8) {
     RUN_TEST(utf8_next_2byte);
     RUN_TEST(utf8_next_3byte);
     RUN_TEST(utf8_next_4byte);
+    RUN_TEST(utf8_next_malformed_lead_steps_one_byte);
+    RUN_TEST(utf8_next_malformed_continuation_steps_one_byte);
+    RUN_TEST(utf8_next_truncated_sequence_at_end);
+    RUN_TEST(text_unit_next_agrees_with_utf8_next);
 
     // round-trip
     RUN_TEST(utf8_roundtrip);

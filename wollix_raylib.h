@@ -248,6 +248,11 @@ static inline WLX_Key_Code wlx_raylib_map_key(int raylib_key) {
         case KEY_SEVEN: return WLX_KEY_7;
         case KEY_EIGHT: return WLX_KEY_8;
         case KEY_NINE: return WLX_KEY_9;
+        case KEY_DELETE: return WLX_KEY_DELETE;
+        case KEY_HOME: return WLX_KEY_HOME;
+        case KEY_END: return WLX_KEY_END;
+        case KEY_PAGE_UP: return WLX_KEY_PAGE_UP;
+        case KEY_PAGE_DOWN: return WLX_KEY_PAGE_DOWN;
         default: return WLX_KEY_NONE;
     }
 }
@@ -285,6 +290,7 @@ static inline void wlx_process_raylib_input(WLX_Context *ctx) {
     prev_mouse_down = ctx->input.mouse_down;
 
     wlx_zero_struct(ctx->input.keys_pressed);
+    wlx_zero_struct(ctx->input.keys_repeated);
     for (int raylib_key = 0; raylib_key < 350; raylib_key++) {
         WLX_Key_Code key = wlx_raylib_map_key(raylib_key);
         if (key != WLX_KEY_NONE) {
@@ -294,8 +300,17 @@ static inline void wlx_process_raylib_input(WLX_Context *ctx) {
             if (is_down && !was_down) {
                 ctx->input.keys_pressed[key] = true;
             }
+            if (IsKeyPressedRepeat(raylib_key)) {
+                ctx->input.keys_repeated[key] = true;
+            }
         }
     }
+
+    ctx->input.modifiers = 0;
+    if (IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT))   ctx->input.modifiers |= WLX_MOD_SHIFT;
+    if (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) ctx->input.modifiers |= WLX_MOD_CTRL;
+    if (IsKeyDown(KEY_LEFT_ALT)     || IsKeyDown(KEY_RIGHT_ALT))     ctx->input.modifiers |= WLX_MOD_ALT;
+    if (IsKeyDown(KEY_LEFT_SUPER)   || IsKeyDown(KEY_RIGHT_SUPER))   ctx->input.modifiers |= WLX_MOD_SUPER;
 
     wlx_zero_struct(ctx->input.text_input);
     int key = GetCharPressed();
@@ -446,6 +461,30 @@ static inline void wlx_raylib_draw_line(float x1, float y1, float x2, float y2, 
 #endif
 }
 
+// Effective spacing for a text style. Raylib's default bitmap font stores no
+// per-glyph advance (advanceX == 0), so DrawTextEx packs its glyph rects edge
+// to edge when spacing is 0. The font is designed for a 1px inter-glyph gap
+// at its base size, so the natural spacing is that gap scaled with the glyphs:
+// font_size / baseSize as a float, min 1 (raylib's own DrawText approximates
+// this with integer fontSize/10, which under-spaces sizes between multiples
+// of 10; the float form matches it exactly at multiples of 10 and keeps the
+// gap proportional in between). This keeps style.spacing on its core
+// contract -- 0 means natural backend spacing, nonzero is extra tracking on
+// top. Loaded fonts carry real advances, so their natural spacing stays 0.
+// The result is a pure function of (font, font_size, spacing), all of which
+// are already in the measurement-cache key, so cached sizes stay keyed
+// correctly without storing the derived value.
+static inline float wlx_raylib_effective_spacing(WLX_Text_Style style) {
+    float spacing = (float)style.spacing;
+    if (style.font == WLX_FONT_DEFAULT) {
+        int base = GetFontDefault().baseSize;
+        float natural = (base > 0) ? (float)style.font_size / (float)base : 1.0f;
+        if (natural < 1.0f) natural = 1.0f;
+        spacing += natural;
+    }
+    return spacing;
+}
+
 static inline void wlx_raylib_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
 #ifdef WLX_PERF
     uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
@@ -454,7 +493,8 @@ static inline void wlx_raylib_draw_text(const char *text, float x, float y, WLX_
     Font font = (style.font != WLX_FONT_DEFAULT)
               ? *(Font *)(uintptr_t)style.font
               : GetFontDefault();
-    DrawTextEx(font, text, (Vector2){x, y}, style.font_size, (float)style.spacing,
+    DrawTextEx(font, text, (Vector2){x, y}, style.font_size,
+               wlx_raylib_effective_spacing(style),
                (Color){style.color.r, style.color.g, style.color.b, style.color.a});
 #ifdef WLX_PERF
     wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.text_draw_ns);
@@ -581,7 +621,7 @@ static inline void wlx_raylib_measure_text(const char *text, WLX_Text_Style styl
               ? *(Font *)(uintptr_t)style.font
               : GetFontDefault();
     Vector2 size = MeasureTextEx(font, text != NULL ? text : "",
-                                 style.font_size, (float)style.spacing);
+                                 style.font_size, wlx_raylib_effective_spacing(style));
     *out_w = size.x;
     *out_h = size.y;
     wlx_raylib_text_cache_store((uintptr_t)style.font, style, len, hash,
@@ -647,7 +687,8 @@ static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_
         measure_text = "";
     }
 
-    Vector2 size = MeasureTextEx(font, measure_text, style.font_size, (float)style.spacing);
+    Vector2 size = MeasureTextEx(font, measure_text, style.font_size,
+                                 wlx_raylib_effective_spacing(style));
     *out_w = size.x;
     *out_h = size.y;
     wlx_raylib_text_cache_store((uintptr_t)style.font, style, slice_len, hash,
@@ -657,6 +698,84 @@ static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_
 #ifdef WLX_PERF
     wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.text_measure_ns);
 #endif
+}
+
+// Cumulative glyph advances of one run at each requested unit end,
+// accumulated exactly as MeasureTextEx does for a single line (per-glyph
+// advanceX at base size, one scale-factor multiply, plus
+// (codepoints - 1) * spacing), so callback-built geometry matches the
+// whole-prefix slice measures bit-for-bit on Raylib's additive model.
+// Codepoint decoding needs NUL-terminated input, so unterminated slices
+// copy with the same stack/heap discipline as the slice measure.
+static inline size_t wlx_raylib_measure_text_advances(const char *text, size_t len,
+        WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
+        float *out_advances) {
+    if (text == NULL || unit_ends == NULL || out_advances == NULL || unit_count == 0)
+        return 0;
+
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
+#endif
+    WLX_RAYLIB_PERF_INC(measure_text_calls);
+
+    Font font = (style.font != WLX_FONT_DEFAULT)
+              ? *(Font *)(uintptr_t)style.font
+              : GetFontDefault();
+    size_t filled = 0;
+    const char *walk_text = text;
+    char stack_buf[1024];
+    char *heap_buf = NULL;
+
+    if (font.glyphs != NULL && font.baseSize > 0) {
+        if (len > 0 && text[len] != '\0') {
+            if (len + 1 <= sizeof(stack_buf)) {
+                memcpy(stack_buf, text, len);
+                stack_buf[len] = '\0';
+                walk_text = stack_buf;
+            } else {
+                heap_buf = (char *)wlx_alloc(len + 1);
+                if (heap_buf != NULL) {
+                    memcpy(heap_buf, text, len);
+                    heap_buf[len] = '\0';
+                    walk_text = heap_buf;
+                } else {
+                    walk_text = NULL;
+                }
+            }
+        }
+    } else {
+        walk_text = NULL;
+    }
+
+    if (walk_text != NULL) {
+        float scale = style.font_size / (float)font.baseSize;
+        float eff_spacing = wlx_raylib_effective_spacing(style);
+        float raw_w = 0.0f;
+        int cp_count = 0;
+        size_t i = 0;
+        for (size_t u = 0; u < unit_count; u++) {
+            while (i < len && i < unit_ends[u]) {
+                int cp_bytes = 0;
+                int letter = GetCodepointNext(&walk_text[i], &cp_bytes);
+                if (cp_bytes <= 0) cp_bytes = 1;
+                int index = GetGlyphIndex(font, letter);
+                if (font.glyphs[index].advanceX > 0) raw_w += (float)font.glyphs[index].advanceX;
+                else raw_w += font.recs[index].width + (float)font.glyphs[index].offsetX;
+                cp_count++;
+                i += (size_t)cp_bytes;
+            }
+            out_advances[u] = cp_count > 0
+                ? raw_w * scale + (float)(cp_count - 1) * eff_spacing
+                : 0.0f;
+        }
+        filled = unit_count;
+    }
+
+    if (heap_buf != NULL) wlx_free(heap_buf);
+#ifdef WLX_PERF
+    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.text_measure_ns);
+#endif
+    return filled;
 }
 
 // Flush backend-owned Raylib measurement-cache state. O(1) invalidation via
@@ -725,6 +844,20 @@ static inline float wlx_raylib_get_frame_time(void) {
     return GetFrameTime();
 }
 
+static inline const char *wlx_raylib_clipboard_get(void) {
+    return GetClipboardText();
+}
+
+static inline void wlx_raylib_clipboard_set(const char *text, size_t len) {
+    // SetClipboardText needs a NUL-terminated string; copy the span into a
+    // static buffer (truncating overlong input). Cleared between calls.
+    static char buf[1024];
+    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+    memcpy(buf, text, len);
+    buf[len] = '\0';
+    SetClipboardText(buf);
+}
+
 static inline WLX_Backend wlx_backend_raylib(void) {
     return (WLX_Backend){
         .draw_rect = wlx_raylib_draw_rect,
@@ -738,10 +871,13 @@ static inline WLX_Backend wlx_backend_raylib(void) {
         .draw_text = wlx_raylib_draw_text,
         .measure_text = wlx_raylib_measure_text,
         .measure_text_slice = wlx_raylib_measure_text_slice,
+        .measure_text_advances = wlx_raylib_measure_text_advances,
         .draw_texture = wlx_raylib_draw_texture,
         .begin_scissor = wlx_raylib_begin_scissor,
         .end_scissor = wlx_raylib_end_scissor,
         .get_frame_time = wlx_raylib_get_frame_time,
+        .clipboard_get = wlx_raylib_clipboard_get,
+        .clipboard_set = wlx_raylib_clipboard_set,
     };
 }
 

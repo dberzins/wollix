@@ -8,9 +8,12 @@ layout library.
 > - `wollix_raylib.h` — Raylib backend adapter
 > - `wollix_sdl3.h` — SDL3 backend adapter
 > - `wollix_wasm.h` — bare WASM32 backend adapter and page-pool allocator helpers
+> - `wollix_editor.h` — `wlx_editor` extension header (include after `wollix.h`)
 
 > **Related docs:**
 > - [LAYOUT_MODEL.md](LAYOUT_MODEL.md)
+> - [LINE_RUN_MODEL.md](LINE_RUN_MODEL.md)
+> - [EDITOR_MODEL.md](EDITOR_MODEL.md)
 > - [SENTINEL.md](SENTINEL.md)
 > - [CORE_PATTERNS_GUIDE.md](CORE_PATTERNS_GUIDE.md)
 > - [PERFORMANCE_DIAGNOSTICS.md](PERFORMANCE_DIAGNOSTICS.md)
@@ -41,20 +44,21 @@ layout library.
 20. [Widget — `wlx_button`](#widget--wlx_button)
 21. [Widget — `wlx_checkbox`](#widget--wlx_checkbox)
 22. [Widget — `wlx_inputbox`](#widget--wlx_inputbox)
-23. [Widget — `wlx_slider`](#widget--wlx_slider)
-24. [Widget — `wlx_separator`](#widget--wlx_separator)
-25. [Widget — `wlx_progress`](#widget--wlx_progress)
-26. [Widget — `wlx_toggle`](#widget--wlx_toggle)
-27. [Widget — `wlx_radio`](#widget--wlx_radio)
-28. [Widget — `wlx_scroll_panel`](#widget--wlx_scroll_panel)
-29. [List Clipper — `wlx_list_clipper`](#list-clipper--wlx_list_clipper)
-30. [Compound Widget — `wlx_split`](#compound-widget--wlx_split)
-31. [Compound Widget — `wlx_panel`](#compound-widget--wlx_panel)
-32. [Shared Option Field Macros](#shared-option-field-macros)
-33. [Theme Presets](#theme-presets)
-34. [Backend — Raylib](#backend--raylib)
-35. [Backend — SDL3](#backend--sdl3)
-36. [Performance Diagnostics](#performance-diagnostics)
+23. [Widget — `wlx_editor`](#widget--wlx_editor)
+24. [Widget — `wlx_slider`](#widget--wlx_slider)
+25. [Widget — `wlx_separator`](#widget--wlx_separator)
+26. [Widget — `wlx_progress`](#widget--wlx_progress)
+27. [Widget — `wlx_toggle`](#widget--wlx_toggle)
+28. [Widget — `wlx_radio`](#widget--wlx_radio)
+29. [Widget — `wlx_scroll_panel`](#widget--wlx_scroll_panel)
+30. [List Clipper — `wlx_list_clipper`](#list-clipper--wlx_list_clipper)
+31. [Compound Widget — `wlx_split`](#compound-widget--wlx_split)
+32. [Compound Widget — `wlx_panel`](#compound-widget--wlx_panel)
+33. [Shared Option Field Macros](#shared-option-field-macros)
+34. [Theme Presets](#theme-presets)
+35. [Backend — Raylib](#backend--raylib)
+36. [Backend — SDL3](#backend--sdl3)
+37. [Performance Diagnostics](#performance-diagnostics)
 
 ---
 
@@ -86,6 +90,7 @@ off by default. All public `wlx_*` functions remain available regardless.
 | `button(...)` | `wlx_button(...)` |
 | `checkbox(...)` | `wlx_checkbox(...)` |
 | `inputbox(...)` | `wlx_inputbox(...)` |
+| `textarea(...)` | `wlx_textarea(...)` |
 | `slider(...)` | `wlx_slider(...)` |
 | `separator(...)` | `wlx_separator(...)` |
 | `progress(ctx, value, ...)` | `wlx_progress(ctx, value, ...)` |
@@ -304,12 +309,17 @@ typedef struct {
     float (*get_frame_time)(void);
     void (*draw_text_slice)(const char *text, size_t len, float x, float y, WLX_Text_Style style);
     void (*measure_text_slice)(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h);
+    size_t (*measure_text_advances)(const char *text, size_t len, WLX_Text_Style style,
+                                    const size_t *unit_ends, size_t unit_count,
+                                    float *out_advances);      // optional
     void (*draw_shadow)(WLX_Rect rect, WLX_Color color, float offset_x, float offset_y,
                         float blur, int layers, float roundness, int rounded_segs); // optional
     void (*draw_glow)(WLX_Rect rect, WLX_Color color, float spread, int rings,
                       float roundness, int rounded_segs); // optional
     void (*draw_gradient_v)(WLX_Rect rect, WLX_Color top, WLX_Color bottom,
                             float roundness, int rounded_segs); // optional
+    const char *(*clipboard_get)(void);                         // optional
+    void (*clipboard_set)(const char *text, size_t len);        // optional
 } WLX_Backend;
 ```
 
@@ -335,9 +345,12 @@ left as `NULL`.
 | `get_frame_time` | Return elapsed time since last frame in seconds |
 | `draw_text_slice` | Preferred text-rendering callback: render an explicit byte span; `NULL` falls back to `draw_text` with a temporary null-terminated copy |
 | `measure_text_slice` | Preferred text-measure callback: measure an explicit byte span; `NULL` falls back to `measure_text` with a temporary null-terminated copy |
+| `measure_text_advances` | Optional batched measure: fill the cumulative advance width of one run's prefixes at each core-supplied unit-end offset; `NULL` keeps the per-unit prefix-measure fallback (see below) |
 | `draw_shadow` | Optional native drop shadow; `NULL` falls back to layered offset rounded rects. `color` already has effective opacity applied; `rect` is the un-grown element rect |
 | `draw_glow` | Optional native outer glow; `NULL` falls back to concentric expanding rounded outlines. `color` already has effective opacity applied; `rect` is the un-grown element rect |
 | `draw_gradient_v` | Optional native vertical two-stop gradient fill; `NULL` falls back to stacked solid bands. `top`/`bottom` already have effective opacity applied; `roundness = 0` means sharp |
+| `clipboard_get` | Optional synchronous clipboard read: returns a borrowed NUL-terminated UTF-8 string valid until the next backend call; `NULL` hook makes paste a safe no-op |
+| `clipboard_set` | Optional synchronous clipboard write: copies the byte slice out before returning; `NULL` hook makes copy/cut safe no-ops |
 
 The C-string callbacks remain the compatibility floor and are the only text
 callbacks checked by `wlx_backend_is_ready()`. Slice callbacks are the
@@ -351,6 +364,35 @@ draw/measure results for the same backend. Embedded NUL bytes are unsupported
 in the public text model; spans are truncated at the first NUL before backend
 dispatch.
 
+**`measure_text_advances` contract.** The callback fills
+`out_advances[i]` with the cumulative advance width in pixels of the run
+prefix `[0, unit_ends[i])`, for every `i < unit_count`, and returns the
+number of leading entries filled — a partial fill is valid; the core
+falls back to per-unit prefix measures for the rest. The run
+`(text, len)` is a single-style, single-line span with no tabs when tab
+expansion is active (the core splits at tabs and applies next-tab-stop
+rounding between segments itself). `unit_ends` is strictly increasing
+with `unit_ends[unit_count - 1] == len`; the core derives the unit
+policy (UTF-8 codepoints, malformed bytes as one-byte units), so a
+backend never re-implements it — it walks its own glyph or cluster
+geometry and reports the advance at (or snapped to the nearest cluster
+edge after) each requested byte end. Reported advances should be
+non-decreasing; the core clamps regardless. Requests are capped at
+`WLX_TEXT_ADVANCES_CHUNK` units (default 256, `#ifndef`-overridable);
+consecutive chunks of one line are spliced by adding the previous
+chunk's final advance, so shaping context does not carry across a chunk
+boundary — the same documented approximation class as a tab stop inside
+a line. A backend's advances must be consistent with its own draw of
+the same run: applications that decorate a backend's text callbacks
+(e.g. a font-size scale) **must decorate all four text paths
+together** — `draw_text`/`draw_text_slice`, `measure_text`/
+`measure_text_slice`, and `measure_text_advances` — because advances
+are retained as caret, hit-test, and fit geometry against text drawn
+through the decorated draw path. All three in-tree adapters implement
+the callback (SDL3 requires SDL_ttf >= 3.3.0; older builds simply stay
+on the fallback). See `docs/LINE_RUN_MODEL.md` §5 and §14 for where it
+sits in the pipeline.
+
 ### `wlx_backend_is_ready`
 
 ```c
@@ -362,8 +404,8 @@ are set. Text callbacks are accepted in either form per direction: a backend
 is ready with `draw_text_slice` *or* `draw_text`, and `measure_text_slice`
 *or* `measure_text` (the slice entries are the preferred contract; the
 NUL-terminated pair is the compatibility form). Optional callbacks such as
-`draw_circle`, `draw_ring`, `draw_shadow`, `draw_glow`, and `draw_gradient_v`
-are not required for readiness.
+`draw_circle`, `draw_ring`, `draw_shadow`, `draw_glow`, `draw_gradient_v`,
+and `measure_text_advances` are not required for readiness.
 
 ---
 
@@ -435,11 +477,29 @@ typedef enum {
     WLX_KEY_LEFT, WLX_KEY_RIGHT, WLX_KEY_UP, WLX_KEY_DOWN,
     WLX_KEY_A .. WLX_KEY_Z,
     WLX_KEY_0 .. WLX_KEY_9,
+    WLX_KEY_DELETE, WLX_KEY_HOME, WLX_KEY_END,
     WLX_KEY_COUNT
 } WLX_Key_Code;
 ```
 
 Backend-neutral key codes. Backend adapters map platform keys to these values.
+
+### `WLX_Key_Mod`
+
+```c
+typedef enum {
+    WLX_MOD_SHIFT = 1 << 0,
+    WLX_MOD_CTRL  = 1 << 1,
+    WLX_MOD_ALT   = 1 << 2,
+    WLX_MOD_SUPER = 1 << 3,
+} WLX_Key_Mod;
+```
+
+Modifier-key state as an orthogonal bitfield (modifiers qualify other keys,
+they are not `WLX_Key_Code` entries). Backends refresh
+`WLX_Input_State.modifiers` each frame; query with `wlx_mod_down()`. Editing
+shortcuts use `wlx_mod_command_down()`, which resolves to `WLX_MOD_SUPER`
+(Cmd) on Apple platforms and `WLX_MOD_CTRL` elsewhere.
 
 ### `WLX_Layout_Kind`
 
@@ -497,10 +557,15 @@ typedef struct {
     bool  keys_down[WLX_KEY_COUNT];     // Current held-down states
     bool  keys_pressed[WLX_KEY_COUNT];  // True for one frame on press
     char  text_input[32];              // Text typed this frame (for inputbox)
+    bool  keys_repeated[WLX_KEY_COUNT]; // True on each OS auto-repeat tick
+    uint32_t modifiers;                // Active WLX_Key_Mod bits this frame
 } WLX_Input_State;
 ```
 
 Populated by the backend's input handler each frame. Access via `ctx->input`.
+`keys_repeated` fires on the platform's auto-repeat ticks (in addition to the
+one-shot `keys_pressed` on the initial press); widgets that should react to a
+held key use `wlx_is_key_actuated()` (= pressed or repeated).
 
 ### `WLX_Input_Handler`
 
@@ -520,14 +585,16 @@ Callback passed to `wlx_begin()`. Called once per frame to fill `ctx->input`.
 typedef enum {
     WLX_INTERACT_HOVER    = 1 << 0,  // Hover detection (sets hot_id)
     WLX_INTERACT_CLICK    = 1 << 1,  // Button-like: press + release while hovering = clicked
-    WLX_INTERACT_FOCUS    = 1 << 2,  // Input-like: stays focused until click elsewhere or Enter
+    WLX_INTERACT_FOCUS    = 1 << 2,  // Input-like: stays focused until click elsewhere, Escape, or Enter (unless FOCUS_HOLD_ENTER)
     WLX_INTERACT_DRAG     = 1 << 3,  // Slider-like: active while mouse held after click
     WLX_INTERACT_KEYBOARD = 1 << 4,  // Space/Enter when hovered triggers clicked
+    WLX_INTERACT_FOCUS_HOLD_ENTER = 1 << 5,  // Modifies FOCUS: Enter does not blur (multiline input); inert without FOCUS
 } WLX_Interact_Flags;
 ```
 
 Combine with bitwise OR. Use only **one** of `CLICK` / `FOCUS` / `DRAG` per
-call.
+call. The Enter press that blurs a `FOCUS` widget is consumed for the rest of
+that frame: it cannot also keyboard-activate a later `KEYBOARD` widget.
 
 ### `WLX_Interaction`
 
@@ -626,6 +693,17 @@ first access and survives across frames.
 typedef struct {
     size_t cursor_pos;
     float  cursor_blink_time;
+    size_t selection_anchor;   // selection = [min(anchor,cursor), max(...))
+    bool   mouse_selecting;    // drag-selection in progress
+    float  last_click_time;    // multi-click detection clock
+    size_t last_click_pos;
+    int    click_count;        // 1 = caret, 2 = word, 3 = select all
+    float  preferred_x;        // sticky column for UP/DOWN caret motion
+    bool   preferred_x_valid;  // cleared by any horizontal caret change
+    float  scroll_y;           // multiline: content px hidden above the band
+    size_t prev_cursor_pos;    // caret-follow motion detection
+    bool   dragging_scrollbar; // thumb drag in progress (multiline overflow)
+    float  sb_drag_offset;     // pointer offset from thumb top at drag start
 } WLX_Inputbox_State;
 ```
 
@@ -825,6 +903,7 @@ typedef struct {
     struct {
         WLX_Color border_focus;  // {0} → derive from accent
         WLX_Color cursor;        // {0} → use foreground
+        WLX_Color selection;     // {0} → derive from accent (translucent)
         float     border_width;  // 0 → use global border_width
     } input;
 
@@ -1674,6 +1753,54 @@ bool wlx_is_key_pressed(WLX_Context *ctx, WLX_Key_Code key);
 
 Returns `true` for one frame when the key is first pressed.
 
+### `wlx_is_key_actuated`
+
+```c
+bool wlx_is_key_actuated(WLX_Context *ctx, WLX_Key_Code key);
+```
+
+Returns `true` on the initial press **and** on every OS auto-repeat tick
+(`keys_pressed || keys_repeated`). Use for actions that should repeat while a
+key is held (deletion, caret movement).
+
+### `wlx_mod_down`
+
+```c
+bool wlx_mod_down(WLX_Context *ctx, uint32_t mask);
+```
+
+Returns `true` when **all** `WLX_Key_Mod` bits in `mask` are currently held.
+
+### `wlx_mod_command_down`
+
+```c
+bool wlx_mod_command_down(WLX_Context *ctx);
+```
+
+Returns `true` when the platform's editing command modifier is held:
+`WLX_MOD_SUPER` (Cmd) on Apple platforms, `WLX_MOD_CTRL` elsewhere. All
+inputbox clipboard shortcuts route through this helper.
+
+### `wlx_clipboard_set_text`
+
+```c
+void wlx_clipboard_set_text(WLX_Context *ctx, const char *text, size_t len);
+```
+
+Writes a byte slice to the system clipboard through the backend's
+`clipboard_set` hook. Safe no-op when the hook or `text` is `NULL`.
+
+### `wlx_clipboard_get_copy`
+
+```c
+size_t wlx_clipboard_get_copy(WLX_Context *ctx, char *out, size_t out_size);
+```
+
+Copies the current clipboard text into `out` (always NUL-terminated) and
+returns the number of payload bytes written. Truncates on a UTF-8 codepoint
+boundary when the clipboard content exceeds `out_size - 1`. Returns `0` with
+an empty string when the backend has no `clipboard_get` hook.
+
 ### `wlx_rect_contains`
 
 ```c
@@ -1966,6 +2093,7 @@ into `max(1, rect.h / 4)` solid bands interpolating the two stops (each band
 | `wlx_radio` | `bool` | **clicked** — the selection already landed in `*active` |
 | `wlx_slider` | `bool` | **changed** — the value moved this frame (drag or keyboard) |
 | `wlx_inputbox` | `bool` | **changed** — the buffer text was mutated this frame (typed or deleted). Since v0.6; focus is reported through the `.out_focused` out-param |
+| `wlx_editor` | `bool` | **changed** — the document was mutated this frame (`*length` already updated); focus is reported through the `.out_focused` out-param |
 | `wlx_label`, `wlx_image`, `wlx_separator`, `wlx_progress`, `wlx_widget` | `void` | No interaction result; decoration / display only |
 
 To react to slider commits, combine the `changed` result with mouse-release
@@ -1994,8 +2122,7 @@ wlx_widget(ctx,
 ```
 
 The fill field is `back_color` since v0.6 (consistent with every other
-widget); `color` remains as a deprecated alias of the same storage and is
-removed one minor version after 0.6.
+widget); the deprecated `color` alias was removed in v0.7.
 
 ---
 
@@ -2172,12 +2299,51 @@ instead of the removed `wlx_checkbox_tex` compatibility macro.
 #define wlx_inputbox(ctx, label, buffer, buffer_size, ...options)
 // Returns: bool — true when the buffer text changed this frame (v0.6;
 // previously returned focus — use .out_focused for that)
+
+#define wlx_textarea(ctx, label, buffer, buffer_size, ...options)
+// Sugar: wlx_inputbox with .multiline = true, .align = WLX_TOP_LEFT preset
+// before the caller's options (both presets overridable per call)
 ```
 
 UTF-8 text input. Click to focus, type to edit, Enter/Escape/click-away to
-unfocus. The buffer stays one byte buffer, but when `wrap` is enabled the
-visible text and cursor are laid out over fitted visual lines using the same
-line/run measurement path as labels and buttons.
+unfocus. With `.multiline = true` Enter instead inserts a newline and keeps
+focus (Escape or click-away leaves), UP/DOWN move the caret by visual line
+with a sticky column, and content taller than the field scrolls internally:
+caret-follow keeps the caret line visible on every caret move or edit, the
+wheel scrolls a hovered overflowing field (consuming the event before any
+enclosing scroll panel), a draggable scrollbar appears while overflowing
+(`.show_scrollbar`), and drag-selecting past the band edge auto-scrolls.
+The buffer stays one byte buffer, but when `wrap` is enabled the visible
+text and cursor are laid out over fitted visual lines using the same
+line/run measurement path as labels and buttons. Multiline geometry runs on
+its own budget (`WLX_INPUTBOX_MULTILINE_MAX_UNITS` 4096 /
+`WLX_INPUTBOX_MULTILINE_MAX_LINES` 512, compile-time overridable); past it
+the caret pins to the last built line while the buffer keeps accepting
+text.
+
+Editing model (all mutations and offsets are UTF-8 codepoint safe):
+
+- **Deletion** — BACKSPACE deletes backward, DELETE forward; both repeat
+  while held (OS auto-repeat via `keys_repeated`).
+- **Navigation** — LEFT/RIGHT move by codepoint (repeat while held);
+  Ctrl/Alt+LEFT/RIGHT move by word; HOME/END jump within the caret's visual
+  line; command+HOME/END jump to the buffer start/end. In multiline mode
+  UP/DOWN move to the adjacent visual line (hard and soft breaks alike) at a
+  sticky column that survives shorter lines until a horizontal caret change;
+  UP on the first line clamps to the line start, DOWN on the last line to the
+  line end.
+- **Selection** — SHIFT with any caret motion extends from the anchor; a
+  plain motion collapses. Click places the caret, drag extends, double-click
+  selects the word, triple-click selects all; SHIFT+click extends. The
+  highlight uses `selection_color`. Typing, paste, BACKSPACE, and DELETE
+  replace a live selection.
+- **Clipboard** — command+C copy, command+X cut, command+V paste, command+A
+  select all, where the command modifier is Cmd on Apple platforms and Ctrl
+  elsewhere (`wlx_mod_command_down`). Paste is not limited by the 32-byte
+  per-frame text ring and truncates to `buffer_size` on a codepoint boundary.
+  On the bare-WASM backend the clipboard is a best-effort cached string:
+  copy/cut update the browser clipboard asynchronously, and cross-app content
+  arrives only after a browser paste gesture refreshes the cache.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -2201,6 +2367,11 @@ line/run measurement path as labels and buttons.
 | `rounded_segments` | `int` | `-1` | Rounded-corner segment count. `-1` = theme default |
 | `border_focus_color` | `WLX_Color` | `{0}` | Focused border. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Blinking cursor. `{0}` = theme `input.cursor` |
+| `selection_color` | `WLX_Color` | `{0}` | Selection highlight fill. `{0}` = theme `input.selection`, then translucent accent |
+| `password` | `bool` | `false` | Masked field: renders one `*` per codepoint while the buffer keeps the plaintext; forces `wrap = false` and suppresses copy/cut |
+| `read_only` | `bool` | `false` | Rejects every mutation (typing, delete, cut, paste) while focus, selection, caret, and copy keep working. Distinct from `disabled`: no interaction lockout, no dimming |
+| `multiline` | `bool` | `false` | Enter inserts a newline and keeps focus (Escape/click-away blurs); UP/DOWN move by visual line with a sticky column; overflow scrolls internally with caret-follow and wheel. Forced off by `password`; composes with `read_only` (insert rejected, focus kept) |
+| `show_scrollbar` | `bool` | `true` | Draggable vertical scrollbar while multiline content overflows; `false` keeps wheel/caret-follow scrolling without the affordance. Inert outside multiline overflow |
 | `texture` | `WLX_Texture` | zero handle | Optional icon drawn inside the field. `width <= 0` or `height <= 0` = no icon |
 | `texture_src` | `WLX_Rect` | `{0}` | Icon source sub-rect. `w <= 0` or `h <= 0` = full texture |
 | `texture_tint` | `WLX_Color` | `{0}` | Icon tint. `{0}` resolves to `WLX_WHITE` |
@@ -2229,6 +2400,89 @@ with unchanged geometry. The icon is texture-based, matching the image content o
 
 ---
 
+## Widget — `wlx_editor`
+
+```c
+#include "wollix_editor.h"   // companion header: include after wollix.h
+
+#define wlx_editor(ctx, label, buffer, buffer_cap, length, ...options)
+// Returns: bool — true when the text changed this frame
+```
+
+The editor lives in the companion header `wollix_editor.h`, included
+after `wollix.h` (and any backend adapter) in every translation unit
+that uses it; exactly one TU defines `WOLLIX_IMPLEMENTATION` and
+includes both, as with the core alone. The compile-time knobs
+(`WLX_EDITOR_MAX_LINE_UNITS`, `WLX_EDITOR_ORIGIN_BACKSCAN`) remain
+defined by the core. The editor's windowed-text model — line index,
+retained geometry, windowed origin, wrapped rows — is documented in
+[EDITOR_MODEL.md](EDITOR_MODEL.md).
+
+Windowed text editor over a caller-owned flat buffer with an
+explicit length in/out — non-wrapping by default, with an opt-in wrapped
+mode (`.wrap`) that breaks hard lines into band-wide rows (`size_t *length` is authoritative in both
+directions; the buffer need not be NUL-terminated, though the widget
+maintains a trailing NUL opportunistically when `*length < buffer_cap`).
+Only the visible window of lines is measured, built, and drawn, so frame
+cost is O(viewport) at any document size; geometry rests on a context-owned
+per-widget line index (hard line start offsets) rebuilt by a single newline
+scan on the first frame, after every widget edit, and when the guard fires
+(`*length` change, `.revision` change, or a sampled hard-line-start probe).
+Bump `.revision` after mutating the buffer outside the widget.
+
+Editing and navigation follow the `wlx_inputbox` vocabulary (typing, Enter,
+Backspace/Delete with Ctrl/Alt word variants, command+C/X/V/A, arrows with
+word motion, HOME/END, sticky-column UP/DOWN, SHIFT-extended selection,
+click/double/triple/drag mouse model), plus editor-specific behavior: Tab
+inserts a literal `\t` rendered with next-tab-stop expansion
+(`.tab_columns`, default 4 space-advance columns), PageUp/PageDown move the
+caret by one viewport, Ctrl/Cmd+Home/End jump to the document ends, and the
+view scrolls on both axes (Shift+wheel scrolls horizontally; drag-select
+auto-scrolls on both axes; caret-follow keeps the caret visible after every
+caret change or edit). The vertical scrollbar thumb is exact from the line
+count; the horizontal range approximates from the widest line seen so far
+and stays open while a visible line remains width-truncated. Per-line
+geometry is budgeted by `WLX_EDITOR_MAX_LINE_UNITS` (default 1024,
+`#ifndef`-overridable): longer lines freeze their measured geometry at the
+cap.
+
+Under `.wrap`, vertical motion, hit-tests, and caret-follow work in visual
+rows (row-relative sticky column; HOME/END keep hard-line semantics);
+horizontal scrolling disappears and Shift+wheel is not consumed; the
+vertical thumb becomes a documented approximation that maps hard lines,
+with the track end always meaning the document end; the per-line budget is
+shared by a line's rows and a budget-frozen tail is unreachable by caret
+while wrapped. Caret and selection are byte offsets and survive runtime
+mode toggles.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `label` | `const char *` | Optional label drawn to the left (`NULL` = none) |
+| `buffer` | `char *` | Writable document bytes (caller-owned) |
+| `buffer_cap` | `size_t` | Buffer capacity; bounds every insert (UTF-8 boundary truncation) |
+| `length` | `size_t *` | In/out authoritative document length |
+
+**Option struct:** `WLX_Editor_Opt`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| *shared fields* | | | placement, sizing, typography (text is top-left; `align` places the label), colors |
+| `wrap` | `bool` | `false` | Wrapped mode: band-wide rows per hard line, row-based motion, approximate vertical thumb, no horizontal scroll |
+| `content_padding` (+ per-side) | `float` | `10` | Outer inset; same model as `wlx_inputbox` |
+| `border_color` / `border_width` / `roundness` / `rounded_segments` | | theme | Chrome, as on `wlx_inputbox` |
+| `border_focus_color` | `WLX_Color` | `{0}` | Focused border. `{0}` = theme `input.border_focus` |
+| `cursor_color` | `WLX_Color` | `{0}` | Caret. `{0}` = theme `input.cursor` |
+| `selection_color` | `WLX_Color` | `{0}` | Selection fill. `{0}` = theme `input.selection`, then translucent accent |
+| `out_focused` | `bool *` | `NULL` | Receives this frame's focus state |
+| `read_only` | `bool` | `false` | Rejects mutations; focus, caret, selection, copy keep working |
+| `show_scrollbar` | `bool` | `true` | Draggable scrollbars while overflowing (vertical exact unwrapped / approximate wrapped, horizontal approximate) |
+| `line_numbers` | `bool` | `false` | Leading line-number gutter; gutter presses never touch caret, selection, or focus |
+| `tab_columns` | `int` | `4` | Tab-stop width in space-advance columns |
+| `revision` | `uint32_t` | `0` | External-mutation guard; bump after out-of-widget buffer edits |
+| `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
+
+---
+
 ## Widget — `wlx_slider`
 
 ```c
@@ -2253,7 +2507,7 @@ Horizontal slider. Click/drag the thumb or click the track to jump.
 | `font_size` | `int` | `0` | Font size |
 | `align` | `WLX_Align` | `WLX_LEFT` | Label text alignment |
 | `spacing` | `int` | `0` | Opt-in extra tracking for label/value text. `0` = natural backend spacing |
-| `show_value` | `bool` | `true` | Show the numeric value readout beside the track. `show_label` is a deprecated alias (same storage), removed one minor version after 0.6 |
+| `show_value` | `bool` | `true` | Show the numeric value readout beside the track (renamed from `show_label` in v0.6; the alias was removed in v0.7) |
 | `track_color` | `WLX_Color` | `{0}` | Track background. `{0}` = theme `slider.track` |
 | `thumb_color` | `WLX_Color` | `{0}` | Thumb handle. `{0}` = theme `slider.thumb` |
 | `label_color` | `WLX_Color` | `{0}` | Label text. `{0}` = theme `slider.label` |
@@ -2293,7 +2547,7 @@ is wider than tall, and a vertical line when it is taller than wide.
 |-------|------|---------|-------------|
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
-| `back_color` | `WLX_Color` | `{0}` | Divider color. `{0}` = theme `border`. `color` is a deprecated alias (same storage), removed one minor version after 0.6 |
+| `back_color` | `WLX_Color` | `{0}` | Divider color. `{0}` = theme `border` (renamed from `color` in v0.6; the alias was removed in v0.7) |
 | `thickness` | `float` | `1.0` | Divider thickness in pixels |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
@@ -2858,6 +3112,22 @@ copy work; only on miss does the fallback copy a non-null-terminated slice
 into a 256-byte stack buffer (or `wlx_alloc` for longer slices) before
 calling `MeasureTextEx`.
 
+### `wlx_raylib_measure_text_advances`
+
+```c
+static inline size_t wlx_raylib_measure_text_advances(const char *text, size_t len,
+        WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
+        float *out_advances);
+```
+
+Exposed via the optional `WLX_Backend.measure_text_advances` callback.
+Accumulates per-glyph advances exactly as `MeasureTextEx` does for a single
+line (base-size `advanceX` per glyph, one scale-factor multiply, plus
+`(codepoints - 1) * spacing`), so callback-built geometry matches the
+whole-prefix slice measures bit-for-bit on Raylib's additive model.
+Unterminated slices copy with the same stack/heap discipline as the slice
+measure.
+
 ### Raylib Setup Pattern
 
 ```c
@@ -2968,8 +3238,12 @@ past its variant's lifetime.
 ```
 
 Set the fixed capacity of the SDL3 backend's retained `TTF_Text` cache before
-including `wollix_sdl3.h`. The default is `1024`, sized to the measured
-gallery working set with comfortable margin. Each live entry owns a
+including `wollix_sdl3.h`. The default is `4096` (raised from the
+gallery-sized `1024` to cover an editor viewport's working set; with the
+editor's retained line geometry the steady-state working set has since
+collapsed to viewport-line scale, so lowering it back is a candidate — see
+the follow-up outcomes in
+`docs/dev/ADR_036_EDITOR_MEASUREMENT_CONTRACT_RETENTION_AND_WINDOWED_ORIGIN.md`). Each live entry owns a
 `TTF_CreateText`-derived `TTF_Text *` keyed by `(variant, slice_len,
 fnv1a64(text bytes))` with stored `text_len` plus the bytes themselves for
 collision-rejecting hit verification. Setting the cap to `0` disables retention
@@ -3054,7 +3328,21 @@ variant. The deepest fallback remains `TTF_RenderText_Blended` /
 itself is unavailable.
 
 The retained `TTF_Text` cache uses a default cap of
-`WLX_SDL3_TEXT_CACHE_CAP = 1024`, chosen from the measured gallery working set.
+`WLX_SDL3_TEXT_CACHE_CAP = 4096` (see the knob's entry above for sizing
+history).
+
+The optional `WLX_Backend.measure_text_advances` callback
+(`wlx_sdl3_measure_text_advances`) resolves one shaped `TTF_Text` for the
+run — reusing the retained cache entry when present, creating a transient
+one on miss — and walks its cluster geometry (`TTF_GetTextSubString` /
+`TTF_GetNextTextSubString`) to fill unit-end advances, snapping unit ends
+that fall inside a cluster to the cluster's trailing edge. It registers
+only when SDL_ttf >= 3.3.0 (the same floor as the font-variant machinery);
+older builds stay on the per-unit measure fallback with no behavior change.
+Plain content matches whole-prefix measures within 1px glyph-placement
+quantization; shaped contexts (kern pairs, ligatures, malformed bytes,
+run-end ink-vs-pen width) can diverge by a few px — the documented
+cluster-snap approximation (see ADR_012's addendum).
 
 Callers that close SDL_ttf fonts directly must call
 `wlx_sdl3_text_cache_clear()` before `TTF_CloseFont()` on any base font handle

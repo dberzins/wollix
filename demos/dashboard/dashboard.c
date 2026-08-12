@@ -66,6 +66,7 @@
 #elif defined(WLX_DASHBOARD_WASM)
     #include "wollix_wasm.h"
 #endif
+#include "wollix_editor.h"
 
 #include "dashboard_theme.h"
 #include "dashboard_effects.h"
@@ -112,6 +113,7 @@ typedef enum {
     DASHBOARD_VIEW_OVERVIEW = 0,
     DASHBOARD_VIEW_TOKENS,
     DASHBOARD_VIEW_COMPONENTS,
+    DASHBOARD_VIEW_EDITOR,
     DASHBOARD_VIEW_LAYOUTS,
     DASHBOARD_VIEW_THEME_LAB,
     DASHBOARD_VIEW_COUNT,
@@ -145,6 +147,18 @@ typedef struct {
     int   comp_clicks;            // button click counter
     char  comp_name[64];          // text input
     char  comp_email[64];         // text input
+    char  comp_password[64];      // masked text input
+    char  comp_token[64];         // read-only text input
+    char  comp_notes[256];        // multiline text input
+
+    // Editor view (the document itself lives at file scope; see
+    // g_dashboard_editor_buf)
+    size_t   editor_len;          // authoritative document length, in and out
+    size_t   editor_lines;        // line count for the stats caption
+    uint32_t editor_revision;     // bumped when the demo swaps the document
+    bool     editor_line_numbers; // gutter toggle
+    bool     editor_read_only;    // read-only toggle
+    bool     editor_wrap;         // wrapped-mode toggle
 
     // Layouts view
     bool  idstack_enabled[DASHBOARD_IDSTACK_ROWS];  // loop-generated rows
@@ -308,6 +322,9 @@ static void section_tokens(WLX_Context *ctx, const Dashboard_Tokens *tk,
 static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
                                const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
                                float phase);
+static void section_editor(WLX_Context *ctx, const Dashboard_Tokens *tk,
+                           const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
+                           float phase);
 static void section_layouts(WLX_Context *ctx, const Dashboard_Tokens *tk,
                             const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
                             float phase);
@@ -319,6 +336,7 @@ static const Dashboard_Section dashboard_sections[DASHBOARD_VIEW_COUNT] = {
     [DASHBOARD_VIEW_OVERVIEW]   = { "Overview",   WLX_ICON_LAYOUT_DASHBOARD, section_overview },
     [DASHBOARD_VIEW_TOKENS]     = { "Tokens",     WLX_ICON_PALETTE,          section_tokens },
     [DASHBOARD_VIEW_COMPONENTS] = { "Components", WLX_ICON_BLOCKS,           section_components },
+    [DASHBOARD_VIEW_EDITOR]     = { "Editor",     WLX_ICON_SQUARE_PEN,       section_editor },
     [DASHBOARD_VIEW_LAYOUTS]    = { "Layouts",    WLX_ICON_LAYERS,           section_layouts },
     [DASHBOARD_VIEW_THEME_LAB]  = { "Theme Lab",  WLX_ICON_PALETTE,          section_theme_lab },
 };
@@ -1556,7 +1574,7 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
             WLX_SLOT_PX(dashboard_module_h(98)),    // buttons
             WLX_SLOT_PX(dashboard_module_h(140)),   // selection
             WLX_SLOT_PX(dashboard_module_h(196)),   // sliders & progress
-            WLX_SLOT_PX(dashboard_module_h(136)),   // inputs
+            WLX_SLOT_PX(dashboard_module_h(340)),   // inputs (name/email/pass/token/notes/clear)
             WLX_SLOT_PX(dashboard_module_h(110)),   // image & widget
             WLX_SLOT_PX(dashboard_module_h(40)) }); // status chips
 
@@ -1714,10 +1732,11 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
             wlx_layout_end(ctx);
         dashboard_demo_module_end(ctx);
 
-        // -- Inputs --
+        // -- Inputs (incl. password mask, read-only, multiline) --
         dashboard_demo_module(ctx, tk, fonts, "Input Box");
-            wlx_layout_begin(ctx, 3, WLX_VERT, .gap = 8,
-                .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(40), WLX_SLOT_PX(40), WLX_SLOT_PX(40) });
+            wlx_layout_begin(ctx, 6, WLX_VERT, .gap = 8,
+                .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(40), WLX_SLOT_PX(40), WLX_SLOT_PX(40),
+                                            WLX_SLOT_PX(40), WLX_SLOT_PX(100), WLX_SLOT_PX(40) });
                 wlx_inputbox(ctx, "Name:  ", st->comp_name, sizeof(st->comp_name), .id = "in-name",
                     .height = 40, .content_padding = 6, .font = body_font, .font_size = body_px,
                     .back_color = tk->color.field, .border_color = tk->color.field_border,
@@ -1727,11 +1746,32 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     .back_color = tk->color.field, .border_color = tk->color.field_border,
                     .border_width = 1.0f, .roundness = 0.12f,
                     .border_focus_color = dash_accent_fg(tk), .cursor_color = dash_accent_fg(tk));
+                // Password: masked render, copy/cut suppressed.
+                wlx_inputbox(ctx, "Pass:  ", st->comp_password, sizeof(st->comp_password), .id = "in-pass",
+                    .height = 40, .content_padding = 6, .font = body_font, .font_size = body_px,
+                    .back_color = tk->color.field, .border_color = tk->color.field_border,
+                    .border_width = 1.0f, .roundness = 0.12f,
+                    .border_focus_color = dash_accent_fg(tk), .cursor_color = dash_accent_fg(tk),
+                    .password = true);
+                // Read-only: focus/select/copy work, edits rejected (not dimmed).
+                wlx_inputbox(ctx, "Token: ", st->comp_token, sizeof(st->comp_token), .id = "in-token",
+                    .height = 40, .content_padding = 6, .font = body_font, .font_size = body_px,
+                    .back_color = tk->color.field, .border_color = tk->color.field_border,
+                    .border_width = 1.0f, .roundness = 0.12f,
+                    .read_only = true);
+                // Multiline: Enter inserts a newline, Escape or click-away leaves.
+                wlx_textarea(ctx, "Notes: ", st->comp_notes, sizeof(st->comp_notes), .id = "in-notes",
+                    .height = 100, .content_padding = 6, .font = body_font, .font_size = body_px,
+                    .back_color = tk->color.field, .border_color = tk->color.field_border,
+                    .border_width = 1.0f, .roundness = 0.12f,
+                    .border_focus_color = dash_accent_fg(tk), .cursor_color = dash_accent_fg(tk));
                 if (wlx_button(ctx, "Clear", .id = "in-clear", .height = 40,
                         .back_color = tk->status.error, .front_color = WLX_RGBA(255, 255, 255, 255),
                         .roundness = 0.15f, .font = body_font, .font_size = body_px, .align = WLX_CENTER)) {
                     st->comp_name[0] = '\0';
                     st->comp_email[0] = '\0';
+                    st->comp_password[0] = '\0';
+                    st->comp_notes[0] = '\0';
                 }
             wlx_layout_end(ctx);
         dashboard_demo_module_end(ctx);
@@ -1775,6 +1815,249 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 dashboard_status_chip(ctx, tk, fonts, "Degraded", tk->status.warning);
                 dashboard_badge(ctx, tk, fonts, "v0.6", tk->color.accent, tk->color.on_accent);
                 dashboard_status_pip(ctx, tk, tk->status.success, phase);
+            wlx_layout_end(ctx);
+        dashboard_demo_module_end(ctx);
+    wlx_layout_end(ctx);
+}
+
+// ============================================================================
+// Section: Editor -- wlx_editor over a caller-owned document buffer. The
+// document lives at file scope (like the action log) so its size stays off
+// the demo-state struct; the demo owns the buffer, the length, and the
+// revision, exactly as an application embedding the widget would.
+// ============================================================================
+
+#define DASHBOARD_EDITOR_CAP (1u << 20)
+static char g_dashboard_editor_buf[DASHBOARD_EDITOR_CAP];
+
+// Hard line count for the stats caption. The demo documents are LF-only, so
+// a plain '\n' count is exact here (the widget itself handles CRLF).
+static size_t dashboard_editor_count_lines(const char *s, size_t len) {
+    size_t lines = 1;
+    for (size_t i = 0; i < len; i++) {
+        if (s[i] == '\n') lines++;
+    }
+    return lines;
+}
+
+// The startup document: a self-describing snippet with tabs (next-tab-stop
+// rendering) and one deliberately long line for horizontal scrolling.
+static const char dashboard_editor_sample[] =
+    "// wlx_editor showcase - click here and start typing.\n"
+    "//\n"
+    "// A windowed editor over a caller-owned buffer: only the visible\n"
+    "// lines are measured and drawn, so a 1,000,000-line document costs\n"
+    "// the same per frame as this snippet. Try: wheel and Shift+wheel,\n"
+    "// PageUp/PageDown, Ctrl+Home/End, double/triple click, drag-select\n"
+    "// past the edges, Tab, and Ctrl+C/X/V.\n"
+    "\n"
+    "#define WOLLIX_IMPLEMENTATION\n"
+    "#include \"wollix.h\"\n"
+    "\n"
+    "typedef struct {\n"
+    "\tchar    *bytes;   // caller-owned document\n"
+    "\tsize_t   len;     // authoritative length, in and out\n"
+    "\tuint32_t rev;     // bump after external mutations\n"
+    "} Document;\n"
+    "\n"
+    "static bool document_frame(WLX_Context *ctx, Document *doc, size_t cap) {\n"
+    "\t// The widget edits the buffer in place and returns true on change;\n"
+    "\t// doc->len is already updated when it does.\n"
+    "\treturn wlx_editor(ctx, NULL, doc->bytes, cap, &doc->len,\n"
+    "\t\t.line_numbers = true, .revision = doc->rev);\n"
+    "}\n"
+    "\n"
+    "// One long line to scroll into: the vertical thumb is exact from the line count, and the horizontal range opens as the window reaches deeper into the line ------------------------------------------------------------------------>\n";
+
+static void dashboard_editor_set_sample(Dashboard_Demo_State *st) {
+    size_t len = sizeof(dashboard_editor_sample) - 1;
+    memcpy(g_dashboard_editor_buf, dashboard_editor_sample, len + 1);
+    st->editor_len = len;
+    st->editor_lines = dashboard_editor_count_lines(g_dashboard_editor_buf, len);
+    st->editor_revision++;
+}
+
+// Generated numbered document (~30k lines) so the windowed frame cost shows
+// at document scale; every 100th line runs long so horizontal scrolling has
+// something to reach.
+static void dashboard_editor_generate(Dashboard_Demo_State *st, size_t target_lines) {
+    size_t off = 0;
+    for (size_t i = 0; i < target_lines; i++) {
+        int n = snprintf(g_dashboard_editor_buf + off, DASHBOARD_EDITOR_CAP - off,
+            "%u\tvalue = %u;", (unsigned)(i + 1), (unsigned)(i * 7u % 1000u));
+        if (n <= 0 || off + (size_t)n + 200 >= DASHBOARD_EDITOR_CAP) break;
+        off += (size_t)n;
+        if (i % 100 == 99) {
+            memset(g_dashboard_editor_buf + off, '-', 160);
+            off += 160;
+        }
+        g_dashboard_editor_buf[off++] = '\n';
+    }
+    g_dashboard_editor_buf[off] = '\0';
+    st->editor_len = off;
+    st->editor_lines = dashboard_editor_count_lines(g_dashboard_editor_buf, off);
+    st->editor_revision++;
+}
+
+// Prose document: every paragraph is one long hard line - unreadable
+// unwrapped, the wrapped mode's target workload. Loading it turns wrap on
+// (the toggle stays live, so flipping it back shows the same paragraphs as
+// single lines with horizontal scrolling).
+static void dashboard_editor_prose(Dashboard_Demo_State *st) {
+    static const char *sentences[] = {
+        "Wollix wraps hard lines into band-wide rows on demand, so the scroll "
+        "anchor is a line plus a row within it and nothing is measured beyond "
+        "the viewport.",
+        "The vertical thumb maps hard lines: exact when nothing wraps, a "
+        "documented approximation elsewhere, and the track end always lands "
+        "on the document's last row.",
+        "Vertical motion, hit tests, and caret-follow work in visual rows "
+        "with a row-relative sticky column, while HOME and END keep "
+        "whole-line semantics.",
+        "Resize the window and the rows reflow for free: no wrap geometry is "
+        "stored anywhere, so there is nothing to invalidate.",
+        "Each of these paragraphs is a single hard line in the buffer; the "
+        "line-number gutter marks only its first row.",
+    };
+    enum { PROSE_SENTENCES = 5, PROSE_PARAGRAPHS = 24 };
+    size_t off = 0;
+    for (int p = 0; p < PROSE_PARAGRAPHS; p++) {
+        int n = snprintf(g_dashboard_editor_buf + off, DASHBOARD_EDITOR_CAP - off,
+            "%d. ", p + 1);
+        if (n <= 0 || off + (size_t)n >= DASHBOARD_EDITOR_CAP) break;
+        off += (size_t)n;
+        for (int s = 0; s < 3; s++) {
+            const char *sentence = sentences[(p + s) % PROSE_SENTENCES];
+            size_t sentence_len = strlen(sentence);
+            if (off + sentence_len + 4 >= DASHBOARD_EDITOR_CAP) break;
+            memcpy(g_dashboard_editor_buf + off, sentence, sentence_len);
+            off += sentence_len;
+            g_dashboard_editor_buf[off++] = ' ';
+        }
+        g_dashboard_editor_buf[off++] = '\n';
+        g_dashboard_editor_buf[off++] = '\n';
+    }
+    g_dashboard_editor_buf[off] = '\0';
+    st->editor_len = off;
+    st->editor_lines = dashboard_editor_count_lines(g_dashboard_editor_buf, off);
+    st->editor_revision++;
+}
+
+static void dashboard_editor_seed_once(Dashboard_Demo_State *st) {
+    static bool seeded = false;
+    if (seeded) return;
+    seeded = true;
+    dashboard_editor_set_sample(st);
+}
+
+static void section_editor(WLX_Context *ctx, const Dashboard_Tokens *tk,
+                           const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
+                           float phase) {
+    (void)phase;
+    dashboard_editor_seed_once(st);
+
+    WLX_Font  body_font = dashboard_type_font(fonts, tk->type.body_md);
+    int       body_px   = dashboard_type_px(tk->type.body_md);
+    WLX_Font  mono_font = dashboard_type_font(fonts, tk->type.mono);
+    int       mono_px   = dashboard_type_px(tk->type.mono);
+
+    wlx_layout_begin(ctx, 3, WLX_VERT, .padding = 32, .gap = 24,
+        .sizes = (WLX_Slot_Size[]){
+            WLX_SLOT_PX(dashboard_header_h(tk)),
+            WLX_SLOT_PX(dashboard_module_h(500)),    // live editor
+            WLX_SLOT_PX(dashboard_module_h(104)) }); // buffer contract notes
+
+        dashboard_section_header(ctx, tk, fonts, "Editor",
+            "wlx_editor: a windowed text editor over a caller-owned buffer - unwrapped for code, wrapped rows for prose.");
+
+        dashboard_demo_module(ctx, tk, fonts, "Code Editor");
+            wlx_layout_begin(ctx, 3, WLX_VERT, .gap = 12,
+                .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(36), WLX_SLOT_FLEX(1), WLX_SLOT_PX(16) });
+
+                // Controls: document pickers (out-of-widget buffer swaps that
+                // showcase the .revision guard) and live option toggles.
+                wlx_layout_begin(ctx, 7, WLX_HORZ, .gap = 12, .id = "ed-controls",
+                    .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(130), WLX_SLOT_PX(150),
+                                                WLX_SLOT_PX(120), WLX_SLOT_PX(150),
+                                                WLX_SLOT_PX(130), WLX_SLOT_PX(100),
+                                                WLX_SLOT_FLEX(1) });
+                    if (wlx_button(ctx, "Sample doc", .id = "ed-sample", .height = 36,
+                            .back_color = tk->color.accent, .front_color = tk->color.on_accent,
+                            .roundness = 0.15f, .font = body_font, .font_size = body_px,
+                            .align = WLX_CENTER)) {
+                        dashboard_editor_set_sample(st);
+                        dashboard_log_emit(DASH_LOG_INFO, "Editor: sample document loaded");
+                    }
+                    if (wlx_button(ctx, "Generate 30k lines", .id = "ed-generate", .height = 36,
+                            .back_color = tk->color.surface_variant, .front_color = tk->color.on_surface,
+                            .border_color = tk->color.field_border, .border_width = 1.0f,
+                            .roundness = 0.15f, .font = body_font, .font_size = body_px,
+                            .align = WLX_CENTER)) {
+                        dashboard_editor_generate(st, 30000);
+                        dashboard_log_emit(DASH_LOG_INFO, "Editor: generated 30k-line document");
+                    }
+                    if (wlx_button(ctx, "Prose doc", .id = "ed-prose", .height = 36,
+                            .back_color = tk->color.surface_variant, .front_color = tk->color.on_surface,
+                            .border_color = tk->color.field_border, .border_width = 1.0f,
+                            .roundness = 0.15f, .font = body_font, .font_size = body_px,
+                            .align = WLX_CENTER)) {
+                        dashboard_editor_prose(st);
+                        st->editor_wrap = true;
+                        dashboard_log_emit(DASH_LOG_INFO,
+                            "Editor: prose document loaded, wrap on");
+                    }
+                    wlx_toggle(ctx, "Line numbers", &st->editor_line_numbers, .id = "ed-gutter",
+                        .height = 36, .font = body_font, .font_size = body_px);
+                    wlx_toggle(ctx, "Read only", &st->editor_read_only, .id = "ed-ro",
+                        .height = 36, .font = body_font, .font_size = body_px);
+                    wlx_toggle(ctx, "Wrap", &st->editor_wrap, .id = "ed-wrap",
+                        .height = 36, .font = body_font, .font_size = body_px);
+                    // Trailing flex spacer left empty.
+                wlx_layout_end(ctx);
+
+                // The editor: mono face, exact vertical scrollbar (approximate
+                // while wrapped), horizontal scrolling into the long lines when
+                // unwrapped and band-wide rows when wrapped, tab stops, gutter.
+                if (wlx_editor(ctx, NULL, g_dashboard_editor_buf, DASHBOARD_EDITOR_CAP,
+                        &st->editor_len, .id = "ed-editor",
+                        .content_padding = 6, .font = mono_font, .font_size = mono_px,
+                        .back_color = tk->color.field, .border_color = tk->color.field_border,
+                        .border_width = 1.0f, .roundness = 0,
+                        .border_focus_color = dash_accent_fg(tk), .cursor_color = dash_accent_fg(tk),
+                        .line_numbers = st->editor_line_numbers,
+                        .read_only = st->editor_read_only,
+                        .wrap = st->editor_wrap,
+                        .revision = st->editor_revision)) {
+                    st->editor_lines = dashboard_editor_count_lines(
+                        g_dashboard_editor_buf, st->editor_len);
+                }
+
+                char ed_stats[96];
+                snprintf(ed_stats, sizeof(ed_stats),
+                    "%u lines - %u of %u KB - revision %u",
+                    (unsigned)st->editor_lines,
+                    (unsigned)(st->editor_len / 1024u),
+                    (unsigned)(DASHBOARD_EDITOR_CAP / 1024u),
+                    (unsigned)st->editor_revision);
+                dashboard_caption(ctx, tk, fonts, ed_stats);
+            wlx_layout_end(ctx);
+        dashboard_demo_module_end(ctx);
+
+        dashboard_demo_module(ctx, tk, fonts, "Buffer Contract");
+            wlx_layout_begin(ctx, 5, WLX_VERT, .gap = 6,
+                .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(16), WLX_SLOT_PX(16),
+                                            WLX_SLOT_PX(16), WLX_SLOT_PX(16),
+                                            WLX_SLOT_PX(16) });
+                dashboard_caption(ctx, tk, fonts,
+                    "Caller-owned buffer with an explicit length in/out; the trailing NUL is opportunistic.");
+                dashboard_caption(ctx, tk, fonts,
+                    "Only the visible window is measured and drawn - frame cost is O(viewport) at any size.");
+                dashboard_caption(ctx, tk, fonts,
+                    "Wheel / Shift+wheel scroll both axes; PageUp/PageDown page the caret; Tab renders at next-tab-stops.");
+                dashboard_caption(ctx, tk, fonts,
+                    "Wrap breaks hard lines into band-wide rows: row-based motion, no sideways scrolling, and a hard-line thumb (a documented approximation).");
+                dashboard_caption(ctx, tk, fonts,
+                    "The document pickers above mutate the buffer outside the widget and bump .revision to rebuild the line index.");
             wlx_layout_end(ctx);
         dashboard_demo_module_end(ctx);
     wlx_layout_end(ctx);
@@ -2279,6 +2562,11 @@ static Dashboard_Demo_State g_dashboard_demo = {
     .comp_progress     = 0.45f,
     .comp_name         = "Ada Lovelace",
     .comp_email        = "ada@wollix.dev",
+    .comp_password     = "hunter2",
+    .comp_token        = "WLX-TOKEN-4242",
+    .comp_notes        = "Multiline notes field.\nEnter adds a line; Escape leaves.",
+
+    .editor_line_numbers = true,
 
     .idstack_enabled = { true, false, true, false },
     .idstack_values  = { 0.3f, 0.6f, 0.45f, 0.8f },
@@ -2305,6 +2593,7 @@ static void dashboard_parse_args(int argc, char **argv) {
         else if (strcmp(argv[a], "overview") == 0)   g_dashboard_demo.current_view = DASHBOARD_VIEW_OVERVIEW;
         else if (strcmp(argv[a], "tokens") == 0)     g_dashboard_demo.current_view = DASHBOARD_VIEW_TOKENS;
         else if (strcmp(argv[a], "components") == 0) g_dashboard_demo.current_view = DASHBOARD_VIEW_COMPONENTS;
+        else if (strcmp(argv[a], "editor") == 0)     g_dashboard_demo.current_view = DASHBOARD_VIEW_EDITOR;
         else if (strcmp(argv[a], "layouts") == 0)    g_dashboard_demo.current_view = DASHBOARD_VIEW_LAYOUTS;
         else if (strcmp(argv[a], "theme-lab") == 0 ||
                  strcmp(argv[a], "themelab") == 0)   g_dashboard_demo.current_view = DASHBOARD_VIEW_THEME_LAB;
@@ -2489,13 +2778,23 @@ static void dashboard_raylib_measure_text_slice(const char *text, size_t len, WL
                                                 float *out_w, float *out_h) {
     wlx_raylib_measure_text_slice(text, len, dashboard_raylib_scale_style(style), out_w, out_h);
 }
+static size_t dashboard_raylib_measure_text_advances(const char *text, size_t len,
+                                                     WLX_Text_Style style,
+                                                     const size_t *unit_ends, size_t unit_count,
+                                                     float *out_advances) {
+    return wlx_raylib_measure_text_advances(text, len, dashboard_raylib_scale_style(style),
+                                            unit_ends, unit_count, out_advances);
+}
 
-// raylib has no draw_text_slice (the core falls back to draw_text), so the three
-// installed text paths cover both draw and measure.
+// raylib has no draw_text_slice (the core falls back to draw_text), so the four
+// installed text paths cover both draw and measure. measure_text_advances must
+// scale identically to the slice measure: the editor retains its results as
+// caret/hit-test/fit geometry against text drawn at the scaled size.
 static void dashboard_raylib_install_text_scale(WLX_Context *ctx) {
-    ctx->backend.draw_text          = dashboard_raylib_draw_text;
-    ctx->backend.measure_text       = dashboard_raylib_measure_text;
-    ctx->backend.measure_text_slice = dashboard_raylib_measure_text_slice;
+    ctx->backend.draw_text              = dashboard_raylib_draw_text;
+    ctx->backend.measure_text           = dashboard_raylib_measure_text;
+    ctx->backend.measure_text_slice     = dashboard_raylib_measure_text_slice;
+    ctx->backend.measure_text_advances  = dashboard_raylib_measure_text_advances;
 }
 
 static bool dashboard_platform_init(void) {

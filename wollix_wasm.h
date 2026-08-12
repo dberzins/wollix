@@ -266,6 +266,15 @@ extern void wlx_wasm_import_measure_text_slice(
     const char *text, uint32_t len, uintptr_t font, int font_size,
     float *out_w, float *out_h);
 
+// Batched cumulative advances: the host fills out[i] with the canvas width
+// of the run prefix [0, unit_ends[i]) for each of unit_count strictly
+// increasing byte ends (size_t == uint32 on wasm32) and returns the number
+// filled - one boundary crossing per chunk instead of one per unit.
+WLX_WASM_IMPORT("measure_text_advances")
+extern uint32_t wlx_wasm_import_measure_text_advances(
+    const char *text, uint32_t len, uintptr_t font, int font_size,
+    const size_t *unit_ends, uint32_t unit_count, float *out_advances);
+
 WLX_WASM_IMPORT("draw_texture")
 extern void wlx_wasm_import_draw_texture(
     uintptr_t handle, float sx, float sy, float sw, float sh,
@@ -290,6 +299,15 @@ extern void wlx_wasm_import_end_scissor(void);
 
 WLX_WASM_IMPORT("get_frame_time")
 extern float wlx_wasm_import_get_frame_time(void);
+
+// Clipboard transport. clipboard_get_into copies the host's cached clipboard
+// string into buf (up to cap bytes, UTF-8-boundary safe) and returns the byte
+// count. clipboard_set copies a (text, len) span to the host clipboard cache.
+WLX_WASM_IMPORT("clipboard_get_into")
+extern uint32_t wlx_wasm_import_clipboard_get_into(char *buf, uint32_t cap);
+
+WLX_WASM_IMPORT("clipboard_set")
+extern void wlx_wasm_import_clipboard_set(const char *text, uint32_t len);
 
 #if defined(WLX_PERF) && defined(WLX_WASM_PERF_TIMESTAMP)
 WLX_WASM_IMPORT("perf_now_ns")
@@ -537,6 +555,24 @@ static inline void wlx_wasm_measure_text_slice(
 #endif
 }
 
+static inline size_t wlx_wasm_measure_text_advances(
+        const char *text, size_t len, WLX_Text_Style style,
+        const size_t *unit_ends, size_t unit_count, float *out_advances) {
+    if (text == NULL || unit_ends == NULL || out_advances == NULL || unit_count == 0)
+        return 0;
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
+#endif
+    WLX_WASM_PERF_INC(measure_text_calls);
+    uint32_t filled = wlx_wasm_import_measure_text_advances(
+        text, (uint32_t)len, style.font, style.font_size,
+        unit_ends, (uint32_t)unit_count, out_advances);
+#ifdef WLX_PERF
+    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.text_measure_ns);
+#endif
+    return (size_t)filled;
+}
+
 static inline void wlx_wasm_draw_texture(
         WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
 #ifdef WLX_PERF
@@ -598,6 +634,20 @@ static inline float wlx_wasm_get_frame_time(void) {
     return wlx_wasm_import_get_frame_time();
 }
 
+static char wlx_wasm_clipboard_buf[1024];
+
+static inline const char *wlx_wasm_clipboard_get(void) {
+    uint32_t n = wlx_wasm_import_clipboard_get_into(
+        wlx_wasm_clipboard_buf, (uint32_t)(sizeof(wlx_wasm_clipboard_buf) - 1));
+    if (n >= sizeof(wlx_wasm_clipboard_buf)) n = sizeof(wlx_wasm_clipboard_buf) - 1;
+    wlx_wasm_clipboard_buf[n] = '\0';
+    return wlx_wasm_clipboard_buf;
+}
+
+static inline void wlx_wasm_clipboard_set(const char *text, size_t len) {
+    wlx_wasm_import_clipboard_set(text, (uint32_t)len);
+}
+
 // ============================================================================
 // Backend factory
 // ============================================================================
@@ -619,6 +669,9 @@ static inline WLX_Backend wlx_backend_wasm(void) {
         .get_frame_time    = wlx_wasm_get_frame_time,
         .draw_text_slice    = wlx_wasm_draw_text_slice,
         .measure_text_slice = wlx_wasm_measure_text_slice,
+        .measure_text_advances = wlx_wasm_measure_text_advances,
+        .clipboard_get     = wlx_wasm_clipboard_get,
+        .clipboard_set     = wlx_wasm_clipboard_set,
     };
 }
 
@@ -631,6 +684,16 @@ static inline WLX_Backend wlx_backend_wasm(void) {
 // wlx_wasm_input_state so JS can cache it on init.
 
 extern WLX_Input_State wlx_wasm_input_state;
+
+// The JS host (web/wollix_wasm.js INPUT_OFFSETS) writes input fields at these
+// fixed byte offsets. Lock them here so any change to WLX_Input_State or
+// WLX_KEY_COUNT fails the build until the JS table is updated to match.
+_Static_assert(offsetof(WLX_Input_State, keys_down)     == 16,  "WASM INPUT_OFFSETS.keys_down out of sync");
+_Static_assert(offsetof(WLX_Input_State, keys_pressed)  == 67,  "WASM INPUT_OFFSETS.keys_pressed out of sync");
+_Static_assert(offsetof(WLX_Input_State, text_input)    == 118, "WASM INPUT_OFFSETS.text_input out of sync");
+_Static_assert(offsetof(WLX_Input_State, keys_repeated) == 150, "WASM INPUT_OFFSETS.keys_repeated out of sync");
+_Static_assert(offsetof(WLX_Input_State, modifiers)     == 204, "WASM INPUT_OFFSETS.modifiers out of sync");
+_Static_assert(sizeof(WLX_Input_State)                  == 208, "WASM INPUT_SIZE out of sync");
 
 static inline WLX_Input_State *wlx_wasm_get_input_ptr(void) {
     return &wlx_wasm_input_state;

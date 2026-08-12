@@ -1,7 +1,7 @@
 /*
  * wollix.h - Woven layouts for C.
  *
- * Version: 0.6.0  (WOLLIX_VERSION / WLX_VERSION)
+ * Version: 0.7.0  (WOLLIX_VERSION / WLX_VERSION)
  *
  * Copyright (c) 2026 Dainis Berzins
  * Licensed under the MIT License. See LICENSE file for full text.
@@ -105,6 +105,31 @@
  * WLX_TEXT_RUN_MAX_UNITS  (default 512)
  *     Maximum text units (codepoints or fallback bytes) processed in a single text-layout run.
  *
+ * WLX_TEXT_RUN_MAX_LINES  (default 128)
+ *     Maximum visual lines produced by a single text-layout run.
+ *
+ * WLX_INPUTBOX_MULTILINE_MAX_UNITS  (default 4096)
+ * WLX_INPUTBOX_MULTILINE_MAX_LINES  (default 512)
+ *     Text-run budget for multiline inputbox geometry (caret, hit-test,
+ *     selection, scroll, draw). Content beyond the budget stays in the
+ *     buffer but drops out of geometry.
+ *
+ * WLX_EDITOR_MAX_LINE_UNITS  (default 1024)
+ *     Per-record text-unit budget for truncate-and-continue line builds.
+ *     A safety cap on the units any single window record measures, not a
+ *     horizontal reach limit: the editor's no-wrap geometry re-enters a
+ *     line longer than the budget at a measure origin near the view, so
+ *     caret, view, and edits reach every byte of every line. Wrapped
+ *     lines share one budget across their rows and freeze past it.
+ *
+ * WLX_EDITOR_ORIGIN_BACKSCAN  (default 64)
+ *     How far (bytes) a no-wrap re-entry origin scans backward to prefer
+ *     the boundary just after a space over an arbitrary unit boundary.
+ *
+ * WLX_TEXT_ADVANCES_CHUNK  (default 256)
+ *     Maximum text units filled per WLX_Backend.measure_text_advances
+ *     call. Consecutive chunks splice by adding the running base advance.
+ *
  * WLX_STYLE_ROW_HEIGHT / WLX_STYLE_BUTTON_HEIGHT / WLX_STYLE_INPUT_HEIGHT
  * WLX_STYLE_HEADING_FONT_SIZE / WLX_STYLE_BORDER_WIDTH
  * WLX_STYLE_ROUNDNESS / WLX_STYLE_CONTENT_PADDING
@@ -154,10 +179,11 @@
 #ifndef WOLLIX_H_
 #define WOLLIX_H_
 
-#define WOLLIX_VERSION "0.6.0"
+#define WOLLIX_VERSION "0.7.0"
 #define WLX_VERSION WOLLIX_VERSION
 
 #include <stdint.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -172,6 +198,16 @@
 //   #define WLXDEF static
 #ifndef WLXDEF
 #define WLXDEF
+#endif
+
+// Core helpers whose only callers live in an extension header (e.g.
+// wollix_editor.h) compile unused in translation units that include the
+// core alone; the attribute keeps those TUs warning-clean without
+// weakening -Wunused-function for genuinely dead code.
+#if defined(__GNUC__) || defined(__clang__)
+#define WLX_EXTENSION_USED __attribute__((unused))
+#else
+#define WLX_EXTENSION_USED
 #endif
 
 #ifdef WLX_PERF
@@ -429,6 +465,35 @@ typedef struct {
     float (*get_frame_time)(void);
     void (*draw_text_slice)(const char *text, size_t len, float x, float y, WLX_Text_Style style);
     void (*measure_text_slice)(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h);
+    // Optional batched advance measurement: fill out_advances[i] with the
+    // cumulative advance width in pixels of the prefix [0, unit_ends[i]) of
+    // one text run, for every i < unit_count, and return the number of
+    // leading entries filled (a partial fill is valid; the core falls back
+    // to per-unit prefix measures for the rest). NULL -> the core measures
+    // per-unit prefixes through measure_text_slice.
+    //
+    // The run (text, len) is a single-style, single-line span with no tabs
+    // when tab expansion is active (the core splits at tabs and applies
+    // next-tab-stop rounding between segments itself). unit_ends is
+    // strictly increasing with unit_ends[unit_count - 1] == len; the core
+    // derives the unit policy (UTF-8 codepoints, malformed bytes as
+    // one-byte units), so backends never re-implement it - they walk their
+    // own glyph/cluster geometry and report the advance at (or snapped to
+    // the nearest cluster edge after) each requested byte end. Reported
+    // advances should be non-decreasing; the core clamps regardless.
+    //
+    // Runs are capped at WLX_TEXT_ADVANCES_CHUNK units. Consecutive chunks
+    // of one line are spliced by adding the previous chunk's final advance,
+    // so shaping context does not carry across a chunk boundary - the same
+    // documented approximation class as a tab stop inside a line.
+    //
+    // Apps that decorate the backend's text callbacks (style transforms
+    // such as a font-size scale) must decorate this one identically to
+    // draw/measure: its results are retained as caret, hit-test, and fit
+    // geometry against text drawn through the decorated draw path.
+    size_t (*measure_text_advances)(const char *text, size_t len, WLX_Text_Style style,
+                                    const size_t *unit_ends, size_t unit_count,
+                                    float *out_advances); /* optional */
     // Optional soft-effect callbacks: NULL -> software fallback (layered rects /
     // concentric rings). rect is the element rect (not grown); color already has
     // effective opacity applied; roundness and rounded_segs come from the element.
@@ -441,6 +506,14 @@ typedef struct {
     // roundness = 0 means sharp rect, > 0 with rounded_segs for rounding.
     void (*draw_gradient_v)(WLX_Rect rect, WLX_Color top, WLX_Color bottom,
                             float roundness, int rounded_segs); /* optional */
+    // Optional clipboard transport. clipboard_get returns the current system
+    // clipboard text as a borrowed, NUL-terminated UTF-8 string owned by the
+    // backend and valid only until the next clipboard call or end of frame; the
+    // core copies out immediately. clipboard_set copies the (text, len) span to
+    // the system clipboard and must not retain the pointer. Either NULL ->
+    // clipboard operations are safe no-ops.
+    const char *(*clipboard_get)(void); /* optional */
+    void (*clipboard_set)(const char *text, size_t len); /* optional */
 } WLX_Backend;
 
 // ============================================================================
@@ -557,8 +630,25 @@ typedef enum {
     WLX_KEY_Q, WLX_KEY_R, WLX_KEY_S, WLX_KEY_T, WLX_KEY_U, WLX_KEY_V, WLX_KEY_W, WLX_KEY_X,
     WLX_KEY_Y, WLX_KEY_Z,
     WLX_KEY_0, WLX_KEY_1, WLX_KEY_2, WLX_KEY_3, WLX_KEY_4, WLX_KEY_5, WLX_KEY_6, WLX_KEY_7, WLX_KEY_8, WLX_KEY_9,
+    WLX_KEY_DELETE,
+    WLX_KEY_HOME,
+    WLX_KEY_END,
+    WLX_KEY_PAGE_UP,
+    WLX_KEY_PAGE_DOWN,
     WLX_KEY_COUNT
 } WLX_Key_Code;
+
+// Modifier-key state as an orthogonal bitfield (not WLX_Key_Code entries):
+// modifiers qualify other keys rather than acting as glyph/navigation
+// actuations. Backends set WLX_Input_State.modifiers fresh each frame; query
+// with wlx_mod_down(). Editing shortcuts use wlx_mod_command_down(), which
+// resolves to SUPER (Cmd) on Apple platforms and CTRL elsewhere.
+typedef enum {
+    WLX_MOD_SHIFT = 1 << 0,
+    WLX_MOD_CTRL  = 1 << 1,
+    WLX_MOD_ALT   = 1 << 2,
+    WLX_MOD_SUPER = 1 << 3,
+} WLX_Key_Mod;
 
 // ============================================================================
 // Core state and context types
@@ -575,6 +665,12 @@ typedef struct {
     bool keys_pressed[WLX_KEY_COUNT];  // true for one frame when key pressed
     char text_input[32];    // text input this frame (for typing)
 
+    // New fields are appended after text_input so the byte offsets of the
+    // arrays above stay put for the WASM host. The WASM JS INPUT_OFFSETS table
+    // still recomputes against this layout because WLX_KEY_COUNT sizes the key
+    // arrays.
+    bool keys_repeated[WLX_KEY_COUNT]; // true on each OS auto-repeat tick (in addition to keys_pressed on first press)
+    uint32_t modifiers;                // active WLX_Key_Mod bits this frame
 } WLX_Input_State;
 
 // Persistent state for layouts that contain WLX_SIZE_CONTENT slots.
@@ -1035,9 +1131,49 @@ typedef struct {
     size_t capacity;
 } WLX_Layout_Stack;
 
+// Shared caret/selection/gesture state for text-editing widgets. POD; the
+// zero value is the default state. Embedded FIRST in each widget state so
+// the zero-fill contract of wlx_get_state_impl covers it unchanged.
 typedef struct {
+    // Selection covers [min(anchor, cursor_pos), max(anchor, cursor_pos));
+    // empty when both are equal. The anchor is the fixed end, the cursor the
+    // moving end. Both are byte offsets into the widget's plain text.
     size_t cursor_pos;
+    size_t selection_anchor;
     float cursor_blink_time;
+    // Mouse selection: true while the press that started inside the field is
+    // still held, so dragging keeps extending the selection.
+    bool mouse_selecting;
+    // Multi-click detection: seconds accumulated since the previous click,
+    // the text offset it landed on, and the running click count (1 = caret,
+    // 2 = word, 3 = select all).
+    float last_click_time;
+    size_t last_click_pos;
+    int click_count;
+    // Sticky column for UP/DOWN caret motion: the x position the caret aims
+    // for on vertical moves, so traversing a shorter line does not lose the
+    // column. Valid until the next horizontal caret change; the
+    // vertical-motion path is the only setter.
+    float preferred_x;
+    bool preferred_x_valid;
+    // Previous frame's caret offset: caret-follow compares against it to
+    // detect motion and keep the caret inside the view.
+    size_t prev_cursor_pos;
+    // Scrollbar thumb drag gesture (primary axis).
+    bool dragging_scrollbar;
+    float sb_drag_offset;  // pointer offset from thumb start at drag start
+} WLX_Text_Edit_State;
+
+typedef struct {
+    WLX_Text_Edit_State caret;
+    // Vertical scroll (multiline): pixels of content hidden above the text
+    // band, clamped to [0, content_h - band_h]. Wheel scrolling moves the
+    // view alone; caret-follow drags it back to the caret line.
+    float scroll_y;
+    // Scrollbar visibility of the previous frame: seeds the wrap-mode
+    // probe-width prediction for the line build, so a steadily overflowing
+    // field pays one build per frame instead of two.
+    bool sb_was_visible;
 } WLX_Inputbox_State;
 
 typedef struct WLX_Scroll_Panel_State {
@@ -1071,6 +1207,103 @@ typedef struct {
     size_t count;     // number of occupied slots
     size_t capacity;  // always power of 2 (slot array length)
 } WLX_State_Map;
+
+// Retained line-geometry entry: the per-unit prefix advances one hard
+// line's build measured, kept across frames so unchanged lines rebuild
+// their window records without backend measure calls. Keyed by the
+// line's absolute byte span; offsets inside the entry are relative to
+// line_start, so a widget edit shifts the key without touching the
+// arrays. A key that no longer matches the live line index is a miss:
+// the entry is dropped and rebuilt, never trusted.
+typedef struct {
+    size_t line_start;      // absolute hard line start (key)
+    size_t line_next;       // absolute start of the next hard line, or the
+                            // document length for the last line (key)
+    uint32_t lru;           // last-touch stamp for eviction
+    bool used;
+    // No-wrap measure origin: the byte the stored advances are measured
+    // from (0 = the line start), and the frozen content-space x of that
+    // byte. On a line wider than the unit budget can reach, the origin
+    // re-anchors near the view instead of the line start; tab stops
+    // restart at the origin, the rule wrapped rows already apply at row
+    // starts. origin_x is exact at 0, carried exactly across stitched
+    // origin moves, and an average-advance estimate only after a far
+    // jump onto unmeasured content - the documented x-space
+    // approximation (byte offsets stay exact everywhere).
+    uint32_t origin_rel;
+    float origin_x;
+    // Measured units in scan order. unit_ends[i] is the byte end of unit i
+    // relative to line_start; advances[i] the measured prefix width from
+    // the owning record's start (the origin unwrapped, the row start
+    // wrapped); heights[i] the measured prefix height.
+    size_t units;
+    size_t unit_cap;
+    uint32_t *unit_ends;
+    float *advances;
+    float *heights;
+    uint32_t scan_rel;      // next unmeasured byte, relative to line_start
+    uint32_t first_tab_rel; // first '\t' in [origin_rel, scan_rel);
+                            // UINT32_MAX = none
+    bool complete;          // the scan reached the line's separator or EOF
+    // Wrapped-row table: row r spans units [row_units[r], row_units[r+1])
+    // (the last row ends at units). Unused in no-wrap mode.
+    size_t rows;
+    size_t row_cap;
+    uint32_t *row_units;
+} WLX_Text_Geom_Entry;
+
+// Measurement environment the retained geometry is valid for; any change
+// clears the store (entries are cheap to rebuild, wrong geometry is not).
+// Horizontal reach is deliberately not part of the key: no-wrap entries
+// extend in place as the view scrolls deeper into a line.
+typedef struct {
+    WLX_Font font;
+    int font_size;
+    int spacing;
+    float tab_advance;
+    float band_w;
+    float line_h;
+    bool wrap;
+} WLX_Text_Geom_Env;
+
+// Per-editor retained geometry store: a bounded, LRU-evicted set of line
+// entries sized from the viewport. Allocations grow and are reused, never
+// freed per frame, so steady-state frames allocate nothing.
+typedef struct {
+    WLX_Text_Geom_Entry *entries;
+    size_t count;        // allocated slots in entries
+    size_t want_cap;     // sizing target from the current viewport
+    uint32_t lru_clock;
+    WLX_Text_Geom_Env env;
+    bool env_seen;
+    // Last measured average unit advance across all entries (sticky,
+    // survives clears): the far-jump origin estimate needs a unit width
+    // before any unit of the target span is measured.
+    float avg_advance;
+} WLX_Text_Geom_Store;
+
+// Editor line index: byte offsets of every hard line start of one editor's
+// document, keyed by widget id. offsets[0] is always 0; a document ending in
+// a newline separator owns a trailing empty line starting at the document
+// length; count is the document line count (an empty document is one empty
+// line). Context-owned, rebuilt by a newline scan when the per-frame guard
+// detects a document change, freed with the context. Also home of the
+// retained line-geometry store, which follows the index's document
+// identity.
+typedef struct {
+    size_t id;        // widget id
+    size_t *offsets;  // hard line start offsets, count entries
+    size_t count;
+    size_t cap;
+    uint32_t rebuilds; // total rebuild count (guard/idle instrumentation)
+    WLX_Text_Geom_Store geom;
+} WLX_Editor_Line_Index;
+
+typedef struct {
+    WLX_Editor_Line_Index *items;
+    size_t count;
+    size_t capacity;
+} WLX_Editor_Line_Index_Cache;
 
 // ID stack for loop disambiguation - use wlx_push_id()/wlx_pop_id()
 typedef struct {
@@ -1222,6 +1455,7 @@ typedef struct {
     struct {
         WLX_Color border_focus;  // {0} -> derive from accent
         WLX_Color cursor;        // {0} -> use foreground
+        WLX_Color selection;     // {0} -> derive from accent (translucent)
         float     border_width;  // 0 -> use global border_width
     } input;
 
@@ -1320,6 +1554,7 @@ typedef struct WLX_Context {
         size_t hot_id;
         size_t active_id;
         bool   active_id_seen; // true if any widget matched active_id this frame
+        bool   enter_consumed; // Enter already used this frame (focus blur or newline insert); blocks keyboard activation
     } interaction;
 
     // Per-frame buffer pool. Owns layouts, commands, cmd_ranges, scratch,
@@ -1327,6 +1562,17 @@ typedef struct WLX_Context {
     WLX_Arena_Pool arena;
 
     WLX_State_Map states;
+
+    // Text line-record scratch: one context-owned, lazily grown buffer that
+    // the inputbox geometry build borrows each frame instead of stacking its
+    // own array. Single borrower at a time (never lend it across a nested
+    // text-layout call). Freed in wlx_context_destroy.
+    struct WLX_Text_Line_Record *text_line_scratch;
+    size_t text_line_scratch_cap;  // capacity in records
+
+    // Per-editor line indices (one entry per editor widget id). Freed in
+    // wlx_context_destroy.
+    WLX_Editor_Line_Index_Cache editor_indices;
 
     // Auto scroll panel content height tracking
     struct {
@@ -1406,9 +1652,10 @@ static inline float *wlx_grid_row_content_heights(const WLX_Context *ctx, const 
 typedef enum {
     WLX_INTERACT_HOVER       = 1 << 0,  // Hover detection (sets hot_id)
     WLX_INTERACT_CLICK       = 1 << 1,  // Click-to-activate (button-like: press, release while hovering = clicked)
-    WLX_INTERACT_FOCUS       = 1 << 2,  // Click-to-focus (input-like: stays focused until click elsewhere or enter)
+    WLX_INTERACT_FOCUS       = 1 << 2,  // Click-to-focus (input-like: stays focused until click elsewhere, Escape, or Enter (unless FOCUS_HOLD_ENTER))
     WLX_INTERACT_DRAG        = 1 << 3,  // Click-to-drag (slider-like: active while mouse held after click)
     WLX_INTERACT_KEYBOARD    = 1 << 4,  // Keyboard activation (space/enter when hot triggers clicked)
+    WLX_INTERACT_FOCUS_HOLD_ENTER = 1 << 5,  // Modifies FOCUS: Enter does not blur (multiline input); inert without FOCUS
 } WLX_Interact_Flags;
 
 typedef struct {
@@ -1472,6 +1719,24 @@ WLXDEF float wlx_get_scroll_panel_offset(WLX_Context *ctx);
 
 WLXDEF bool wlx_is_key_down(WLX_Context *ctx, WLX_Key_Code key);
 WLXDEF bool wlx_is_key_pressed(WLX_Context *ctx, WLX_Key_Code key);
+// True when the key edged this frame OR fired an OS auto-repeat tick. Edit and
+// navigation widgets use this so held keys (backspace, delete, arrows) repeat.
+WLXDEF bool wlx_is_key_actuated(WLX_Context *ctx, WLX_Key_Code key);
+// True when all WLX_Key_Mod bits in mask are active this frame.
+WLXDEF bool wlx_mod_down(WLX_Context *ctx, uint32_t mask);
+// True when the platform "command" modifier for editing shortcuts is down:
+// SUPER (Cmd) on Apple platforms, CTRL elsewhere.
+WLXDEF bool wlx_mod_command_down(WLX_Context *ctx);
+// Set the system clipboard to a UTF-8 byte span. No-op when the backend
+// installs no clipboard_set hook. The hook copies the bytes; it never retains
+// the caller's pointer.
+WLXDEF void wlx_clipboard_set_text(WLX_Context *ctx, const char *text, size_t len);
+// Copy the system clipboard text into out (NUL-terminated), truncated to
+// out_size on a UTF-8 codepoint boundary. Returns the number of bytes written
+// (excluding the NUL). Zero when no clipboard_get hook is installed or the
+// clipboard is empty. The hook returns a borrowed pointer; this copies out of
+// it immediately.
+WLXDEF size_t wlx_clipboard_get_copy(WLX_Context *ctx, char *out, size_t out_size);
 // Float-precision point-in-rect test on a WLX_Rect; the canonical geometry
 // query. wlx_point_in_rect is the legacy int-based shim around it.
 WLXDEF bool wlx_rect_contains(WLX_Rect r, float px, float py);
@@ -1975,13 +2240,9 @@ typedef struct {
     // Sizing
     WLX_WIDGET_SIZING_FIELDS;
 
-    // Fill. `.color` is a deprecated alias of `.back_color` (renamed in the
-    // v0.6 group for cross-widget consistency); both names address the same
-    // storage. The alias is removed one minor version after 0.6.
-    union {
-        WLX_Color back_color;
-        WLX_Color color;   // deprecated: use back_color
-    };
+    // Fill (renamed from `.color` in the v0.6 group for cross-widget
+    // consistency; the deprecated alias was removed in v0.7).
+    WLX_Color back_color;
 
     // Border
     WLX_BORDER_FIELDS;
@@ -2284,6 +2545,7 @@ typedef struct {
     WLX_BORDER_FIELDS;
     WLX_Color border_focus_color;
     WLX_Color cursor_color;
+    WLX_Color selection_color;   // {0} -> theme->input.selection
 
     // Optional icon rendered INSIDE the field frame, on the leading or
     // trailing interior edge. .texture = {0} means text-only (inert; existing
@@ -2306,6 +2568,27 @@ typedef struct {
     // Optional out-param: receives this frame's focus state (the pre-v0.6
     // return value). NULL = not reported.
     bool *out_focused;
+
+    // Password mode: renders one mask character per codepoint while the
+    // buffer keeps the plaintext. Forces single-line (wrap off) and
+    // suppresses copy/cut so the plaintext cannot leave the field.
+    bool password;
+
+    // Read-only mode: the field stays focusable, selectable, and copyable,
+    // but every mutation (typing, delete, cut, paste) is rejected. Distinct
+    // from .disabled: no interaction lockout and no dimmed rendering.
+    bool read_only;
+
+    // Multiline mode: Enter inserts a newline at the caret and keeps focus;
+    // Escape or a click elsewhere blurs. Excluded by .password (masked
+    // fields are always single-line). Composes with .read_only: the field
+    // keeps focus on Enter but the insert is rejected.
+    bool multiline;
+
+    // Multiline scrollbar: draw a draggable vertical scrollbar while the
+    // content overflows the field (multiline only; inert otherwise).
+    // false keeps wheel and caret-follow scrolling without the affordance.
+    bool show_scrollbar;
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
@@ -2330,6 +2613,7 @@ typedef struct {
         WLX_BORDER_DEFAULTS, \
         .border_focus_color = {0}, \
         .cursor_color = {0}, \
+        .selection_color = {0}, \
         /* Icon content (inert by default) */ \
         .texture = {0}, \
         .texture_src = {0}, \
@@ -2338,11 +2622,22 @@ typedef struct {
         .image_size = 0, \
         .image_text_gap = -1, \
         .out_focused = NULL, \
+        .password = false, \
+        .read_only = false, \
+        .multiline = false, \
+        .show_scrollbar = true, \
         __VA_ARGS__ \
     }
 
 WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_size, WLX_Inputbox_Opt opt, const char *file, int line);
 #define wlx_inputbox(ctx, label, buffer, buffer_size, ...) wlx_inputbox_impl((ctx), (label), (buffer), (buffer_size), wlx_default_inputbox_opt(__VA_ARGS__), __FILE__, __LINE__)
+
+// Multiline sugar over wlx_inputbox: presets .multiline plus a top-left text
+// anchor (the natural reading origin for a tall note field); both presets sit
+// before the caller's options so any of them can still be overridden.
+#define wlx_textarea(ctx, label, buffer, buffer_size, ...) \
+    wlx_inputbox_impl((ctx), (label), (buffer), (buffer_size), \
+        wlx_default_inputbox_opt(.multiline = true, .align = WLX_TOP_LEFT, __VA_ARGS__), __FILE__, __LINE__)
 
 typedef struct {
     // Placement
@@ -2356,14 +2651,10 @@ typedef struct {
 
     // Typography (no wrap: slider renders single-line label + value text)
     WLX_TEXT_TYPOGRAPHY_FIELDS;
-    // Show the numeric value readout next to the track. `.show_label` is a
-    // deprecated alias (renamed in the v0.6 group: it never controlled the
-    // label text, only the value readout); both names address the same
-    // storage. The alias is removed one minor version after 0.6.
-    union {
-        bool show_value;
-        bool show_label;   // deprecated: use show_value
-    };
+    // Show the numeric value readout next to the track (renamed from
+    // `.show_label` in the v0.6 group: it never controlled the label text,
+    // only the value readout; the deprecated alias was removed in v0.7).
+    bool show_value;
 
     // Styles
     WLX_Color track_color;
@@ -2427,13 +2718,9 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
 typedef struct {
     WLX_LAYOUT_SLOT_FIELDS;
     WLX_WIDGET_SIZING_FIELDS;
-    // Line color. `.color` is a deprecated alias of `.back_color` (renamed
-    // in the v0.6 group); both names address the same storage. The alias is
-    // removed one minor version after 0.6.
-    union {
-        WLX_Color back_color;
-        WLX_Color color;   // deprecated: use back_color
-    };
+    // Line color (renamed from `.color` in the v0.6 group; the deprecated
+    // alias was removed in v0.7).
+    WLX_Color back_color;
     float     thickness;
     const char *id;
 } WLX_Separator_Opt;
@@ -2828,6 +3115,7 @@ WLXDEF void wlx_panel_end(WLX_Context *ctx);
 #define button(ctx, text, ...) wlx_button((ctx), (text), __VA_ARGS__)
 #define checkbox(ctx, text, checked, ...) wlx_checkbox((ctx), (text), (checked), __VA_ARGS__)
 #define inputbox(ctx, label, buffer, buffer_size, ...) wlx_inputbox((ctx), (label), (buffer), (buffer_size), __VA_ARGS__)
+#define textarea(ctx, label, buffer, buffer_size, ...) wlx_textarea((ctx), (label), (buffer), (buffer_size), __VA_ARGS__)
 #define slider(ctx, label, value, ...) wlx_slider((ctx), (label), (value), __VA_ARGS__)
 #define separator(ctx, ...) wlx_separator((ctx), __VA_ARGS__)
 #define progress(ctx, value, ...) wlx_progress((ctx), (value), __VA_ARGS__)
@@ -2933,6 +3221,7 @@ const WLX_Theme wlx_theme_dark = {
     .input = {
         .border_focus = { 90, 140, 210, 255},
         .cursor       = {200, 200, 200, 255},
+        .selection    = { 90, 140, 210,  90},
         .border_width = 0.5f,
     },
     .slider = {
@@ -2990,6 +3279,7 @@ const WLX_Theme wlx_theme_light = {
     .input = {
         .border_focus = { 55,  80, 190, 255},
         .cursor       = { 30,  35,  50, 255},
+        .selection    = { 55,  80, 190,  60},
         .border_width = 0.5f,
     },
     .slider = {
@@ -3049,6 +3339,7 @@ const WLX_Theme wlx_theme_glass = {
     .input = {
         .border_focus = { 90, 110, 200, 255},
         .cursor       = {210, 215, 235, 255},
+        .selection    = { 90, 110, 200, 100},
         .border_width = 1.2f,
     },
     .slider = {
@@ -4511,6 +4802,45 @@ WLXDEF bool wlx_is_key_pressed(WLX_Context *ctx, WLX_Key_Code key) {
     return key >= 0 && key < WLX_KEY_COUNT && ctx->input.keys_pressed[key];
 }
 
+WLXDEF bool wlx_is_key_actuated(WLX_Context *ctx, WLX_Key_Code key) {
+    return key >= 0 && key < WLX_KEY_COUNT &&
+           (ctx->input.keys_pressed[key] || ctx->input.keys_repeated[key]);
+}
+
+WLXDEF bool wlx_mod_down(WLX_Context *ctx, uint32_t mask) {
+    return (ctx->input.modifiers & mask) == mask;
+}
+
+WLXDEF bool wlx_mod_command_down(WLX_Context *ctx) {
+#if defined(__APPLE__)
+    return wlx_mod_down(ctx, WLX_MOD_SUPER);
+#else
+    return wlx_mod_down(ctx, WLX_MOD_CTRL);
+#endif
+}
+
+WLXDEF void wlx_clipboard_set_text(WLX_Context *ctx, const char *text, size_t len) {
+    if (ctx->backend.clipboard_set == NULL || text == NULL) return;
+    ctx->backend.clipboard_set(text, len);
+}
+
+WLXDEF size_t wlx_clipboard_get_copy(WLX_Context *ctx, char *out, size_t out_size) {
+    if (out == NULL || out_size == 0) return 0;
+    out[0] = '\0';
+    if (ctx->backend.clipboard_get == NULL) return 0;
+    const char *src = ctx->backend.clipboard_get();
+    if (src == NULL) return 0;
+
+    size_t src_len = strlen(src);
+    size_t copy = src_len < out_size - 1 ? src_len : out_size - 1;
+    // Never split a UTF-8 codepoint at the truncation boundary: back up over
+    // any trailing continuation bytes (0b10xxxxxx) of an incomplete sequence.
+    while (copy > 0 && (src[copy] & 0xC0) == 0x80) copy--;
+    memcpy(out, src, copy);
+    out[copy] = '\0';
+    return copy;
+}
+
 WLXDEF bool wlx_rect_contains(WLX_Rect r, float px, float py) {
     return px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h;
 }
@@ -4541,6 +4871,7 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
     WLX_PERF_HOOK(input_end, ctx);
     ctx->interaction.hot_id = 0;
     ctx->interaction.active_id_seen = false;
+    ctx->interaction.enter_consumed = false;
     // Lazy pool init: callers that zero-init WLX_Context and skip
     // wlx_context_init still get the default macro-backed allocators.
     if (ctx->arena.layouts.item_size == 0) {
@@ -4877,6 +5208,10 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
     WLX_PERF_HOOK(frame_publish, ctx);
 }
 
+// Defined with the retained-geometry store tier; destruction is its
+// terminal lifecycle exit.
+static void wlx_text_geom_store_free(WLX_Text_Geom_Store *s);
+
 WLXDEF void wlx_context_destroy(WLX_Context *ctx) {
     WLX_PERF_HOOK(destroy, ctx);
     // Free state map data entries
@@ -4888,6 +5223,13 @@ WLXDEF void wlx_context_destroy(WLX_Context *ctx) {
     // Release pool-owned per-frame buffers and the persistent state map.
     wlx_arena_pool_destroy(&ctx->arena);
     wlx_free(ctx->states.slots);
+    wlx_free(ctx->text_line_scratch);
+    for (size_t i = 0; i < ctx->editor_indices.count; i++) {
+        WLX_Editor_Line_Index *idx = &ctx->editor_indices.items[i];
+        wlx_free(idx->offsets);
+        wlx_text_geom_store_free(&idx->geom);
+    }
+    wlx_free(ctx->editor_indices.items);
     WLX_DBG(destroy, ctx);
     // Zero out the context so it's safe to reuse or free
     wlx_zero_struct(*ctx);
@@ -5451,8 +5793,8 @@ static inline bool wlx_prepare_content_sizes(
         return false;
     }
 
-    WLX_State persistant = wlx_get_state_impl(ctx, sizeof(WLX_Content_Slot_State), file, line);
-    WLX_Content_Slot_State *state = (WLX_Content_Slot_State *)persistant.data;
+    WLX_State persistent = wlx_get_state_impl(ctx, sizeof(WLX_Content_Slot_State), file, line);
+    WLX_Content_Slot_State *state = (WLX_Content_Slot_State *)persistent.data;
     *out_state = state;
     for (size_t i = 0; i < count; i++) {
         resolved[i] = sizes[i];
@@ -6149,7 +6491,7 @@ static inline void wlx_interaction_handle_click(WLX_Context *ctx, size_t id, boo
     }
 }
 
-static inline void wlx_interaction_handle_focus(WLX_Context *ctx, size_t id, bool mouse_over, WLX_Interaction *result) {
+static inline void wlx_interaction_handle_focus(WLX_Context *ctx, size_t id, bool mouse_over, WLX_Interaction *result, bool hold_enter) {
     bool was_focused = (ctx->interaction.active_id == id);
     result->focused = was_focused;
 
@@ -6167,7 +6509,16 @@ static inline void wlx_interaction_handle_focus(WLX_Context *ctx, size_t id, boo
         }
     }
 
-    if (result->focused && wlx_is_key_pressed(ctx, WLX_KEY_ENTER)) {
+    if (result->focused && !hold_enter && wlx_is_key_pressed(ctx, WLX_KEY_ENTER)) {
+        ctx->interaction.active_id = 0;
+        result->focused = false;
+        result->just_unfocused = true;
+        // The same Enter press must not also keyboard-activate a widget
+        // processed later this frame.
+        ctx->interaction.enter_consumed = true;
+    }
+
+    if (result->focused && wlx_is_key_pressed(ctx, WLX_KEY_ESCAPE)) {
         ctx->interaction.active_id = 0;
         result->focused = false;
         result->just_unfocused = true;
@@ -6193,10 +6544,13 @@ static inline void wlx_interaction_handle_drag(WLX_Context *ctx, size_t id, bool
 }
 
 static inline void wlx_interaction_handle_keyboard(WLX_Context *ctx, size_t id, WLX_Interaction *result) {
-    if (ctx->interaction.hot_id == id) {
-        if (wlx_is_key_pressed(ctx, WLX_KEY_SPACE) || wlx_is_key_pressed(ctx, WLX_KEY_ENTER)) {
-            result->clicked = true;
-        }
+    if (ctx->interaction.hot_id != id) return;
+    // Keyboard activation is only valid when no other widget owns active_id
+    // (a focused input field owns the keyboard).
+    if (ctx->interaction.active_id != 0 && ctx->interaction.active_id != id) return;
+    bool enter_hit = wlx_is_key_pressed(ctx, WLX_KEY_ENTER) && !ctx->interaction.enter_consumed;
+    if (wlx_is_key_pressed(ctx, WLX_KEY_SPACE) || enter_hit) {
+        result->clicked = true;
     }
 }
 
@@ -6230,7 +6584,8 @@ static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect
     }
 
     if (flags & WLX_INTERACT_FOCUS) {
-        wlx_interaction_handle_focus(ctx, id, mouse_over, &result);
+        wlx_interaction_handle_focus(ctx, id, mouse_over, &result,
+                                     (flags & WLX_INTERACT_FOCUS_HOLD_ENTER) != 0);
     }
 
     if (flags & WLX_INTERACT_DRAG) {
@@ -6381,6 +6736,21 @@ WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget_Opt opt, const char *fi
 // ============================================================================
 // Text helpers in this section are implementation-owned helpers and use the
 // canonical `wlx_` prefix.
+//
+// The machinery reads in six regions, in file order (see
+// docs/TEXT_PIPELINE_MAP.md for the function-by-function map and the
+// invariant registry that binds them):
+//   1. UTF-8 text units and newline policy - unit stepping, word and
+//      separator helpers.
+//   2. Budgets, policy constants, and the build types - including
+//      WLX_Text_Line_Record, the "layout line" every geometry consumer
+//      reads.
+//   3. Measurement primitives - tab-aware prefix measurement, the shared
+//      fit decision, and the batched cumulative-advance fill.
+//   4. Retained editor line geometry - the editor's shaped-line cache.
+//   5. The build kernel - a resumable greedy fitter over cumulative unit
+//      advances ("advance provider" sources).
+//   6. Alignment, emission, and the from-lines geometry consumers.
 
 // This function returns how many bytes the next UTF-8 character uses, based on the first byte in s.
 // UTF-8 leading-byte patterns:
@@ -6494,20 +6864,131 @@ static inline size_t wlx_utf8_prev(const char *s, size_t byte_pos) {
     return byte_pos;
 }
 
+static inline bool wlx_text_utf8_is_continuation(unsigned char c) {
+    return (c & 0xC0u) == 0x80u;
+}
+
+// Returns true only when off starts a valid 2-4 byte UTF-8 sequence fully
+// contained in the range. ASCII and malformed bytes fall back to one-byte
+// handling in the caller.
+static inline bool wlx_text_utf8_sequence_at(const char *text, size_t length, size_t off, size_t *out_len) {
+    if (text == NULL || off >= length) return false;
+    size_t char_len = wlx_utf8_char_len(text + off);
+    if (char_len <= 1 || off + char_len > length) return false;
+    for (size_t i = 1; i < char_len; i++) {
+        if (!wlx_text_utf8_is_continuation((unsigned char)text[off + i])) return false;
+    }
+    if (out_len) *out_len = char_len;
+    return true;
+}
+
+// Next unit boundary after pos: one whole codepoint when a valid
+// multibyte sequence lies fully in range, else one byte so malformed
+// input still makes progress; clamps at the text end. The single
+// stepping entry - layout walks and caret/edit motion all step through
+// it, so they agree over invalid bytes.
+static inline size_t wlx_text_unit_next(const char *text, size_t length, size_t pos) {
+    if (pos >= length) return length;
+    size_t char_len = 1;
+    size_t seq_len = 0;
+    if (wlx_text_utf8_sequence_at(text, length, pos, &seq_len)) char_len = seq_len;
+    return pos + char_len > length ? length : pos + char_len;
+}
+
 // Move byte position forward to the next codepoint boundary.
-// Returns new byte position (len if already at end).
+// Returns new byte position (len if already at end). Keeps the
+// historical (s, pos, len) parameter order; steps exactly like
+// wlx_text_unit_next, including the one-byte fallback on malformed
+// bytes.
 static inline size_t wlx_utf8_next(const char *s, size_t byte_pos, size_t len) {
-    if (byte_pos >= len) return len;
-    byte_pos += wlx_utf8_char_len(s + byte_pos);
-    if (byte_pos > len) byte_pos = len;
+    return wlx_text_unit_next(s, len, byte_pos);
+}
+
+// Byte class used by word-wise cursor motion: whitespace separates words;
+// every other byte is a word byte. Scanning single bytes is UTF-8 safe here
+// because the separators are ASCII and multibyte sequences never contain
+// ASCII bytes, so the returned positions always land on codepoint boundaries.
+static inline bool wlx_utf8_is_word_separator(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+// Move left to the start of the previous word: skip separators, then the word.
+static inline size_t wlx_utf8_word_prev(const char *s, size_t byte_pos) {
+    while (byte_pos > 0 && wlx_utf8_is_word_separator(s[byte_pos - 1])) byte_pos--;
+    while (byte_pos > 0 && !wlx_utf8_is_word_separator(s[byte_pos - 1])) byte_pos--;
+    return byte_pos;
+}
+
+// Move right to the end of the next word: skip separators, then the word.
+static inline size_t wlx_utf8_word_next(const char *s, size_t byte_pos, size_t len) {
+    while (byte_pos < len && wlx_utf8_is_word_separator(s[byte_pos])) byte_pos++;
+    while (byte_pos < len && !wlx_utf8_is_word_separator(s[byte_pos])) byte_pos++;
     return byte_pos;
 }
 
 #ifndef WLX_TEXT_RUN_MAX_UNITS
 #define WLX_TEXT_RUN_MAX_UNITS 512
 #endif
+#ifndef WLX_TEXT_RUN_MAX_LINES
 #define WLX_TEXT_RUN_MAX_LINES 128
+#endif
 
+// Multiline inputbox text-run budget. The multiline geometry build (caret,
+// hit-test, selection, scroll, draw) uses these caps instead of the global
+// text-run caps, so a tall note field can hold a few kilobytes of prose
+// without raising the per-run budget of every other text widget. Content
+// beyond the caps stays in the buffer but drops out of geometry: the caret
+// pins to the end of the last built line and the view cannot scroll past it.
+#ifndef WLX_INPUTBOX_MULTILINE_MAX_UNITS
+#define WLX_INPUTBOX_MULTILINE_MAX_UNITS 4096
+#endif
+#ifndef WLX_INPUTBOX_MULTILINE_MAX_LINES
+#define WLX_INPUTBOX_MULTILINE_MAX_LINES 512
+#endif
+
+// Per-record unit budget for truncate-and-continue line builds. Each
+// non-wrap record measures at most this many text units (codepoints or
+// fallback bytes); in wrap mode the budget is shared per hard line
+// across its wrapped rows. Geometry past the cap freezes per line and
+// the invisible tail is skipped to the next hard line start without
+// measuring.
+#ifndef WLX_EDITOR_MAX_LINE_UNITS
+#define WLX_EDITOR_MAX_LINE_UNITS 1024
+#endif
+
+// A no-wrap re-entry origin snaps to a text-unit boundary, preferring the
+// edge just after a space within this many bytes behind the candidate:
+// word-shaped content then re-enters at a shaping-neutral edge.
+#ifndef WLX_EDITOR_ORIGIN_BACKSCAN
+#define WLX_EDITOR_ORIGIN_BACKSCAN 64
+#endif
+
+// Unit cap per measure_text_advances request. One backend call fills at
+// most this many cumulative advances; longer stretches issue consecutive
+// chunks spliced by adding the running base advance (the splice is a
+// shaping-context seam, same class as a tab stop). Also sizes the
+// stack-local batching buffers, so keep it a few hundred at most.
+#ifndef WLX_TEXT_ADVANCES_CHUNK
+#define WLX_TEXT_ADVANCES_CHUNK 256
+#endif
+
+// Retained-geometry (geom store) policy constants. Not tuning knobs: the
+// values pair with the origin policy's estimates and the suites that pin
+// them.
+#define WLX_TEXT_GEOM_ORIGIN_VIEW_SLACK 0.5f   // origin back margin, in view widths
+#define WLX_TEXT_GEOM_ANCHOR_HEADROOM_DIV 2    // anchor headroom: unit budget / this
+#define WLX_TEXT_GEOM_FAR_GAP_BUDGETS 4        // gap probes stop after this many budgets
+#define WLX_TEXT_GEOM_AVG_MIN_UNITS 64         // units before an entry seeds the avg advance
+#define WLX_TEXT_GEOM_FALLBACK_ADVANCE_EM 0.5f // avg-advance fallback, in line heights
+#define WLX_TEXT_GEOM_STORE_SLACK 2            // store sizing: viewports of entries retained
+#define WLX_TEXT_GEOM_STORE_MIN 16             // store sizing floor, in entries
+
+// One visual line of a build: four byte ranges over the source slice
+// (source / visible / separator / cursor - consecutive records tile
+// the covered text) plus measured geometry and the draw origin the
+// alignment pass fills. The record array is the pipeline's one
+// geometry source; the byte-range diagram is docs/LINE_RUN_MODEL.md
+// section 4.
 typedef struct WLX_Text_Line_Record {
     size_t source_start;
     size_t source_end;
@@ -6541,6 +7022,22 @@ typedef struct WLX_Text_Line_Record_Opt {
     bool ended_by_newline;
 } WLX_Text_Line_Record_Opt;
 
+// Frame-local wrap row-count memo, direct-mapped by line index. rows == 0
+// marks an empty slot (a counted line always yields >= 1 row). Valid for
+// one frame at one band width/style: the editor widget zeroes it each
+// frame after the scrollbar strips fix the band, and edits run before
+// any geometry, so nothing invalidates mid-frame.
+#define WLX_WRAP_ROW_MEMO_SLOTS 8   // power of two; anchor + caret lines dominate
+typedef struct {
+    size_t line[WLX_WRAP_ROW_MEMO_SLOTS];
+    size_t rows[WLX_WRAP_ROW_MEMO_SLOTS];
+} WLX_Wrap_Row_Memo;
+
+// Everything one line build reads: the measurement environment, the
+// fit rect, the mode flags, and the editor-only extensions (retained
+// store, view geometry, tail-skip hint). Mode axes are
+// sentinel-encoded - 0 / NULL / negative mean disabled - and the field
+// comments below carry the legal combinations.
 typedef struct WLX_Text_Build_Inputs {
     WLX_Context *ctx;
     const char *text;
@@ -6550,10 +7047,57 @@ typedef struct WLX_Text_Build_Inputs {
     bool wrap;
     float line_h;
     size_t text_unit_cap;
+    // Truncated-line continuation. Non-wrap: a width- or budget-truncated
+    // record does not end the build; its invisible tail is skipped to the
+    // next hard line start without measuring, and the unit budget resets
+    // per record (capped at WLX_EDITOR_MAX_LINE_UNITS instead of
+    // text_unit_cap). Wrap: the unit budget is per hard line - one
+    // WLX_EDITOR_MAX_LINE_UNITS budget shared by the line's wrapped rows,
+    // refreshed at hard line starts; a line exhausting it freezes and its
+    // final record skips the unmeasured tail to the next hard line start.
+    bool truncate_continue;
+    // Tab expansion: > 0 makes every '\t' advance the measured prefix to
+    // the next multiple of this many pixels (next-tab-stop policy);
+    // segments between tabs keep backend run metrics. 0 measures tabs as
+    // whatever glyph the backend gives them (passthrough).
+    float tab_advance;
+    // Known start of the hard line after the one being built (or the text
+    // length for the final line). When nonzero, the truncated-tail skip
+    // jumps straight to it instead of scanning the tail for the newline -
+    // the editor's line index already knows every line end, and the scan
+    // is O(line length) per frame on a pathological single-line document.
+    // 0 keeps the scan (a line's next start is never offset 0).
+    size_t known_line_next;
+    // Frame-local wrap row-count memo (editor wrap only); NULL disables
+    // memoization.
+    WLX_Wrap_Row_Memo *row_memo;
+    // Retained line-geometry store (editor only); NULL disables retention.
+    // Callers that set it must build at the store's environment (style,
+    // tab advance, wrap band width) and, per record, supply the true
+    // known_line_next - the store keys entries on that span.
+    WLX_Text_Geom_Store *geom;
+    // No-wrap windowed origin (editor only): the view in content space,
+    // [view_x, view_x + view_w]. A positive view_w lets a retained line
+    // re-enter at a measure origin near the view when the unit budget
+    // cannot reach it from the line start; 0 keeps every origin at the
+    // line start and reproduces the unwindowed records exactly.
+    float view_x;
+    float view_w;
 } WLX_Text_Build_Inputs;
 
 typedef struct WLX_Text_Build_Cursor {
     size_t text_unit_count;
+    // Units consumed by the current hard line across its wrapped rows;
+    // maintained (and reset at hard line starts) only when the per-line
+    // budget mode is active (wrap + truncate_continue).
+    size_t line_unit_count;
+    // First '\t' at/after the current hard line's start; SIZE_MAX = none
+    // seen yet. Discovered as the scan walks the bytes and reset at hard
+    // line starts, so the growing-prefix measures answer their
+    // contains-a-tab precheck without rescanning [start, end) per call.
+    // A stale value from a mid-line entry only costs the fast path, never
+    // correctness (the segment walk measures a tab-free range exactly).
+    size_t line_first_tab;
 } WLX_Text_Build_Cursor;
 
 typedef struct {
@@ -6570,33 +7114,9 @@ typedef struct WLX_Text_Line_Array_Result {
     float line_h;
 } WLX_Text_Line_Array_Result;
 
-static inline bool wlx_text_utf8_is_continuation(unsigned char c) {
-    return (c & 0xC0u) == 0x80u;
-}
-
-// Returns true only when off starts a valid 2-4 byte UTF-8 sequence fully
-// contained in the range. ASCII and malformed bytes fall back to one-byte
-// handling in the caller.
-static inline bool wlx_text_utf8_sequence_at(const char *text, size_t length, size_t off, size_t *out_len) {
-    if (text == NULL || off >= length) return false;
-    size_t char_len = wlx_utf8_char_len(text + off);
-    if (char_len <= 1 || off + char_len > length) return false;
-    for (size_t i = 1; i < char_len; i++) {
-        if (!wlx_text_utf8_is_continuation((unsigned char)text[off + i])) return false;
-    }
-    if (out_len) *out_len = char_len;
-    return true;
-}
-
-// Advances to the next UTF-8 boundary when a valid multibyte sequence exists;
-// otherwise advances one byte so malformed input still makes progress.
-static inline size_t wlx_text_utf8_next(const char *text, size_t length, size_t off) {
-    if (off >= length) return length;
-    size_t char_len = 1;
-    size_t seq_len = 0;
-    if (wlx_text_utf8_sequence_at(text, length, off, &seq_len)) char_len = seq_len;
-    if (off + char_len > length) return length;
-    return off + char_len;
+// Next tab stop after x.
+static inline float wlx_tab_stop_next(float x, float tab_advance) {
+    return (floorf(x / tab_advance) + 1.0f) * tab_advance;
 }
 
 // A valid split point must not fall inside a valid UTF-8 multibyte sequence.
@@ -6689,6 +7209,50 @@ static inline bool wlx_text_newline_at(const char *text, size_t length, size_t o
     return false;
 }
 
+// True when a line-ending separator starts at off; the separator-end
+// out-param is discarded. The predicate form of wlx_text_newline_at for
+// the many walks that only need the boundary test.
+static inline bool wlx_text_at_line_break(const char *text, size_t length, size_t off) {
+    size_t sep_probe = 0;
+    return wlx_text_newline_at(text, length, off, &sep_probe);
+}
+
+// The newline separator ending immediately at next_start, read backward:
+// fills out_sep_start with the separator's first byte and returns true
+// when one ends exactly there (CRLF two bytes, LF or lone CR one; a CR
+// directly before an LF is the pair's start, so nothing ends between
+// them). False at offset 0 or when no separator ends at next_start.
+// This is the one backward reading of the grammar wlx_text_newline_at
+// owns forward; keep the two in lockstep.
+static inline bool wlx_text_separator_before(const char *text, size_t length,
+    size_t next_start, size_t *out_sep_start)
+{
+    if (text == NULL || next_start == 0 || next_start > length) return false;
+    if (next_start >= 2 && text[next_start - 2] == '\r' && text[next_start - 1] == '\n') {
+        if (out_sep_start) *out_sep_start = next_start - 2;
+        return true;
+    }
+    char prev = text[next_start - 1];
+    if (prev == '\n') {
+        if (out_sep_start) *out_sep_start = next_start - 1;
+        return true;
+    }
+    if (prev == '\r' && (next_start >= length || text[next_start] != '\n')) {
+        if (out_sep_start) *out_sep_start = next_start - 1;
+        return true;
+    }
+    return false;
+}
+
+// True when off is a hard line start: offset 0, or the end of a newline
+// separator (the \n inside a \r\n pair is not a line start). Hard line
+// starts are always UTF-8 boundaries because separators are ASCII.
+static inline bool wlx_text_hard_line_start_at(const char *text, size_t length, size_t off) {
+    if (off == 0) return true;
+    if (text == NULL || off > length) return false;
+    return wlx_text_separator_before(text, length, off, NULL);
+}
+
 static inline void wlx_text_line_record_from_range(WLX_Context *ctx, WLX_Text_Line_Record *line, const char *text,
     size_t length, WLX_Text_Line_Record_Opt opt) {
     assert(line != NULL);
@@ -6728,6 +7292,1344 @@ static inline void wlx_text_line_record_from_range(WLX_Context *ctx, WLX_Text_Li
     line->advance_w = line->measured_w;
 }
 
+// The measurement environment threaded through the prefix, advances, and
+// retained-geometry walks: one build's context, slice, style, tab advance,
+// and uniform line height, passed by const pointer instead of six loose
+// scalars. line_h is the record-height substitute on walks that do not
+// measure heights (the advances paths); callers with no such walk pass 0.
+typedef struct WLX_Text_Measure_Args {
+    WLX_Context *ctx;
+    const char *text;
+    size_t length;
+    WLX_Text_Style style;
+    float tab_advance;
+    float line_h;
+} WLX_Text_Measure_Args;
+
+// Canonical contains-a-tab precheck over a first-tab fact: first_tab is
+// the absolute offset of the first known '\t' at or after the measured
+// range's start, SIZE_MAX meaning none seen. SIZE_MAX compares false
+// against any real end, so the sentinel needs no separate check; an
+// overestimating first_tab is safe (it only costs the tab-free fast
+// path of the segment walk below).
+static inline bool wlx_text_pen_has_tab(size_t first_tab, size_t next) {
+    return first_tab < next;
+}
+
+// Iterate the tab-delimited segments of [*io_pos, end): each call yields
+// one [start, end) segment (possibly empty between adjacent tabs) plus
+// whether a '\t' delimiter follows it, returning false once the range is
+// exhausted. The shared shape of tab-aware measurement and segmented
+// drawing: act on the non-empty segment, then apply the per-tab action
+// when tab_after is set.
+typedef struct WLX_Text_Tab_Seg {
+    size_t start;
+    size_t end;
+    bool tab_after;
+} WLX_Text_Tab_Seg;
+
+static inline bool wlx_text_tab_seg_next(const char *text, size_t end,
+    size_t *io_pos, WLX_Text_Tab_Seg *out)
+{
+    size_t p = *io_pos;
+    if (p > end) return false;
+    out->start = p;
+    while (p < end && text[p] != '\t') p++;
+    out->end = p;
+    out->tab_after = p < end;
+    *io_pos = p + 1;
+    return true;
+}
+
+// Measure the prefix [start, end) with optional tab expansion, given
+// the caller's contains-a-tab precheck (wlx_text_pen_has_tab over a
+// first-tab fact). Fills the prefix's cumulative width and the max
+// segment height.
+//
+// With tabs expanded, the pen walks tab-delimited segments:
+//
+//   [ segment ]<tab>[ segment ]<tab>[ segment...
+//   x += measure --^ x = next   --^
+//        (one backend  tab stop
+//        run each)     multiple
+//
+// A non-positive tab_advance or a tab-free precheck measures the whole
+// prefix in one backend call, so run metrics (kerning, shaping) are
+// exact on the existing paths. A has_tab overestimate is safe: the
+// segment walk measures a tab-free range in one call too, it just
+// walks the bytes to find that out. See docs/EDITOR_MODEL.md
+// section 8 for the tab-stop policy.
+static bool wlx_text_measure_prefix_tabs_known(const WLX_Text_Measure_Args *args,
+    size_t start, size_t end, bool has_tab, float *out_w, float *out_h)
+{
+    WLX_Context *ctx = args->ctx;
+    const char *text = args->text;
+    size_t length = args->length;
+    WLX_Text_Style style = args->style;
+    float tab_advance = args->tab_advance;
+    if (!has_tab || tab_advance <= 0.0f || text == NULL)
+        return wlx_measure_text_range(ctx, text, length, start, end, style, out_w, out_h);
+
+    float x = 0.0f;
+    float h = 0.0f;
+    size_t pos = start;
+    WLX_Text_Tab_Seg seg;
+    while (wlx_text_tab_seg_next(text, end, &pos, &seg)) {
+        if (seg.end > seg.start) {
+            float seg_w = 0.0f, seg_h = 0.0f;
+            if (!wlx_measure_text_range(ctx, text, length, seg.start, seg.end, style, &seg_w, &seg_h)) return false;
+            x += seg_w;
+            if (seg_h > h) h = seg_h;
+        }
+        if (seg.tab_after) x = wlx_tab_stop_next(x, tab_advance);
+    }
+    if (h <= 0.0f) {
+        float empty_w = 0.0f;
+        wlx_measure_text_range(ctx, text, length, start, start, style, &empty_w, &h);
+    }
+    if (out_w) *out_w = x;
+    if (out_h) *out_h = h;
+    return true;
+}
+
+// Scanning wrapper for callers without a hoisted tab fact (selection draw,
+// caret x, hit tests): one [start, end) scan answers the precheck. The
+// build loop calls the _known entry instead - its growing prefixes share
+// their line start, and rescanning per call is O(n^2) bytes per line.
+static bool wlx_text_measure_prefix_tabs(WLX_Context *ctx, const char *text, size_t length,
+    size_t start, size_t end, WLX_Text_Style style, float tab_advance, float *out_w, float *out_h)
+{
+    bool has_tab = false;
+    if (tab_advance > 0.0f && text != NULL) {
+        for (size_t i = start; i < end; i++) {
+            if (text[i] == '\t') { has_tab = true; break; }
+        }
+    }
+    WLX_Text_Measure_Args args = { ctx, text, length, style, tab_advance, 0.0f };
+    return wlx_text_measure_prefix_tabs_known(&args, start, end, has_tab, out_w, out_h);
+}
+
+// One fit decision of the line scan, shared by every measuring walk and
+// every replay: a record's first unit is always accepted (records never
+// go empty), an accepted non-fitting unit ends the record, and a later
+// non-fitting unit is rejected to start the next row/record. Replay
+// correctness depends on every site sharing this exact triple.
+typedef enum {
+    WLX_TEXT_FIT_ACCEPT,      // unit joins the record; scan continues
+    WLX_TEXT_FIT_ACCEPT_END,  // unit joins the record; record ends
+    WLX_TEXT_FIT_REJECT       // unit belongs to the next record/row
+} WLX_Text_Fit;
+
+static inline WLX_Text_Fit wlx_text_fit_step(float advance_w, float fit_w,
+    size_t record_units)
+{
+    if (advance_w <= fit_w) return WLX_TEXT_FIT_ACCEPT;
+    return record_units == 0 ? WLX_TEXT_FIT_ACCEPT_END : WLX_TEXT_FIT_REJECT;
+}
+
+// Fill cumulative unit advances for the next stretch of one record
+// through the optional measure_text_advances callback: out_ends gets
+// absolute unit-end offsets, out_adv the cumulative advance at each
+// end in the record's frame (base_x = the advance already accumulated
+// at pos). Returns the units produced; 0 means the callback is absent,
+// the walk found no unit, or the backend could not fill - the caller
+// picks its own fail-over.
+//
+// Three passes over the batch:
+//   1. boundary walk - collect unit ends from pos, stopping at a
+//      separator, the text end, max_units, or WLX_TEXT_ADVANCES_CHUNK;
+//      updates the first-tab fact io_first_tab (absolute, SIZE_MAX =
+//      none) on discovery.
+//   2. backend dispatch - each tab-free stretch is one callback
+//      request, and with tab expansion on each '\t' advances the
+//      running x to the next tab stop exactly like the per-unit pen
+//      walk (expansion off keeps tabs inside the run as backend
+//      glyphs); a partial fill truncates the batch.
+//   3. monotonic clamp - advances are made non-decreasing.
+static size_t wlx_text_measure_advances_batch(const WLX_Text_Measure_Args *args,
+    size_t pos, float base_x, size_t max_units, size_t *out_ends, float *out_adv,
+    size_t *io_first_tab)
+{
+    WLX_Context *ctx = args->ctx;
+    const char *text = args->text;
+    size_t length = args->length;
+    WLX_Text_Style style = args->style;
+    float tab_advance = args->tab_advance;
+    if (ctx->backend.measure_text_advances == NULL || text == NULL) return 0;
+
+    size_t cap = max_units < (size_t)WLX_TEXT_ADVANCES_CHUNK
+        ? max_units : (size_t)WLX_TEXT_ADVANCES_CHUNK;
+    size_t n = 0;
+    size_t p = pos;
+    while (n < cap) {
+        if (p >= length || wlx_text_at_line_break(text, length, p)) break;
+        if (*io_first_tab == SIZE_MAX && text[p] == '\t') *io_first_tab = p;
+        size_t next = wlx_text_unit_next(text, length, p);
+        out_ends[n++] = next;
+        p = next;
+    }
+    if (n == 0) return 0;
+
+    float x = base_x;
+    size_t i = 0;
+    while (i < n) {
+        size_t unit_start = i == 0 ? pos : out_ends[i - 1];
+        if (tab_advance > 0.0f && text[unit_start] == '\t') {
+            x = wlx_tab_stop_next(x, tab_advance);
+            out_adv[i] = x;
+            i++;
+            continue;
+        }
+        size_t j = i + 1;
+        while (j < n && !(tab_advance > 0.0f && text[out_ends[j - 1]] == '\t')) j++;
+        size_t rel_ends[WLX_TEXT_ADVANCES_CHUNK];
+        size_t run_units = j - i;
+        for (size_t k = 0; k < run_units; k++) rel_ends[k] = out_ends[i + k] - unit_start;
+        size_t filled = ctx->backend.measure_text_advances(text + unit_start,
+            rel_ends[run_units - 1], style, rel_ends, run_units, out_adv + i);
+        if (filled > run_units) filled = run_units;
+        for (size_t k = 0; k < filled; k++) out_adv[i + k] += x;
+        if (filled < run_units) {
+            n = i + filled;
+            break;
+        }
+        x = out_adv[j - 1];
+        i = j;
+    }
+
+    float prev = base_x;
+    for (size_t k = 0; k < n; k++) {
+        if (out_adv[k] < prev) out_adv[k] = prev;
+        prev = out_adv[k];
+    }
+    return n;
+}
+
+// The advance provider's one fetch entry: the next measured units from
+// pos, as absolute unit ends, cumulative advances in the caller's frame
+// (base_x already accumulated at pos), and per-unit heights. Two arms:
+//   - batched, when the caller allows it and the backend implements the
+//     advances callback: one chunked fill, heights substitute the
+//     uniform line_h (advances report x geometry only - the documented
+//     heights split);
+//   - per-unit, otherwise: exactly one unit, measured as a whole prefix
+//     from measure_base (record start, entry origin, or row start - the
+//     caller's frame), height as the backend measured it.
+// io_first_tab (absolute, SIZE_MAX = none) is updated on discovery and
+// feeds the per-unit tab precheck. Returns the units produced; 0 means
+// the batch cannot progress, and the CALLER picks the fail-over policy -
+// the three consumers deliberately differ (the build scan falls to
+// per-unit for the rest of its record, entry extension retries per call,
+// the wrap store build aborts to the measuring build) - so no fail-over
+// lives in here.
+static size_t wlx_text_unit_fetch(const WLX_Text_Measure_Args *args,
+    size_t pos, size_t measure_base, float base_x, size_t budget_left,
+    bool batch_allowed, size_t *ends, float *advs, float *heights,
+    size_t *io_first_tab)
+{
+    const char *text = args->text;
+    size_t length = args->length;
+    if (batch_allowed && args->ctx != NULL
+        && args->ctx->backend.measure_text_advances != NULL) {
+        size_t n = wlx_text_measure_advances_batch(args, pos, base_x,
+            budget_left, ends, advs, io_first_tab);
+        for (size_t i = 0; i < n; i++) heights[i] = args->line_h;
+        return n;
+    }
+    size_t next = wlx_text_unit_next(text, length, pos);
+    if (*io_first_tab == SIZE_MAX && text[pos] == '\t') *io_first_tab = pos;
+    float w = 0.0f, h = args->line_h;
+    bool measured = wlx_text_measure_prefix_tabs_known(args, measure_base, next,
+        wlx_text_pen_has_tab(*io_first_tab, next), &w, &h);
+    if (!measured) { w = 0.0f; h = args->line_h; }
+    ends[0] = next;
+    advs[0] = w;
+    heights[0] = h;
+    return 1;
+}
+
+// ============================================================================
+// Retained editor line geometry
+//
+// The store keeps, per hard line, the growing-prefix measurements the line
+// build performs, so frames whose lines did not change replay records from
+// floats instead of re-asking the backend. Misses and reach extensions
+// measure through the same walk the from-scratch build uses and land in
+// the store; every consumer keeps the from-scratch path as its miss
+// fallback, so a dropped or evicted entry costs traffic, never geometry.
+//
+// In the pipeline's vocabulary this is the shaped-line cache: per hard
+// line, width-independent cumulative unit advances (plus a row table
+// under wrap), LRU-bounded, invalidated by measurement environment or
+// edit span.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// The pure store tier: entry lifecycle, lookups, and field reads.
+// Nothing in this tier touches the context or the backend - measurement
+// lives in the driver tier below it, view and caret anchoring in the
+// origin policy after that, and the entry-level consumer queries close
+// the section.
+// ----------------------------------------------------------------------------
+
+// The entry stores its first-tab fact line-relative and uint32-packed;
+// these convert to and from the absolute-offset form (SIZE_MAX = none)
+// the measure walks and wlx_text_pen_has_tab consume, keeping the two
+// representations from being re-derived at every boundary.
+static inline size_t wlx_text_geom_first_tab_abs(const WLX_Text_Geom_Entry *e) {
+    return e->first_tab_rel == UINT32_MAX
+        ? SIZE_MAX : e->line_start + (size_t)e->first_tab_rel;
+}
+
+static inline void wlx_text_geom_first_tab_note(WLX_Text_Geom_Entry *e,
+    size_t first_tab_abs)
+{
+    if (e->first_tab_rel == UINT32_MAX && first_tab_abs != SIZE_MAX)
+        e->first_tab_rel = (uint32_t)(first_tab_abs - e->line_start);
+}
+
+// Absolute byte offset of the entry's measure origin (the line start
+// unless the origin re-entered deeper).
+static inline size_t wlx_text_geom_origin_abs(const WLX_Text_Geom_Entry *e) {
+    return e->line_start + (size_t)e->origin_rel;
+}
+
+// Release one entry back to the free pool (its allocations stay for
+// reuse): the consumer-side lifecycle exit for a replay that could not
+// answer.
+static inline void wlx_text_geom_drop(WLX_Text_Geom_Entry *e) {
+    e->used = false;
+}
+
+// Invalidate everything but keep every allocation for reuse: clearing is
+// the safe default on any doubt and must stay cheap enough to run freely.
+static void wlx_text_geom_clear(WLX_Text_Geom_Store *s) {
+    for (size_t i = 0; i < s->count; i++) s->entries[i].used = false;
+}
+
+// Free every allocation the store owns: the terminal lifecycle exit,
+// called from context destruction.
+static void wlx_text_geom_store_free(WLX_Text_Geom_Store *s) {
+    for (size_t i = 0; i < s->count; i++) {
+        WLX_Text_Geom_Entry *e = &s->entries[i];
+        wlx_free(e->unit_ends);
+        wlx_free(e->advances);
+        wlx_free(e->heights);
+        wlx_free(e->row_units);
+    }
+    wlx_free(s->entries);
+}
+
+static bool wlx_text_geom_env_equal(const WLX_Text_Geom_Env *a,
+    const WLX_Text_Geom_Env *b)
+{
+    return a->font == b->font && a->font_size == b->font_size
+        && a->spacing == b->spacing && a->tab_advance == b->tab_advance
+        && a->band_w == b->band_w && a->line_h == b->line_h
+        && a->wrap == b->wrap;
+}
+
+// Compare the measurement environment and clear the store when any part of
+// it changed; also raise the sizing target to the current viewport need.
+static WLX_EXTENSION_USED void wlx_text_geom_env_check(WLX_Text_Geom_Store *s,
+    const WLX_Text_Geom_Env *env, size_t want_cap)
+{
+    if (!s->env_seen || !wlx_text_geom_env_equal(&s->env, env)) {
+        wlx_text_geom_clear(s);
+        s->env = *env;
+        s->env_seen = true;
+        s->avg_advance = 0.0f;
+    }
+    if (want_cap > s->want_cap) s->want_cap = want_cap;
+}
+
+// Invalidate the store precisely for one widget-applied edit: the
+// pre-edit byte range [start, old_end) became [start, new_end), so
+// entries touching the edit drop while entries past it keep their
+// measurements and only shift their byte keys by the delta. This is
+// what lets a typing frame re-measure just the edited line instead of
+// clearing the store.
+//
+//              start             old_end
+//   -------------|-----------------|--------------->  document bytes
+//    [A]                                   keep: ends before start
+//            [ B ]                         drop: ends exactly at start
+//           [    C    ]                    drop: touches the range
+//                                  [ D ]   drop: starts exactly at old_end
+//                                      [ E ] shift keys by new_end - old_end
+//
+// The two boundary drops are deliberate: an append at B's end can
+// extend its line and a deletion can eat its separator; the deletion
+// may likewise have eaten the separator that made D a line start.
+static WLX_EXTENSION_USED void wlx_text_geom_edit_shift(WLX_Text_Geom_Store *s,
+    size_t start, size_t old_end, size_t new_end)
+{
+    for (size_t i = 0; i < s->count; i++) {
+        WLX_Text_Geom_Entry *e = &s->entries[i];
+        if (!e->used) continue;
+        if (e->line_start > old_end) {
+            e->line_start = e->line_start - old_end + new_end;
+            e->line_next = e->line_next - old_end + new_end;
+        } else if (e->line_next >= start) {
+            e->used = false;
+        }
+    }
+}
+
+// Find the live entry keyed exactly (line_start, line_next) and
+// refresh its LRU stamp; NULL on a miss (the caller measures).
+static WLX_Text_Geom_Entry *wlx_text_geom_find(WLX_Text_Geom_Store *s,
+    size_t line_start, size_t line_next)
+{
+    for (size_t i = 0; i < s->count; i++) {
+        WLX_Text_Geom_Entry *e = &s->entries[i];
+        if (e->used && e->line_start == line_start && e->line_next == line_next) {
+            e->lru = ++s->lru_clock;
+            return e;
+        }
+    }
+    return NULL;
+}
+
+// Index of the unit whose end is exactly rel (unit ends are strictly
+// increasing), or SIZE_MAX when rel is not a measured unit boundary.
+static size_t wlx_text_geom_unit_index(const WLX_Text_Geom_Entry *e, size_t rel) {
+    size_t lo = 0, hi = e->units;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        size_t v = e->unit_ends[mid];
+        if (v == rel) return mid;
+        if (v < rel) lo = mid + 1; else hi = mid;
+    }
+    return SIZE_MAX;
+}
+
+// Find the live entry whose line span contains offset, validating against
+// the caller-known next line start (wrapped rows re-enter mid-line).
+// Find the live entry of the hard line containing offset, keyed by the
+// line's end (line_next), and refresh its LRU stamp; NULL on a miss.
+// Wrapped rows and mid-line records locate their line's entry this way
+// - their own start is not the entry's key.
+static WLX_Text_Geom_Entry *wlx_text_geom_find_containing(
+    WLX_Text_Geom_Store *s, size_t offset, size_t line_next)
+{
+    for (size_t i = 0; i < s->count; i++) {
+        WLX_Text_Geom_Entry *e = &s->entries[i];
+        if (e->used && e->line_next == line_next
+            && e->line_start <= offset && offset < e->line_next) {
+            e->lru = ++s->lru_clock;
+            return e;
+        }
+    }
+    return NULL;
+}
+
+// Stored cumulative advance at the unit ending exactly at line-relative
+// rel; false when rel is not a measured unit boundary.
+static inline bool wlx_text_geom_advance_at(const WLX_Text_Geom_Entry *e,
+    size_t rel, float *out_x)
+{
+    size_t u = wlx_text_geom_unit_index(e, rel);
+    if (u == SIZE_MAX) return false;
+    *out_x = e->advances[u];
+    return true;
+}
+
+// The entry authoritative for a record spanning [start, end) of the
+// line ending at line_next: a containing entry whose measured span
+// [origin_rel, scan_rel) covers the record's bytes. NULL when no entry
+// answers (the caller measures).
+static WLX_EXTENSION_USED WLX_Text_Geom_Entry *wlx_text_geom_covering(
+    WLX_Text_Geom_Store *s, size_t start, size_t end, size_t line_next)
+{
+    if (line_next <= start) return NULL;
+    WLX_Text_Geom_Entry *e = wlx_text_geom_find_containing(s, start, line_next);
+    if (e == NULL) return NULL;
+    if (e->units == 0
+        || start - e->line_start < (size_t)e->origin_rel
+        || end - e->line_start > (size_t)e->scan_rel) return NULL;
+    return e;
+}
+
+// Row count of a complete wrapped entry, 0 when the store cannot answer
+// (no entry, an incomplete one, or an empty line's rows == 0 record -
+// the streaming count owns those).
+static WLX_EXTENSION_USED size_t wlx_text_geom_rows_of(WLX_Text_Geom_Store *s,
+    size_t line_start, size_t line_next)
+{
+    WLX_Text_Geom_Entry *e = wlx_text_geom_find(s, line_start, line_next);
+    return (e != NULL && e->complete && e->rows > 0) ? e->rows : 0;
+}
+
+// Nearest caret offset at a content-space x within [visible_start,
+// visible_end) of a record, walked over the entry's stored advances by
+// the midpoint rule. A record starting at the entry's measure origin
+// walks from the first stored unit; a wrapped row starting mid-line
+// locates its start on the previous row's last unit end. Returns false
+// on any boundary mismatch (the caller's measuring walk takes over).
+static WLX_EXTENSION_USED bool wlx_text_geom_offset_at_x(const WLX_Text_Geom_Entry *e,
+    size_t visible_start, size_t visible_end, float content_x, size_t *out_off)
+{
+    if (e->units == 0) return false;
+    size_t start_rel = visible_start - e->line_start;
+    size_t end_rel = visible_end - e->line_start;
+    size_t lo = 0;
+    if (start_rel > 0 && start_rel != (size_t)e->origin_rel) {
+        size_t su = wlx_text_geom_unit_index(e, start_rel);
+        if (su == SIZE_MAX) return false;
+        lo = su + 1;
+    }
+    size_t hu = wlx_text_geom_unit_index(e, end_rel);
+    if (hu == SIZE_MAX || hu < lo) return false;
+    size_t off = visible_start;
+    float prev_w = 0.0f;
+    for (size_t u = lo; u <= hu; u++) {
+        size_t next = e->line_start + e->unit_ends[u];
+        float w = e->advances[u];
+        if (content_x < (prev_w + w) * 0.5f) { *out_off = off; return true; }
+        prev_w = w;
+        off = next;
+    }
+    *out_off = off;
+    return true;
+}
+
+// Find-or-create the entry for one hard line, reusing a free slot's
+// arrays, growing toward the sizing target, or evicting the least
+// recently used entry. A found entry returns with its measurements
+// intact; a created or evicted slot returns reset to an empty entry at
+// (line_start, line_next). Returns NULL only when the store is unsized
+// or cannot grow.
+static WLX_Text_Geom_Entry *wlx_text_geom_acquire(WLX_Text_Geom_Store *s,
+    size_t line_start, size_t line_next)
+{
+    WLX_Text_Geom_Entry *e = wlx_text_geom_find(s, line_start, line_next);
+    if (e != NULL) return e;
+
+    WLX_Text_Geom_Entry *slot = NULL;
+    for (size_t i = 0; i < s->count; i++) {
+        if (!s->entries[i].used) { slot = &s->entries[i]; break; }
+    }
+    if (slot == NULL && s->count < s->want_cap) {
+        WLX_HARD_ASSERT(s->want_cap <= SIZE_MAX / sizeof(WLX_Text_Geom_Entry),
+            "geom store size overflow");
+        WLX_Text_Geom_Entry *grown = (WLX_Text_Geom_Entry *)wlx_realloc(
+            s->entries, s->want_cap * sizeof(WLX_Text_Geom_Entry));
+        if (grown != NULL) {
+            memset(grown + s->count, 0,
+                (s->want_cap - s->count) * sizeof(WLX_Text_Geom_Entry));
+            s->entries = grown;
+            slot = &grown[s->count];
+            s->count = s->want_cap;
+        }
+    }
+    if (slot == NULL && s->count > 0) {
+        slot = &s->entries[0];
+        for (size_t i = 1; i < s->count; i++) {
+            if (s->entries[i].lru < slot->lru) slot = &s->entries[i];
+        }
+    }
+    if (slot == NULL) return NULL;
+
+    slot->used = true;
+    slot->line_start = line_start;
+    slot->line_next = line_next;
+    slot->units = 0;
+    slot->rows = 0;
+    slot->origin_rel = 0;
+    slot->origin_x = 0.0f;
+    slot->scan_rel = 0;
+    slot->first_tab_rel = UINT32_MAX;
+    slot->complete = false;
+    slot->lru = ++s->lru_clock;
+    return slot;
+}
+
+// Append one measured unit to an entry, growing the parallel arrays
+// geometrically. Returns false on allocation failure.
+static bool wlx_text_geom_push_unit(WLX_Text_Geom_Entry *e,
+    uint32_t end_rel, float advance, float height)
+{
+    if (e->units == e->unit_cap) {
+        size_t new_cap = e->unit_cap == 0 ? 64 : e->unit_cap * 2;
+        WLX_HARD_ASSERT(new_cap <= SIZE_MAX / sizeof(uint32_t),
+            "geom entry size overflow");
+        uint32_t *ends = (uint32_t *)wlx_realloc(e->unit_ends, new_cap * sizeof(uint32_t));
+        if (ends == NULL) return false;
+        e->unit_ends = ends;
+        float *adv = (float *)wlx_realloc(e->advances, new_cap * sizeof(float));
+        if (adv == NULL) return false;
+        e->advances = adv;
+        float *hs = (float *)wlx_realloc(e->heights, new_cap * sizeof(float));
+        if (hs == NULL) return false;
+        e->heights = hs;
+        e->unit_cap = new_cap;
+    }
+    e->unit_ends[e->units] = end_rel;
+    e->advances[e->units] = advance;
+    e->heights[e->units] = height;
+    e->units++;
+    return true;
+}
+
+// ----------------------------------------------------------------------------
+// The measurement driver tier: the only geom functions that ask the
+// backend, always through the unit fetch over WLX_Text_Measure_Args -
+// never through view geometry (where to measure from is the origin
+// policy's decision, below).
+// ----------------------------------------------------------------------------
+
+// Extend a no-wrap entry by its next unmeasured units through the unit
+// fetch: one chunked advances batch when the backend implements the
+// callback, else one whole-prefix measure from the entry's origin (the
+// line start unless the origin re-entered deeper). A batch that cannot
+// progress retries as a single per-unit step now and the batch again on
+// the next call. Heights land as fetched: measured on the per-unit
+// path, the uniform line height on the advances path. Returns false
+// when nothing more can be measured (line end, unit budget, or
+// allocation failure).
+static bool wlx_text_geom_extend(const WLX_Text_Measure_Args *args,
+    WLX_Text_Geom_Entry *e)
+{
+    const char *text = args->text;
+    size_t length = args->length;
+    if (e->complete || e->units >= (size_t)WLX_EDITOR_MAX_LINE_UNITS) return false;
+    size_t line_start = e->line_start;
+    size_t scan_pos = line_start + e->scan_rel;
+    if (scan_pos >= length || wlx_text_at_line_break(text, length, scan_pos)) {
+        e->complete = true;
+        return false;
+    }
+    size_t ends[WLX_TEXT_ADVANCES_CHUNK];
+    float advs[WLX_TEXT_ADVANCES_CHUNK];
+    float heights[WLX_TEXT_ADVANCES_CHUNK];
+    size_t first_tab = wlx_text_geom_first_tab_abs(e);
+    float base_x = e->units > 0 ? e->advances[e->units - 1] : 0.0f;
+    size_t n = wlx_text_unit_fetch(args, scan_pos, line_start + e->origin_rel,
+        base_x, (size_t)WLX_EDITOR_MAX_LINE_UNITS - e->units, true,
+        ends, advs, heights, &first_tab);
+    if (n == 0) {
+        n = wlx_text_unit_fetch(args, scan_pos, line_start + e->origin_rel,
+            base_x, 1, false, ends, advs, heights, &first_tab);
+        if (n == 0) return false;
+    }
+    wlx_text_geom_first_tab_note(e, first_tab);
+    for (size_t i = 0; i < n; i++) {
+        if (!wlx_text_geom_push_unit(e, (uint32_t)(ends[i] - line_start),
+                advs[i], heights[i]))
+            return false;
+        // Checkpoint per pushed unit: a mid-batch allocation failure must
+        // leave scan_rel at the stored prefix, or the next extension would
+        // append duplicate unit ends.
+        e->scan_rel = (uint32_t)(ends[i] - line_start);
+    }
+    return true;
+}
+
+// Extend a no-wrap entry until it can answer a fit decision at width w:
+// either a stored advance exceeds w, or the line's measurable text ends.
+static void wlx_text_geom_ensure_width(const WLX_Text_Measure_Args *args,
+    WLX_Text_Geom_Entry *e, float w)
+{
+    while (e->units == 0 || e->advances[e->units - 1] <= w) {
+        if (!wlx_text_geom_extend(args, e))
+            break;
+    }
+}
+
+// Extend a no-wrap entry until its units cover the byte offset (relative
+// to the line start) or nothing more can be measured.
+static void wlx_text_geom_ensure_offset(const WLX_Text_Measure_Args *args,
+    WLX_Text_Geom_Entry *e, size_t offset_rel)
+{
+    while (e->units == 0 || (size_t)e->unit_ends[e->units - 1] < offset_rel) {
+        if (!wlx_text_geom_extend(args, e))
+            break;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// No-wrap windowed origin. A line the unit budget cannot cover from its
+// start re-enters at a measure origin near the view: the entry's advances
+// are measured from the origin (tab stops restart there, the rule wrapped
+// rows already apply at row starts) and consumers add the frozen origin_x
+// to place them in content space. origin_x is exact at the line start,
+// carried exactly across stitched moves, and an average-advance estimate
+// only after a far jump onto unmeasured content; byte offsets are exact
+// everywhere. Origins move only when the view leaves what the current
+// origin can measure, so a held view never re-anchors.
+// ----------------------------------------------------------------------------
+
+// Average unit advance for origin estimates: the entry's own measurements
+// first, then the store's sticky last-seen average (surviving entry drops
+// and clears), then a glyph-shaped guess off the line height.
+static float wlx_text_geom_avg_advance(const WLX_Text_Geom_Store *s,
+    const WLX_Text_Geom_Entry *e, float line_h)
+{
+    if (e != NULL && e->units > 0 && e->advances[e->units - 1] > 0.0f)
+        return e->advances[e->units - 1] / (float)e->units;
+    if (s != NULL && s->avg_advance > 0.0f) return s->avg_advance;
+    return line_h > 0.0f ? line_h * WLX_TEXT_GEOM_FALLBACK_ADVANCE_EM : 1.0f;
+}
+
+// Refresh the store's sticky average from an entry with enough units to
+// be representative. No-wrap entries only: wrapped advances are
+// row-relative and would understate the average.
+static void wlx_text_geom_note_avg(WLX_Text_Geom_Store *s,
+    const WLX_Text_Geom_Entry *e)
+{
+    if (s != NULL && e->rows == 0
+        && e->units >= (size_t)WLX_TEXT_GEOM_AVG_MIN_UNITS
+        && e->advances[e->units - 1] > 0.0f)
+        s->avg_advance = e->advances[e->units - 1] / (float)e->units;
+}
+
+// Count text units in [from, to), capped: far-jump checks stay bounded and
+// estimate walks stay explicit. Returns cap when the walk did not reach to.
+static size_t wlx_text_geom_units_between(const char *text, size_t length,
+    size_t from, size_t to, size_t cap)
+{
+    size_t n = 0;
+    while (from < to && n < cap) {
+        from = wlx_text_unit_next(text, length, from);
+        n++;
+    }
+    return n;
+}
+
+// Walk up to n text units forward from off, stopping at the line's
+// separator or the text end. *out_steps receives the units consumed.
+static size_t wlx_text_geom_units_fwd(const char *text, size_t length,
+    size_t off, size_t n, size_t *out_steps)
+{
+    size_t steps = 0;
+    while (steps < n && off < length
+        && !wlx_text_at_line_break(text, length, off)) {
+        off = wlx_text_unit_next(text, length, off);
+        steps++;
+    }
+    if (out_steps) *out_steps = steps;
+    return off;
+}
+
+// Walk up to n text units backward from off, flooring at the line start.
+// Steps land on UTF-8 lead bytes; malformed sequences may group
+// differently than the forward walk, which only shifts an origin
+// candidate, never a stored offset. *out_steps receives the units taken.
+static size_t wlx_text_geom_units_back(const char *text, size_t off,
+    size_t floor_off, size_t n, size_t *out_steps)
+{
+    size_t steps = 0;
+    while (steps < n && off > floor_off) {
+        off--;
+        while (off > floor_off && ((unsigned char)text[off] & 0xC0) == 0x80) off--;
+        steps++;
+    }
+    if (out_steps) *out_steps = steps;
+    return off;
+}
+
+// Snap an origin candidate to the boundary just after a space within the
+// backscan window, else to the candidate's own UTF-8 lead byte.
+static size_t wlx_text_geom_snap_origin(const char *text, size_t line_start,
+    size_t candidate)
+{
+    size_t lo = candidate > (size_t)WLX_EDITOR_ORIGIN_BACKSCAN
+        ? candidate - (size_t)WLX_EDITOR_ORIGIN_BACKSCAN : 0;
+    if (lo < line_start) lo = line_start;
+    for (size_t p = candidate; p > lo; p--) {
+        if (text[p - 1] == ' ') return p;
+    }
+    while (candidate > line_start
+        && ((unsigned char)text[candidate] & 0xC0) == 0x80) candidate--;
+    return candidate;
+}
+
+// Move a no-wrap entry's measure origin to the line-relative offset
+// new_rel and set the new origin's absolute x, dropping the stored
+// units so the scan restarts at the new origin.
+//
+// est_x is the caller's fallback x for the new origin (an estimate);
+// stitch may be true only when the old origin lies within one unit
+// budget of new_rel - the stitch-back arm re-measures that span, and a
+// farther origin could not reach it. Everything except the origin
+// fields resets: units, rows, and the first-tab fact clear.
+//
+// The new origin_x is chosen by the most exact rule that applies:
+//
+//        0        new_rel'  old origin  [measured units]
+//        |            |         |        u0   u1   u2
+//   x -> +------------+---------+-------|----|----|------------
+//   (1)  new_rel == 0:               origin_x = 0            exact
+//   (2)  new_rel at a measured unit end (u0/u1/u2):
+//            old origin_x + stored advance                   exact
+//   (3)  new_rel' behind the old origin, stitch set:
+//            re-measure [new_rel', old origin), subtract     exact on
+//            from old origin_x                        additive metrics
+//   (4)  anything else: est_x, the caller's
+//            average-advance estimate                x-space estimate
+//
+// Byte offsets stay exact on every arm; only x carries the estimate.
+// See docs/EDITOR_MODEL.md section 6 and the stitch-precondition
+// invariant in docs/TEXT_PIPELINE_MAP.md.
+static void wlx_text_geom_set_origin(const WLX_Text_Measure_Args *args,
+    WLX_Text_Geom_Entry *e, size_t new_rel, float est_x, bool stitch)
+{
+    size_t old_rel = e->origin_rel;
+    float old_x = e->origin_x;
+    float new_x = est_x;
+    bool stitch_back = false;
+    if (new_rel == 0) {
+        new_x = 0.0f;
+    } else if (new_rel > old_rel) {
+        size_t u = wlx_text_geom_unit_index(e, new_rel);
+        if (u != SIZE_MAX) new_x = old_x + e->advances[u];
+    } else if (new_rel < old_rel) {
+        stitch_back = stitch;
+    }
+
+    e->units = 0;
+    e->rows = 0;
+    e->origin_rel = (uint32_t)new_rel;
+    e->origin_x = new_x;
+    e->scan_rel = (uint32_t)new_rel;
+    e->first_tab_rel = UINT32_MAX;
+    e->complete = false;
+
+    if (stitch_back) {
+        // Measure forward to the old origin and derive the new origin_x
+        // from it; the units measured here are the window's own content,
+        // not throwaway work. The budget can end the walk first (a very
+        // deep retreat) - the estimate then stands.
+        wlx_text_geom_ensure_offset(args, e, old_rel);
+        size_t u = wlx_text_geom_unit_index(e, old_rel);
+        if (u != SIZE_MAX) e->origin_x = old_x - e->advances[u];
+    }
+    if (e->origin_x < 0.0f) e->origin_x = 0.0f;
+}
+
+// Make a no-wrap entry's measured coverage serve the current view,
+// moving its measure origin only when the view has left what the
+// current origin can reach. Runs before every replay; it is the single
+// origin authority every consumer resolves the entry through, so
+// geometry within a viewport window agrees by construction.
+//
+//      line start     origin           stored units (coverage)
+//   x -> |..............|================================|
+//                       |<-- back -->|<==== view ====>|
+//                           margin    view_x..view_x+w
+//
+//   retreat: view_x crossed left of origin_x -> re-anchor half a view
+//            before view_x (stitch when the old origin is in reach)
+//   advance: the unit budget ran out short of the view's right edge ->
+//            re-anchor half a view before view_x, but never right of
+//            view_x itself (the non-oscillation rule: an origin the
+//            view starts behind would be pulled straight back)
+//
+// A held view or a small wheel notch stays inside the back margin and
+// never re-anchors - steady frames replay without measuring. See
+// docs/EDITOR_MODEL.md section 6 and the origin non-oscillation
+// invariant in docs/TEXT_PIPELINE_MAP.md.
+static void wlx_text_geom_window_linear(const WLX_Text_Build_Inputs *inputs,
+    WLX_Text_Geom_Entry *e)
+{
+    WLX_Text_Measure_Args margs = { inputs->ctx, inputs->text, inputs->length,
+        inputs->style, inputs->tab_advance, inputs->line_h };
+    const char *text = inputs->text;
+    size_t length = inputs->length;
+    size_t line_start = e->line_start;
+    float view_x = inputs->view_x;
+    float view_w = inputs->view_w;
+
+    if (view_w > 0.0f && e->origin_rel > 0 && view_x < e->origin_x) {
+        // Retreat: unmeasured content left of the origin entered the view.
+        float target_x = view_x - view_w * WLX_TEXT_GEOM_ORIGIN_VIEW_SLACK;
+        if (target_x <= 0.0f) {
+            wlx_text_geom_set_origin(&margs, e, 0, 0.0f, false);
+        } else {
+            float ua = wlx_text_geom_avg_advance(inputs->geom, e, inputs->line_h);
+            size_t back_n = (size_t)((e->origin_x - target_x) / ua) + 1;
+            size_t steps = 0;
+            size_t cand = wlx_text_geom_units_back(text,
+                line_start + e->origin_rel, line_start, back_n, &steps);
+            size_t snapped = wlx_text_geom_snap_origin(text, line_start, cand);
+            // Snap distance in bytes ~ units: deliberate inside the x estimate.
+            float est = e->origin_x - ua * ((float)steps + (float)(cand - snapped));
+            if (snapped <= line_start) {
+                wlx_text_geom_set_origin(&margs, e, 0, 0.0f, false);
+            } else if (snapped < line_start + e->origin_rel) {
+                wlx_text_geom_set_origin(&margs, e, snapped - line_start, est,
+                    steps <= (size_t)WLX_EDITOR_MAX_LINE_UNITS);
+            }
+        }
+    }
+
+    wlx_text_geom_ensure_width(&margs, e, inputs->rect.w - e->origin_x);
+
+    if (view_w > 0.0f && !e->complete
+        && e->units >= (size_t)WLX_EDITOR_MAX_LINE_UNITS
+        && e->origin_x + e->advances[e->units - 1] < view_x + view_w) {
+        // Advance: the budget ran out short of the view. Anchor half a
+        // view behind the view's left edge - except when that anchor is
+        // at or behind the current origin, which means a budget's units
+        // do not span the view (a very wide band, a tiny font, or a
+        // narrowed WLX_EDITOR_MAX_LINE_UNITS): the back margin is then
+        // unaffordable, and the origin aims at the view's left edge so
+        // the whole budget lands inside the view.
+        float cov_right = e->origin_x + e->advances[e->units - 1];
+        float target_x = view_x - view_w * WLX_TEXT_GEOM_ORIGIN_VIEW_SLACK;
+        if (target_x <= e->origin_x) target_x = view_x;
+        size_t new_rel = e->origin_rel;
+        float est_x = target_x;
+        if (target_x <= cov_right) {
+            // Target inside measured coverage: pick the covering unit
+            // boundary (space-preferring backscan), an exact stitch.
+            float target_rel = target_x - e->origin_x;
+            size_t lo = 0, hi = e->units;
+            while (lo < hi) {
+                size_t mid = lo + (hi - lo) / 2;
+                if (e->advances[mid] < target_rel) lo = mid + 1; else hi = mid;
+            }
+            size_t pick = lo < e->units ? lo : e->units - 1;
+            size_t stop = pick > (size_t)WLX_EDITOR_ORIGIN_BACKSCAN
+                ? pick - (size_t)WLX_EDITOR_ORIGIN_BACKSCAN : 0;
+            for (size_t k = pick + 1; k > stop; k--) {
+                size_t end_abs = line_start + e->unit_ends[k - 1];
+                if (end_abs > 0 && text[end_abs - 1] == ' ') { pick = k - 1; break; }
+            }
+            // Never anchor right of the view's left edge: the retreat rule
+            // would pull such an origin back on the next frame, and the two
+            // rules would then trade the origin (and a full re-measure) back
+            // and forth every frame. The covering boundary can overshoot by
+            // one unit; step back to the last one the view starts at or
+            // after, and hold the origin when even that overshoots.
+            while (pick > 0 && e->origin_x + e->advances[pick] > view_x) pick--;
+            if (e->origin_x + e->advances[pick] <= view_x)
+                new_rel = e->unit_ends[pick];
+        } else {
+            // Target beyond coverage: byte-walk the gap and estimate its
+            // width from the average advance.
+            float ua = wlx_text_geom_avg_advance(inputs->geom, e, inputs->line_h);
+            size_t gap_n = (size_t)((target_x - cov_right) / ua) + 1;
+            size_t steps = 0;
+            size_t cand = wlx_text_geom_units_fwd(text, length,
+                line_start + e->scan_rel, gap_n, &steps);
+            est_x = cov_right + ua * (float)steps;
+            if (steps < gap_n) {
+                // The line ended inside the gap: anchor a budget's worth
+                // of units before its end so the tail stays measurable.
+                size_t back_n = (size_t)WLX_EDITOR_MAX_LINE_UNITS
+                    / WLX_TEXT_GEOM_ANCHOR_HEADROOM_DIV;
+                size_t back_steps = 0;
+                cand = wlx_text_geom_units_back(text, cand,
+                    line_start + e->scan_rel, back_n, &back_steps);
+                est_x -= ua * (float)back_steps;
+            }
+            if (est_x > view_x) {
+                // Estimated landing right of the view's left edge (a target
+                // clamped to that edge, or an average that overshot): the
+                // retreat rule would pull it straight back next frame. Step
+                // back the estimated overshoot plus a unit of slack for the
+                // estimate itself, floored at the measured coverage.
+                size_t over = (size_t)((est_x - view_x) / ua) + 2;
+                size_t back_steps = 0;
+                cand = wlx_text_geom_units_back(text, cand,
+                    line_start + e->scan_rel, over, &back_steps);
+                est_x -= ua * (float)back_steps;
+            }
+            size_t snapped = wlx_text_geom_snap_origin(text, line_start, cand);
+            // Snap distance in bytes ~ units: deliberate inside the x estimate.
+            est_x -= ua * (float)(cand - snapped);
+            if (snapped > line_start + e->origin_rel) new_rel = snapped - line_start;
+        }
+        if (new_rel > e->origin_rel) {
+            wlx_text_geom_set_origin(&margs, e, new_rel, est_x, false);
+            wlx_text_geom_ensure_width(&margs, e, inputs->rect.w - e->origin_x);
+        }
+    }
+    wlx_text_geom_note_avg(inputs->geom, e);
+}
+
+// Extend or re-anchor a no-wrap entry so the caret's line-relative
+// offset_rel lands inside measured coverage - the anchored-consumer
+// entry point (it may move a settled measure origin; passive consumers
+// must not call it). The x of a far-jump re-anchor is an estimate;
+// byte offsets stay exact.
+//
+//   bytes -> |--------------|=========*=========|--------------|
+//            line start     ^    caret (rel)    ^       line end
+//                           |                   |
+//                        new origin:       coverage end:
+//                        caret - budget/2  origin + unit budget
+//
+// The caret lands mid-coverage, so motion and typing in either
+// direction stay inside measured coverage before the next re-anchor.
+// See docs/EDITOR_MODEL.md section 6 for the origin model.
+static WLX_EXTENSION_USED void wlx_text_geom_ensure_caret(const WLX_Text_Measure_Args *args,
+    WLX_Text_Geom_Store *s, WLX_Text_Geom_Entry *e, size_t offset_rel)
+{
+    const char *text = args->text;
+    size_t length = args->length;
+    float line_h = args->line_h;
+    size_t line_start = e->line_start;
+    size_t budget = (size_t)WLX_EDITOR_MAX_LINE_UNITS;
+
+    if (offset_rel < e->origin_rel) {
+        // Retreat: the offset is behind the origin.
+        size_t steps = 0;
+        size_t cand = wlx_text_geom_units_back(text, line_start + offset_rel,
+            line_start, budget / WLX_TEXT_GEOM_ANCHOR_HEADROOM_DIV, &steps);
+        cand = wlx_text_geom_snap_origin(text, line_start, cand);
+        float ua = wlx_text_geom_avg_advance(s, e, line_h);
+        size_t gap = wlx_text_geom_units_between(text, length, cand,
+            line_start + e->origin_rel, WLX_TEXT_GEOM_FAR_GAP_BUDGETS * budget);
+        float est = gap < WLX_TEXT_GEOM_FAR_GAP_BUDGETS * budget
+            ? e->origin_x - ua * (float)gap
+            : e->origin_x * ((float)(cand - line_start) / (float)e->origin_rel);
+        wlx_text_geom_set_origin(args, e,
+            cand <= line_start ? 0 : cand - line_start, est,
+            gap <= budget);
+    } else if (offset_rel > e->origin_rel) {
+        // Bounded distance probe first: measuring a budget of units only
+        // to find the offset beyond them would be pure throwaway work.
+        size_t dist = e->units + wlx_text_geom_units_between(text, length,
+            line_start + (e->units > 0 ? e->scan_rel : e->origin_rel),
+            line_start + offset_rel, budget + 1 - (e->units < budget ? e->units : budget));
+        if (dist <= budget) {
+            wlx_text_geom_ensure_offset(args, e, offset_rel);
+        }
+        if (e->units == 0 || (size_t)e->unit_ends[e->units - 1] < offset_rel) {
+            if (!e->complete && (e->units >= budget || dist > budget)) {
+                // Far advance: anchor half a budget before the offset.
+                float ua = wlx_text_geom_avg_advance(s, e, line_h);
+                size_t cov_end = e->units > 0 ? e->scan_rel : e->origin_rel;
+                float cov_right = e->units > 0
+                    ? e->origin_x + e->advances[e->units - 1] : e->origin_x;
+                size_t steps = 0;
+                size_t cand = wlx_text_geom_units_back(text,
+                    line_start + offset_rel, line_start + cov_end,
+                    budget / WLX_TEXT_GEOM_ANCHOR_HEADROOM_DIV, &steps);
+                cand = wlx_text_geom_snap_origin(text, line_start, cand);
+                if (cand > line_start + e->origin_rel) {
+                    size_t gap = wlx_text_geom_units_between(text, length,
+                        line_start + cov_end, cand, WLX_TEXT_GEOM_FAR_GAP_BUDGETS * budget);
+                    float est = gap < WLX_TEXT_GEOM_FAR_GAP_BUDGETS * budget
+                        ? cov_right + ua * (float)gap
+                        // Past the probe cap the gap estimate goes
+                        // byte-proportional - bytes ~ units is acceptable
+                        // inside the documented x estimate.
+                        : cov_right + ua * (float)(cand - (line_start + cov_end));
+                    wlx_text_geom_set_origin(args, e, cand - line_start, est, false);
+                    wlx_text_geom_ensure_offset(args, e, offset_rel);
+                }
+            }
+        }
+    }
+    wlx_text_geom_note_avg(s, e);
+}
+
+// ----------------------------------------------------------------------------
+// Consumer queries: the entry-level answers the editor's geometry
+// consumers read instead of pattern-matching entry fields. Each keeps
+// the measuring path as its miss fallback at the caller (false / NULL
+// means the entry cannot answer).
+// ----------------------------------------------------------------------------
+
+// Caret x in line-content space from a no-wrap entry, carrying the
+// anchored/passive consumer split of the windowed origin. Returns
+// false when the entry cannot answer and the caller must fall back to
+// its storeless measure.
+//
+//   caret (rel) is...              anchored consumer   passive consumer
+//   behind the measure origin      re-anchor, resolve  0 (off-view left)
+//   at the origin                  origin_x            origin_x
+//   in coverage, on a unit end     origin_x + advance  same (no measure)
+//   in coverage, off a boundary    prefix measure      same
+//   beyond coverage                extend/re-anchor,   pin to the
+//                                  then resolve        coverage edge
+//
+// Passive extension is allowed only within the far-gap bound
+// (WLX_TEXT_GEOM_FAR_GAP_BUDGETS budgets past the origin); farther
+// carets pin without measuring, which is what keeps a caret parked
+// off-view at zero steady-frame traffic. Anchored consumers may move
+// a settled origin; the caret draw and other passive readers never do.
+static WLX_EXTENSION_USED bool wlx_text_geom_x_at(const WLX_Text_Measure_Args *args,
+    WLX_Text_Geom_Store *s, WLX_Text_Geom_Entry *e, size_t rel, bool anchor,
+    float *out_x)
+{
+    if (anchor) {
+        wlx_text_geom_ensure_caret(args, s, e, rel);
+    } else if (rel < (size_t)e->origin_rel) {
+        *out_x = 0.0f;
+        return true;
+    } else if (e->units == 0
+        || rel - (size_t)e->origin_rel
+            <= WLX_TEXT_GEOM_FAR_GAP_BUDGETS * (size_t)WLX_EDITOR_MAX_LINE_UNITS) {
+        // Extend within the current origin's budget only; a caret it
+        // cannot reach (a byte gap no budget of units covers) pins to
+        // the coverage edge below without measuring. An empty entry
+        // still fills once - bounded, then cached - so a caret parked
+        // off the vertical window keeps its zero-measure steady frames.
+        wlx_text_geom_ensure_offset(args, e, rel);
+    }
+    if (rel == (size_t)e->origin_rel) { *out_x = e->origin_x; return true; }
+    if (rel > (size_t)e->origin_rel && e->units > 0) {
+        bool covered = (size_t)e->unit_ends[e->units - 1] >= rel;
+        if (covered) {
+            float adv = 0.0f;
+            if (wlx_text_geom_advance_at(e, rel, &adv)) {
+                *out_x = e->origin_x + adv;
+                return true;
+            }
+            // A covered caret off any measured unit boundary falls to
+            // the exact prefix measure below, never to the pin.
+        } else if (!anchor || e->units >= (size_t)WLX_EDITOR_MAX_LINE_UNITS) {
+            // Beyond coverage: at the per-record budget the origin
+            // policy already re-anchored, so this is one window's
+            // worth past the origin; a passive consumer pins here
+            // unconditionally rather than measure per frame.
+            *out_x = e->origin_x + e->advances[e->units - 1];
+            return true;
+        }
+        if (covered || e->complete) {
+            // Off any measured unit boundary, or inside a complete
+            // line's separator: measure the exact origin-relative
+            // prefix (tab stops restart at the origin, matching the
+            // drawn window).
+            float w = 0.0f, h = 0.0f;
+            if (wlx_text_measure_prefix_tabs(args->ctx, args->text, args->length,
+                    wlx_text_geom_origin_abs(e), e->line_start + rel,
+                    args->style, args->tab_advance, &w, &h)) {
+                *out_x = e->origin_x + w;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Produce one no-wrap record's fit outcome (visible range, measured
+// width and height, unit count) from a retained entry's stored
+// advances, with zero backend calls. Returns false when the entry
+// cannot answer and the caller's measuring scan must take over.
+//
+// The origin policy runs first, so a line deeper than the unit budget
+// re-enters at a measure origin near the view; the record then starts
+// at that origin and its measured width is origin-relative. The fit
+// walk repeats the measuring scan's decisions exactly - same
+// wlx_text_fit_step, first unit always accepted, budget-capped - which
+// is the replay-equals-scan invariant of docs/TEXT_PIPELINE_MAP.md.
+static bool wlx_text_geom_replay_linear(const WLX_Text_Build_Inputs *inputs,
+    WLX_Text_Geom_Entry *e, size_t *visible_start, size_t *visible_end,
+    float *measured_w, float *measured_h, size_t *scan_unit_count)
+{
+    wlx_text_geom_window_linear(inputs, e);
+    if (e->units == 0) return false;
+
+    float fit_w = inputs->rect.w - e->origin_x;
+    size_t fit = 0;
+    while (fit < e->units) {
+        if (fit >= (size_t)WLX_EDITOR_MAX_LINE_UNITS) break;
+        WLX_Text_Fit verdict = wlx_text_fit_step(e->advances[fit], fit_w, fit);
+        if (verdict == WLX_TEXT_FIT_REJECT) break;
+        fit++;
+        if (verdict == WLX_TEXT_FIT_ACCEPT_END) break;
+    }
+    // Reject the replay when the walk ran out of stored units while
+    // the line still fit: a complete line or a spent budget ends that
+    // way legitimately, anything else is an under-measured entry (a
+    // mid-extension allocation failure) the measuring scan must redo.
+    if (fit == e->units && !e->complete
+        && e->units < (size_t)WLX_EDITOR_MAX_LINE_UNITS
+        && e->advances[e->units - 1] <= fit_w) {
+        return false;
+    }
+
+    *visible_start = e->line_start + e->origin_rel;
+    *visible_end = e->line_start + e->unit_ends[fit - 1];
+    *measured_w = e->advances[fit - 1];
+    *measured_h = e->heights[fit - 1];
+    *scan_unit_count = fit;
+    return true;
+}
+
+// Build a wrapped line's full retained geometry in one pass: the same
+// per-row growing-prefix scan the wrapped build runs, for every row of
+// the hard line up to the per-line unit budget. Units arrive through
+// wlx_text_unit_fetch (chunked advances batch or per-unit prefix
+// measure, per backend capability, row-start measure base); a candidate
+// that fits (or starts its row) is stored with its row-relative advance,
+// and a rejected candidate is discarded together with the rest of its
+// fetched batch and re-measured from the next row's start, exactly like
+// the measuring scan. Returns false on allocation failure or a backend
+// fill that cannot progress (the caller then falls back to the
+// measuring build).
+//
+//   per hard line, until its separator or the per-line budget:
+//     row loop      [ row 0 ][ row 1 ][ row 2 ] ...
+//       fetch loop    |batch of units|  (one chunked fill, or one
+//                                       per-unit-measured unit)
+//         unit loop     fit each unit: ACCEPT stores it with its
+//                       row-relative advance; REJECT discards the
+//                       batch remainder and opens the next row at
+//                       that unit
+static bool wlx_text_geom_ensure_wrap(const WLX_Text_Build_Inputs *inputs,
+    WLX_Text_Geom_Entry *e)
+{
+    if (e->complete) return true;
+    const char *text = inputs->text;
+    size_t length = inputs->length;
+    size_t line_start = e->line_start;
+    WLX_Text_Measure_Args margs = { inputs->ctx, inputs->text, inputs->length,
+        inputs->style, inputs->tab_advance, inputs->line_h };
+
+    e->units = 0;
+    e->rows = 0;
+    e->scan_rel = 0;
+    e->first_tab_rel = UINT32_MAX;
+
+    size_t ends[WLX_TEXT_ADVANCES_CHUNK];
+    float advs[WLX_TEXT_ADVANCES_CHUNK];
+    float heights[WLX_TEXT_ADVANCES_CHUNK];
+    size_t first_tab = SIZE_MAX;
+
+    size_t line_units = 0;
+    size_t row_start = line_start;
+    for (;;) {
+        if (row_start >= length || line_units >= (size_t)WLX_EDITOR_MAX_LINE_UNITS
+            || wlx_text_at_line_break(text, length, row_start)) {
+            break;
+        }
+        if (e->rows == e->row_cap) {
+            size_t new_cap = e->row_cap == 0 ? 8 : e->row_cap * 2;
+            uint32_t *grown = (uint32_t *)wlx_realloc(e->row_units, new_cap * sizeof(uint32_t));
+            if (grown == NULL) return false;
+            e->row_units = grown;
+            e->row_cap = new_cap;
+        }
+        e->row_units[e->rows++] = (uint32_t)e->units;
+
+        size_t pos = row_start;
+        size_t row_units_count = 0;
+        float row_x = 0.0f;
+        bool row_done = false;
+        while (!row_done) {
+            if (pos >= length || wlx_text_at_line_break(text, length, pos)) {
+                row_start = length; // line text exhausted; outer loop ends
+                break;
+            }
+            if (line_units >= (size_t)WLX_EDITOR_MAX_LINE_UNITS) {
+                row_start = length; // per-line budget spent; final row freezes
+                break;
+            }
+            size_t n = wlx_text_unit_fetch(&margs, pos, row_start, row_x,
+                (size_t)WLX_EDITOR_MAX_LINE_UNITS - line_units, true, ends,
+                advs, heights, &first_tab);
+            if (n == 0) return false; // abort to the measuring build
+            for (size_t i = 0; i < n; i++) {
+                WLX_Text_Fit fit = wlx_text_fit_step(advs[i], inputs->rect.w,
+                    row_units_count);
+                if (fit == WLX_TEXT_FIT_REJECT) {
+                    // Rejected: the unit belongs to the next row and will be
+                    // re-measured from that row's start.
+                    row_start = pos;
+                    row_done = true;
+                    break;
+                }
+                if (!wlx_text_geom_push_unit(e, (uint32_t)(ends[i] - line_start),
+                        advs[i], heights[i]))
+                    return false;
+                pos = ends[i];
+                row_units_count++;
+                line_units++;
+                if (fit == WLX_TEXT_FIT_ACCEPT_END) {
+                    row_start = pos;
+                    row_done = true;
+                    break;
+                }
+            }
+            if (!row_done) row_x = advs[n - 1];
+        }
+    }
+    wlx_text_geom_first_tab_note(e, first_tab);
+    e->scan_rel = e->units > 0 ? e->unit_ends[e->units - 1] : 0;
+    e->complete = true;
+    return true;
+}
+
+// Replay one wrapped row's scan outcome from a retained entry. The row is
+// located by its byte start; a mid-line entry miss (evicted mid-stream)
+// returns false and the caller's measuring scan takes over.
+static bool wlx_text_geom_wrap_step(const WLX_Text_Build_Inputs *inputs,
+    WLX_Text_Build_Cursor *cursor, size_t source_offset, size_t *visible_end,
+    float *measured_w, float *measured_h, size_t *scan_unit_count)
+{
+    size_t line_next = inputs->known_line_next;
+    if (line_next <= source_offset || line_next > inputs->length) return false;
+
+    WLX_Text_Geom_Entry *e = wlx_text_geom_find_containing(inputs->geom,
+        source_offset, line_next);
+    if (e == NULL) {
+        if (!wlx_text_hard_line_start_at(inputs->text, inputs->length, source_offset))
+            return false;
+        e = wlx_text_geom_acquire(inputs->geom, source_offset, line_next);
+        if (e == NULL) return false;
+    }
+    if (!e->complete && !wlx_text_geom_ensure_wrap(inputs, e)) {
+        wlx_text_geom_drop(e);
+        return false;
+    }
+    if (e->rows == 0 || e->units == 0) return false;
+
+    size_t rel = source_offset - e->line_start;
+    size_t row = SIZE_MAX;
+    for (size_t r = 0; r < e->rows; r++) {
+        size_t start_rel = r == 0 ? 0 : (size_t)e->unit_ends[e->row_units[r] - 1];
+        if (start_rel == rel) { row = r; break; }
+        if (start_rel > rel) break;
+    }
+    if (row == SIZE_MAX) return false;
+
+    size_t lo = e->row_units[row];
+    size_t hi = row + 1 < e->rows ? (size_t)e->row_units[row + 1] : e->units;
+    if (hi <= lo) return false;
+
+    *visible_end = e->line_start + e->unit_ends[hi - 1];
+    *measured_w = e->advances[hi - 1];
+    *measured_h = e->heights[hi - 1];
+    *scan_unit_count = hi - lo;
+    // Backfill the build cursor's first-tab fact, but only as far as
+    // the replayed range would itself have discovered it: later prefix
+    // prechecks see the same overestimate-safe fact the measuring scan
+    // would have produced, so the replay changes no downstream result.
+    size_t replayed_first_tab = wlx_text_geom_first_tab_abs(e);
+    if (cursor->line_first_tab == SIZE_MAX
+        && wlx_text_pen_has_tab(replayed_first_tab,
+            e->line_start + (size_t)e->unit_ends[hi - 1])) {
+        cursor->line_first_tab = replayed_first_tab;
+    }
+    return true;
+}
+
+// ----------------------------------------------------------------------------
+// The build kernel. One step produces one line record by greedy fitting
+// over cumulative unit advances drawn from one of three sources - the
+// retained-store replay, the backend's batched advances callback, or the
+// per-unit prefix measure - all sharing wlx_text_fit_step so replayed
+// and measured builds make identical fit decisions.
+// ----------------------------------------------------------------------------
+
+// Produce the next line record at source_offset (a hard line start or
+// a wrap/truncation continuation) and report where the following
+// record begins. Advance sources are tried in order: retained-store
+// replay when the inputs carry the editor's store, else the measuring
+// fetch - batched or per-unit arm, gated so non-editor builds never
+// batch; the separator / truncated-tail epilogue is shared by every
+// outcome. A budget descriptor resolved at entry maps the three cap
+// regimes (whole-text, per-record, per-hard-line) onto one
+// counter-plus-cap pair. trailing_empty_line appends the
+// caret-addressable empty record after a final separator. See the
+// build-step diagram in docs/LINE_RUN_MODEL.md section 5.
 static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inputs,
     WLX_Text_Build_Cursor *cursor, size_t source_offset, bool trailing_empty_line)
 {
@@ -6737,6 +8639,16 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
 
     const char *text = inputs->text ? inputs->text : "";
     size_t length = inputs->length;
+
+    // Per-hard-line budget mode (wrap + truncate_continue): the wrapped
+    // rows of one hard line share one unit budget, refreshed whenever a
+    // step enters at a hard line start. The first-tab fact resets there in
+    // every mode - the growing-prefix measures below test against it.
+    bool line_budget = inputs->truncate_continue && inputs->wrap;
+    if (wlx_text_hard_line_start_at(text, length, source_offset)) {
+        if (line_budget) cursor->line_unit_count = 0;
+        cursor->line_first_tab = SIZE_MAX;
+    }
 
     if (trailing_empty_line) {
         if (source_offset > length) return step;
@@ -6783,6 +8695,7 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
         return step;
     }
 
+    size_t visible_start = source_offset;
     size_t visible_end = source_offset;
     size_t sep_end = source_offset;
     float measured_w = 0.0f;
@@ -6790,65 +8703,149 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
     bool ended_by_newline = false;
     bool have_line = false;
     size_t scan_unit_count = 0;
+    bool truncate_continue = inputs->truncate_continue && !inputs->wrap;
+
+    // Retained geometry replay: the editor's per-line store answers the
+    // scan without backend measures when it holds this line at the needed
+    // reach; misses and extensions measure through the same walk below and
+    // land in the store for the frames that follow. The separator and
+    // tail-skip logic after the scan is shared by both paths.
+    bool geom_replayed = false;
+    if (inputs->geom != NULL && inputs->truncate_continue && length > 0) {
+        if (!inputs->wrap) {
+            if (inputs->known_line_next > source_offset
+                && inputs->known_line_next <= length) {
+#ifdef WLX_DEBUG
+                assert(wlx_text_hard_line_start_at(text, length, source_offset)
+                    && "geom store: no-wrap records must start at hard line starts");
+#endif
+                WLX_Text_Geom_Entry *ge = wlx_text_geom_acquire(inputs->geom,
+                    source_offset, inputs->known_line_next);
+                if (ge != NULL) {
+                    geom_replayed = wlx_text_geom_replay_linear(inputs, ge,
+                        &visible_start, &visible_end, &measured_w, &measured_h,
+                        &scan_unit_count);
+                    if (!geom_replayed) wlx_text_geom_drop(ge);
+                }
+            }
+        } else {
+            geom_replayed = wlx_text_geom_wrap_step(inputs, cursor, source_offset,
+                &visible_end, &measured_w, &measured_h, &scan_unit_count);
+        }
+    }
+    if (geom_replayed) have_line = true;
 
     size_t scan_pos = source_offset;
-    while (scan_pos < length) {
+    WLX_Text_Measure_Args margs = { inputs->ctx, text, length,
+        inputs->style, inputs->tab_advance, inputs->line_h };
+    // Budget descriptor, resolved once: which cumulative counter (NULL =
+    // record-local only) joins this record's used-unit count, and the
+    // cap. The three regimes keep their locked semantics - whole-text
+    // freeze-at-cap, per-record, per-hard-line - only the accounting
+    // mechanism is shared.
+    size_t *budget_counter = line_budget ? &cursor->line_unit_count
+        : truncate_continue ? NULL : &cursor->text_unit_count;
+    size_t budget_cap = (truncate_continue || line_budget)
+        ? (size_t)WLX_EDITOR_MAX_LINE_UNITS : inputs->text_unit_cap;
+    // The measuring scan: one fetch-and-fit loop over the unit fetch.
+    // Batching is gated on editor-mode scans (truncate_continue), never
+    // on backend capability alone, so non-editor builds stay per-unit
+    // and byte-identical whatever the backend provides. A batch that
+    // cannot progress falls to per-unit for the rest of this record
+    // (sticky), still measuring whole prefixes from source_offset; a fit
+    // overflow ends the record outright, never switches modes.
+    bool batch_rec = inputs->truncate_continue && inputs->ctx != NULL
+        && inputs->ctx->backend.measure_text_advances != NULL;
+    while (!geom_replayed && scan_pos < length) {
         if (wlx_text_newline_at(text, length, scan_pos, &sep_end)) {
             ended_by_newline = true;
             break;
         }
+        size_t units_used = (budget_counter != NULL ? *budget_counter : 0)
+            + scan_unit_count;
+        if (units_used >= budget_cap) break;
 
-        if (cursor->text_unit_count + scan_unit_count >= inputs->text_unit_cap) {
-            break;
-        }
-
-        size_t next = wlx_text_utf8_next(text, length, scan_pos);
-        if (next <= scan_pos) next = scan_pos + 1;
-        if (next > length) next = length;
-
-        float text_range_w = 0.0f;
-        float text_range_h = inputs->line_h;
-        bool measured = wlx_measure_text_range(inputs->ctx, text, length, source_offset, next, inputs->style,
-            &text_range_w, &text_range_h);
-        if (!measured) {
-            text_range_w = 0.0f;
-            text_range_h = inputs->line_h;
-        }
-
-        if (text_range_w <= inputs->rect.w || !have_line) {
-            visible_end = next;
-            measured_w = text_range_w;
-            measured_h = text_range_h;
+        size_t ends[WLX_TEXT_ADVANCES_CHUNK];
+        float advs[WLX_TEXT_ADVANCES_CHUNK];
+        float heights[WLX_TEXT_ADVANCES_CHUNK];
+        size_t n = wlx_text_unit_fetch(&margs, scan_pos, source_offset,
+            measured_w, budget_cap - units_used, batch_rec, ends, advs,
+            heights, &cursor->line_first_tab);
+        if (n == 0) { batch_rec = false; continue; }
+        bool overflow = false;
+        for (size_t i = 0; i < n; i++) {
+            WLX_Text_Fit fit = wlx_text_fit_step(advs[i], inputs->rect.w,
+                scan_unit_count);
+            if (fit == WLX_TEXT_FIT_REJECT) { overflow = true; break; }
+            visible_end = ends[i];
+            measured_w = advs[i];
+            measured_h = heights[i];
             have_line = true;
-            scan_pos = next;
+            scan_pos = ends[i];
             scan_unit_count++;
-            if (text_range_w > inputs->rect.w) break;
-            continue;
+            if (fit == WLX_TEXT_FIT_ACCEPT_END) { overflow = true; break; }
         }
-
-        break;
+        if (overflow) break;
     }
 
     if (!have_line) return step;
     if (scan_unit_count == 0 && visible_end > source_offset) return step;
 
+    size_t separator_start = visible_end;
+    bool skip_tail_to_eof = false;
+    // A hard line that exhausted its per-line budget freezes: its final
+    // wrapped row skips the unmeasured tail like a truncated record.
+    bool line_budget_spent = line_budget
+        && cursor->line_unit_count + scan_unit_count >= (size_t)WLX_EDITOR_MAX_LINE_UNITS;
     if (!ended_by_newline) {
         size_t separator_after = 0;
         if (wlx_text_newline_at(text, length, visible_end, &separator_after)) {
             ended_by_newline = true;
             sep_end = separator_after;
+        } else if (truncate_continue || line_budget_spent) {
+            // Skip the invisible tail to the next hard line start without
+            // measuring; the record keeps the full source range so offset
+            // math over the tail stays well-defined. A caller-supplied
+            // next-line-start hint replaces the newline scan; the
+            // separator sits immediately before that start (CRLF two
+            // bytes, LF/CR one, none on the final line).
+            size_t tail = visible_end;
+            bool have_tail = false;
+            size_t hint = inputs->known_line_next;
+            if (hint > visible_end && hint <= length) {
+                size_t sep_start = hint;
+                if (!wlx_text_separator_before(text, length, hint, &sep_start))
+                    sep_start = hint;
+                if (sep_start >= visible_end) {
+                    tail = sep_start;
+                    have_tail = true;
+                }
+            }
+            if (!have_tail) {
+                while (tail < length && !wlx_text_newline_at(text, length, tail, &separator_after)) tail++;
+            }
+            if (tail < length && wlx_text_newline_at(text, length, tail, &separator_after)) {
+                ended_by_newline = true;
+                separator_start = tail;
+                sep_end = separator_after;
+            } else {
+                separator_start = length;
+                sep_end = length;
+                skip_tail_to_eof = true;
+            }
         } else {
             sep_end = visible_end;
         }
     }
 
     cursor->text_unit_count += scan_unit_count;
+    if (line_budget) cursor->line_unit_count += scan_unit_count;
 
     wlx_text_line_record_from_range(inputs->ctx, &step.line, text, length, (WLX_Text_Line_Record_Opt){
         .source_start    = source_offset,
-        .visible_start   = source_offset,
+        .visible_start   = visible_start,
         .visible_end     = visible_end,
-        .separator_start = visible_end,
+        .separator_start = separator_start,
         .separator_end   = sep_end,
         .measured_w      = measured_w,
         .measured_h      = measured_h,
@@ -6859,19 +8856,35 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
     });
 
     step.next_offset = ended_by_newline ? sep_end : visible_end;
+    if (skip_tail_to_eof) {
+        step.line.source_end = length;
+        step.next_offset = length;
+    }
     step.append_trailing_empty_line = ended_by_newline && step.next_offset == length;
     step.stop_after_line = !inputs->wrap && !ended_by_newline && step.next_offset < length;
     step.produced = true;
     return step;
 }
 
-static size_t wlx_text_build_lines(const WLX_Text_Build_Inputs *inputs, WLX_Text_Build_Cursor *cursor,
-    WLX_Text_Line_Record *lines, size_t line_cap) {
+// Build line records starting at start_offset, which must be a hard line
+// start (offset 0 or the end of a newline separator). The produced records
+// match the corresponding tail of a full build over the same inputs.
+static size_t wlx_text_build_lines_from(const WLX_Text_Build_Inputs *inputs, WLX_Text_Build_Cursor *cursor,
+    size_t start_offset, WLX_Text_Line_Record *lines, size_t line_cap) {
     if (inputs == NULL || cursor == NULL || lines == NULL || line_cap == 0) return 0;
 
+#ifdef WLX_DEBUG
+    assert(wlx_text_hard_line_start_at(inputs->text, inputs->length, start_offset));
+    assert(start_offset >= inputs->length || inputs->text == NULL
+        || !wlx_text_utf8_is_continuation((unsigned char)inputs->text[start_offset]));
+#endif
+
     size_t line_count = 0;
-    size_t line_offset = 0;
-    bool append_trailing_empty_line = false;
+    size_t line_offset = start_offset;
+    // A start at end-of-text after a final separator is the trailing empty
+    // line; a full build reaches it with the append flag already set.
+    bool append_trailing_empty_line = start_offset == inputs->length && inputs->length > 0
+        && wlx_text_hard_line_start_at(inputs->text, inputs->length, start_offset);
 
     while (line_count < line_cap) {
         WLX_Text_Build_Step step = wlx_text_build_step(inputs, cursor, line_offset, append_trailing_empty_line);
@@ -6885,6 +8898,18 @@ static size_t wlx_text_build_lines(const WLX_Text_Build_Inputs *inputs, WLX_Text
     return line_count;
 }
 
+static size_t wlx_text_build_lines(const WLX_Text_Build_Inputs *inputs, WLX_Text_Build_Cursor *cursor,
+    WLX_Text_Line_Record *lines, size_t line_cap) {
+    return wlx_text_build_lines_from(inputs, cursor, 0, lines, line_cap);
+}
+
+// ----------------------------------------------------------------------------
+// Alignment, emission, and the from-lines geometry consumers. Everything
+// from here answers from the record arrays the build produced: caret
+// position, hit testing, selection spans, word bounds, and the one draw
+// call per visible line. Geometry always derives from line records,
+// never from a second line-breaking pass.
+// ----------------------------------------------------------------------------
 static void wlx_text_align_lines(WLX_Rect rect, WLX_Align align, float line_h,
     WLX_Vertical_Metric vmetric, int font_size,
     WLX_Text_Line_Record *lines, size_t line_count) {
@@ -6948,6 +8973,12 @@ static bool wlx_text_lines_need_scissor(WLX_Rect rect, const WLX_Text_Line_Recor
     return false;
 }
 
+// Caret x,y for cursor_offset from prepared records: the record whose
+// cursor range owns the offset gives y, and a prefix measure
+// [visible_start, offset) gives x; offsets at or past visible_end (a
+// truncated tail) pin to the line's measured right edge. An offset no
+// record owns falls back to the last line's end; empty line_count
+// answers the rect corner. Returns false only on a NULL record array.
 static bool wlx_text_resolve_cursor_from_lines(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length,
     WLX_Text_Style style, const WLX_Text_Line_Record *lines, size_t line_count, size_t cursor_offset,
     float *out_x, float *out_y) {
@@ -6987,9 +9018,37 @@ static bool wlx_text_resolve_cursor_from_lines(WLX_Context *ctx, WLX_Rect rect, 
     return true;
 }
 
-static bool wlx_text_prepare_lines_slice_ex(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length, WLX_Text_Style style,
-    WLX_Align align, bool wrap, WLX_Vertical_Metric vmetric,
-    WLX_Text_Line_Record *lines, size_t line_cap, WLX_Text_Line_Array_Result *out_result) {
+// Borrow the context's line-record scratch, growing it to hold at least
+// min_records. Returns NULL only on allocation failure. The buffer is a
+// loan, not a transfer: exactly one caller may hold it at a time, and its
+// contents are invalid after the next borrower writes to it.
+static WLX_Text_Line_Record *wlx_text_line_scratch(WLX_Context *ctx, size_t min_records) {
+    WLX_HARD_ASSERT(min_records <= SIZE_MAX / sizeof(WLX_Text_Line_Record),
+        "line scratch size overflow");
+    if (ctx->text_line_scratch_cap < min_records) {
+        WLX_Text_Line_Record *grown = (WLX_Text_Line_Record *)wlx_realloc(
+            ctx->text_line_scratch, min_records * sizeof(WLX_Text_Line_Record));
+        if (grown == NULL) return NULL;
+        ctx->text_line_scratch = grown;
+        ctx->text_line_scratch_cap = min_records;
+    }
+    return ctx->text_line_scratch;
+}
+
+// Options for preparing fitted line records. Designated-initializer
+// defaults: zero-init gives no alignment, no wrap, the line-height
+// vertical metric, and the standard per-run unit budget (a zero
+// text_unit_cap means WLX_TEXT_RUN_MAX_UNITS - the default is nonzero,
+// so 0 is the unambiguous "use the default" spelling).
+typedef struct WLX_Text_Prepare_Opt {
+    WLX_Align align;
+    bool wrap;
+    WLX_Vertical_Metric vmetric;
+    size_t text_unit_cap;   // 0 = WLX_TEXT_RUN_MAX_UNITS
+} WLX_Text_Prepare_Opt;
+
+static bool wlx_text_prepare_lines_slice(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length, WLX_Text_Style style,
+    WLX_Text_Prepare_Opt opt, WLX_Text_Line_Record *lines, size_t line_cap, WLX_Text_Line_Array_Result *out_result) {
 
     if (lines == NULL || out_result == NULL) return false;
     wlx_zero_struct(*out_result);
@@ -7013,66 +9072,139 @@ static bool wlx_text_prepare_lines_slice_ex(WLX_Context *ctx, WLX_Rect rect, con
         .length = length,
         .style = style,
         .rect = rect,
-        .wrap = wrap,
+        .wrap = opt.wrap,
         .line_h = line_h,
-        .text_unit_cap = WLX_TEXT_RUN_MAX_UNITS,
+        .text_unit_cap = opt.text_unit_cap > 0
+            ? opt.text_unit_cap : (size_t)WLX_TEXT_RUN_MAX_UNITS,
     };
     WLX_Text_Build_Cursor cursor = { .text_unit_count = 0 };
 
     out_result->line_count = wlx_text_build_lines(&inputs, &cursor, lines, line_cap);
-    wlx_text_align_lines(rect, align, line_h, vmetric, style.font_size, lines, out_result->line_count);
+    wlx_text_align_lines(rect, opt.align, line_h, opt.vmetric, style.font_size, lines, out_result->line_count);
     return true;
 }
 
-static bool wlx_text_prepare_lines_slice(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length, WLX_Text_Style style,
-    WLX_Align align, bool wrap, WLX_Text_Line_Record *lines, size_t line_cap, WLX_Text_Line_Array_Result *out_result) {
-    return wlx_text_prepare_lines_slice_ex(ctx, rect, text, length, style, align, wrap,
-        WLX_VMETRIC_LINE_HEIGHT, lines, line_cap, out_result);
-}
+// Caller-declared prepare-and-consume aggregate: the standard stack
+// record array plus its result, filled in one call by wlx_text_prepare.
+// Failure mapping stays with the caller.
+typedef struct WLX_Text_Prepared {
+    WLX_Text_Line_Record lines[WLX_TEXT_RUN_MAX_LINES];
+    WLX_Text_Line_Array_Result result;
+} WLX_Text_Prepared;
 
-static bool wlx_text_prepare_lines(WLX_Context *ctx, WLX_Rect rect, const char *text, WLX_Text_Style style,
-    WLX_Align align, bool wrap, WLX_Text_Line_Record *lines, size_t line_cap, WLX_Text_Line_Array_Result *out_result) {
-    return wlx_text_prepare_lines_slice(ctx, rect, text, strlen(text), style, align, wrap, lines, line_cap, out_result);
+static bool wlx_text_prepare(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length,
+    WLX_Text_Style style, WLX_Text_Prepare_Opt opt, WLX_Text_Prepared *p)
+{
+    return wlx_text_prepare_lines_slice(ctx, rect, text, length, style, opt,
+        p->lines, WLX_TEXT_RUN_MAX_LINES, &p->result);
 }
 
 static bool wlx_calc_cursor_position_for_text(WLX_Context *ctx, WLX_Rect rect, const char *text, WLX_Text_Style style,
     WLX_Align align, bool wrap, size_t cursor_offset, float *cursor_x, float *cursor_y) {
 
     if (!text) text = "";
-    WLX_Text_Line_Record lines[WLX_TEXT_RUN_MAX_LINES];
-    WLX_Text_Line_Array_Result line_array;
-
-    if (!wlx_text_prepare_lines(ctx, rect, text, style, align, wrap, lines, WLX_TEXT_RUN_MAX_LINES, &line_array)) {
+    WLX_Text_Prepared p;
+    if (!wlx_text_prepare(ctx, rect, text, strlen(text), style,
+            (WLX_Text_Prepare_Opt){ .align = align, .wrap = wrap }, &p)) {
         return false;
     }
 
-    cursor_offset = wlx_text_normalize_cursor_offset(text, line_array.text_length, cursor_offset);
+    cursor_offset = wlx_text_normalize_cursor_offset(text, p.result.text_length, cursor_offset);
 
-    if (line_array.text_length == 0) {
-        WLX_Rect aligned = wlx_get_align_rect(rect, 0.0f, line_array.line_h, align);
+    if (p.result.text_length == 0) {
+        WLX_Rect aligned = wlx_get_align_rect(rect, 0.0f, p.result.line_h, align);
         if (cursor_x) *cursor_x = aligned.x;
         if (cursor_y) *cursor_y = aligned.y;
         return true;
     }
 
-    return wlx_text_resolve_cursor_from_lines(ctx, rect, text, line_array.text_length, style,
-        lines, line_array.line_count, cursor_offset, cursor_x, cursor_y);
+    return wlx_text_resolve_cursor_from_lines(ctx, rect, text, p.result.text_length, style,
+        p.lines, p.result.line_count, cursor_offset, cursor_x, cursor_y);
 }
 
-static bool wlx_draw_text_fitted_slice_ex(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length, WLX_Text_Style style,
-    WLX_Align align, bool wrap, WLX_Vertical_Metric vmetric) {
+// Map a point to the nearest cursor offset in already-prepared lines: pick
+// the visual line whose vertical band contains py (clamped to the first/last
+// line), then walk codepoint boundaries measuring prefix advances and choose
+// the boundary nearest px (midpoint rule). Inverse of
+// wlx_text_resolve_cursor_from_lines, built on the same line records.
+static size_t wlx_text_offset_at_point_from_lines(WLX_Context *ctx, const char *text, size_t length,
+    WLX_Text_Style style, const WLX_Text_Line_Record *lines, size_t line_count, float px, float py)
+{
+    if (text == NULL || length == 0 || lines == NULL || line_count == 0) return 0;
 
-    if (!text) { text = ""; length = 0; }
-    WLX_Text_Line_Record lines[WLX_TEXT_RUN_MAX_LINES];
-    WLX_Text_Line_Array_Result line_array;
-
-    if (!wlx_text_prepare_lines_slice_ex(ctx, rect, text, length, style, align, wrap, vmetric,
-            lines, WLX_TEXT_RUN_MAX_LINES, &line_array)) {
-        return false;
+    const WLX_Text_Line_Record *line = &lines[line_count - 1];
+    for (size_t i = 0; i < line_count; i++) {
+        if (py < lines[i].origin_y + lines[i].line_h) {
+            line = &lines[i];
+            break;
+        }
     }
 
-    if (line_array.text_length == 0 || line_array.line_count == 0) return true;
-    if (wlx_text_lines_need_scissor(rect, lines, line_array.line_count)) {
+    if (line->empty_visual) return line->cursor_start;
+
+    size_t off = line->visible_start;
+    float prev_w = 0.0f;
+    while (off < line->visible_end) {
+        size_t next = wlx_text_unit_next(text, length, off);
+        if (next > line->visible_end) next = line->visible_end;
+        float w = 0.0f, h = 0.0f;
+        if (!wlx_measure_text_range(ctx, text, length, line->visible_start, next, style, &w, &h)) break;
+        if (px < line->origin_x + (prev_w + w) * 0.5f) return off;
+        prev_w = w;
+        off = next;
+    }
+    return off;
+}
+
+// Convenience wrapper over wlx_text_offset_at_point_from_lines that prepares
+// the line records itself. Test seam: the widgets hit-test through their
+// frame's shared records; the suites call this to probe the same geometry
+// without a frame.
+static inline size_t wlx_text_offset_at_point(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length,
+    WLX_Text_Style style, WLX_Align align, bool wrap, float px, float py)
+{
+    if (text == NULL || length == 0) return 0;
+
+    WLX_Text_Prepared p;
+    if (!wlx_text_prepare(ctx, rect, text, length, style,
+            (WLX_Text_Prepare_Opt){ .align = align, .wrap = wrap }, &p)) {
+        return length;
+    }
+    return wlx_text_offset_at_point_from_lines(ctx, text, length, style,
+        p.lines, p.result.line_count, px, py);
+}
+
+// Word range around a byte offset: the run of word bytes containing it, or
+// the run of separators when the offset sits between words (mirrors common
+// double-click behaviour). Byte-level scanning is UTF-8 safe because the
+// separators are ASCII.
+static void wlx_text_word_bounds(const char *text, size_t length, size_t offset,
+    size_t *out_start, size_t *out_end)
+{
+    if (length == 0) {
+        if (out_start) *out_start = 0;
+        if (out_end) *out_end = 0;
+        return;
+    }
+    if (offset >= length) offset = length - 1;
+    // Back off continuation bytes so the class test reads a lead/ASCII byte.
+    while (offset > 0 && ((unsigned char)text[offset] & 0xC0) == 0x80) offset--;
+
+    bool sep_class = wlx_utf8_is_word_separator(text[offset]);
+    size_t start = offset;
+    size_t end = offset;
+    while (start > 0 && wlx_utf8_is_word_separator(text[start - 1]) == sep_class) start--;
+    while (end < length && wlx_utf8_is_word_separator(text[end]) == sep_class) end++;
+    if (out_start) *out_start = start;
+    if (out_end) *out_end = end;
+}
+
+// Emit already-prepared lines with overflow clipping against rect.
+static bool wlx_draw_text_lines_fitted(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length,
+    WLX_Text_Style style, const WLX_Text_Line_Record *lines, size_t line_count) {
+
+    if (length == 0 || lines == NULL || line_count == 0) return true;
+    if (wlx_text_lines_need_scissor(rect, lines, line_count)) {
         // Clip text overflow to the rect. A single line is never clipped
         // vertically by its own rect: the rendered line can exceed the rect
         // height (leading, descenders, or a backend-side font scale), and
@@ -7082,30 +9214,38 @@ static bool wlx_draw_text_fitted_slice_ex(WLX_Context *ctx, WLX_Rect rect, const
         // rect (overflow lines are cropped), and the enclosing scissor (panel,
         // scroll viewport) still bounds the result either way.
         WLX_Rect clip = rect;
-        if (line_array.line_count == 1) {
+        if (line_count == 1) {
             float line_top = lines[0].origin_y;
             float line_bottom = line_top + lines[0].line_h;
             if (line_top < clip.y) { clip.h += clip.y - line_top; clip.y = line_top; }
             if (line_bottom > clip.y + clip.h) clip.h = line_bottom - clip.y;
         }
         WLX_Scissor_Scope sc = wlx_scissor_scope_begin(ctx, clip);
-        bool ok = wlx_text_emit_lines(ctx, rect, text, line_array.text_length, style, lines, line_array.line_count);
+        bool ok = wlx_text_emit_lines(ctx, rect, text, length, style, lines, line_count);
         wlx_scissor_scope_end(ctx, sc);
         return ok;
     }
 
-    return wlx_text_emit_lines(ctx, rect, text, line_array.text_length, style, lines, line_array.line_count);
+    return wlx_text_emit_lines(ctx, rect, text, length, style, lines, line_count);
 }
 
 static bool wlx_draw_text_fitted_slice(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length, WLX_Text_Style style,
-    WLX_Align align, bool wrap) {
-    return wlx_draw_text_fitted_slice_ex(ctx, rect, text, length, style, align, wrap, WLX_VMETRIC_LINE_HEIGHT);
+    WLX_Text_Prepare_Opt opt) {
+
+    if (!text) { text = ""; length = 0; }
+    WLX_Text_Prepared p;
+    if (!wlx_text_prepare(ctx, rect, text, length, style, opt, &p)) return false;
+
+    return wlx_draw_text_lines_fitted(ctx, rect, text, p.result.text_length, style,
+        p.lines, p.result.line_count);
 }
 
+// NUL-terminated adapter: one strlen, then the slice path.
 static bool wlx_draw_text_fitted(WLX_Context *ctx, WLX_Rect rect, const char *text, WLX_Text_Style style,
     WLX_Align align, bool wrap) {
     if (!text) text = "";
-    return wlx_draw_text_fitted_slice(ctx, rect, text, strlen(text), style, align, wrap);
+    return wlx_draw_text_fitted_slice(ctx, rect, text, strlen(text), style,
+        (WLX_Text_Prepare_Opt){ .align = align, .wrap = wrap });
 }
 
 WLXDEF bool wlx_calc_cursor_position(WLX_Context *ctx, WLX_Rect rect, const char *text, WLX_Text_Style style, WLX_Align align, bool wrap,
@@ -7130,14 +9270,245 @@ static const float WLX_CHECKBOX_CHECK_THICKNESS_RATIO = 0.12f;
 static const float WLX_CHECKBOX_CHECK_GLOW_RATIO = 0.2f;
 static const float WLX_CHECKBOX_CHECK_GLOW_ALPHA = 0.25f;
 
-#ifndef WLX_INPUTBOX_CURSOR_TEMP_SIZE
-#define WLX_INPUTBOX_CURSOR_TEMP_SIZE 512
-#endif
+// Wheel-scroll pixels per delta unit, shared by scroll panels and the
+// multiline inputbox so both feel identical under the same wheel.
+static const float WLX_SCROLL_PANEL_DEFAULT_WHEEL_SCROLL_SPEED = 20.0f;
 
-static const float WLX_INPUTBOX_CURSOR_WIDTH = 2.0f;
-static const float WLX_INPUTBOX_CURSOR_PADDING = 2.0f;
-static const float WLX_INPUTBOX_CURSOR_BLINK_PERIOD = 1.0f;
-static const float WLX_INPUTBOX_CURSOR_VISIBLE_FRACTION = 0.5f;
+// Scrollbar strip width when the theme leaves its knob unset.
+static const float WLX_SCROLLBAR_FALLBACK_WIDTH = 10.0f;
+
+// Compute the scrollbar thumb rect from track geometry and scroll state.
+// Shared by scroll panels and the multiline inputbox.
+static inline WLX_Rect wlx_scrollbar_rect(
+    WLX_Rect panel_rect, float content_height, float scroll_offset, float scrollbar_width)
+{
+    float bar_h = (panel_rect.h / content_height) * panel_rect.h;
+    float bar_y = (scroll_offset / content_height) * panel_rect.h;
+    return (WLX_Rect){
+        panel_rect.x + panel_rect.w - scrollbar_width,
+        panel_rect.y + bar_y,
+        scrollbar_width,
+        bar_h
+    };
+}
+
+static inline float wlx_clampf(float v, float lo, float hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+// One raw-mouse scrollbar thumb gesture (press-hit -> drag_offset -> track
+// mapping -> release), either axis. Raw mouse is deliberate: a focused text
+// field owns active_id, which would starve a drag interaction of
+// acquisition for as long as the field has focus (and no id also means no
+// call-site collision). The thumb rect doubles as the press target and the
+// mapping length; a caller with a frozen drag range passes the frozen
+// thumb size and max_scroll while dragging (the press only ever sees the
+// live rect - the range is frozen at the press, when both agree). When
+// out_track_pos is non-NULL it receives the mapped thumb position on a
+// live drag frame and is left untouched otherwise. Returns the updated
+// scroll offset.
+static float wlx_thumb_drag_update(WLX_Context *ctx, WLX_Rect track, WLX_Rect thumb,
+    bool vertical, float max_scroll, float scroll,
+    bool *dragging, float *drag_offset, float *out_track_pos)
+{
+    float mouse_p = vertical ? (float)ctx->input.mouse_y : (float)ctx->input.mouse_x;
+    float track_p = vertical ? track.y : track.x;
+    float track_l = vertical ? track.h - thumb.h : track.w - thumb.w;
+    if (ctx->input.mouse_clicked && wlx_rect_contains(thumb,
+            (float)ctx->input.mouse_x, (float)ctx->input.mouse_y)) {
+        *dragging = true;
+        *drag_offset = mouse_p - (vertical ? thumb.y : thumb.x);
+    }
+    if (*dragging && ctx->input.mouse_down) {
+        if (track_l > 0.0f) {
+            float pos = wlx_clampf(mouse_p - track_p - *drag_offset, 0.0f, track_l);
+            scroll = (pos / track_l) * max_scroll;
+            if (out_track_pos != NULL) *out_track_pos = pos;
+        }
+    } else if (!ctx->input.mouse_down) {
+        *dragging = false;
+    }
+    return scroll;
+}
+
+// Drag-select auto-scroll: speed grows with the pointer's distance past the
+// band edge (px/s per overshoot px), with the overshoot capped so a far
+// fling cannot teleport the view in one frame.
+static const float WLX_TEXT_DRAG_SCROLL_GAIN = 15.0f;
+static const float WLX_TEXT_DRAG_SCROLL_MAX_OVERSHOOT = 60.0f;
+
+static const float WLX_TEXT_CARET_WIDTH = 2.0f;
+static const float WLX_TEXT_CARET_PADDING = 2.0f;
+static const float WLX_TEXT_CARET_BLINK_PERIOD = 1.0f;
+static const float WLX_TEXT_CARET_VISIBLE_FRACTION = 0.5f;
+
+// Consume the wheel for one axis when it can move: scroll toward the
+// delta, clamp to [0, max], zero the context delta so enclosing panels do
+// not double-scroll (innermost scrollable wins). The caller gates on
+// hover/disabled; an axis without overflow leaves the delta untouched for
+// the enclosing panel.
+static bool wlx_wheel_consume(WLX_Context *ctx, float *value, float max, float speed) {
+    if (max <= 0.0f || ctx->input.wheel_delta == 0.0f) return false;
+    *value = wlx_clampf(*value - ctx->input.wheel_delta * speed, 0.0f, max);
+    ctx->input.wheel_delta = 0.0f;
+    return true;
+}
+
+static inline bool wlx_text_caret_blink_on(float blink_time) {
+    return fmodf(blink_time, WLX_TEXT_CARET_BLINK_PERIOD)
+        < WLX_TEXT_CARET_BLINK_PERIOD * WLX_TEXT_CARET_VISIBLE_FRACTION;
+}
+
+// Caret line inside a scissor clip, shared by the inputbox and both editor
+// caret paths.
+static void wlx_text_caret_draw(WLX_Context *ctx, WLX_Rect clip,
+    float x, float top, float h, WLX_Color color)
+{
+    // Keep the whole caret body inside the clip: a column-0 caret lands
+    // exactly on the clip's left edge, where a centered line loses half
+    // its width and a one-pixel line sits at the mercy of the driver's
+    // edge rounding (observed invisible on some SDL3 setups).
+    if (clip.w >= WLX_TEXT_CARET_WIDTH) {
+        x = wlx_clampf(x, clip.x + WLX_TEXT_CARET_WIDTH * 0.5f,
+                       clip.x + clip.w - WLX_TEXT_CARET_WIDTH * 0.5f);
+    }
+    WLX_Scissor_Scope sc = wlx_scissor_scope_begin(ctx, clip);
+    wlx_draw_line(ctx, x, top, x, top + h, WLX_TEXT_CARET_WIDTH, color);
+    wlx_scissor_scope_end(ctx, sc);
+}
+
+// Thumb fill with hover/drag brightness, shared by every text-widget
+// scrollbar.
+static void wlx_scrollbar_thumb_draw(WLX_Context *ctx, WLX_Rect thumb, bool dragging) {
+    bool hover = wlx_rect_contains(thumb, (float)ctx->input.mouse_x, (float)ctx->input.mouse_y);
+    WLX_Color c = (dragging || hover)
+        ? wlx_color_brightness(ctx->theme->scrollbar.bar, ctx->theme->hover_brightness)
+        : ctx->theme->scrollbar.bar;
+    wlx_draw_rect(ctx, thumb, c);
+}
+
+// Extra height guaranteed above the font plus vertical content padding when
+// clamping a text field's requested height.
+static const float WLX_TEXT_FIELD_MIN_HEIGHT_SLACK = 4.0f;
+// Minimum field interior width in font_size units: a long label gives width
+// back rather than starving the field to nothing.
+static const int WLX_TEXT_FIELD_MIN_WIDTH_EM = 3;
+
+// Box chrome inputs for a text field, lifted verbatim from the widget opt
+// (WLX_TEXT_FIELD_CHROME below builds one).
+typedef struct {
+    WLX_Color back_color;
+    WLX_Color border_color;
+    WLX_Color border_focus_color;
+    float border_width;
+    float roundness;
+    int   rounded_segments;
+    float opacity;
+    // Per-side border overrides, forwarded via WLX_BORDER_SIDES_ARGS.
+    WLX_Color border_color_top, border_color_right;
+    WLX_Color border_color_bottom, border_color_left;
+    float border_width_top, border_width_right;
+    float border_width_bottom, border_width_left;
+    // Shadow/glow and absolute-corner fields, forwarded into WLX_Box_Style.
+    WLX_SHADOW_FIELDS;
+    WLX_GLOW_FIELDS;
+    float corner_radius;
+    int   rounded_corners;
+} WLX_Text_Field_Chrome;
+
+#define WLX_TEXT_FIELD_CHROME(opt) (WLX_Text_Field_Chrome){ \
+    .back_color = (opt).back_color, .border_color = (opt).border_color, \
+    .border_focus_color = (opt).border_focus_color, \
+    .border_width = (opt).border_width, .roundness = (opt).roundness, \
+    .rounded_segments = (opt).rounded_segments, .opacity = (opt).opacity, \
+    .border_color_top = (opt).border_color_top, \
+    .border_color_right = (opt).border_color_right, \
+    .border_color_bottom = (opt).border_color_bottom, \
+    .border_color_left = (opt).border_color_left, \
+    .border_width_top = (opt).border_width_top, \
+    .border_width_right = (opt).border_width_right, \
+    .border_width_bottom = (opt).border_width_bottom, \
+    .border_width_left = (opt).border_width_left, \
+    WLX_BOX_STYLE_EFFECTS(opt), WLX_BOX_STYLE_CORNER(opt) }
+
+typedef struct {
+    WLX_Rect input_rect;   // field interior after label + min-width giveback
+    float    label_width;  // final label width (post-clamp)
+} WLX_Text_Field_Frame;
+
+// Text-field frame prologue shared by the inputbox and the editor: measure
+// and place the optional leading label (its y follows the vertical
+// component of label_align), guarantee the minimum field width by giving
+// label width back when the label would starve the field, derive the field
+// rect, and draw the box chrome (hover-tint suppressed under focus, focus
+// border-color swap). Interaction stays at the call site - the editor
+// insets its zone by the gutter.
+static WLX_Text_Field_Frame wlx_text_field_frame(WLX_Context *ctx, WLX_Rect wr,
+    WLX_Resolved_Padding rp, const char *label, WLX_Text_Style ts,
+    WLX_Align label_align, bool label_wrap, bool hover, bool focused, bool disabled,
+    const WLX_Text_Field_Chrome *chrome)
+{
+    float label_width = 0;
+    if (label != NULL && ts.font_size > 0) {
+        size_t label_len = strlen(label);
+        float label_h = 0;
+        wlx_measure_text_slice(ctx, label, label_len, ts, &label_width, &label_h);
+        label_width += rp.left;
+
+        float label_x = wr.x + rp.left;
+        float label_y;
+        switch (label_align) {
+            case WLX_TOP: case WLX_TOP_LEFT: case WLX_TOP_CENTER: case WLX_TOP_RIGHT:
+                label_y = wr.y + rp.top;
+                break;
+            case WLX_BOTTOM: case WLX_BOTTOM_LEFT: case WLX_BOTTOM_CENTER: case WLX_BOTTOM_RIGHT:
+                label_y = wr.y + wr.h - label_h - rp.bottom;
+                break;
+            default:
+                label_y = wr.y + (wr.h - label_h) / 2;
+                break;
+        }
+        WLX_Rect label_rect = { label_x, label_y, label_width, label_h };
+        wlx_draw_text_fitted_slice(ctx, label_rect, label, label_len, ts,
+            (WLX_Text_Prepare_Opt){ .align = label_align, .wrap = label_wrap });
+    }
+
+    float min_input_w = (float)(ts.font_size * WLX_TEXT_FIELD_MIN_WIDTH_EM);
+    float horz_pad = rp.left + rp.right;
+    if (label_width > 0 && (wr.w - label_width - horz_pad) < min_input_w) {
+        label_width = wr.w - min_input_w - horz_pad;
+        if (label_width < 0) label_width = 0;
+    }
+    float input_x = wr.x + label_width + rp.left;
+    float input_w = wr.w - label_width - horz_pad;
+    input_w = input_w < 0 ? 0 : input_w;
+    float input_h = wr.h - rp.top - rp.bottom;
+    if (input_h < 0) input_h = 0;
+    WLX_Rect input_rect = { input_x, wr.y + rp.top, input_w, input_h };
+
+    WLX_Color bg_color = wlx_color_hover_tint(
+        chrome->back_color, hover && !focused, disabled,
+        ctx->theme->hover_brightness * 0.5f);
+    WLX_Color bdr_color = focused ? chrome->border_focus_color : chrome->border_color;
+    WLX_Border_Sides sides = wlx_border_sides_for_widget(
+        ctx->theme, false, disabled, chrome->opacity,
+        bdr_color, chrome->border_width,
+        WLX_BORDER_SIDES_ARGS(*chrome));
+    wlx_draw_box(ctx, input_rect, (WLX_Box_Style){
+        .fill            = bg_color,
+        .border          = bdr_color,
+        .border_width    = chrome->border_width,
+        .roundness       = chrome->roundness,
+        .rounded_segments = chrome->rounded_segments,
+        .sides           = sides,
+        .per_side        = true,
+        WLX_BOX_STYLE_EFFECTS(*chrome),
+        WLX_BOX_STYLE_CORNER(*chrome),
+    });
+
+    return (WLX_Text_Field_Frame){ .input_rect = input_rect, .label_width = label_width };
+}
+
 // Breathing margin kept between the caret ends and the field interior edges so
 // the caret never sits on the border, even when the backend's reported line
 // height exceeds the (border-inset) interior of a short field. Kept at 1px so a
@@ -7147,7 +9518,22 @@ static const float WLX_INPUTBOX_CARET_MARGIN = 1.0f;
 // Fixed inner x-axis inset between the input box rect and the editable text.
 // Preserves the historical `content_padding / 2` visual at the default
 // content_padding of 10.
-static const float WLX_INPUTBOX_TEXT_INSET = 5.0f;
+static const float WLX_TEXT_FIELD_INSET = 5.0f;
+
+// Maximum gap between clicks (at the same text offset) that still counts as
+// part of a double/triple-click sequence.
+static const float WLX_TEXT_MULTI_CLICK_SECONDS = 0.4f;
+// Cap on the multi-click clock accumulator so it cannot lose float
+// precision over long sessions; anything past the multi-click gap reads
+// the same.
+static const float WLX_TEXT_MULTI_CLICK_CLOCK_CAP = 10.0f;
+
+// Password mask capacity: at most this many codepoints (one mask byte each)
+// are rendered; longer plaintext keeps editing correctly but the visible
+// mask stops growing.
+#ifndef WLX_INPUTBOX_MASK_MAX
+#define WLX_INPUTBOX_MASK_MAX 256
+#endif
 
 // Resolve widget opacity: if the per-widget value is unset (< 0), default to
 // fully opaque; then multiply by theme-level and context-stack opacity.
@@ -7639,7 +10025,8 @@ static void wlx_draw_widget_content(WLX_Context *ctx, WLX_Rect content_rect,
         if (wlx_clip_textured_blit(content_rect, &tex_src, &tex_dst))
             wlx_draw_texture(ctx, c.texture, tex_src, tex_dst, c.texture_tint);
 
-        wlx_draw_text_fitted_slice_ex(ctx, text_rect, text, text_len, ts, c.align, c.wrap, c.vmetric);
+        wlx_draw_text_fitted_slice(ctx, text_rect, text, text_len, ts,
+            (WLX_Text_Prepare_Opt){ .align = c.align, .wrap = c.wrap, .vmetric = c.vmetric });
     } else if (has_image) {
         // image-only sizes its target through wlx_get_align_rect, which already
         // clamps to content_rect, so the draw cannot overflow the widget and
@@ -7652,7 +10039,8 @@ static void wlx_draw_widget_content(WLX_Context *ctx, WLX_Rect content_rect,
         wlx_resolve_image_fit(target, src, c.texture_scale, c.align, &tex_src, &tex_dst);
         wlx_draw_texture(ctx, c.texture, tex_src, tex_dst, c.texture_tint);
     } else if (has_text) {
-        wlx_draw_text_fitted_slice_ex(ctx, content_rect, text, text_len, ts, c.align, c.wrap, c.vmetric);
+        wlx_draw_text_fitted_slice(ctx, content_rect, text, text_len, ts,
+            (WLX_Text_Prepare_Opt){ .align = c.align, .wrap = c.wrap, .vmetric = c.vmetric });
     }
 }
 
@@ -7913,7 +10301,8 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
     // The checkbox label may use the full remaining content height below the
     // block's top edge, not just the block height.
     text_rect.h = content_rect.y + content_rect.h - row.block.y;
-    wlx_draw_text_fitted_slice(ctx, text_rect, text, text_len, ts, WLX_ALIGN_NONE, opt.wrap);
+    wlx_draw_text_fitted_slice(ctx, text_rect, text, text_len, ts,
+        (WLX_Text_Prepare_Opt){ .align = WLX_ALIGN_NONE, .wrap = opt.wrap });
 
     // Epilogue: close widget frame
     wlx_widget_frame_end(ctx, frame);
@@ -7930,9 +10319,24 @@ static void wlx_resolve_opt_inputbox(const WLX_Context *ctx, WLX_Inputbox_Opt *o
     if (wlx_is_negative_unset(opt->border_width))   opt->border_width       = theme->input.border_width;
     if (wlx_color_is_zero(opt->border_focus_color)) opt->border_focus_color = theme->input.border_focus;
     if (wlx_color_is_zero(opt->cursor_color))       opt->cursor_color       = theme->input.cursor;
+    if (wlx_color_is_zero(opt->selection_color))    opt->selection_color    = theme->input.selection;
+    // Custom themes that predate the selection field fall back to a
+    // translucent accent so the highlight is never invisible.
+    if (wlx_color_is_zero(opt->selection_color)) {
+        opt->selection_color = theme->accent;
+        opt->selection_color.a = 90;
+    }
 
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
+
+    // A masked field is always single-line: the mask has no meaningful line
+    // structure and wrapping it would leak nothing but look broken. The same
+    // reasoning excludes multiline editing.
+    if (opt->password) {
+        opt->wrap = false;
+        opt->multiline = false;
+    }
 
     // Icon tint defaults to white and the icon/text gap to a font-relative
     // value. The tint is an image tint, not a chrome color, so it stays out of
@@ -7941,94 +10345,1133 @@ static void wlx_resolve_opt_inputbox(const WLX_Context *ctx, WLX_Inputbox_Opt *o
 
     WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled,
         &opt->front_color, &opt->back_color, &opt->border_color,
-        &opt->border_focus_color, &opt->cursor_color,
+        &opt->border_focus_color, &opt->cursor_color, &opt->selection_color,
         &opt->shadow_color, &opt->glow_color);
 }
 
-// Handle keyboard input for an active inputbox: cursor movement, text insertion,
-// and backspace deletion. Called each frame while the inputbox is focused.
-// Returns true when the buffer text was mutated (insert or delete);
-// cursor-only movement resets the blink but reports false.
-static bool wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state,
-    char *buffer, size_t buffer_size, bool just_focused)
+// Resolve the visual line (as produced by the wrapped text layout) that holds
+// cursor_offset, reporting its cursor range: line start, and line end before
+// any newline separator. Runs the same line pipeline as the caret and the
+// text draw, so the jump targets always match what is on screen.
+static void wlx_inputbox_visual_line_bounds_from_lines(const char *text, size_t length,
+    const WLX_Text_Line_Record *lines, size_t line_count, size_t cursor_offset,
+    size_t *out_start, size_t *out_end)
 {
-    size_t current_len = strlen(buffer);
-    bool changed_cursor_or_text = false;
+    if (out_start) *out_start = 0;
+    if (out_end) *out_end = length;
+
+    if (lines == NULL || line_count == 0) {
+        if (out_end) *out_end = 0;
+        return;
+    }
+
+    cursor_offset = wlx_text_normalize_cursor_offset(text, length, cursor_offset);
+    const WLX_Text_Line_Record *hit = &lines[line_count - 1];
+    for (size_t i = 0; i < line_count; i++) {
+        if (wlx_text_cursor_is_on_line(&lines[i], cursor_offset)) {
+            hit = &lines[i];
+            break;
+        }
+    }
+    if (out_start) *out_start = hit->cursor_start;
+    if (out_end) *out_end = hit->cursor_end;
+}
+
+// Test seam: the widget resolves bounds through its frame's shared
+// records; the suites call this to probe the same geometry without a frame.
+static inline bool wlx_inputbox_visual_line_bounds(WLX_Context *ctx, WLX_Rect rect, const char *text, size_t length,
+    WLX_Text_Style style, WLX_Align align, bool wrap, size_t cursor_offset,
+    size_t *out_start, size_t *out_end)
+{
+    if (out_start) *out_start = 0;
+    if (out_end) *out_end = length;
+
+    WLX_Text_Prepared p;
+    if (!wlx_text_prepare(ctx, rect, text, length, style,
+            (WLX_Text_Prepare_Opt){ .align = align, .wrap = wrap }, &p)) {
+        return false;
+    }
+    wlx_inputbox_visual_line_bounds_from_lines(text, p.result.text_length,
+        p.lines, p.result.line_count, cursor_offset, out_start, out_end);
+    return true;
+}
+
+// Selection highlight over prepared line records: per line, intersect the
+// selection byte range with the line's visible range; the covered span is
+// the difference of two tab-aware prefix measures, so highlights line up
+// with the tab-expanded glyph positions (a zero tab_advance routes every
+// measure through the single-range path for tab-free widgets). Runs before
+// the text draw so the glyphs render on top; clipped to the band so wide
+// lines cannot spill over the field chrome.
+// Document line holding a byte offset: binary search over the hard line
+// starts. An offset inside a separator belongs to the line the separator
+// ends.
+static size_t wlx_editor_index_line_of(const WLX_Editor_Line_Index *idx, size_t offset) {
+    if (idx->count == 0) return 0;
+    size_t lo = 0, hi = idx->count - 1;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo + 1) / 2;
+        if (idx->offsets[mid] <= offset) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+}
+
+// One past a line's text and separator: the next hard line start, or the
+// document end for the last line. The line-next key every retained-entry
+// lookup and record build derives from the index.
+static inline size_t wlx_editor_line_next(const WLX_Editor_Line_Index *idx,
+    size_t line, size_t len)
+{
+    return line + 1 < idx->count ? idx->offsets[line + 1] : len;
+}
+
+// Draw the selection band over the given records. idx and geom are the
+// editor's retained-geometry hooks: with both present, span edges that
+// land on measured unit boundaries resolve from stored advances; the
+// inputbox passes NULL for both and every edge measures.
+static void wlx_text_draw_selection(WLX_Context *ctx, WLX_Rect band, const char *text, size_t len,
+    WLX_Text_Style ts, float tab_advance, const WLX_Editor_Line_Index *idx,
+    WLX_Text_Geom_Store *geom, const WLX_Text_Line_Record *lines, size_t count,
+    size_t sel_min, size_t sel_max, WLX_Color color)
+{
+    if (sel_min >= sel_max || len == 0 || color.a == 0) return;
+    if (lines == NULL || count == 0) return;
+
+    WLX_Scissor_Scope sc = wlx_scissor_scope_begin(ctx, band);
+    for (size_t i = 0; i < count; i++) {
+        const WLX_Text_Line_Record *line = &lines[i];
+        size_t lo = sel_min > line->visible_start ? sel_min : line->visible_start;
+        size_t hi = sel_max < line->visible_end ? sel_max : line->visible_end;
+        if (lo >= hi) continue;
+
+        float lead_w = 0.0f, hi_w = 0.0f, unused_h = 0.0f;
+        bool replayed = false;
+        if (geom != NULL && idx != NULL && idx->count > 0 && !line->empty_visual) {
+            size_t li = wlx_editor_index_line_of(idx, line->visible_start);
+            size_t lnext = wlx_editor_line_next(idx, li, len);
+            WLX_Text_Geom_Entry *e = lnext > line->visible_start
+                ? wlx_text_geom_find_containing(geom, line->visible_start, lnext)
+                : NULL;
+            if (e != NULL && e->units > 0) {
+                bool ok = true;
+                if (lo > line->visible_start)
+                    ok = wlx_text_geom_advance_at(e, lo - e->line_start, &lead_w);
+                if (ok && wlx_text_geom_advance_at(e, hi - e->line_start, &hi_w))
+                    replayed = true;
+            }
+        }
+        if (!replayed) {
+            lead_w = 0.0f;
+            if (lo > line->visible_start) {
+                wlx_text_measure_prefix_tabs(ctx, text, len, line->visible_start, lo, ts, tab_advance,
+                    &lead_w, &unused_h);
+            }
+            if (!wlx_text_measure_prefix_tabs(ctx, text, len, line->visible_start, hi, ts, tab_advance,
+                    &hi_w, &unused_h)) continue;
+        }
+        float span_w = hi_w - lead_w;
+        if (span_w <= 0.0f) continue;
+
+        wlx_draw_rect(ctx, (WLX_Rect){ line->origin_x + lead_w, line->origin_y, span_w, line->line_h }, color);
+    }
+    wlx_scissor_scope_end(ctx, sc);
+}
+
+// Password-mask offset mapping: the display text carries one byte per
+// plaintext codepoint, so display offsets are codepoint indices. Both
+// directions are the identity when the field is not masked.
+static size_t wlx_inputbox_display_offset(const char *buffer, size_t buf_len, size_t plain_off, bool password) {
+    if (!password) return plain_off;
+    if (plain_off > buf_len) plain_off = buf_len;
+    size_t count = 0;
+    size_t off = 0;
+    while (off < plain_off) {
+        off = wlx_utf8_next(buffer, off, buf_len);
+        count++;
+    }
+    return count;
+}
+
+static size_t wlx_inputbox_plain_offset(const char *buffer, size_t buf_len, size_t disp_off, bool password) {
+    if (!password) return disp_off;
+    size_t off = 0;
+    while (disp_off > 0 && off < buf_len) {
+        off = wlx_utf8_next(buffer, off, buf_len);
+        disp_off--;
+    }
+    return off;
+}
+
+static inline size_t wlx_text_edit_selection_min(const WLX_Text_Edit_State *st) {
+    return st->selection_anchor < st->cursor_pos ? st->selection_anchor : st->cursor_pos;
+}
+
+static inline size_t wlx_text_edit_selection_max(const WLX_Text_Edit_State *st) {
+    return st->selection_anchor > st->cursor_pos ? st->selection_anchor : st->cursor_pos;
+}
+
+static inline bool wlx_text_edit_has_selection(const WLX_Text_Edit_State *st) {
+    return st->selection_anchor != st->cursor_pos;
+}
+
+// Byte-span report of the buffer mutations one frame's shared edit
+// vocabulary applied: the pre-frame byte range [start, old_end) was
+// replaced by [start, new_end) in the current buffer. Sequential edits in
+// the same frame merge into one conservative range (a caller invalidating
+// derived per-line state drops everything inside it and shifts everything
+// past it by the byte delta).
+typedef struct {
+    bool edited;
+    size_t start;    // first byte touched
+    size_t old_end;  // end of the touched range in pre-frame coordinates
+    size_t new_end;  // end of the replacement in current coordinates
+} WLX_Text_Edit_Span;
+
+// Merge one edit (current-coordinate range [start, old_end) replaced by
+// [start, new_end)) into the running frame span.
+static void wlx_text_edit_span_add(WLX_Text_Edit_Span *span, size_t start,
+    size_t old_end, size_t new_end)
+{
+    if (span == NULL) return;
+    if (!span->edited) {
+        span->edited = true;
+        span->start = start;
+        span->old_end = old_end;
+        span->new_end = new_end;
+        return;
+    }
+    // The running span maps pre-frame [S, OE) to current [S, NE); the new
+    // edit is expressed in current coordinates. Bytes it touches beyond NE
+    // map back through the running delta; the merged current end tracks
+    // the new edit's shift of everything at or past it.
+    long run_delta = (long)span->new_end - (long)span->old_end;
+    long edit_delta = (long)new_end - (long)old_end;
+    if (start < span->start) span->start = start;
+    if (old_end > span->new_end) {
+        size_t mapped = (size_t)((long)old_end - run_delta);
+        if (mapped > span->old_end) span->old_end = mapped;
+    }
+    size_t shifted = (size_t)((long)span->new_end + edit_delta);
+    span->new_end = new_end > shifted ? new_end : shifted;
+}
+
+// Remove the byte range [min(*cursor, *anchor), max(*cursor, *anchor)) from
+// a length-explicit buffer, collapsing caret and anchor to the range start.
+// The buffer is treated as a byte slice: no NUL is read or written. Returns
+// true when bytes were removed.
+static bool wlx_text_edit_delete_selection(char *buffer, size_t *length, size_t *cursor,
+    size_t *anchor, WLX_Text_Edit_Span *span) {
+    size_t sel_min = *cursor < *anchor ? *cursor : *anchor;
+    size_t sel_max = *cursor > *anchor ? *cursor : *anchor;
+    if (sel_min == sel_max) return false;
+
+    memmove(&buffer[sel_min], &buffer[sel_max], *length - sel_max);
+    *length -= sel_max - sel_min;
+    *cursor = sel_min;
+    *anchor = sel_min;
+    wlx_text_edit_span_add(span, sel_min, sel_max, sel_min);
+    return true;
+}
+
+// Insert a byte slice at the caret into a length-explicit buffer bounded by
+// buffer_cap, truncating on a UTF-8 boundary so only whole codepoints land.
+// No NUL is read or written. Returns the number of bytes inserted.
+static size_t wlx_text_edit_insert(char *buffer, size_t buffer_cap, size_t *length,
+    size_t *cursor, size_t *anchor, const char *text, size_t len,
+    WLX_Text_Edit_Span *span)
+{
+    size_t room = buffer_cap > *length ? buffer_cap - *length : 0;
+    size_t ins = len < room ? len : room;
+    while (ins > 0 && !wlx_text_utf8_boundary(text, len, ins)) ins--;
+    if (ins == 0) return 0;
+
+    memmove(&buffer[*cursor + ins], &buffer[*cursor], *length - *cursor);
+    memcpy(&buffer[*cursor], text, ins);
+    wlx_text_edit_span_add(span, *cursor, *cursor, *cursor + ins);
+    *cursor += ins;
+    *anchor = *cursor;
+    *length += ins;
+    return ins;
+}
+
+// Capability gates for the shared text-edit key vocabulary. The zero value
+// is the most permissive single-line editable field: mutations allowed,
+// plain-codepoint deletes, no newline or tab inserts, clipboard open.
+typedef struct {
+    bool read_only;       // reject every mutation; navigation/selection/copy live
+    bool allow_newline;   // multiline inputbox, editor
+    bool allow_tab;       // editor only (inputbox Tab reserved for focus traversal)
+    bool word_delete;     // Ctrl/Alt-Backspace/Delete stretch to word granularity
+    bool mask_clipboard;  // password: suppress copy AND cut (hard gate)
+} WLX_Text_Edit_Caps;
+
+// Shared editing vocabulary on an explicit-length byte slice: clipboard
+// shortcuts and select-all on the platform command modifier, typing
+// (replacing a live selection), Enter/Tab inserts, Backspace/Delete with
+// word variants, and LEFT/RIGHT with collapse-else-move. The caller
+// maintains any trailing NUL. Caret and anchor are clamped on entry and
+// normalized on exit; any caret or text change resets the blink and drops
+// the sticky UP/DOWN column - every caret change here is horizontal, and a
+// key that changes nothing (LEFT at the start, RIGHT at the end) leaves the
+// column latched. Returns true when the text mutated.
+static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
+    char *buffer, size_t buffer_cap, size_t *length, WLX_Text_Edit_Caps caps,
+    WLX_Text_Edit_Span *span)
+{
     bool text_changed = false;
+    bool moved = false;
+
+    if (st->cursor_pos > *length) st->cursor_pos = *length;
+    if (st->selection_anchor > *length) st->selection_anchor = *length;
+
+    // SHIFT keeps the anchor in place so caret motion extends the selection;
+    // Ctrl or Alt stretches motion and deletes to word granularity (Alt
+    // covers Apple platforms, Ctrl the rest; accepting both keeps one path).
+    bool shift = wlx_mod_down(ctx, WLX_MOD_SHIFT);
+    bool word_motion = wlx_mod_down(ctx, WLX_MOD_CTRL) || wlx_mod_down(ctx, WLX_MOD_ALT);
+
+    // Editing shortcuts on the platform command modifier: copy, cut, paste,
+    // select-all. Handled before the motion keys so a shortcut frame cannot
+    // also move the caret.
+    if (wlx_mod_command_down(ctx)) {
+        size_t sel_min = wlx_text_edit_selection_min(st);
+        size_t sel_max = wlx_text_edit_selection_max(st);
+
+        // Copy: selected bytes only; an empty selection copies nothing.
+        // mask_clipboard suppresses copy AND cut entirely: a silent
+        // cut-delete would suggest the plaintext reached the clipboard.
+        if (wlx_is_key_pressed(ctx, WLX_KEY_C) && sel_max > sel_min && !caps.mask_clipboard) {
+            wlx_clipboard_set_text(ctx, buffer + sel_min, sel_max - sel_min);
+        }
+
+        // Cut: copy, then remove the selection.
+        if (wlx_is_key_pressed(ctx, WLX_KEY_X) && sel_max > sel_min
+            && !caps.mask_clipboard && !caps.read_only) {
+            wlx_clipboard_set_text(ctx, buffer + sel_min, sel_max - sel_min);
+            if (wlx_text_edit_delete_selection(buffer, length,
+                    &st->cursor_pos, &st->selection_anchor, span)) {
+                text_changed = true;
+            }
+        }
+
+        // Paste: replace the selection with the clipboard bytes. The insert
+        // primitive truncates to the buffer capacity on a UTF-8 boundary and
+        // takes the borrowed backend string directly, so paste length is not
+        // limited by the per-frame text_input ring.
+        if (wlx_is_key_pressed(ctx, WLX_KEY_V) && !caps.read_only
+            && ctx->backend.clipboard_get != NULL) {
+            const char *clip = ctx->backend.clipboard_get();
+            size_t clip_len = clip ? strlen(clip) : 0;
+            if (clip_len > 0) {
+                if (wlx_text_edit_delete_selection(buffer, length,
+                        &st->cursor_pos, &st->selection_anchor, span)) {
+                    text_changed = true;
+                }
+                if (wlx_text_edit_insert(buffer, buffer_cap, length,
+                        &st->cursor_pos, &st->selection_anchor, clip, clip_len, span) > 0) {
+                    text_changed = true;
+                }
+            }
+        }
+
+        // Select all: anchor at the start, caret at the end.
+        if (wlx_is_key_pressed(ctx, WLX_KEY_A)) {
+            st->selection_anchor = 0;
+            st->cursor_pos = *length;
+            moved = true;
+        }
+    }
+
+    // Typed characters land at the caret, replacing a live selection.
+    {
+        size_t type_len = 0;
+        while (type_len < sizeof(ctx->input.text_input) && ctx->input.text_input[type_len] != '\0') {
+            type_len++;
+        }
+        if (type_len > 0 && !caps.read_only) {
+            if (wlx_text_edit_delete_selection(buffer, length,
+                    &st->cursor_pos, &st->selection_anchor, span)) {
+                text_changed = true;
+            }
+            if (wlx_text_edit_insert(buffer, buffer_cap, length,
+                    &st->cursor_pos, &st->selection_anchor,
+                    ctx->input.text_input, type_len, span) > 0) {
+                text_changed = true;
+            }
+        }
+    }
+
+    // Enter inserts a hard newline (replacing a live selection). Actuated on
+    // press and OS auto-repeat. The widget owns the press: it must not
+    // double as a keyboard activation elsewhere this frame.
+    if (caps.allow_newline && !caps.read_only && wlx_is_key_actuated(ctx, WLX_KEY_ENTER)) {
+        if (wlx_text_edit_delete_selection(buffer, length,
+                &st->cursor_pos, &st->selection_anchor, span)) {
+            text_changed = true;
+        }
+        if (wlx_text_edit_insert(buffer, buffer_cap, length,
+                &st->cursor_pos, &st->selection_anchor, "\n", 1, span) > 0) {
+            text_changed = true;
+        }
+        ctx->interaction.enter_consumed = true;
+    }
+
+    // Tab inserts a literal tab character.
+    if (caps.allow_tab && !caps.read_only && wlx_is_key_actuated(ctx, WLX_KEY_TAB)) {
+        if (wlx_text_edit_delete_selection(buffer, length,
+                &st->cursor_pos, &st->selection_anchor, span)) {
+            text_changed = true;
+        }
+        if (wlx_text_edit_insert(buffer, buffer_cap, length,
+                &st->cursor_pos, &st->selection_anchor, "\t", 1, span) > 0) {
+            text_changed = true;
+        }
+    }
+
+    // Backspace: the selection, else the word or codepoint before the caret
+    // (word deletes reuse the range delete by parking the anchor). Actuated
+    // on press and OS auto-repeat so holding the key keeps deleting.
+    if (!caps.read_only && wlx_is_key_actuated(ctx, WLX_KEY_BACKSPACE)) {
+        if (wlx_text_edit_delete_selection(buffer, length,
+                &st->cursor_pos, &st->selection_anchor, span)) {
+            text_changed = true;
+        } else if (st->cursor_pos > 0) {
+            size_t prev_pos = (caps.word_delete && word_motion)
+                ? wlx_utf8_word_prev(buffer, st->cursor_pos)
+                : wlx_utf8_prev(buffer, st->cursor_pos);
+            if (prev_pos < st->cursor_pos) {
+                st->selection_anchor = prev_pos;
+                if (wlx_text_edit_delete_selection(buffer, length,
+                        &st->cursor_pos, &st->selection_anchor, span)) {
+                    text_changed = true;
+                }
+            }
+        }
+    }
+
+    // Delete: the selection, else the word or codepoint at the caret
+    // (forward delete: the caret stays put, following bytes shift left).
+    if (!caps.read_only && wlx_is_key_actuated(ctx, WLX_KEY_DELETE)) {
+        if (wlx_text_edit_delete_selection(buffer, length,
+                &st->cursor_pos, &st->selection_anchor, span)) {
+            text_changed = true;
+        } else if (st->cursor_pos < *length) {
+            size_t next_pos = (caps.word_delete && word_motion)
+                ? wlx_utf8_word_next(buffer, st->cursor_pos, *length)
+                : wlx_utf8_next(buffer, st->cursor_pos, *length);
+            if (next_pos > st->cursor_pos) {
+                st->selection_anchor = next_pos;
+                if (wlx_text_edit_delete_selection(buffer, length,
+                        &st->cursor_pos, &st->selection_anchor, span)) {
+                    text_changed = true;
+                }
+            }
+        }
+    }
+
+    // LEFT: collapse a live selection to its start, else move the caret
+    // left by one codepoint or word.
+    if (wlx_is_key_actuated(ctx, WLX_KEY_LEFT)) {
+        if (!shift && wlx_text_edit_has_selection(st)) {
+            st->cursor_pos = wlx_text_edit_selection_min(st);
+            st->selection_anchor = st->cursor_pos;
+            moved = true;
+        } else if (st->cursor_pos > 0) {
+            size_t next_pos = word_motion
+                ? wlx_utf8_word_prev(buffer, st->cursor_pos)
+                : wlx_utf8_prev(buffer, st->cursor_pos);
+            if (next_pos != st->cursor_pos) {
+                st->cursor_pos = next_pos;
+                if (!shift) st->selection_anchor = next_pos;
+                moved = true;
+            }
+        }
+    }
+
+    // RIGHT: collapse a live selection to its end, else move the caret
+    // right by one codepoint or word.
+    if (wlx_is_key_actuated(ctx, WLX_KEY_RIGHT)) {
+        if (!shift && wlx_text_edit_has_selection(st)) {
+            st->cursor_pos = wlx_text_edit_selection_max(st);
+            st->selection_anchor = st->cursor_pos;
+            moved = true;
+        } else if (st->cursor_pos < *length) {
+            size_t next_pos = word_motion
+                ? wlx_utf8_word_next(buffer, st->cursor_pos, *length)
+                : wlx_utf8_next(buffer, st->cursor_pos, *length);
+            if (next_pos != st->cursor_pos) {
+                st->cursor_pos = next_pos;
+                if (!shift) st->selection_anchor = next_pos;
+                moved = true;
+            }
+        }
+    }
+
+    size_t normalized = wlx_text_normalize_cursor_offset(buffer, *length, st->cursor_pos);
+    if (normalized != st->cursor_pos) moved = true;
+    st->cursor_pos = normalized;
+    st->selection_anchor = wlx_text_normalize_cursor_offset(buffer, *length, st->selection_anchor);
+    if (moved || text_changed) {
+        st->cursor_blink_time = 0.0f;
+        // Every caret change here is horizontal (motion, edit, select-all),
+        // so it invalidates the sticky UP/DOWN column.
+        st->preferred_x_valid = false;
+    }
+    return text_changed;
+}
+
+// Widget-specific hooks for the shared pointer driver. The driver owns the
+// click bookkeeping and widening (1 = caret, 2 = word, 3 = select all), the
+// mouse_selecting lifecycle, and the overshoot computation; hit resolution
+// and drag auto-scroll differ per widget and come through here.
+typedef struct {
+    void *user;
+    // Pointer position -> byte offset in the widget's plain text space. The
+    // y is pre-clamped to the band; x is pre-clamped only during a drag
+    // with clamp_drag_x set. The inputbox resolves via its line records
+    // plus the password display->plain mapping; the editor via index
+    // arithmetic (wrap or linear).
+    size_t (*hit)(void *user, float x, float y);
+    // Word bounds around a hit offset, in the same plain space (the
+    // inputbox computes display-space bounds and maps back; the editor is
+    // direct).
+    void (*word_bounds)(void *user, size_t hit, size_t *start, size_t *end);
+    // Drag auto-scroll for a pointer past the band edge; each overshoot is
+    // pre-clamped to +/- WLX_TEXT_DRAG_SCROLL_MAX_OVERSHOOT per axis. The
+    // inputbox shifts scroll_y plus the line origins (y only); the editor
+    // steps the wrap anchor or the pixel offsets (both axes).
+    void (*auto_scroll)(void *user, float over_x, float over_y, float dt);
+    // Clamp the drag hit x to the band: the editor auto-scrolls toward the
+    // pointer so the hit stays at the band edge while the view moves; the
+    // inputbox has no horizontal scroll and lets the hit run past the edge
+    // to reach clipped text.
+    bool clamp_drag_x;
+} WLX_Text_Mouse_Ops;
+
+// One press/multi-click/drag caret gesture over a text band. press is this
+// frame's caret-placing click, with the widget-specific exclusions
+// (scrollbar strips, gutter, live thumb drags, the widget rect test)
+// already applied by the caller; while the press is held, dragging keeps
+// extending the selection with edge auto-scroll. Returns true when the
+// caret or the selection changed.
+static bool wlx_text_edit_handle_mouse(WLX_Context *ctx, WLX_Text_Edit_State *st,
+    WLX_Rect band, size_t text_len, bool shift, bool press,
+    const WLX_Text_Mouse_Ops *ops)
+{
+    float mx = (float)ctx->input.mouse_x;
+    float my = (float)ctx->input.mouse_y;
+    bool changed = false;
+
+    if (press) {
+        // The band's bottom edge maps to the first line past the window: a
+        // press below the text must land on the last visible line, not
+        // teleport the caret - and the view with it - offscreen.
+        float hit_y = my;
+        if (hit_y > band.y + band.h - 1.0f) hit_y = band.y + band.h - 1.0f;
+        if (hit_y < band.y) hit_y = band.y;
+        size_t hit = ops->hit(ops->user, mx, hit_y);
+
+        bool multi = st->last_click_time <= WLX_TEXT_MULTI_CLICK_SECONDS
+            && hit == st->last_click_pos;
+        st->click_count = multi ? st->click_count + 1 : 1;
+        st->last_click_time = 0.0f;
+        st->last_click_pos = hit;
+
+        if (st->click_count >= 3) {
+            st->selection_anchor = 0;
+            st->cursor_pos = text_len;
+            st->mouse_selecting = false;
+            st->click_count = 0;
+        } else if (st->click_count == 2) {
+            size_t word_start = 0, word_end = 0;
+            ops->word_bounds(ops->user, hit, &word_start, &word_end);
+            st->selection_anchor = word_start;
+            st->cursor_pos = word_end;
+            st->mouse_selecting = false;
+        } else {
+            st->cursor_pos = hit;
+            if (!shift) st->selection_anchor = hit;
+            st->mouse_selecting = true;
+        }
+        st->cursor_blink_time = 0.0f;
+        st->preferred_x_valid = false;
+        changed = true;
+    } else if (st->mouse_selecting) {
+        if (ctx->input.mouse_down) {
+            // Dragging past a band edge auto-scrolls toward the pointer on
+            // that axis so a selection can grow beyond one viewport; speed
+            // scales with the overshoot (capped). The hit point is then
+            // clamped to the band so the selection only ever extends to the
+            // edge and grows as the view scrolls.
+            float over_x = 0.0f, over_y = 0.0f;
+            if (mx < band.x) over_x = mx - band.x;
+            else if (mx > band.x + band.w) over_x = mx - (band.x + band.w);
+            if (my < band.y) over_y = my - band.y;
+            else if (my > band.y + band.h) over_y = my - (band.y + band.h);
+            over_x = wlx_clampf(over_x, -WLX_TEXT_DRAG_SCROLL_MAX_OVERSHOOT, WLX_TEXT_DRAG_SCROLL_MAX_OVERSHOOT);
+            over_y = wlx_clampf(over_y, -WLX_TEXT_DRAG_SCROLL_MAX_OVERSHOOT, WLX_TEXT_DRAG_SCROLL_MAX_OVERSHOOT);
+            ops->auto_scroll(ops->user, over_x, over_y, wlx_get_frame_time(ctx));
+
+            float hit_x = mx;
+            if (ops->clamp_drag_x) {
+                hit_x = wlx_clampf(hit_x, band.x, band.x + band.w);
+            }
+            float hit_y = my;
+            hit_y = wlx_clampf(hit_y, band.y, band.y + band.h);
+            size_t hit = ops->hit(ops->user, hit_x, hit_y);
+            if (hit != st->cursor_pos) {
+                st->cursor_pos = hit;
+                st->cursor_blink_time = 0.0f;
+                st->preferred_x_valid = false;
+                changed = true;
+            }
+        } else {
+            st->mouse_selecting = false;
+        }
+    }
+    return changed;
+}
+
+// Keyboard input for a focused inputbox: caret placement on first focus,
+// then the shared text-edit vocabulary over the buffer's slice view (the
+// trailing NUL is restored after the handling). read_only rejects every
+// mutation while navigation, selection, and copy keep working; password
+// suppresses copy/cut so plaintext never leaves the field; multiline turns
+// Enter into a newline insert. Returns true when the buffer text was
+// mutated (insert or delete); cursor-only movement resets the blink but
+// reports false.
+static bool wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state,
+    char *buffer, size_t buffer_size, bool just_focused, bool read_only, bool password,
+    bool multiline)
+{
+    size_t len = strlen(buffer);
 
     // Initialize cursor position when first focused
     if (just_focused) {
-        state->cursor_pos = current_len;
-        state->cursor_blink_time = 0.0f;
+        state->caret.cursor_pos = len;
+        state->caret.selection_anchor = len;
+        state->caret.cursor_blink_time = 0.0f;
+        state->caret.preferred_x_valid = false;
     }
 
-    // Clamp cursor position to valid range
-    if (state->cursor_pos > current_len) {
-        state->cursor_pos = current_len;
-    }
-
-    // Handle left arrow - move cursor left (by one codepoint)
-    if (wlx_is_key_pressed(ctx, WLX_KEY_LEFT) && state->cursor_pos > 0) {
-        size_t next_pos = wlx_utf8_prev(buffer, state->cursor_pos);
-        if (next_pos != state->cursor_pos) {
-            state->cursor_pos = next_pos;
-            changed_cursor_or_text = true;
-        }
-    }
-
-    // Handle right arrow - move cursor right (by one codepoint)
-    if (wlx_is_key_pressed(ctx, WLX_KEY_RIGHT) && state->cursor_pos < current_len) {
-        size_t next_pos = wlx_utf8_next(buffer, state->cursor_pos, current_len);
-        if (next_pos != state->cursor_pos) {
-            state->cursor_pos = next_pos;
-            changed_cursor_or_text = true;
-        }
-    }
-
-    // Add typed characters (whole codepoints) at cursor position
-    {
-        size_t i = 0;
-        while (i < sizeof(ctx->input.text_input) && ctx->input.text_input[i] != '\0') {
-            size_t char_len = wlx_utf8_char_len(&ctx->input.text_input[i]);
-            // Don't read past the text_input buffer
-            if (i + char_len > sizeof(ctx->input.text_input)) break;
-            // Check buffer has room for the whole codepoint
-            if (current_len + char_len >= buffer_size) break;
-
-            // Shift buffer right by char_len bytes to make space
-            memmove(&buffer[state->cursor_pos + char_len],
-                    &buffer[state->cursor_pos],
-                    current_len - state->cursor_pos + 1); // +1 for NUL
-
-            // Copy the codepoint bytes
-            memcpy(&buffer[state->cursor_pos], &ctx->input.text_input[i], char_len);
-            state->cursor_pos += char_len;
-            current_len += char_len;
-            changed_cursor_or_text = true;
-            text_changed = true;
-
-            i += char_len;
-        }
-    }
-
-    // Handle backspace - delete the codepoint before cursor
-    if (wlx_is_key_pressed(ctx, WLX_KEY_BACKSPACE) && state->cursor_pos > 0) {
-        size_t prev_pos = wlx_utf8_prev(buffer, state->cursor_pos);
-        // Shift remaining bytes (including NUL) left
-        memmove(&buffer[prev_pos],
-                &buffer[state->cursor_pos],
-                current_len - state->cursor_pos + 1);
-        current_len -= state->cursor_pos - prev_pos;
-        state->cursor_pos = prev_pos;
-        changed_cursor_or_text = true;
-        text_changed = true;
-    }
-
-    size_t normalized_pos = wlx_text_normalize_cursor_offset(buffer, current_len, state->cursor_pos);
-    if (normalized_pos != state->cursor_pos) changed_cursor_or_text = true;
-    state->cursor_pos = normalized_pos;
-    if (changed_cursor_or_text) state->cursor_blink_time = 0.0f;
+    bool text_changed = wlx_text_edit_handle_keys(ctx, &state->caret, buffer,
+        buffer_size - 1, &len,
+        (WLX_Text_Edit_Caps){ .read_only = read_only,
+                              .allow_newline = multiline,
+                              .word_delete = true,
+                              .mask_clipboard = password }, NULL);
+    buffer[len] = '\0';
     return text_changed;
+}
+
+// Pointer-driver hooks for the inputbox: hits resolve through the frame's
+// line records on the display text (mask under password), then map to the
+// plain space; auto-scroll shifts scroll_y together with the
+// already-positioned records so the post-scroll hit lands on the shifted
+// geometry.
+typedef struct {
+    WLX_Context *ctx;
+    WLX_Inputbox_State *state;
+    const char *buffer;      // plain text
+    size_t buf_len;
+    const char *disp_text;   // display text (mask under password)
+    size_t disp_len;
+    WLX_Text_Style ts;
+    WLX_Text_Line_Record *lines;
+    size_t line_count;
+    float max_scroll;
+    bool password;
+} WLX_Inputbox_Mouse_Ctx;
+
+static size_t wlx_inputbox_mouse_hit(void *user, float x, float y) {
+    WLX_Inputbox_Mouse_Ctx *mc = (WLX_Inputbox_Mouse_Ctx *)user;
+    size_t hit_disp = wlx_text_offset_at_point_from_lines(mc->ctx, mc->disp_text, mc->disp_len,
+        mc->ts, mc->lines, mc->line_count, x, y);
+    return wlx_inputbox_plain_offset(mc->buffer, mc->buf_len, hit_disp, mc->password);
+}
+
+static void wlx_inputbox_mouse_word_bounds(void *user, size_t hit, size_t *start, size_t *end) {
+    WLX_Inputbox_Mouse_Ctx *mc = (WLX_Inputbox_Mouse_Ctx *)user;
+    size_t hit_disp = wlx_inputbox_display_offset(mc->buffer, mc->buf_len, hit, mc->password);
+    size_t word_start = 0, word_end = 0;
+    wlx_text_word_bounds(mc->disp_text, mc->disp_len, hit_disp, &word_start, &word_end);
+    *start = wlx_inputbox_plain_offset(mc->buffer, mc->buf_len, word_start, mc->password);
+    *end = wlx_inputbox_plain_offset(mc->buffer, mc->buf_len, word_end, mc->password);
+}
+
+static void wlx_inputbox_mouse_auto_scroll(void *user, float over_x, float over_y, float dt) {
+    WLX_Inputbox_Mouse_Ctx *mc = (WLX_Inputbox_Mouse_Ctx *)user;
+    (void)over_x;   // no horizontal scroll: the drag hit reaches past the band instead
+    if (over_y == 0.0f || mc->max_scroll <= 0.0f) return;
+    float new_scroll = mc->state->scroll_y + over_y * WLX_TEXT_DRAG_SCROLL_GAIN * dt;
+    new_scroll = wlx_clampf(new_scroll, 0.0f, mc->max_scroll);
+    float delta = new_scroll - mc->state->scroll_y;
+    if (delta == 0.0f) return;
+    mc->state->scroll_y = new_scroll;
+    for (size_t i = 0; i < mc->line_count; i++) mc->lines[i].origin_y -= delta;
+}
+
+// Per-frame band and display-text resolve: the text band placed by the
+// vertical component of opt.align (inset by the caller's icon band), and
+// the password mask.
+typedef struct {
+    WLX_Rect text_rect;     // text band inside the field interior
+    float line_h;           // backend-reported line height (fallback font_size)
+    size_t buf_len;         // plaintext length
+    const char *disp_text;  // display text (mask under password)
+    size_t disp_len;
+} WLX_Inputbox_Band;
+
+static WLX_Inputbox_Band wlx_inputbox_resolve_band(WLX_Context *ctx,
+    const WLX_Inputbox_Opt *opt, const char *buffer, WLX_Rect input_rect,
+    WLX_Text_Style ts, float border_inset, float icon_band, bool icon_leading,
+    char *mask_buf, size_t mask_cap)
+{
+    // Size the text band by the backend's reported line height, not by
+    // opt.font_size. Leading, descenders, and any backend-side font scaling
+    // make the rendered line taller than the nominal size; a band shorter
+    // than the line gets clipped by the fitted-text scissor (cropped
+    // descenders). The band is at least one line tall so a single line is
+    // never clipped, and it is placed within the box interior by the
+    // vertical component of opt.align: WLX_LEFT (default) centers, the
+    // WLX_TOP_* family top-anchors (for tall multi-line note fields), and
+    // the WLX_BOTTOM_* family bottom-anchors.
+    float ref_w = 0.0f, line_h = 0.0f;
+    wlx_measure_text_slice(ctx, " ", 1, ts, &ref_w, &line_h);
+    if (line_h <= 0.0f) line_h = (float)opt->font_size;
+
+    float interior_h = input_rect.h - border_inset * 2.0f;
+    if (interior_h < 0.0f) interior_h = 0.0f;
+    float text_h = line_h > interior_h ? line_h : interior_h;
+
+    float band_slack = interior_h - text_h;
+    float band_off;
+    switch (opt->align) {
+        case WLX_TOP: case WLX_TOP_LEFT: case WLX_TOP_CENTER: case WLX_TOP_RIGHT:
+            band_off = 0.0f; break;
+        case WLX_BOTTOM: case WLX_BOTTOM_LEFT: case WLX_BOTTOM_CENTER: case WLX_BOTTOM_RIGHT:
+            band_off = band_slack; break;
+        default:
+            band_off = band_slack * 0.5f; break;
+    }
+
+    // A leading icon pushes the text start right; a trailing icon only
+    // narrows the band. Either way the band width drops by icon_band, and
+    // the width is clamped so a narrow field can't produce a negative
+    // width or push the caret clamp out of bounds.
+    float text_lead_inset = WLX_TEXT_FIELD_INSET + (icon_leading ? icon_band : 0.0f);
+    float text_w = input_rect.w - WLX_TEXT_FIELD_INSET - WLX_TEXT_CARET_WIDTH
+                   - WLX_TEXT_CARET_PADDING - icon_band;
+    if (text_w < 0.0f) text_w = 0.0f;
+
+    WLX_Rect text_rect = {
+        .x = input_rect.x + text_lead_inset,
+        .y = input_rect.y + border_inset + band_off,
+        .w = text_w,
+        .h = text_h
+    };
+
+    // Password mode renders a mask (one byte per plaintext codepoint)
+    // while the buffer keeps the plaintext. Every geometry query below
+    // (hit test, line bounds, caret, highlight, draw) runs on the display
+    // text; offsets map between the domains via the codepoint index.
+    size_t buf_len = strlen(buffer);
+    const char *disp_text = buffer;
+    size_t disp_len = buf_len;
+    if (opt->password) {
+        disp_len = 0;
+        size_t mask_off = 0;
+        while (mask_off < buf_len && disp_len < mask_cap - 1) {
+            mask_buf[disp_len++] = '*';
+            mask_off = wlx_utf8_next(buffer, mask_off, buf_len);
+        }
+        mask_buf[disp_len] = '\0';
+        disp_text = mask_buf;
+    }
+
+    return (WLX_Inputbox_Band){
+        .text_rect = text_rect, .line_h = line_h,
+        .buf_len = buf_len, .disp_text = disp_text, .disp_len = disp_len,
+    };
+}
+
+// The frame's line records plus the scroll state resolved around them:
+// scratch build with the scrollbar-width prediction, the strip decision
+// and one rebuild at the final width, the wheel, the thumb gesture, and
+// the virtual re-anchor for a scrolled run.
+typedef struct {
+    WLX_Text_Line_Record *lines;   // NULL on scratch allocation failure
+    size_t line_count;
+    WLX_Text_Line_Array_Result line_array;
+    WLX_Rect text_rect;            // narrowed when the scrollbar shows
+    WLX_Rect sb_track;
+    float sb_w;
+    bool sb_visible;
+    float content_h;
+    float max_scroll;
+} WLX_Inputbox_Lines;
+
+static WLX_Inputbox_Lines wlx_inputbox_build_lines(WLX_Context *ctx,
+    const WLX_Inputbox_Opt *opt, WLX_Inputbox_State *state, WLX_Interaction inter,
+    const char *disp_text, size_t disp_len, WLX_Text_Style ts, WLX_Rect text_rect,
+    WLX_Rect input_rect, float border_inset)
+{
+    // One line-record build serves every geometry consumer below (mouse
+    // hit-test, HOME/END and UP/DOWN line lookups, caret, selection
+    // highlight, and the text draw). It runs after the key handling, so
+    // every text mutation of this frame is already in the buffer and the
+    // records cannot go stale mid-frame. On allocation failure the
+    // consumers degrade to their empty-line behavior. Multiline fields
+    // run on their own (larger) text-run budget; single-line fields
+    // keep the global caps.
+    size_t build_line_cap = opt->multiline
+        ? WLX_INPUTBOX_MULTILINE_MAX_LINES : WLX_TEXT_RUN_MAX_LINES;
+    size_t build_unit_cap = opt->multiline
+        ? WLX_INPUTBOX_MULTILINE_MAX_UNITS : WLX_TEXT_RUN_MAX_UNITS;
+    WLX_Text_Line_Record *lines = wlx_text_line_scratch(ctx, build_line_cap);
+    WLX_Text_Line_Array_Result line_array = {0};
+
+    // The scrollbar reserves a strip of the band when the run overflows,
+    // but the run must be built at some width before the overflow is
+    // known. In wrap mode content height is monotonic in width (a
+    // narrower band only adds wrap lines), so last frame's visibility
+    // picks this frame's probe width: a correct guess costs one build
+    // instead of two, and a wrong one is caught below and rebuilt once
+    // at the final width. Content that overflows the narrowed band while
+    // fitting the full one keeps its scrollbar (sticky hysteresis; the
+    // bar stays scrollable). Non-wrap fields never predict: their build
+    // stops at the first width-truncated line, which makes content
+    // height anti-monotonic in width and would let a narrow probe flip
+    // the decision every frame.
+    float sb_w = ctx->theme->scrollbar.width > 0.0f
+        ? ctx->theme->scrollbar.width : WLX_SCROLLBAR_FALLBACK_WIDTH;
+    WLX_Rect sb_track = { input_rect.x + border_inset, text_rect.y,
+                          input_rect.w - border_inset * 2.0f, text_rect.h };
+    bool predict_sb = opt->multiline && opt->wrap && opt->show_scrollbar
+        && state->sb_was_visible;
+    WLX_Rect probe_rect = text_rect;
+    if (predict_sb) {
+        probe_rect.w -= sb_w;
+        if (probe_rect.w < 0.0f) probe_rect.w = 0.0f;
+    }
+    if (lines != NULL) {
+        wlx_text_prepare_lines_slice(ctx, probe_rect, disp_text, disp_len, ts,
+            (WLX_Text_Prepare_Opt){ .align = opt->align, .wrap = opt->wrap,
+                                    .text_unit_cap = build_unit_cap },
+            lines, build_line_cap, &line_array);
+    }
+    size_t line_count = lines != NULL ? line_array.line_count : 0;
+
+    // Multiline content taller than the band scrolls: the line records
+    // are re-anchored to a virtual rect starting scroll_y pixels above
+    // the band, so every consumer below (hit-test, caret, selection,
+    // draw) sees the shifted geometry and the band-clipping draws crop
+    // it to the visible window. The virtual rect is exactly content
+    // tall, which top-anchors the run regardless of the vertical align
+    // component; when content fits, scroll_y clamps to zero and the
+    // band alignment applies untouched.
+    float content_h = (float)line_count * line_array.line_h;
+
+    bool sb_visible = opt->multiline && opt->show_scrollbar && content_h > text_rect.h;
+    if (sb_visible) {
+        text_rect.w -= sb_w;
+        if (text_rect.w < 0.0f) text_rect.w = 0.0f;
+    }
+    if (sb_visible != predict_sb && lines != NULL) {
+        wlx_text_prepare_lines_slice(ctx, text_rect, disp_text, disp_len, ts,
+            (WLX_Text_Prepare_Opt){ .align = opt->align, .wrap = opt->wrap,
+                                    .text_unit_cap = build_unit_cap },
+            lines, build_line_cap, &line_array);
+        line_count = line_array.line_count;
+        content_h = (float)line_count * line_array.line_h;
+    }
+    state->sb_was_visible = sb_visible;
+
+    float max_scroll = 0.0f;
+    if (opt->multiline && content_h > text_rect.h) max_scroll = content_h - text_rect.h;
+    state->scroll_y = wlx_clampf(state->scroll_y, 0.0f, max_scroll);
+
+    // Wheel scrolling: a hovered field with scrollable overflow owns the
+    // wheel; the consume helper leaves the delta to the enclosing panel
+    // when nothing can move.
+    if (inter.hover && !inter.disabled) {
+        wlx_wheel_consume(ctx, &state->scroll_y, max_scroll,
+            WLX_SCROLL_PANEL_DEFAULT_WHEEL_SCROLL_SPEED);
+    }
+
+    // Scrollbar thumb drag on raw mouse primitives. Runs before the
+    // caret mouse block below, which skips presses on the bar strip so
+    // a thumb press never places the caret or starts a selection.
+    if (sb_visible && !inter.disabled) {
+        WLX_Rect sb_rect = wlx_scrollbar_rect(sb_track, content_h, state->scroll_y, sb_w);
+        state->scroll_y = wlx_thumb_drag_update(ctx, sb_track, sb_rect, true,
+            max_scroll, state->scroll_y,
+            &state->caret.dragging_scrollbar, &state->caret.sb_drag_offset, NULL);
+    } else {
+        state->caret.dragging_scrollbar = false;
+    }
+
+    if (max_scroll > 0.0f) {
+        WLX_Rect virt_rect = { text_rect.x, text_rect.y - state->scroll_y, text_rect.w, content_h };
+        wlx_text_align_lines(virt_rect, opt->align, line_array.line_h,
+            WLX_VMETRIC_LINE_HEIGHT, ts.font_size, lines, line_count);
+    }
+
+    return (WLX_Inputbox_Lines){
+        .lines = lines, .line_count = line_count, .line_array = line_array,
+        .text_rect = text_rect, .sb_track = sb_track, .sb_w = sb_w,
+        .sb_visible = sb_visible, .content_h = content_h, .max_scroll = max_scroll,
+    };
+}
+
+// Pointer and line-based caret input for a focused inputbox, resolved
+// against the frame's line records (the same records the caret and draw
+// use, so the jump targets always match what is on screen): the pointer
+// driver behind the scrollbar-strip exclusion, HOME/END on the visual
+// line (command modifier stretches to the whole buffer), and UP/DOWN
+// visual-line motion with the sticky column.
+static void wlx_inputbox_caret_input(WLX_Context *ctx, const WLX_Inputbox_Opt *opt,
+    WLX_Inputbox_State *state, WLX_Interaction inter, const char *buffer,
+    const WLX_Inputbox_Band *ib, const WLX_Inputbox_Lines *il, WLX_Text_Style ts,
+    WLX_Rect input_rect)
+{
+    if (!inter.focused || inter.disabled) return;
+
+    const char *disp_text = ib->disp_text;
+    size_t disp_len = ib->disp_len;
+    size_t buf_len = ib->buf_len;
+    WLX_Text_Line_Record *lines = il->lines;
+    size_t line_count = il->line_count;
+    WLX_Rect text_rect = il->text_rect;
+    bool shift = wlx_mod_down(ctx, WLX_MOD_SHIFT);
+
+    // Mouse: a click inside the field places the caret at the nearest
+    // text boundary; repeated clicks on the same spot widen the
+    // selection to word then all; dragging while held extends it.
+    // Presses on the scrollbar strip belong to the thumb gesture and
+    // must not touch the caret or the selection.
+    bool sb_strip_hit = il->sb_visible && wlx_rect_contains(
+        (WLX_Rect){ il->sb_track.x + il->sb_track.w - il->sb_w, il->sb_track.y,
+                    il->sb_w, il->sb_track.h },
+        (float)ctx->input.mouse_x, (float)ctx->input.mouse_y);
+    bool press = ctx->input.mouse_clicked && !sb_strip_hit
+        && !state->caret.dragging_scrollbar
+        && wlx_rect_contains(input_rect,
+            (float)ctx->input.mouse_x, (float)ctx->input.mouse_y);
+    WLX_Inputbox_Mouse_Ctx mouse_ctx = {
+        .ctx = ctx, .state = state,
+        .buffer = buffer, .buf_len = buf_len,
+        .disp_text = disp_text, .disp_len = disp_len,
+        .ts = ts, .lines = lines, .line_count = line_count,
+        .max_scroll = il->max_scroll, .password = opt->password,
+    };
+    wlx_text_edit_handle_mouse(ctx, &state->caret, text_rect, buf_len,
+        shift, press,
+        &(WLX_Text_Mouse_Ops){
+            .user = &mouse_ctx,
+            .hit = wlx_inputbox_mouse_hit,
+            .word_bounds = wlx_inputbox_mouse_word_bounds,
+            .auto_scroll = wlx_inputbox_mouse_auto_scroll,
+        });
+
+    // HOME/END jump within the visual line under the caret; the
+    // command modifier stretches the jump to the whole buffer, and
+    // SHIFT extends the selection instead of collapsing it.
+    bool home_hit = wlx_is_key_actuated(ctx, WLX_KEY_HOME);
+    bool end_hit  = wlx_is_key_actuated(ctx, WLX_KEY_END);
+    if (home_hit || end_hit) {
+        if (wlx_mod_command_down(ctx)) {
+            state->caret.cursor_pos = end_hit ? buf_len : 0;
+        } else {
+            size_t disp_cursor = wlx_inputbox_display_offset(buffer, buf_len,
+                state->caret.cursor_pos, opt->password);
+            size_t line_start = 0, line_end = disp_len;
+            wlx_inputbox_visual_line_bounds_from_lines(disp_text, disp_len,
+                lines, line_count, disp_cursor, &line_start, &line_end);
+            state->caret.cursor_pos = wlx_inputbox_plain_offset(buffer, buf_len,
+                end_hit ? line_end : line_start, opt->password);
+        }
+        if (!shift) state->caret.selection_anchor = state->caret.cursor_pos;
+        state->caret.cursor_blink_time = 0.0f;
+        state->caret.preferred_x_valid = false;
+    }
+
+    // UP/DOWN move the caret to the adjacent visual line, aiming at a
+    // sticky column: the first vertical move latches the caret x and
+    // later moves keep aiming at it across shorter lines, until a
+    // horizontal caret change invalidates it. UP on the first line
+    // clamps to the line start, DOWN on the last line to the line end
+    // (and the clamp drops the latched column). SHIFT extends the
+    // selection; without it the anchor follows the caret.
+    bool up_hit   = opt->multiline && wlx_is_key_actuated(ctx, WLX_KEY_UP);
+    bool down_hit = opt->multiline && wlx_is_key_actuated(ctx, WLX_KEY_DOWN);
+    if (up_hit != down_hit && line_count > 0) {
+        size_t disp_cursor = wlx_text_normalize_cursor_offset(disp_text, il->line_array.text_length,
+            wlx_inputbox_display_offset(buffer, buf_len, state->caret.cursor_pos, opt->password));
+
+        size_t line_idx = line_count - 1;
+        for (size_t i = 0; i < line_count; i++) {
+            if (wlx_text_cursor_is_on_line(&lines[i], disp_cursor)) { line_idx = i; break; }
+        }
+
+        if (!state->caret.preferred_x_valid) {
+            float caret_x = text_rect.x;
+            float caret_y = text_rect.y;
+            wlx_text_resolve_cursor_from_lines(ctx, text_rect, disp_text, disp_len, ts,
+                lines, line_count, disp_cursor, &caret_x, &caret_y);
+            state->caret.preferred_x = caret_x;
+            state->caret.preferred_x_valid = true;
+        }
+
+        size_t target_disp;
+        if (up_hit && line_idx == 0) {
+            target_disp = lines[0].cursor_start;
+            state->caret.preferred_x_valid = false;
+        } else if (down_hit && line_idx == line_count - 1) {
+            target_disp = lines[line_idx].cursor_end;
+            state->caret.preferred_x_valid = false;
+        } else {
+            size_t target_idx = up_hit ? line_idx - 1 : line_idx + 1;
+            target_disp = wlx_text_offset_at_point_from_lines(ctx, disp_text, disp_len, ts,
+                lines, line_count, state->caret.preferred_x,
+                lines[target_idx].origin_y + lines[target_idx].line_h * 0.5f);
+        }
+
+        state->caret.cursor_pos = wlx_inputbox_plain_offset(buffer, buf_len, target_disp, opt->password);
+        if (!shift) state->caret.selection_anchor = state->caret.cursor_pos;
+        state->caret.cursor_blink_time = 0.0f;
+    }
+}
+
+// Resolve the caret from the shared line records so it cannot drift from
+// the wrapped lines, explicit newlines, and long buffers the draw
+// renders, then caret-follow: a caret move or edit this frame drags the
+// view the minimal distance that puts the caret line fully inside the
+// band, shifting the already-positioned records in place. Wheel scrolling
+// never moves the caret, so it may park the caret outside the window; the
+// next caret change snaps the view back to it.
+static void wlx_inputbox_caret_resolve(WLX_Context *ctx, const WLX_Inputbox_Opt *opt,
+    WLX_Inputbox_State *state, WLX_Interaction inter, bool changed, const char *buffer,
+    const WLX_Inputbox_Band *ib, const WLX_Inputbox_Lines *il, WLX_Text_Style ts,
+    float *out_cursor_x, float *out_cursor_y)
+{
+    const char *disp_text = ib->disp_text;
+    size_t disp_len = ib->disp_len;
+    WLX_Rect text_rect = il->text_rect;
+    float cursor_x = text_rect.x;
+    float cursor_y = text_rect.y;
+
+    // An empty buffer has no line records; anchor the caret where an
+    // empty run would start under this alignment.
+    if (inter.focused) {
+        if (disp_len == 0) {
+            WLX_Rect aligned = wlx_get_align_rect(text_rect, 0.0f, il->line_array.line_h, opt->align);
+            cursor_x = aligned.x;
+            cursor_y = aligned.y;
+        } else {
+            wlx_text_resolve_cursor_from_lines(ctx, text_rect, disp_text, disp_len, ts,
+                il->lines, il->line_count,
+                wlx_text_normalize_cursor_offset(disp_text, disp_len,
+                    wlx_inputbox_display_offset(buffer, ib->buf_len, state->caret.cursor_pos, opt->password)),
+                &cursor_x, &cursor_y);
+        }
+    }
+
+    if (inter.focused && il->max_scroll > 0.0f
+        && (changed || state->caret.cursor_pos != state->caret.prev_cursor_pos)) {
+        float follow = 0.0f;
+        if (cursor_y < text_rect.y) {
+            follow = cursor_y - text_rect.y;
+        } else if (cursor_y + il->line_array.line_h > text_rect.y + text_rect.h) {
+            follow = (cursor_y + il->line_array.line_h) - (text_rect.y + text_rect.h);
+        }
+        if (follow != 0.0f) {
+            float new_scroll = state->scroll_y + follow;
+            new_scroll = wlx_clampf(new_scroll, 0.0f, il->max_scroll);
+            float delta = new_scroll - state->scroll_y;
+            if (delta != 0.0f) {
+                state->scroll_y = new_scroll;
+                for (size_t i = 0; i < il->line_count; i++) il->lines[i].origin_y -= delta;
+                cursor_y -= delta;
+            }
+        }
+    }
+    if (inter.focused) state->caret.prev_cursor_pos = state->caret.cursor_pos;
+
+    *out_cursor_x = cursor_x;
+    *out_cursor_y = cursor_y;
+}
+
+// Draw pass over the frame's records: selection highlight between the
+// field background and the text, the text run, the caret (centered on
+// its line, clamped to the field interior with a breathing margin), and
+// the scrollbar thumb last so it overlays the band edge.
+static void wlx_inputbox_draw_content(WLX_Context *ctx, const WLX_Inputbox_Opt *opt,
+    WLX_Inputbox_State *state, WLX_Interaction inter, const char *buffer,
+    const WLX_Inputbox_Band *ib, const WLX_Inputbox_Lines *il, WLX_Text_Style ts,
+    WLX_Rect input_rect, float border_inset, float cursor_x, float cursor_y)
+{
+    const char *disp_text = ib->disp_text;
+    size_t disp_len = ib->disp_len;
+    WLX_Rect text_rect = il->text_rect;
+    float line_h = ib->line_h;
+
+    if (inter.focused && wlx_text_edit_has_selection(&state->caret)) {
+        wlx_text_draw_selection(ctx, text_rect, disp_text, disp_len, ts, 0.0f,
+            NULL, NULL, il->lines, il->line_count,
+            wlx_inputbox_display_offset(buffer, ib->buf_len, wlx_text_edit_selection_min(&state->caret), opt->password),
+            wlx_inputbox_display_offset(buffer, ib->buf_len, wlx_text_edit_selection_max(&state->caret), opt->password),
+            opt->selection_color);
+    }
+
+    wlx_draw_text_lines_fitted(ctx, text_rect, disp_text, disp_len, ts, il->lines, il->line_count);
+
+    if (cursor_x > text_rect.x)
+        cursor_x += WLX_TEXT_CARET_PADDING;
+
+    // cursor_y is the top of the line band (line_h tall). Center a
+    // font_size-tall caret on the line so it tracks the vertically
+    // centered text, then clamp both ends to the field interior (with a
+    // small breathing margin) so a line height taller than a cramped
+    // interior -- e.g. a small font in a short field, where the backend's
+    // reported line_h exceeds the box interior -- can't produce a caret
+    // that spans the whole box and sits on the bottom border. When the
+    // interior is too tight to keep the full font_size height, the caret
+    // shrinks to fit rather than overflow.
+    float caret_top = cursor_y + (line_h - (float)opt->font_size) * 0.5f;
+    float caret_bottom = caret_top + (float)opt->font_size;
+    float caret_limit_top = input_rect.y + border_inset + WLX_INPUTBOX_CARET_MARGIN;
+    float caret_limit_bottom = input_rect.y + input_rect.h - border_inset - WLX_INPUTBOX_CARET_MARGIN;
+    if (caret_limit_bottom > caret_limit_top) {
+        if (caret_top < caret_limit_top) caret_top = caret_limit_top;
+        if (caret_bottom > caret_limit_bottom) caret_bottom = caret_limit_bottom;
+    }
+    float cursor_height = caret_bottom - caret_top;
+    if (cursor_height < 1.0f) cursor_height = 1.0f;
+    float caret_y = caret_top;
+    if (inter.focused) {
+        state->caret.cursor_blink_time += wlx_get_frame_time(ctx);
+    }
+
+    // Draw cursor if focused and its line intersects the text rect. The
+    // top-side check runs on the unclamped line top: a caret line
+    // scrolled above the band must not clamp into view as a sliver
+    // pinned to the top border.
+    if (inter.focused && cursor_x < (text_rect.x + text_rect.w)
+        && (cursor_y + line_h) > text_rect.y
+        && (caret_y + cursor_height) <= (text_rect.y + text_rect.h + 1.0f)
+        && wlx_text_caret_blink_on(state->caret.cursor_blink_time)) {
+        wlx_text_caret_draw(ctx, text_rect, cursor_x, caret_y, cursor_height, opt->cursor_color);
+    }
+
+    // The thumb rect is recomputed here because wheel, drag, and
+    // caret-follow may all have moved the offset since the interaction
+    // pass.
+    if (il->sb_visible) {
+        wlx_scrollbar_thumb_draw(ctx,
+            wlx_scrollbar_rect(il->sb_track, il->content_h, state->scroll_y, il->sb_w),
+            state->caret.dragging_scrollbar);
+    }
 }
 
 WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_size,
@@ -8036,13 +11479,13 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
 {
     assert(ctx != NULL);
     assert(buffer != NULL && "inputbox buffer must not be NULL");
-    assert(buffer_size >= 2 && "buffer_size must hold at least 1 char + null terminator");
+    WLX_HARD_ASSERT(buffer_size >= 2, "buffer_size must hold at least 1 char + null terminator");
     wlx_resolve_opt_inputbox(ctx, &opt);
 
     WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
 
     // Ensure height can fit the font plus content padding on both sides.
-    float min_h = (float)opt.font_size + rp.top + rp.bottom + 4.0f;
+    float min_h = (float)opt.font_size + rp.top + rp.bottom + WLX_TEXT_FIELD_MIN_HEIGHT_SLACK;
     if (opt.height > 0 && opt.height < min_h) opt.height = min_h;
 
     // Prologue: compute widget frame and interaction state
@@ -8056,94 +11499,34 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
     WLX_Interaction inter = wlx_get_interaction_for(
         ctx,
         wr,
-        WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS,
+        WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS
+            | (opt.multiline ? WLX_INTERACT_FOCUS_HOLD_ENTER : 0),
         opt.disabled,
         file, line
     );
 
-    WLX_State persistant = wlx_get_state_impl(ctx, sizeof(WLX_Inputbox_State), file, line);
+    WLX_State persistent = wlx_get_state_impl(ctx, sizeof(WLX_Inputbox_State), file, line);
     // Per-widget persistent cursor state
-    WLX_Inputbox_State *state = (WLX_Inputbox_State *)persistant.data;
+    WLX_Inputbox_State *state = (WLX_Inputbox_State *)persistent.data;
+
+    // Multi-click detection clock: seconds since the previous click, capped so
+    // the accumulator cannot lose float precision over long sessions.
+    state->caret.last_click_time += wlx_get_frame_time(ctx);
+    if (state->caret.last_click_time > WLX_TEXT_MULTI_CLICK_CLOCK_CAP)
+        state->caret.last_click_time = WLX_TEXT_MULTI_CLICK_CLOCK_CAP;
 
     bool changed = false;
     if (inter.focused) {
-        changed = wlx_inputbox_handle_keys(ctx, state, buffer, buffer_size, inter.just_focused);
+        changed = wlx_inputbox_handle_keys(ctx, state, buffer, buffer_size, inter.just_focused,
+            opt.read_only, opt.password, opt.multiline);
     }
     if (opt.out_focused != NULL) *opt.out_focused = inter.focused;
 
-    float label_width = 0;
     WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing };
-    // Draw label if provided
-    if (label != NULL && opt.font_size > 0) {
-        size_t label_len = strlen(label);
-        float label_h = 0;
-        wlx_measure_text_slice(ctx, label, label_len, ts, &label_width, &label_h);
-        label_width += rp.left;
-
-        float label_x = wr.x + rp.left;
-        float label_y;
-        switch (opt.align) {
-            case WLX_TOP: case WLX_TOP_LEFT: case WLX_TOP_CENTER: case WLX_TOP_RIGHT:
-                label_y = wr.y + rp.top;
-                break;
-            case WLX_BOTTOM: case WLX_BOTTOM_LEFT: case WLX_BOTTOM_CENTER: case WLX_BOTTOM_RIGHT:
-                label_y = wr.y + wr.h - label_h - rp.bottom;
-                break;
-            default:
-                label_y = wr.y + (wr.h - label_h) / 2;
-                break;
-        }
-
-        WLX_Rect label_rect = {
-            .x = label_x,
-            .y = label_y,
-            .w = label_width,
-            .h = label_h,
-        };
-        wlx_draw_text_fitted_slice(ctx, label_rect, label, label_len, ts, opt.align, opt.wrap);
-
-    }
-
-    // Input box rectangle - guarantee a minimum width so the text fieldinput
-    // doesn't vanish when the label consumes most of the widget width.
-    float min_input_w = (float)(opt.font_size * 3);
-    float horz_pad = rp.left + rp.right;
-    if (label_width > 0 && (wr.w - label_width - horz_pad) < min_input_w) {
-        label_width = wr.w - min_input_w - horz_pad;
-        if (label_width < 0) label_width = 0;
-    }
-
-    float input_x = wr.x + label_width + rp.left;
-    float input_w = wr.w - label_width - horz_pad;
-    input_w = input_w < 0 ? 0 : input_w;
-
-    float input_h = wr.h - rp.top - rp.bottom;
-    if (input_h < 0) input_h = 0;
-
-    WLX_Rect input_rect = { input_x, wr.y + rp.top, input_w, input_h };
-
-    // Draw input box background and border. Focus suppresses hover-tint by
-    // gating the hover flag at the call site, preserving the existing
-    // hover-vs-focus precedence after the helper extraction.
-    WLX_Color bg_color = wlx_color_hover_tint(
-        opt.back_color, inter.hover && !inter.focused, inter.disabled,
-        ctx->theme->hover_brightness * 0.5f);
-    WLX_Color bdr_color = inter.focused ? opt.border_focus_color : opt.border_color;
-    WLX_Border_Sides input_sides = wlx_border_sides_for_widget(
-        ctx->theme, false, inter.disabled, opt.opacity,
-        bdr_color, opt.border_width,
-        WLX_BORDER_SIDES_ARGS(opt));
-    wlx_draw_box(ctx, input_rect, (WLX_Box_Style){
-        .fill            = bg_color,
-        .border          = bdr_color,
-        .border_width    = opt.border_width,
-        .roundness       = opt.roundness,
-        .rounded_segments = opt.rounded_segments,
-        .sides           = input_sides,
-        .per_side        = true,
-        WLX_BOX_STYLE_EFFECTS(opt),
-        WLX_BOX_STYLE_CORNER(opt),
-    });
+    WLX_Text_Field_Chrome chrome = WLX_TEXT_FIELD_CHROME(opt);
+    WLX_Text_Field_Frame field = wlx_text_field_frame(ctx, wr, rp, label, ts,
+        opt.align, opt.wrap, inter.hover, inter.focused, inter.disabled, &chrome);
+    WLX_Rect input_rect = field.input_rect;
 
     // Reserve an interior band for an optional leading/trailing icon and draw
     // the glyph centered vertically within the field interior. The band insets
@@ -8165,8 +11548,8 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
 
         if (icon_sz > 0.0f) {
             float icon_x = icon_leading
-                ? input_rect.x + WLX_INPUTBOX_TEXT_INSET
-                : input_rect.x + input_rect.w - WLX_INPUTBOX_TEXT_INSET - icon_sz;
+                ? input_rect.x + WLX_TEXT_FIELD_INSET
+                : input_rect.x + input_rect.w - WLX_TEXT_FIELD_INSET - icon_sz;
             float icon_y = input_rect.y + (input_rect.h - icon_sz) * 0.5f;
             WLX_Rect icon_cell = { icon_x, icon_y, icon_sz, icon_sz };
 
@@ -8184,98 +11567,24 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
     if (opt.font_size > 0 && buffer != NULL) {
         float border_inset = opt.border_width > 0 ? opt.border_width + 1.0f : 0.0f;
 
-        // Size the text band by the backend's reported line height, not by
-        // opt.font_size. Leading, descenders, and any backend-side font scaling
-        // make the rendered line taller than the nominal size; a band shorter
-        // than the line gets clipped by the fitted-text scissor (cropped
-        // descenders). The band is at least one line tall so a single line is
-        // never clipped, and it is placed within the box interior by the
-        // vertical component of opt.align: WLX_LEFT (default) centers, the
-        // WLX_TOP_* family top-anchors (for tall multi-line note fields), and
-        // the WLX_BOTTOM_* family bottom-anchors.
-        float ref_w = 0.0f, line_h = 0.0f;
-        wlx_measure_text_slice(ctx, " ", 1, ts, &ref_w, &line_h);
-        if (line_h <= 0.0f) line_h = (float)opt.font_size;
+        char mask_buf[WLX_INPUTBOX_MASK_MAX];
+        WLX_Inputbox_Band ib = wlx_inputbox_resolve_band(ctx, &opt, buffer, input_rect,
+            ts, border_inset, icon_band, icon_leading, mask_buf, sizeof(mask_buf));
 
-        float interior_h = input_rect.h - border_inset * 2.0f;
-        if (interior_h < 0.0f) interior_h = 0.0f;
-        float text_h = line_h > interior_h ? line_h : interior_h;
+        WLX_Inputbox_Lines il = wlx_inputbox_build_lines(ctx, &opt, state, inter,
+            ib.disp_text, ib.disp_len, ts, ib.text_rect, input_rect, border_inset);
 
-        float band_slack = interior_h - text_h;
-        float band_off;
-        switch (opt.align) {
-            case WLX_TOP: case WLX_TOP_LEFT: case WLX_TOP_CENTER: case WLX_TOP_RIGHT:
-                band_off = 0.0f; break;
-            case WLX_BOTTOM: case WLX_BOTTOM_LEFT: case WLX_BOTTOM_CENTER: case WLX_BOTTOM_RIGHT:
-                band_off = band_slack; break;
-            default:
-                band_off = band_slack * 0.5f; break;
-        }
+        // Pointer and line-based interactions are resolved here rather than
+        // with the other key handling because they need the resolved text
+        // geometry (the same line records the caret and draw use below).
+        wlx_inputbox_caret_input(ctx, &opt, state, inter, buffer, &ib, &il, ts, input_rect);
 
-        // A leading icon pushes the text start right; a trailing icon only
-        // narrows the band. Either way the band width drops by icon_band, and
-        // the width is clamped so a narrow field can't produce a negative
-        // width or push the caret clamp out of bounds.
-        float text_lead_inset = WLX_INPUTBOX_TEXT_INSET + (icon_leading ? icon_band : 0.0f);
-        float text_w = input_rect.w - WLX_INPUTBOX_TEXT_INSET - WLX_INPUTBOX_CURSOR_WIDTH
-                       - WLX_INPUTBOX_CURSOR_PADDING - icon_band;
-        if (text_w < 0.0f) text_w = 0.0f;
+        float cursor_x = 0.0f, cursor_y = 0.0f;
+        wlx_inputbox_caret_resolve(ctx, &opt, state, inter, changed, buffer,
+            &ib, &il, ts, &cursor_x, &cursor_y);
 
-        WLX_Rect text_rect = {
-            .x = input_rect.x + text_lead_inset,
-            .y = input_rect.y + border_inset + band_off,
-            .w = text_w,
-            .h = text_h
-        };
-
-        float cursor_x = text_rect.x;
-        float cursor_y = text_rect.y;
-
-        // Measure cursor position against the full text layout so it stays in
-        // sync with wrapped lines, explicit newlines, and long buffers. The
-        // alignment must match the draw below so the cursor tracks the text.
-        if (inter.focused) {
-            wlx_calc_cursor_position_for_text(ctx, text_rect, buffer, ts, opt.align, opt.wrap,
-                state->cursor_pos, &cursor_x, &cursor_y);
-        }
-
-        wlx_draw_text_fitted(ctx, text_rect, buffer, ts, opt.align, opt.wrap);
-
-        if (cursor_x > text_rect.x)
-            cursor_x += WLX_INPUTBOX_CURSOR_PADDING;
-
-        // cursor_y is the top of the line band (line_h tall). Center a
-        // font_size-tall caret on the line so it tracks the vertically
-        // centered text, then clamp both ends to the field interior (with a
-        // small breathing margin) so a line height taller than a cramped
-        // interior -- e.g. a small font in a short field, where the backend's
-        // reported line_h exceeds the box interior -- can't produce a caret
-        // that spans the whole box and sits on the bottom border. When the
-        // interior is too tight to keep the full font_size height, the caret
-        // shrinks to fit rather than overflow.
-        float caret_top = cursor_y + (line_h - (float)opt.font_size) * 0.5f;
-        float caret_bottom = caret_top + (float)opt.font_size;
-        float caret_limit_top = input_rect.y + border_inset + WLX_INPUTBOX_CARET_MARGIN;
-        float caret_limit_bottom = input_rect.y + input_rect.h - border_inset - WLX_INPUTBOX_CARET_MARGIN;
-        if (caret_limit_bottom > caret_limit_top) {
-            if (caret_top < caret_limit_top) caret_top = caret_limit_top;
-            if (caret_bottom > caret_limit_bottom) caret_bottom = caret_limit_bottom;
-        }
-        float cursor_height = caret_bottom - caret_top;
-        if (cursor_height < 1.0f) cursor_height = 1.0f;
-        float caret_y = caret_top;
-        if (inter.focused) {
-            state->cursor_blink_time += wlx_get_frame_time(ctx);
-        }
-
-        // Draw cursor if focused and fits in text rect
-        if (inter.focused && cursor_x < (text_rect.x + text_rect.w) && (caret_y + cursor_height) <= (text_rect.y + text_rect.h + 1.0f)) {
-            if (fmodf(state->cursor_blink_time, WLX_INPUTBOX_CURSOR_BLINK_PERIOD) < (WLX_INPUTBOX_CURSOR_BLINK_PERIOD * WLX_INPUTBOX_CURSOR_VISIBLE_FRACTION)) {
-                WLX_Scissor_Scope cursor_clip = wlx_scissor_scope_begin(ctx, text_rect);
-                wlx_draw_line(ctx, cursor_x, caret_y, cursor_x, caret_y + cursor_height, WLX_INPUTBOX_CURSOR_WIDTH, opt.cursor_color);
-                wlx_scissor_scope_end(ctx, cursor_clip);
-            }
-        }
+        wlx_inputbox_draw_content(ctx, &opt, state, inter, buffer, &ib, &il, ts,
+            input_rect, border_inset, cursor_x, cursor_y);
     }
 
     // Epilogue: close widget frame
@@ -8417,7 +11726,8 @@ WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, W
     // Draw label
     if (label != NULL && opt.font_size > 0) {
         WLX_Rect label_rect = { content_rect.x, content_rect.y, label_width, content_rect.h };
-        wlx_draw_text_fitted_slice(ctx, label_rect, label, label_len, ts, WLX_LEFT, false);
+        wlx_draw_text_fitted_slice(ctx, label_rect, label, label_len, ts,
+            (WLX_Text_Prepare_Opt){ .align = WLX_LEFT });
     }
 
     // Draw track
@@ -8783,7 +12093,8 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
     wlx_draw_rect_rounded(ctx, thumb_rect, 1.0f, segs, color_thumb);
 
     if (label != NULL && row.label_w > 0) {
-        wlx_draw_text_fitted_slice(ctx, row.text, label, label_len, ts, WLX_ALIGN_NONE, opt.wrap);
+        wlx_draw_text_fitted_slice(ctx, row.text, label, label_len, ts,
+            (WLX_Text_Prepare_Opt){ .align = WLX_ALIGN_NONE, .wrap = opt.wrap });
     }
 
     // Epilogue: close widget frame
@@ -8867,7 +12178,8 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
     }
 
     if (label != NULL && row.label_w > 0) {
-        wlx_draw_text_fitted_slice(ctx, row.text, label, label_len, ts, WLX_ALIGN_NONE, opt.wrap);
+        wlx_draw_text_fitted_slice(ctx, row.text, label, label_len, ts,
+            (WLX_Text_Prepare_Opt){ .align = WLX_ALIGN_NONE, .wrap = opt.wrap });
     }
 
     // Epilogue: close widget frame
@@ -8879,8 +12191,6 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
 // ============================================================================
 // Implementation: scroll panels
 // ============================================================================
-
-static const float WLX_SCROLL_PANEL_DEFAULT_WHEEL_SCROLL_SPEED = 20.0f;
 
 static void wlx_resolve_opt_scroll_panel(const WLX_Context *ctx, WLX_Scroll_Panel_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
@@ -8925,20 +12235,6 @@ static inline void wlx_scroll_panel_contribute_to_parent(WLX_Context *ctx, float
         .slot_index = slot_index,
         .grid_row   = parent_l->grid.last_placed_row,
     });
-}
-
-// Helper: compute the scrollbar handle rect from panel geometry and scroll state.
-static inline WLX_Rect wlx_scrollbar_rect(
-    WLX_Rect panel_rect, float content_height, float scroll_offset, float scrollbar_width)
-{
-    float bar_h = (panel_rect.h / content_height) * panel_rect.h;
-    float bar_y = (scroll_offset / content_height) * panel_rect.h;
-    return (WLX_Rect){
-        panel_rect.x + panel_rect.w - scrollbar_width,
-        panel_rect.y + bar_y,
-        scrollbar_width,
-        bar_h
-    };
 }
 
 // Helper: process scrollbar drag interaction and update scroll_offset in state.
@@ -9037,8 +12333,8 @@ static inline WLX_Scroll_Panel_Frame wlx_scroll_panel_frame_begin(
     WLX_Rect r, wr;
     wlx_scroll_panel_resolve_rect(ctx, opt, &r, &wr);
 
-    WLX_State persistant = wlx_get_state_impl(ctx, sizeof(WLX_Scroll_Panel_State), file, line);
-    WLX_Scroll_Panel_State *state = (WLX_Scroll_Panel_State *)persistant.data;
+    WLX_State persistent = wlx_get_state_impl(ctx, sizeof(WLX_Scroll_Panel_State), file, line);
+    WLX_Scroll_Panel_State *state = (WLX_Scroll_Panel_State *)persistent.data;
 
     // Initialize content_height on first frame (when calloc'd to 0).
     if (state->content_height == 0.0f) {
@@ -9064,7 +12360,7 @@ static inline WLX_Scroll_Panel_Frame wlx_scroll_panel_frame_begin(
     }
 
     if (state->auto_height) {
-        ctx->auto_scroll.panel_id = persistant.id;
+        ctx->auto_scroll.panel_id = persistent.id;
         ctx->auto_scroll.total_height = 0;
     } else {
         // Clear so inner widgets don't pollute outer panel's auto-height measurement.

@@ -895,14 +895,17 @@ the removed `wlx_checkbox_tex` compatibility macro.
 ## `wlx_inputbox`
 
 Text input field. Click to focus, type to edit, press Enter or Escape (or
-click elsewhere) to unfocus. Returns `true` when the buffer text changed this
-frame (typed or deleted) — since v0.6; focus state is reported through the
-`.out_focused` out-param (the pre-v0.6 return value).
+click elsewhere) to unfocus. With `.multiline = true`, Enter instead inserts
+a newline and keeps focus — Escape or a click elsewhere leaves the field (see
+[Multiline mode](#multiline-mode)). Returns `true` when the buffer text
+changed this frame (typed or deleted) — since v0.6; focus state is reported
+through the `.out_focused` out-param (the pre-v0.6 return value).
 
 Uses persistent state internally (`WLX_Inputbox_State`) to track cursor
-position and blink timer across frames. The buffer is edited as one UTF-8 byte
-buffer, but when `wrap` is `true` the visible text can span multiple fitted
-visual lines and the cursor follows that same wrapped layout.
+position, selection, and blink timer across frames. The buffer is edited as
+one UTF-8 byte buffer, but when `wrap` is `true` the visible text can span
+multiple fitted visual lines and the cursor, selection highlight, and mouse
+hit test all follow that same wrapped layout.
 
 ### Signature
 
@@ -942,6 +945,11 @@ if (wlx_inputbox(ctx, "Name:", name, sizeof(name), .height = 40)) {
 | `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
 | `border_focus_color` | `WLX_Color` | `{0}` | Border color when focused. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Blinking cursor color. `{0}` = theme `input.cursor` |
+| `selection_color` | `WLX_Color` | `{0}` | Selection highlight fill. `{0}` = theme `input.selection`, then translucent accent. |
+| `password` | `bool` | `false` | Masked field: one `*` per codepoint is rendered while the buffer keeps the plaintext. Forces `wrap = false`; copy/cut are suppressed. |
+| `read_only` | `bool` | `false` | Rejects all edits while focus, selection, caret, and copy keep working. Distinct from `disabled` (no interaction lockout, no dimming). |
+| `multiline` | `bool` | `false` | Enter inserts a newline and keeps focus; UP/DOWN move the caret by visual line with a sticky column; overflowing content scrolls internally. Excluded by `password`. See [Multiline mode](#multiline-mode). |
+| `show_scrollbar` | `bool` | `true` | Draw a draggable vertical scrollbar while multiline content overflows the field. `false` keeps wheel and caret-follow scrolling without the affordance. Inert outside multiline overflow. |
 | `texture` | `WLX_Texture` | zero handle | Optional icon drawn **inside** the field. `width <= 0` or `height <= 0` means no icon. |
 | `texture_src` | `WLX_Rect` | `{0}` | Source sub-rect (e.g. an atlas cell). `w <= 0` or `h <= 0` means full texture. |
 | `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the icon. `{0}` resolves to `WLX_WHITE`. |
@@ -962,6 +970,124 @@ the input rect, and the vertical centering of content. The text cursor rect
 (`10 / 2 = 5`). The text inset is intentionally fixed — callers that need
 asymmetric gutters should use `content_padding_left` / `content_padding_right`
 to shift the input rect, not the internal text offset.
+
+### Editing, selection, and clipboard
+
+All editing is UTF-8 codepoint safe (deletes, caret motion, selection
+boundaries, and paste truncation never split a multibyte sequence). The
+**command modifier** below is Cmd on Apple platforms and Ctrl elsewhere
+(`wlx_mod_command_down`).
+
+| Input | Action |
+|-------|--------|
+| BACKSPACE / DELETE | Delete backward / forward by codepoint; repeats while held |
+| LEFT / RIGHT | Move caret by codepoint; repeats while held |
+| Ctrl/Alt + LEFT / RIGHT | Move caret by word |
+| HOME / END | Jump to the start / end of the caret's **visual line** (follows wrapping) |
+| command + HOME / END | Jump to the buffer start / end |
+| UP / DOWN | *(multiline only)* Move the caret to the adjacent visual line, keeping a sticky column; repeats while held |
+| SHIFT + any caret motion | Extend the selection from the anchor |
+| Click / drag | Place the caret / extend the selection |
+| Double-click / triple-click | Select word / select all |
+| SHIFT + click | Extend the selection to the click point |
+| command + A / C / X / V | Select all / copy / cut / paste |
+
+Typing, paste, BACKSPACE, and DELETE replace a live selection. Copying an
+empty selection is a no-op. Paste bypasses the 32-byte per-frame text ring, so
+arbitrarily long clipboard content lands in one frame, truncated to
+`buffer_size` on a codepoint boundary. The highlight renders in
+`selection_color` behind the text, per visual line.
+
+Backend notes: clipboard support comes from the optional
+`WLX_Backend.clipboard_get` / `clipboard_set` hooks; when a backend leaves
+them `NULL`, copy/cut/paste degrade to safe no-ops. On the bare-WASM backend
+the clipboard is a **best-effort cached string**: copy/cut update the browser
+clipboard asynchronously via the async Clipboard API, and content copied in
+*other* applications only becomes pasteable after a browser paste gesture
+(e.g. Ctrl+V) refreshes the cache.
+
+### Password and read-only modes
+
+`.password = true` renders one `*` per plaintext codepoint while the buffer
+keeps the real text; the field is forced single-line and copy/cut are
+suppressed so the plaintext can never leave the widget. Editing, paste, caret
+placement, and selection still work — all geometry runs on the masked display
+text and maps back to plaintext byte offsets.
+
+`.read_only = true` keeps the field focusable, selectable, and copyable but
+rejects every mutation (typing, BACKSPACE/DELETE, cut, paste). Unlike
+`.disabled` it does not gate interaction or dim the rendering — use it for
+copyable values like IDs or tokens.
+
+```c
+static char pw[64] = "";
+wlx_inputbox(ctx, "Password:", pw, sizeof(pw), .height = 40, .password = true);
+
+static char token[64] = "wlx-4242-...";
+wlx_inputbox(ctx, "API token:", token, sizeof(token), .height = 40, .read_only = true);
+```
+
+### Multiline mode
+
+`.multiline = true` turns the field into a plain-text multi-line editor:
+
+- **Enter** deletes a live selection and inserts `"\n"` at the caret; the
+  field **keeps focus**, and OS auto-repeat inserts further newlines while
+  held. The Enter press is consumed — it never doubles as a keyboard
+  activation of another widget in the same frame.
+- **Escape** or a **click elsewhere** leaves the field. (Escape-blur applies
+  to single-line fields too.)
+- **UP / DOWN** move the caret to the adjacent visual line — hard (`\n`) and
+  soft (wrapped) lines alike — aiming at a **sticky column**: the first
+  vertical move latches the caret x, and later moves keep aiming at it, so
+  traversing a shorter line does not lose the column. Any horizontal caret
+  change (typing, LEFT/RIGHT, HOME/END, mouse click, paste) drops the latch.
+  UP on the first line clamps to the line start, DOWN on the last line to the
+  line end. SHIFT extends the selection as usual.
+- **Composition:** `.password = true` forces `multiline` off (a masked field
+  is always single-line). `.read_only = true` composes: navigation,
+  selection, and copy work, Enter keeps focus but the newline insert is
+  rejected.
+- **Internal scrolling.** Content taller than the field scrolls instead of
+  clipping. While overflowing, the run is top-anchored (the vertical
+  component of `.align` applies again once content fits):
+  - **Caret-follow**: any caret move or edit scrolls the view the minimal
+    distance that keeps the caret line fully visible — typing at the bottom,
+    Enter auto-repeat, UP/DOWN past the edges, HOME/END jumps, and paste all
+    follow.
+  - **Mouse wheel** scrolls a hovered overflowing field and consumes the
+    event, so an enclosing scroll panel does not also scroll (innermost
+    scrollable wins, exactly like nested panels). A field whose content fits
+    leaves the wheel to the panel.
+  - **Scrollbar**: a draggable thumb appears at the field's right edge while
+    content overflows (`.show_scrollbar`, default `true`). Pressing or
+    dragging it never moves the caret, starts a selection, or blurs the
+    field.
+  - **Drag-select auto-scroll**: dragging a selection past the top or bottom
+    edge scrolls toward the pointer (speed grows with the overshoot), so a
+    selection can span more than one viewport.
+
+The `wlx_textarea` macro is sugar for a multiline field with a top-left text
+anchor; both presets can still be overridden per call:
+
+```c
+static char notes[512] = "";
+wlx_textarea(ctx, "Notes:", notes, sizeof(notes), .height = 120);
+// equivalent to:
+// wlx_inputbox(ctx, "Notes:", notes, sizeof(notes),
+//     .multiline = true, .align = WLX_TOP_LEFT, .height = 120);
+```
+
+Current limits: the field is **caller-sized** (`.height`) and does not grow
+with content. Multiline geometry (caret, hit-test, selection, scroll, draw)
+covers at most `WLX_INPUTBOX_MULTILINE_MAX_LINES` (512) visual lines and
+`WLX_INPUTBOX_MULTILINE_MAX_UNITS` (4096) measured codepoints per field —
+roughly 4 KB of prose; both are compile-time overridable (`#define` before
+including `wollix.h`). Past the budget, text still appends to the buffer but
+the caret pins to the end of the last built line and the view cannot scroll
+into the unbuilt remainder. Single-line fields keep the smaller global caps
+(`WLX_TEXT_RUN_MAX_LINES` / `WLX_TEXT_RUN_MAX_UNITS`). There is no submit
+signal — commit on blur (`.out_focused` transition) or an explicit button.
 
 ### Inner icon
 
@@ -1021,6 +1147,189 @@ was_focused = focused;
 
 ---
 
+## `wlx_editor`
+
+The editor ships in the companion header `wollix_editor.h` — include it
+after `wollix.h` (and any backend adapter) in every translation unit
+that uses it:
+
+```c
+#define WOLLIX_IMPLEMENTATION
+#include "wollix.h"
+#include "wollix_raylib.h"   // any backend adapter, if used
+#include "wollix_editor.h"
+```
+
+The editor's conceptual model (windowed builds, retained geometry, the
+windowed origin, wrapped rows) is documented in
+[EDITOR_MODEL.md](EDITOR_MODEL.md); this section covers the widget API.
+
+Windowed text editor over a **caller-owned flat buffer** with an explicit
+length in/out. Only the visible window of lines is measured, built, and
+drawn each frame, so frame cost is O(viewport) regardless of the document
+size — the acceptance envelope is a 10 MB / 1,000,000-line document with no
+O(document) work on idle frames. Non-wrapping by default (one visual line
+per hard line, horizontal scrolling for long lines); `.wrap = true` breaks
+hard lines into band-wide rows instead. Returns `true` when the text
+changed this frame; focus is reported through `.out_focused`.
+
+Use `wlx_textarea` for note-sized fields; use `wlx_editor` for code/log/
+prose-sized documents that need line numbers and document-scale
+performance — unwrapped for code and data, `.wrap` for prose and logs with
+long messages.
+
+One deliberate behavior asymmetry between the two: the editor **handles
+Tab** — the key inserts a literal `\t` and every `\t` renders with
+next-tab-stop expansion (`.tab_columns`) — while the multiline inputbox
+does neither: its Tab stays reserved for keyboard focus traversal (a form
+field should not swallow the key), and any `\t` already in the buffer is
+measured as whatever glyph the backend gives it. Everything else in the
+editing vocabulary (clipboard, select-all, word motion and word deletes,
+sticky-column UP/DOWN) is shared and behaves identically.
+
+### Signature
+
+```c
+bool wlx_editor(WLX_Context *ctx, const char *label, char *buffer,
+                size_t buffer_cap, size_t *length, ...options);
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `label` | Optional label drawn to the left of the editor area (`NULL` = none) |
+| `buffer` | Writable byte buffer holding the document (need not be NUL-terminated) |
+| `buffer_cap` | Total capacity of `buffer`; bounds every insert |
+| `length` | In/out: the authoritative document length in bytes |
+
+### Buffer and length contract
+
+- `*length` is authoritative in and out; the widget never reads past it and
+  writes the new length back after edits.
+- Inserts truncate at `buffer_cap` on a UTF-8 boundary, so only whole
+  codepoints land; a full buffer rejects input rather than splitting a
+  codepoint.
+- The widget maintains a trailing NUL **opportunistically** when
+  `*length < buffer_cap`; the NUL is a convenience, not part of the
+  contract.
+- After mutating the buffer **outside** the widget, bump `.revision` (any
+  change of value) so the internal line index rebuilds. Length changes are
+  detected automatically, and a sampled hard-line-start probe catches most
+  same-length mutations, but `.revision` is the reliable signal.
+
+### Minimal example
+
+```c
+static char *doc;        // caller-owned, e.g. a loaded file + headroom
+static size_t doc_len;   // authoritative length
+static uint32_t doc_rev; // bump after external mutations
+
+if (wlx_editor(ctx, NULL, doc, doc_cap, &doc_len, .revision = doc_rev,
+               .line_numbers = true)) {
+    // text changed this frame; doc_len is already updated
+}
+```
+
+### Widget-specific options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `content_padding` (+ per-side) | `float` | `10` | Outer inset, as on `wlx_inputbox`. |
+| `border_color` / `border_focus_color` / `cursor_color` / `selection_color` | `WLX_Color` | `{0}` | Chrome colors with the same theme fallbacks as `wlx_inputbox`. |
+| `out_focused` | `bool *` | `NULL` | Receives this frame's focus state. |
+| `read_only` | `bool` | `false` | Rejects all edits while focus, caret, selection, and copy keep working. |
+| `wrap` | `bool` | `false` | Wrapped mode: hard lines break into rows at the band width (per text unit — no word-boundary backtracking). Horizontal scrolling disappears (nothing overflows sideways); vertical motion, hit-tests, and caret-follow work in visual rows; the vertical thumb becomes an approximation (see below). Toggleable at runtime — caret and selection are byte offsets and survive the switch. |
+| `show_scrollbar` | `bool` | `true` | Draw draggable scrollbars while content overflows. The vertical thumb is **exact** (from the line count) when unwrapped and an approximation under `.wrap`; the horizontal one is proportional to the widest line seen so far (see below). |
+| `line_numbers` | `bool` | `false` | Line-number gutter on the leading edge, sized by the digit count of the line total. Gutter presses never touch caret, selection, or focus. |
+| `tab_columns` | `int` | `4` | Tab-stop width in space-advance columns: each `\t` advances to the next multiple of `tab_columns * space_advance` in measure, hit-test, caret, selection, and draw. Under `.wrap` the tab grid restarts at each visual row's start, so a tab-heavy wrapped line renders differently than its unwrapped self at the same offset. |
+| `revision` | `uint32_t` | `0` | External-mutation guard; bump after editing the buffer outside the widget. |
+
+All shared placement, sizing, typography, and color fields also apply. Text
+is always top-left anchored; `align` places only the label.
+
+### Editing and navigation vocabulary
+
+Typing, Enter (newline), Tab (literal `\t`), Backspace/Delete (word variants
+on Ctrl/Alt), Ctrl/Cmd+C/X/V clipboard, Ctrl/Cmd+A select-all. Arrows with
+word motion, HOME/END on the caret's line, Ctrl/Cmd+Home/End to the document
+ends, UP/DOWN with a sticky column, PageUp/PageDown move the caret by one
+viewport. Mouse: click places the caret, double-click selects the word,
+triple-click selects all, dragging extends the selection with auto-scroll on
+both axes past the band edges. Focus follows the inputbox contract (click to
+focus, Escape or click-elsewhere to blur; Enter never blurs).
+
+Under `.wrap`, UP/DOWN and PageUp/PageDown step **visual rows** with a
+row-relative sticky column, and drag auto-scroll is vertical only; HOME/END
+keep hard-line semantics. A caret offset exactly at a wrap break belongs to
+the row it starts, so the right edge of a wrapped row is not a caret render
+position — clicking there places the caret at the next row's start.
+
+### Scrolling model
+
+- The scroll anchor is `(first_line, y_frac)` — resolution-independent, so
+  the position survives font or size changes. Under `.wrap` it gains a row
+  component (`first_row`), clamped against the line's current row count, so
+  band or font changes cost nothing.
+- The vertical scrollbar is exact when unwrapped: content height is
+  `line_count * line_h` from the line index.
+- Under `.wrap` the vertical thumb is an **approximation**: it maps hard
+  lines (as if nothing wrapped), so it moves at uneven speed through
+  heavily wrapped regions and a drag lands on a hard line. It is
+  continuous, never snaps, degenerates to exact when nothing wraps, and
+  the track end always means the document end (the view bottom-aligns the
+  last row exactly). Exact wrapped height would cost an O(document)
+  measure and is deliberately not attempted.
+- The horizontal range (unwrapped only) is an **approximation**: it tracks
+  the widest line measured so far (sticky) and stays open one band past
+  the current reach while a visible line is still width-truncated, so long
+  lines are always reachable via Shift+wheel, the horizontal thumb, drag
+  auto-scroll, or caret-follow. It never shrinks back within a session.
+  On lines longer than the unit budget the tracked width rests on the
+  measure window's estimated-absolute position (see the performance
+  section below), so the thumb keeps mapping continuously at any depth.
+- Wheel: consumed only when hovered and overflowing on the wheel's axis
+  (innermost scrollable wins; Shift redirects to the horizontal axis, and
+  is never consumed under `.wrap` — nothing overflows sideways); otherwise
+  the delta is left to enclosing scroll panels. Under `.wrap` the wheel
+  moves visual rows, so wrapped regions scroll evenly.
+
+### Performance envelope and per-line cap
+
+- Idle frames run no O(document) work; the only O(document) step is the
+  line-index newline scan on the first frame and after each edit (measured
+  at ~9 ms for a 10 MB / 1M-line document, single-digit ms per keystroke,
+  flat O(viewport) frame cost otherwise).
+- Line geometry is **retained across frames** in a bounded per-widget
+  store: steady frames (idle, held scroll, parked caret) re-measure
+  nothing, typing re-measures only the edited line, scrolling only the
+  lines entering the view. On backends implementing the optional
+  `measure_text_advances` callback (all three in-tree adapters), a
+  line's geometry fills in a few batched calls instead of one backend
+  measure per character. These are asserted bounds in
+  `make perf-editor`, not tendencies.
+- `WLX_EDITOR_MAX_LINE_UNITS` (`#ifndef`-overridable, default 1024
+  codepoints) is a **per-record safety cap, not a reach limit**.
+  Unwrapped, a line longer than the budget is measured from a window
+  near the view, so giant single-line documents (minified code, log
+  lines) are editable end-to-end: END on a 300 KB line lands on its
+  true end, and frame cost is independent of how deep the view or the
+  caret sits. Far into such a line, drawn x positions rest on a
+  documented estimate (the measured average advance) — the same
+  approximation family as the horizontal thumb — while byte offsets
+  (caret, selection, edits) stay exact everywhere; a kern-sensitive eye
+  may notice glyph spacing shift where the measure window re-enters the
+  line.
+- Under `.wrap` the same budget is shared by a line's rows: the line
+  wraps until the budget is spent and the remaining tail is frozen out
+  of geometry (the caret pins at the budget edge; with no horizontal
+  scroll to enter it, the frozen tail is unreachable by caret until the
+  mode is toggled off or the knob is raised). Raise the knob for
+  minified-content workloads that must stay wrapped.
+- Clipboard: Raylib and SDL3 round-trip multi-MB transfers uncapped
+  (measured at 10 MB); paste is bounded by `buffer_cap`, truncating on a
+  UTF-8 boundary.
+
+---
+
 ## `wlx_slider`
 
 Horizontal slider for `float` values. Click and drag the thumb, or click
@@ -1062,7 +1371,7 @@ It also omits `wrap` — all slider text is single-line.
 | `font_size` | `int` | `0` | Font size. `0` = use theme default |
 | `align` | `WLX_Align` | `WLX_LEFT` | Text alignment for the label |
 | `spacing` | `int` | `0` | Opt-in extra tracking for label and value text. `0` = natural backend spacing |
-| `show_value` | `bool` | `true` | Show the numeric value readout to the right of the track. `show_label` is a deprecated alias (same storage), removed one minor version after 0.6 |
+| `show_value` | `bool` | `true` | Show the numeric value readout to the right of the track (renamed from `show_label` in v0.6; the alias was removed in v0.7) |
 | `track_color` | `WLX_Color` | `{0}` | Track bar background color. `{0}` = derive from theme `slider.track` |
 | `thumb_color` | `WLX_Color` | `{0}` | Thumb handle color. `{0}` = theme `slider.thumb` |
 | `label_color` | `WLX_Color` | `{0}` | Text label color. `{0}` = theme `slider.label` |
@@ -1134,7 +1443,7 @@ wlx_separator(ctx, .height = 1);
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `back_color` | `WLX_Color` | `{0}` | Divider color. `{0}` = theme `border`. `color` is a deprecated alias, removed one minor version after 0.6 |
+| `back_color` | `WLX_Color` | `{0}` | Divider color. `{0}` = theme `border` (renamed from `color` in v0.6; the alias was removed in v0.7) |
 | `thickness` | `float` | `1.0` | Line thickness in pixels |
 
 Shared placement and sizing fields also apply.
@@ -1781,7 +2090,7 @@ void wlx_widget(WLX_Context *ctx, ...options);
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `back_color` | `WLX_Color` | `{0}` | Fill color of the rectangle. `color` is a deprecated alias, removed one minor version after 0.6 |
+| `back_color` | `WLX_Color` | `{0}` | Fill color of the rectangle (renamed from `color` in v0.6; the alias was removed in v0.7) |
 
 All shared placement, sizing, and border fields also apply.
 

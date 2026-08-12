@@ -18,12 +18,14 @@ The dashboard is the primary Wollix showcase. Try the live demo:
 - Zero dependencies in the core library
 - Backend adapters for Raylib, SDL3, and bare WASM32 included
 - Built-in widgets and compound helpers: labels, buttons, checkboxes,
-    toggles, radios, input boxes, sliders, progress bars, separators, scroll
-    panels, panels, split layouts, list clipper for virtualized rows, and
-    fixed/auto-growing grid helpers
+    toggles, radios, input boxes and multiline textareas, sliders, progress
+    bars, images, separators, scroll panels, panels, split layouts, list
+    clipper for virtualized rows, and fixed/auto-growing grid helpers
+- Windowed text editor extension ([wollix_editor.h](wollix_editor.h)):
+    document-scale editing at O(viewport) frame cost up to 10 MB / 1M lines
 - Container decoration: per-side borders, per-corner rounding, vertical
     gradient fills, and glow/shadow effects
-- Current version: `WOLLIX_VERSION` = `"0.6.0"`
+- Current version: `WOLLIX_VERSION` = `"0.7.0"`
 
 ## Quick Start
 
@@ -102,8 +104,9 @@ layout_end(&ctx);
 | `wollix_raylib.h` | Raylib backend adapter |
 | `wollix_sdl3.h` | SDL3 backend adapter |
 | `wollix_wasm.h` | Bare WASM32 backend adapter (no libc) |
+| `wollix_editor.h` | `wlx_editor` extension header (windowed text editor; include after `wollix.h`) |
 | `web/` | WASM host runtime, HTML shell, and libc shim |
-| `docs/` | Performance diagnostics guide, design system guide (canonical: core theme contract + dashboard "Mechanical Glass"), gallery design system guide (secondary), API reference, layout model, widget guide, opacity guide, core patterns guide, sentinel rules |
+| `docs/` | Performance diagnostics guide, design system guide (canonical: core theme contract + dashboard "Mechanical Glass"), gallery design system guide (secondary), API reference, layout model, line run model (text handling), editor model (windowed text editor), widget guide, opacity guide, core patterns guide, sentinel rules |
 | `demos/` | Standalone demo translation units (one per feature); `gallery.c` also includes the local `gallery_perf.h` benchmark companion header |
 | `tests/` | Unit test suite |
 
@@ -147,9 +150,16 @@ The library includes the following widgets and layout/container primitives:
 - **Checkbox** - Toggle checkbox with text label and optional checked/unchecked textures
 - **Toggle** - On/off switch widget with animated thumb/track styling
 - **Radio** - Single-choice radio control with label alignment options
-- **Input Box** - Text input field with cursor and wrapped visual layout
+- **Input Box** - Text input field with full editing: caret, selection,
+  clipboard, word motion, and password / read-only modes
+- **Textarea** - Multiline input (`wlx_textarea` / `.multiline`) with Enter
+  handling, sticky-column caret motion, and internal scrolling
+- **Editor** - Windowed text editor (`wlx_editor`, via the `wollix_editor.h`
+  extension header) over a caller-owned buffer: wrapped and no-wrap modes,
+  line-number gutter, O(viewport) frames up to the 10 MB / 1M-line envelope
 - **Slider** - Value slider with label and drag interaction
 - **Progress Bar** - Read-only progress indicator with continuous or segmented track/fill styling
+- **Image** - Draw a `WLX_Texture` in a slot with scale modes (stretch/fit/fill/none) and alignment
 - **Separator** - Horizontal or vertical divider for grouping related controls
 - **Scrollable Panel** - Vertical scrolling container for long content
 - **List Clipper** - Row virtualization helper that builds only visible rows inside a scroll panel
@@ -201,6 +211,7 @@ For build targets, gallery benchmark commands, and output interpretation, see
 make                # Build all Raylib demos + the dashboard showcase (default)
 make test           # Build and run the unit test suite
 make perf-test      # Build and run the unit test suite with WLX_PERF enabled
+make perf-editor    # Run the editor perf gate (frame cost + measure traffic)
 make test-demos     # Build all Raylib demos + the dashboard and verify they compile
 make all            # Build all Raylib demos + the dashboard (same as bare make)
 make sdl3_demo      # Build the SDL3 backend demo
@@ -221,6 +232,7 @@ Build a single demo by name:
 make button         # → demos/button
 make grid           # → demos/grid
 make slider         # → demos/slider
+make editor         # → demos/editor (100 KB / 10 MB generated docs, W toggles wrap)
 ```
 
 All executables are written to `./demos/`.

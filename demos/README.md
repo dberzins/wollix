@@ -1,8 +1,9 @@
 # Demo Index
 
 Each `.c` file is a self-contained program that demonstrates one or more
-library features. Build all demos with `./build.sh` or compile one directly
-(see the main README for flags).
+library features. Build every demo with `make` from the repository root, or
+one by name with `make <demo-name>` (e.g. `make button`); see the main
+README for the full target list.
 
 ---
 
@@ -15,6 +16,7 @@ library features. Build all demos with `./build.sh` or compile one directly
 | [checkbox.c](checkbox.c) | Six boolean toggles showing checkbox state management |
 | [checkbox_tex.c](checkbox_tex.c) | Texture-based checkboxes with programmatically generated checked/unchecked icons |
 | [input.c](input.c) | Multi-field form (username, password, email, phone, address, comments) with focus tracking |
+| [editor.c](editor.c) | `wlx_editor` windowed text editor (`wollix_editor.h` extension): generated 100 KB and 10 MB documents plus file loading; `W` toggles wrap mode |
 | [slider.c](slider.c) | Volume, brightness, RGB, and speed sliders with colored thumbs and a live color preview |
 | [border_demo.c](border_demo.c) | Border system showcase covering labels, buttons, widgets, checkboxes, input boxes, sliders, and scroll panels |
 | [scroll_panel.c](scroll_panel.c) | Scrollable list of 30 items using auto content height (`-1`), custom scrollbar colors |
@@ -39,6 +41,7 @@ library features. Build all demos with `./build.sh` or compile one directly
 | Demo | Description |
 |------|-------------|
 | [auth.c](auth.c) | Styled login-card UI with centered layout composition, borders, transparency, separators, and custom font styling |
+| [dashboard/dashboard.c](dashboard/dashboard.c) | Primary showcase ("Mechanical Glass"): top bar + sidebar routing five persistent sections (Overview, Tokens, Components, Layouts, Theme Lab) on Raylib, SDL3, and bare WASM; uses the demo-local headers under `dashboard/` |
 | [demo.c](demo.c) | Full showcase (~580 lines): buttons, checkboxes, sliders, inputs, scroll panels, tabs, `wlx_push_id`/`wlx_pop_id` |
 | [gallery.c](gallery.c) | Main cross-backend gallery source for Raylib, SDL3, and WASM, covering widgets, layouts, theming, borders, opacity, and newer controls |
 | [nested_panel.c](nested_panel.c) | Nested scroll panels — outer list with three inner scrollable panels containing sliders and toggles |

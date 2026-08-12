@@ -24,6 +24,10 @@ const TINT_FILTER_PROBE_RGB = 0x7F7F7F;
 // WLX_Input_State layout (must match C struct on wasm32)
 // ============================================================================
 
+// Byte offsets into WLX_Input_State. These MUST track the C struct layout in
+// wollix.h: WLX_KEY_COUNT sizes the keys_* arrays, so adding keycodes shifts
+// every field after keys_down. New fields (keys_repeated, modifiers) are
+// appended after text_input.
 const INPUT_OFFSETS = {
     mouse_x:       0,   // int32
     mouse_y:       4,   // int32
@@ -31,12 +35,17 @@ const INPUT_OFFSETS = {
     mouse_clicked: 9,   // bool (uint8)
     mouse_held:    10,  // bool (uint8)
     wheel_delta:   12,  // float32
-    keys_down:     16,  // bool[46]
-    keys_pressed:  62,  // bool[46]
-    text_input:    108, // char[32]
+    keys_down:     16,  // bool[51]
+    keys_pressed:  67,  // bool[51]
+    text_input:    118, // char[32]
+    keys_repeated: 150, // bool[51]
+    modifiers:     204, // uint32 (4-byte aligned)
 };
-const INPUT_SIZE = 140;
-const WLX_KEY_COUNT = 46;
+const INPUT_SIZE = 208;
+const WLX_KEY_COUNT = 51;
+
+// WLX_Key_Mod bit flags (must match wollix.h)
+const WLX_MOD = { SHIFT: 1 << 0, CTRL: 1 << 1, ALT: 1 << 2, SUPER: 1 << 3 };
 
 // WLX_Key_Code enum values (must match wollix.h)
 const WLX_KEY = {
@@ -47,6 +56,7 @@ const WLX_KEY = {
     Q: 26, R: 27, S: 28, T: 29, U: 30, V: 31, W: 32, X: 33,
     Y: 34, Z: 35,
     0: 36, 1: 37, 2: 38, 3: 39, 4: 40, 5: 41, 6: 42, 7: 43, 8: 44, 9: 45,
+    DELETE: 46, HOME: 47, END: 48, PAGE_UP: 49, PAGE_DOWN: 50,
 };
 
 // Map DOM KeyboardEvent.code to WLX_Key_Code
@@ -66,6 +76,8 @@ const KEY_MAP = {
     Digit3: WLX_KEY[3], Digit4: WLX_KEY[4], Digit5: WLX_KEY[5],
     Digit6: WLX_KEY[6], Digit7: WLX_KEY[7], Digit8: WLX_KEY[8],
     Digit9: WLX_KEY[9],
+    Delete: WLX_KEY.DELETE, Home: WLX_KEY.HOME, End: WLX_KEY.END,
+    PageUp: WLX_KEY.PAGE_UP, PageDown: WLX_KEY.PAGE_DOWN,
 };
 
 // ============================================================================
@@ -183,8 +195,15 @@ function probeCtxFilterSupported() {
         wheelDelta: 0,
         keysDown: new Uint8Array(WLX_KEY_COUNT),
         keysPressed: new Uint8Array(WLX_KEY_COUNT),
+        keysRepeated: new Uint8Array(WLX_KEY_COUNT),
+        modifiers: 0,
         textInput: "",
     };
+
+    // Best-effort clipboard cache. The async Clipboard API cannot be read
+    // synchronously mid-frame, so in-app copies populate this cache directly and
+    // a DOM paste event refreshes it from the system clipboard when available.
+    let clipboardCache = "";
 
     let memory = null;    // WebAssembly.Memory, set after instantiation
     let inputPtr = 0;     // pointer into wasm memory for WLX_Input_State
@@ -478,6 +497,36 @@ function probeCtxFilterSupported() {
             f32[hIdx] = fontSize > 0 ? fontSize : 16;
         },
 
+        // Batched cumulative advances: one crossing fills the canvas width
+        // of every run prefix [0, unit_ends[i]). The prefix string grows by
+        // decoding each unit's bytes in place (unit ends are codepoint
+        // boundaries, so appends never split a valid scalar); measureText
+        // runs on the whole accumulated prefix, so kerning matches fillText
+        // of the run. Exact for valid UTF-8; malformed bytes decode one
+        // U+FFFD per unit here while a whole-prefix decode may merge a
+        // truncated sequence into one - a bounded, garbage-input-only
+        // divergence in the documented seam class. Returns the number of
+        // advances filled.
+        measure_text_advances(textPtr, len, _font, fontSize, unitEndsPtr,
+                              unitCount, outPtr) {
+            if (textPtr === 0 || len === 0 || unitCount === 0) return 0;
+            const mem = new Uint8Array(memory.buffer);
+            const ends = new Uint32Array(memory.buffer, unitEndsPtr, unitCount);
+            const out = new Float32Array(memory.buffer, outPtr, unitCount);
+            ctx.font = `${fontSize}px sans-serif`;
+            let prefix = "";
+            let prev = 0;
+            for (let i = 0; i < unitCount; i++) {
+                const e = ends[i];
+                if (e > prev && e <= len) {
+                    prefix += decoder.decode(mem.subarray(textPtr + prev, textPtr + e));
+                    prev = e;
+                }
+                out[i] = ctx.measureText(prefix).width;
+            }
+            return unitCount;
+        },
+
         create_texture(rgbaPtr, width, height) {
             if (rgbaPtr === 0 || width <= 0 || height <= 0) return 0;
             const byteCount = width * height * 4;
@@ -577,6 +626,32 @@ function probeCtxFilterSupported() {
                 window.open(url, "_blank", "noopener");
             } catch (e) {
                 console.warn("open_url failed:", e);
+            }
+        },
+
+        // Clipboard transport (best-effort). clipboard_get_into copies the cached
+        // clipboard string into a wasm-side buffer and returns the byte count.
+        clipboard_get_into(bufPtr, cap) {
+            if (bufPtr === 0 || cap === 0) return 0;
+            const mem = new Uint8Array(memory.buffer);
+            const bytes = encoder.encode(clipboardCache);
+            let n = Math.min(bytes.length, cap);
+            // Do not split a UTF-8 codepoint at the cap boundary.
+            while (n > 0 && (bytes[n] & 0xC0) === 0x80) n--;
+            mem.set(bytes.subarray(0, n), bufPtr);
+            return n;
+        },
+
+        // clipboard_set updates the cache and fires the async Clipboard API
+        // write fire-and-forget (it cannot be awaited mid-frame).
+        clipboard_set(textPtr, len) {
+            if (textPtr === 0) { clipboardCache = ""; }
+            else {
+                const mem = new Uint8Array(memory.buffer);
+                clipboardCache = decoder.decode(mem.subarray(textPtr, textPtr + len));
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(clipboardCache).catch(() => {});
             }
         },
     };
@@ -813,14 +888,52 @@ function probeCtxFilterSupported() {
 
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
+    function readModifiers(e) {
+        let mods = 0;
+        if (e.shiftKey) mods |= WLX_MOD.SHIFT;
+        if (e.ctrlKey)  mods |= WLX_MOD.CTRL;
+        if (e.altKey)   mods |= WLX_MOD.ALT;
+        if (e.metaKey)  mods |= WLX_MOD.SUPER;
+        return mods;
+    }
+
+    // Render one synchronous frame outside the rAF cadence. The copy/cut path
+    // uses this so the widget writes the current selection into clipboardCache
+    // (and fires the async clipboard write) while the browser is still inside
+    // the user gesture, before the native copy/cut event below reads the cache.
+    function pumpClipboardFrame() {
+        const displayW = canvas.clientWidth;
+        const displayH = canvas.clientHeight;
+        const savedFrameTime = frameTime;
+        frameTime = 0;              // extra paint: advance no animation time
+        ctx.clearRect(0, 0, displayW, displayH);
+        writeInputToWasm();
+        wasmFrame(displayW, displayH);
+        frameTime = savedFrameTime;
+    }
+
     document.addEventListener("keydown", (e) => {
+        input.modifiers = readModifiers(e);
         const wlxKey = KEY_MAP[e.code];
         if (wlxKey !== undefined) {
-            e.preventDefault();
-            if (!input.keysDown[wlxKey]) {
+            const cmd = e.ctrlKey || e.metaKey;
+            // Let the browser handle command-modifier shortcuts (copy/cut/paste/
+            // select-all) so the native copy/cut/paste events can carry the
+            // system clipboard; still record the key for the widget. Other
+            // mapped keys keep their default suppressed (e.g. arrows must not
+            // scroll the page).
+            if (!cmd) e.preventDefault();
+            if (e.repeat) {
+                input.keysRepeated[wlxKey] = 1;
+            } else if (!input.keysDown[wlxKey]) {
                 input.keysPressed[wlxKey] = 1;
             }
             input.keysDown[wlxKey] = 1;
+            // Copy/cut: run the widget now so clipboardCache holds the current
+            // selection before the browser's native copy/cut event fires below.
+            if (cmd && (wlxKey === WLX_KEY.C || wlxKey === WLX_KEY.X)) {
+                pumpClipboardFrame();
+            }
         }
         // Collect text input from printable keys
         if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
@@ -829,11 +942,33 @@ function probeCtxFilterSupported() {
     });
 
     document.addEventListener("keyup", (e) => {
+        input.modifiers = readModifiers(e);
         const wlxKey = KEY_MAP[e.code];
         if (wlxKey !== undefined) {
             input.keysDown[wlxKey] = 0;
         }
     });
+
+    // Best-effort cross-application paste: a real browser paste gesture refreshes
+    // the cache from the system clipboard.
+    document.addEventListener("paste", (e) => {
+        if (e.clipboardData) clipboardCache = e.clipboardData.getData("text");
+    });
+
+    // Serve the browser's native copy/cut from our cache. The keydown above
+    // pumped a frame, so clipboardCache already holds the widget's current
+    // selection; writing it here happens synchronously inside the user gesture,
+    // so it reaches the system clipboard even where the async Clipboard API is
+    // gated (e.g. Firefox) or unavailable (non-secure context). This is the
+    // authoritative path; clipboard_set's writeText remains a best-effort
+    // fallback.
+    function serveClipboardCopy(e) {
+        if (!clipboardCache || !e.clipboardData) return;
+        e.clipboardData.setData("text/plain", clipboardCache);
+        e.preventDefault();
+    }
+    document.addEventListener("copy", serveClipboardCopy);
+    document.addEventListener("cut", serveClipboardCopy);
 
     // ========================================================================
     // Write JS input state into wasm memory
@@ -855,9 +990,14 @@ function probeCtxFilterSupported() {
 
         f32[(base + INPUT_OFFSETS.wheel_delta) >> 2] = input.wheelDelta;
 
-        // keys_down and keys_pressed
+        // keys_down, keys_pressed, keys_repeated
         u8.set(input.keysDown, base + INPUT_OFFSETS.keys_down);
         u8.set(input.keysPressed, base + INPUT_OFFSETS.keys_pressed);
+        u8.set(input.keysRepeated, base + INPUT_OFFSETS.keys_repeated);
+
+        // modifiers (uint32)
+        const u32 = new Uint32Array(memory.buffer);
+        u32[(base + INPUT_OFFSETS.modifiers) >> 2] = input.modifiers;
 
         // text_input (NUL-terminated, max 31 chars)
         const textBytes = encoder.encode(input.textInput);
@@ -874,6 +1014,7 @@ function probeCtxFilterSupported() {
         input.prevMouseDown = input.mouseDown;
         input.wheelDelta = 0;
         input.keysPressed.fill(0);
+        input.keysRepeated.fill(0);
         input.textInput = "";
     }
 

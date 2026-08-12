@@ -40,7 +40,7 @@ DASHBOARD_HEADERS = $(wildcard $(DASHBOARD_DIR)/*.h)
 # The packaged site (dist/wasm-demo, the GitHub Pages artifact) is the dashboard;
 # the gallery keeps building into its own coexisting site dir.
 GALLERY_WASM_SITE_DIR = dist/gallery-demo
-RAYLIB_DEMOS = layout button button_image label_image text checkbox checkbox_tex image input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo disabled_demo gallery auth
+RAYLIB_DEMOS = layout button button_image label_image text checkbox checkbox_tex image input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo disabled_demo gallery auth editor
 SDL3_DEMOS = sdl3_demo gallery_sdl3
 PERF_DEMOS = gallery_perf gallery_sdl3_perf
 DEMO_NAMES = $(RAYLIB_DEMOS) $(SDL3_DEMOS)
@@ -64,40 +64,40 @@ $(PERF_DEMOS): %: $(DEMO_DIR)/%
 $(DEMO_DIR):
 	mkdir -p $@
 
-$(DEMO_DIR)/gallery: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) wollix.h wollix_raylib.h | $(DEMO_DIR)
+$(DEMO_DIR)/gallery: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) wollix.h wollix_editor.h wollix_raylib.h | $(DEMO_DIR)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $< $(LIBS)
 
 # The dashboard ships with WLX_PERF so the Overview's draw-call / wollix-memory
 # metrics are real on every backend; frame time comes from the backend timer.
 dashboard: $(DASHBOARD_BIN)
 
-$(DASHBOARD_BIN): $(DASHBOARD_DIR)/dashboard.c $(DASHBOARD_HEADERS) wollix.h wollix_raylib.h | $(DEMO_DIR)
+$(DASHBOARD_BIN): $(DASHBOARD_DIR)/dashboard.c $(DASHBOARD_HEADERS) wollix.h wollix_editor.h wollix_raylib.h | $(DEMO_DIR)
 	$(CC) $(CFLAGS) -DWLX_PERF $(INCLUDES) -o $@ $< $(LIBS)
 
 dashboard_sdl3: $(DASHBOARD_SDL3_BIN)
 
-$(DASHBOARD_SDL3_BIN): $(DASHBOARD_DIR)/dashboard.c $(DASHBOARD_HEADERS) wollix.h wollix_sdl3.h | $(DEMO_DIR)
+$(DASHBOARD_SDL3_BIN): $(DASHBOARD_DIR)/dashboard.c $(DASHBOARD_HEADERS) wollix.h wollix_editor.h wollix_sdl3.h | $(DEMO_DIR)
 	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -DWLX_PERF -DWLX_DASHBOARD_SDL3 -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
 
 # Non-debug perf build (no WLX_DEBUG) of the raylib dashboard.
 dashboard_perf: $(DASHBOARD_PERF_BIN)
 
-$(DASHBOARD_PERF_BIN): $(DASHBOARD_DIR)/dashboard.c $(DASHBOARD_HEADERS) wollix.h wollix_raylib.h | $(DEMO_DIR)
+$(DASHBOARD_PERF_BIN): $(DASHBOARD_DIR)/dashboard.c $(DASHBOARD_HEADERS) wollix.h wollix_editor.h wollix_raylib.h | $(DEMO_DIR)
 	$(CC) $(BASE_CFLAGS) -DWLX_PERF $(INCLUDES) -o $@ $< $(LIBS)
 
-$(DEMO_DIR)/%: $(DEMO_DIR)/%.c wollix.h wollix_raylib.h | $(DEMO_DIR)
+$(DEMO_DIR)/%: $(DEMO_DIR)/%.c wollix.h wollix_editor.h wollix_raylib.h | $(DEMO_DIR)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $< $(LIBS)
 
 $(DEMO_DIR)/sdl3_demo: $(DEMO_DIR)/sdl3_demo.c wollix.h wollix_sdl3.h | $(DEMO_DIR)
 	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
 
-$(DEMO_DIR)/gallery_sdl3: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) wollix.h wollix_sdl3.h | $(DEMO_DIR)
+$(DEMO_DIR)/gallery_sdl3: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) wollix.h wollix_editor.h wollix_sdl3.h | $(DEMO_DIR)
 	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -DWLX_GALLERY_SDL3 -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
 
-$(DEMO_DIR)/gallery_perf: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) wollix.h wollix_raylib.h | $(DEMO_DIR)
+$(DEMO_DIR)/gallery_perf: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) wollix.h wollix_editor.h wollix_raylib.h | $(DEMO_DIR)
 	$(CC) $(BASE_CFLAGS) -DWLX_PERF $(INCLUDES) -o $@ $< $(LIBS)
 
-$(DEMO_DIR)/gallery_sdl3_perf: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) wollix.h wollix_sdl3.h | $(DEMO_DIR)
+$(DEMO_DIR)/gallery_sdl3_perf: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) wollix.h wollix_editor.h wollix_sdl3.h | $(DEMO_DIR)
 	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -DWLX_PERF -DWLX_GALLERY_SDL3 -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
 
 # ── Bare WASM ────────────────────────────────────────────────────────────────
@@ -113,7 +113,7 @@ dashboard-wasm-site: wasm-site
 $(WASM_SITE_DIR):
 	mkdir -p $@
 
-$(WASM_SITE_DIR)/dashboard.wasm: $(DASHBOARD_DIR)/dashboard.c $(DASHBOARD_HEADERS) $(WASM_SRC_DIR)/wlx_libc_shim.c $(WASM_SRC_DIR)/wlx_libc_shim.h wollix.h wollix_wasm.h | $(WASM_SITE_DIR)
+$(WASM_SITE_DIR)/dashboard.wasm: $(DASHBOARD_DIR)/dashboard.c $(DASHBOARD_HEADERS) $(WASM_SRC_DIR)/wlx_libc_shim.c $(WASM_SRC_DIR)/wlx_libc_shim.h wollix.h wollix_editor.h wollix_wasm.h | $(WASM_SITE_DIR)
 	$(WASM_CC) $(WASM_BARE_CFLAGS) -DWLX_PERF -DWLX_DASHBOARD_WASM -o $@ $(DASHBOARD_DIR)/dashboard.c $(WASM_SRC_DIR)/wlx_libc_shim.c
 
 $(WASM_SITE_DIR)/index.html: $(WASM_SRC_DIR)/wollix_dashboard.html | $(WASM_SITE_DIR)
@@ -131,7 +131,7 @@ gallery-wasm-site: $(GALLERY_WASM_SITE_TARGETS)
 $(GALLERY_WASM_SITE_DIR):
 	mkdir -p $@
 
-$(GALLERY_WASM_SITE_DIR)/gallery.wasm: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) $(WASM_SRC_DIR)/wlx_libc_shim.c $(WASM_SRC_DIR)/wlx_libc_shim.h wollix.h wollix_wasm.h | $(GALLERY_WASM_SITE_DIR)
+$(GALLERY_WASM_SITE_DIR)/gallery.wasm: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEADER) $(WASM_SRC_DIR)/wlx_libc_shim.c $(WASM_SRC_DIR)/wlx_libc_shim.h wollix.h wollix_editor.h wollix_wasm.h | $(GALLERY_WASM_SITE_DIR)
 	$(WASM_CC) $(WASM_BARE_CFLAGS) -DWLX_GALLERY_WASM -o $@ demos/gallery.c $(WASM_SRC_DIR)/wlx_libc_shim.c
 
 $(GALLERY_WASM_SITE_DIR)/index.html: $(WASM_SRC_DIR)/wollix_wasm.html | $(GALLERY_WASM_SITE_DIR)
@@ -174,7 +174,7 @@ test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN)
 	./$(SINGLE_PASS_BIN)
 	./$(HARD_ASSERT_BIN)
 
-$(TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h
+$(TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
 
 # Opt-out path: redistribution disabled via WLX_SLOT_SINGLE_PASS_CLAMP. Built as
@@ -195,14 +195,25 @@ PERF_TEST_BIN = $(TEST_DIR)/test_runner_perf
 perf-test: $(PERF_TEST_BIN)
 	./$(PERF_TEST_BIN)
 
-$(PERF_TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h
+$(PERF_TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) -DWLX_PERF -I. -o $@ $(TEST_DIR)/test_main.c -lm
+
+# Editor perf gate: frame cost flat with document size (100 KB vs 10 MB),
+# idle frames free of O(document) work. Optimized build, headless (mock
+# backend), structural bounds enforced by the binary's exit code.
+PERF_EDITOR_BIN = $(TEST_DIR)/perf_editor
+
+perf-editor: $(PERF_EDITOR_BIN)
+	./$(PERF_EDITOR_BIN)
+
+$(PERF_EDITOR_BIN): $(TEST_DIR)/perf_editor.c $(TEST_DIR)/test_mock_backend.h wollix.h wollix_editor.h
+	$(CC) $(BASE_CFLAGS) -O2 -I. -I$(TEST_DIR) -o $@ $(TEST_DIR)/perf_editor.c -lm
 
 test-demos: $(DEFAULT_TARGETS) $(DASHBOARD_BIN)
 	@echo "All demos built successfully."
 
 clean:
-	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(PERF_TEST_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
+	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(PERF_TEST_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
 	rm -rf $(WASM_SITE_DIR) $(GALLERY_WASM_SITE_DIR)
 
 # Help target

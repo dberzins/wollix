@@ -16,6 +16,7 @@
 typedef struct {
     char username[64];
     char password[64];
+    char user_id[32];
     char email[128];
     char phone[32];
     char address[256];
@@ -36,6 +37,7 @@ int main(void) {
 
     // Initialize with some default values
     strcpy(app.username, "user123");
+    strcpy(app.user_id, "WLX-0042");
     strcpy(app.email, "user@example.com");
 
     bool show_submit = false;
@@ -50,7 +52,7 @@ int main(void) {
                 ClearBackground(WLX_BACKGROUND_COLOR);
 
                 wlx_layout_begin(ctx, 1, WLX_HORZ);
-                    wlx_layout_begin(ctx, 11, WLX_VERT);
+                    wlx_layout_begin(ctx, 12, WLX_VERT);
 
                         // Title
                         wlx_label(ctx, "User registration form",
@@ -58,7 +60,8 @@ int main(void) {
                         );
 
                         // Instructions
-                        wlx_label(ctx, "Click on a field to edit. Press ENTER or ESC to finish editing.",
+                        wlx_label(ctx, "Click/drag or shift+arrows to select; double-click = word, triple = all; "
+                                       "ctrl+C/X/V/A clipboard; HOME/END, ctrl+arrows word jump. ENTER finishes editing.",
                             .widget_align = WLX_LEFT, .height = 30, .font_size = 16, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
                         );
 
@@ -76,12 +79,13 @@ int main(void) {
                         }
                         username_was_focused = username_focused;
 
-                        // Password input (note: this is just a demo, real password fields would hide characters)
-                        bool password_focused = false;
-                        wlx_inputbox(ctx, "Password:", app.password, sizeof(app.password), .height = 45, .out_focused = &password_focused);
-                        if (password_focused && ctx->input.text_input[0] != '\0') {
-                            printf("Text input this frame: '%s' | Password buffer: '%s'\n", ctx->input.text_input, app.password);
-                        }
+                        // Password input: masked render, copy/cut suppressed,
+                        // while the buffer keeps the plaintext.
+                        wlx_inputbox(ctx, "Password:", app.password, sizeof(app.password), .height = 45, .password = true);
+
+                        // Read-only field: focusable, selectable, copyable -
+                        // but never editable (distinct from .disabled).
+                        wlx_inputbox(ctx, "User ID:", app.user_id, sizeof(app.user_id), .height = 45, .read_only = true);
 
                         // Email input
                         wlx_inputbox(ctx, "Email:", app.email, sizeof(app.email), .height = 45);
@@ -92,8 +96,9 @@ int main(void) {
                         // Address input
                         wlx_inputbox(ctx, "Address:", app.address, sizeof(app.address), .height = 45);
 
-                        // Comments input (larger field)
-                        wlx_inputbox(ctx, "Comments:", app.comments, sizeof(app.comments), .height = 300, .wrap = true);
+                        // Comments input (larger field): multiline, so Enter
+                        // inserts a newline and Escape or click-away leaves.
+                        wlx_textarea(ctx, "Comments:", app.comments, sizeof(app.comments), .height = 300, .wrap = true);
 
                         // Submit wlx_button
                         if (wlx_button(ctx, "Submit Form",
@@ -121,8 +126,9 @@ int main(void) {
                         // Footer info
                         char info_text[256];
                         snprintf(info_text, sizeof(info_text),
-                            "Fields filled: %d/6 | Active field ID: %zu",
+                            "Fields filled: %d/7 | Active field ID: %zu",
                             (app.username[0] ? 1 : 0) + (app.password[0] ? 1 : 0) +
+                            (app.user_id[0] ? 1 : 0) +
                             (app.email[0] ? 1 : 0) + (app.phone[0] ? 1 : 0) +
                             (app.address[0] ? 1 : 0) + (app.comments[0] ? 1 : 0),
                             ctx->interaction.active_id

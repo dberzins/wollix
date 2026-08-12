@@ -21,6 +21,10 @@ static char g_wlx_sdl3_text_input[32] = {0};
 static size_t g_wlx_sdl3_text_len = 0;
 static bool g_wlx_sdl3_event_watch_installed = false;
 static Uint64 g_wlx_sdl3_last_counter = 0;
+// OS auto-repeat ticks accumulated by the event watch between frames. SDL only
+// signals repeat via the key.repeat flag on KEY_DOWN events, not through the
+// polled keyboard state, so we record it here and drain it in the pump.
+static bool g_wlx_sdl3_key_repeated[WLX_KEY_COUNT] = {0};
 
 // SDL_ttf can show a lower-row smear on tiny text when draw origins land on
 // fractional pixels. Snap to integer coordinates to stabilize rasterization,
@@ -243,6 +247,11 @@ static inline SDL_Scancode wlx_sdl3_to_scancode(WLX_Key_Code key) {
         case WLX_KEY_7: return SDL_SCANCODE_7;
         case WLX_KEY_8: return SDL_SCANCODE_8;
         case WLX_KEY_9: return SDL_SCANCODE_9;
+        case WLX_KEY_DELETE: return SDL_SCANCODE_DELETE;
+        case WLX_KEY_HOME: return SDL_SCANCODE_HOME;
+        case WLX_KEY_END: return SDL_SCANCODE_END;
+        case WLX_KEY_PAGE_UP: return SDL_SCANCODE_PAGEUP;
+        case WLX_KEY_PAGE_DOWN: return SDL_SCANCODE_PAGEDOWN;
         default: return SDL_SCANCODE_UNKNOWN;
     }
 }
@@ -264,6 +273,19 @@ static bool wlx_sdl3_event_watch(void *userdata, SDL_Event *event) {
                 g_wlx_sdl3_text_input[g_wlx_sdl3_text_len++] = *src++;
             }
             g_wlx_sdl3_text_input[g_wlx_sdl3_text_len] = '\0';
+            break;
+        }
+        case SDL_EVENT_KEY_DOWN: {
+            // Record OS auto-repeat ticks; the initial press is reported through
+            // the polled keyboard state in the pump instead.
+            if (event->key.repeat) {
+                for (int k = 0; k < WLX_KEY_COUNT; k++) {
+                    if (wlx_sdl3_to_scancode((WLX_Key_Code)k) == event->key.scancode) {
+                        g_wlx_sdl3_key_repeated[k] = true;
+                        break;
+                    }
+                }
+            }
             break;
         }
         default:
@@ -302,7 +324,16 @@ static inline void wlx_process_sdl3_input(WLX_Context *ctx) {
 
         ctx->input.keys_down[k] = is_down;
         ctx->input.keys_pressed[k] = is_down && !was_down;
+        ctx->input.keys_repeated[k] = g_wlx_sdl3_key_repeated[k];
     }
+    wlx_zero_struct(g_wlx_sdl3_key_repeated);
+
+    SDL_Keymod mod = SDL_GetModState();
+    ctx->input.modifiers = 0;
+    if (mod & SDL_KMOD_SHIFT) ctx->input.modifiers |= WLX_MOD_SHIFT;
+    if (mod & SDL_KMOD_CTRL)  ctx->input.modifiers |= WLX_MOD_CTRL;
+    if (mod & SDL_KMOD_ALT)   ctx->input.modifiers |= WLX_MOD_ALT;
+    if (mod & SDL_KMOD_GUI)   ctx->input.modifiers |= WLX_MOD_SUPER;
 
     ctx->input.wheel_delta = g_wlx_sdl3_wheel_delta;
     g_wlx_sdl3_wheel_delta = 0;
@@ -650,8 +681,6 @@ static inline void wlx_sdl3_draw_ring(float cx, float cy, float inner_r, float o
 }
 
 static inline void wlx_sdl3_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color color) {
-    WLX_UNUSED(thick);
-
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
 #ifdef WLX_PERF
@@ -662,8 +691,27 @@ static inline void wlx_sdl3_draw_line(float x1, float y1, float x2, float y2, fl
     WLX_SDL3_PERF_INC(set_draw_blend_mode_calls);
     SDL_SetRenderDrawBlendMode(g_wlx_sdl3_renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(g_wlx_sdl3_renderer, color.r, color.g, color.b, color.a);
-    WLX_SDL3_PERF_INC(render_line_calls);
-    SDL_RenderLine(g_wlx_sdl3_renderer, x1, y1, x2, y2);
+    if (thick > 1.0f && (x1 == x2 || y1 == y2)) {
+        // Axis-aligned thick line: a fill rect centered on the segment,
+        // matching the Raylib backend's DrawLineEx semantics (text carets,
+        // dividers). SDL_RenderLine is always one pixel wide, which
+        // dropped the requested thickness on the floor.
+        float half = thick * 0.5f;
+        SDL_FRect r;
+        if (x1 == x2) {
+            float top = y1 < y2 ? y1 : y2;
+            r = (SDL_FRect){ x1 - half, top, thick, (y1 < y2 ? y2 - y1 : y1 - y2) };
+        } else {
+            float left = x1 < x2 ? x1 : x2;
+            r = (SDL_FRect){ left, y1 - half, (x1 < x2 ? x2 - x1 : x1 - x2), thick };
+        }
+        WLX_SDL3_PERF_INC(render_rect_calls);
+        SDL_RenderFillRect(g_wlx_sdl3_renderer, &r);
+    } else {
+        // Thin and diagonal lines (checkbox check mark) keep SDL_RenderLine.
+        WLX_SDL3_PERF_INC(render_line_calls);
+        SDL_RenderLine(g_wlx_sdl3_renderer, x1, y1, x2, y2);
+    }
 #ifdef WLX_PERF
     wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.geometry_ns);
 #endif
@@ -776,8 +824,16 @@ static uint64_t g_wlx_sdl3_font_variant_cursor = 0;
 // variant-bound through the variant pointer. Eviction rules
 // destroy entries before the renderer text engine, before variants, and on
 // renderer change.
+// Sized to hold one frame's distinct text strings with headroom. Text-field
+// widgets measure growing per-unit prefixes of every visible line each
+// frame, so a text-heavy 1280x800 scene runs a working set of ~2,000
+// distinct strings per frame (gallery editor section ~1,940, inputbox
+// section ~1,425, measured 2026-07-12); the set scales with window height
+// and line length. A cap below the working set turns the LRU into a
+// per-frame full-thrash cycle - 1024 measured 5x slower frames (12 -> 58 ms
+// offscreen) with ~1,700 evictions per frame on the editor section.
 #ifndef WLX_SDL3_TEXT_CACHE_CAP
-#define WLX_SDL3_TEXT_CACHE_CAP 1024
+#define WLX_SDL3_TEXT_CACHE_CAP 4096
 #endif
 
 #ifndef WLX_SDL3_TEXT_INLINE_CAP
@@ -1459,7 +1515,12 @@ static inline void wlx_sdl3_measure_text_slice(
         const char *text, size_t slice_len, WLX_Text_Style style,
         float *out_w, float *out_h) {
     if (out_w == NULL || out_h == NULL) return;
-    if (text == NULL) text = "";
+    // Wollix slices treat length 0 as an empty span (zero width, line
+    // height), but the TTF paths below inherit SDL_ttf's "0 means
+    // NUL-terminated" convention and would measure everything up to the
+    // next NUL - for a widget's empty caret prefix that is the rest of
+    // the document. Point the whole-string convention at an empty string.
+    if (text == NULL || slice_len == 0) text = "";
 
 #ifdef WLX_PERF
     uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
@@ -1494,6 +1555,104 @@ static inline void wlx_sdl3_measure_text_slice(
 #ifdef WLX_PERF
     wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.text_measure_ns);
 #endif
+}
+
+// Cumulative advances at each requested unit end of one run, read from the
+// shaped TTF_Text cluster geometry (requires SDL_ttf >= 3.3.0, the same
+// floor as the font-variant machinery this reuses). The run resolves one
+// TTF_Text - the retained draw-cache entry when available, a transient
+// otherwise - and walks TTF_GetTextSubStringsForRange clusters once: a unit
+// end on a cluster boundary reports that cluster's left edge, a unit end
+// inside a cluster (ligature/combining sequence) snaps to the cluster's
+// trailing edge, and the run end reports the last cluster's right edge.
+// Rect geometry is whole pixels, matching TTF_GetStringSize measures and
+// the shaped draw by construction. The debug-font path mirrors the slice
+// measure's codepoint estimation. Returns 0 (core falls back to per-unit
+// prefix measures) when the TTF machinery is unavailable.
+static inline size_t wlx_sdl3_measure_text_advances(const char *text, size_t len,
+        WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
+        float *out_advances) {
+    if (text == NULL || unit_ends == NULL || out_advances == NULL || unit_count == 0)
+        return 0;
+
+#ifdef WLX_PERF
+    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
+#endif
+    WLX_SDL3_PERF_INC(measure_text_calls);
+
+#ifdef SDL_TTF_VERSION
+    if (style.font != WLX_FONT_DEFAULT) {
+        size_t filled = 0;
+        TTF_Font *base_font = (TTF_Font *)(uintptr_t)style.font;
+        TTF_Font *variant = wlx_sdl3_get_font_variant(base_font, style.font_size, style.spacing);
+        TTF_TextEngine *engine = wlx_sdl3_get_text_engine();
+        if (variant != NULL && engine != NULL) {
+            TTF_Text *ttext = NULL;
+            bool transient = false;
+#if WLX_SDL3_HAS_TEXT_CACHE
+            WLX_SDL3_Text_Cache_Entry *entry = wlx_sdl3_get_text_cache_entry(
+                engine, variant, style.font_size, style.spacing, text, len);
+            if (entry != NULL) ttext = entry->text;
+#endif
+            if (ttext == NULL) {
+                ttext = TTF_CreateText(engine, variant, text, len);
+                transient = true;
+            }
+            if (ttext != NULL) {
+                // Walk the shaped clusters once: TTF_GetTextSubString(0)
+                // finds the first cluster, TTF_GetNextTextSubString steps
+                // by cluster_index. (TTF_GetTextSubStringsForRange is a
+                // per-line merge, not per-cluster, so it cannot serve
+                // intra-line advances.)
+                TTF_SubString cluster;
+                if (TTF_GetTextSubString(ttext, 0, &cluster)) {
+                    bool walk_ok = true;
+                    for (size_t u = 0; u < unit_count && walk_ok; u++) {
+                        size_t e = unit_ends[u];
+                        while (!(cluster.flags & TTF_SUBSTRING_TEXT_END)
+                            && (size_t)cluster.offset + (size_t)cluster.length <= e) {
+                            TTF_SubString next;
+                            if (!TTF_GetNextTextSubString(ttext, &cluster, &next)) {
+                                walk_ok = false;
+                                break;
+                            }
+                            cluster = next;
+                        }
+                        if (!walk_ok) break;
+                        out_advances[u] = (size_t)cluster.offset >= e
+                            ? (float)cluster.rect.x
+                            : (float)(cluster.rect.x + cluster.rect.w);
+                        filled = u + 1;
+                    }
+                }
+                if (transient) TTF_DestroyText(ttext);
+            }
+        }
+#ifdef WLX_PERF
+        wlx_perf_sdl3_time_end(perf_start_ns,
+            &g_wlx_perf_sdl3_state.current.text_measure_ns);
+#endif
+        return filled;
+    }
+#endif
+
+    // Debug-font estimation: the slice measure's codepoint model,
+    // accumulated per unit span.
+    float glyph_w = (style.font_size > 0) ? (style.font_size * 0.5f) : 8.0f;
+    size_t codepoints = 0;
+    size_t prev = 0;
+    for (size_t u = 0; u < unit_count; u++) {
+        size_t e = unit_ends[u];
+        if (e > prev && e <= len) {
+            codepoints += wlx_utf8_slicelen(text + prev, e - prev);
+            prev = e;
+        }
+        out_advances[u] = (float)codepoints * glyph_w;
+    }
+#ifdef WLX_PERF
+    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.text_measure_ns);
+#endif
+    return unit_count;
 }
 
 static inline void wlx_sdl3_begin_scissor(WLX_Rect rect) {
@@ -1547,11 +1706,34 @@ static inline float wlx_sdl3_get_frame_time(void) {
     return frame_time;
 }
 
+static inline const char *wlx_sdl3_clipboard_get(void) {
+    // SDL_GetClipboardText returns a heap string the caller must free. Copy it
+    // into a static buffer and free immediately so the returned pointer is
+    // borrowed and valid until the next clipboard call (per the backend contract).
+    static char buf[1024];
+    char *text = SDL_GetClipboardText();
+    if (text == NULL) { buf[0] = '\0'; return buf; }
+    size_t len = strlen(text);
+    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+    memcpy(buf, text, len);
+    buf[len] = '\0';
+    SDL_free(text);
+    return buf;
+}
+
+static inline void wlx_sdl3_clipboard_set(const char *text, size_t len) {
+    static char buf[1024];
+    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+    memcpy(buf, text, len);
+    buf[len] = '\0';
+    SDL_SetClipboardText(buf);
+}
+
 static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer) {
     g_wlx_sdl3_renderer = renderer;
     g_wlx_sdl3_last_counter = 0;
 
-    return (WLX_Backend){
+    WLX_Backend backend = (WLX_Backend){
         .draw_rect = wlx_sdl3_draw_rect,
         .draw_rect_lines = wlx_sdl3_draw_rect_lines,
         .draw_rect_rounded = wlx_sdl3_draw_rect_rounded,
@@ -1567,7 +1749,18 @@ static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer) {
         .get_frame_time = wlx_sdl3_get_frame_time,
         .draw_text_slice    = wlx_sdl3_draw_text_slice,
         .measure_text_slice = wlx_sdl3_measure_text_slice,
+        .clipboard_get = wlx_sdl3_clipboard_get,
+        .clipboard_set = wlx_sdl3_clipboard_set,
     };
+    // Registered only where it can actually fill: cluster geometry needs
+    // the font-variant machinery (SDL_ttf >= 3.3.0); a TTF build without
+    // it stays on the per-unit fallback rather than paying a callback
+    // that always declines. Without SDL_ttf every font resolves to the
+    // debug estimation, which the callback mirrors exactly.
+#if !defined(SDL_TTF_VERSION) || WLX_SDL3_HAS_FONT_VARIANTS
+    backend.measure_text_advances = wlx_sdl3_measure_text_advances;
+#endif
+    return backend;
 }
 
 #ifdef SDL_TTF_VERSION

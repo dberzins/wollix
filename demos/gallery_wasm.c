@@ -109,6 +109,7 @@ struct Gallery_State {
 
     // Input Box
     char  inputs[4][128];
+    char  input_multiline[2048];
     float input_font_size;
     float input_height;
     float input_focus_r, input_focus_g, input_focus_b;
@@ -197,6 +198,13 @@ static Gallery_State g = {
     .slider_min = 0.0f, .slider_max = 1.0f,
 
     .inputs = { "Hello!", "", "", "" },
+    .input_multiline = "Multiline notes: Enter starts a new line.\n"
+                       "Hard breaks and soft wrapping both show here, so a long line like this one wraps.\n"
+                       "UP/DOWN keep the column while moving between lines.\n"
+                       "Content taller than the field scrolls: the wheel scrolls while hovered,\n"
+                       "the bar on the right drags, and the caret pulls the view along as you type.\n"
+                       "Drag a selection past the edge and the view follows it.\n"
+                       "Line seven.\nLine eight.\nLine nine.\nLine ten keeps the scrollbar busy.",
     .input_font_size = 16.0f,
     .input_height = 40.0f,
     .input_focus_r = 0.0f, .input_focus_g = 0.47f, .input_focus_b = 1.0f,
@@ -553,6 +561,12 @@ static void section_inputbox(WLX_Context *ctx, Gallery_State *st) {
         .height = ih, .font_size = fs,
         .border_focus_color = fc,
         .cursor_color = fc);
+
+    SUB_HEADING(ctx, "Multiline");
+    wlx_label(ctx, "Enter inserts a newline; UP/DOWN move by line; overflowing content scrolls (wheel, scrollbar, caret-follow).",
+        .font_size = 16, .height = 30);
+    wlx_textarea(ctx, "Notes (multiline): ", st->input_multiline, sizeof(st->input_multiline),
+        .height = 120, .font_size = fs);
 
     if (wlx_button(ctx, "Clear All Inputs",
         .height = 36, .font_size = 16, .align = WLX_CENTER,

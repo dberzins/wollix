@@ -256,7 +256,7 @@ static void dashboard_icon_image_helper(WLX_Context *ctx, const Dashboard_Tokens
             .min_width = opt.min_width, .min_height = opt.min_height,
             .max_width = opt.max_width, .max_height = opt.max_height,
             .opacity = opt.opacity,
-            .color = box,
+            .back_color = box,
             .roundness = 0.25f, .rounded_segments = 6, .border_width = 0,
             .id = opt.id),
         file, line);

@@ -45,6 +45,7 @@
 #elif defined(WLX_GALLERY_WASM)
     #include "wollix_wasm.h"
 #endif
+#include "wollix_editor.h"
 
 #include "assets/wlx_icons.h"
 
@@ -118,6 +119,7 @@ static void section_checkbox(WLX_Context *ctx, Gallery_State *g);
 static void section_image(WLX_Context *ctx, Gallery_State *g);
 static void section_slider(WLX_Context *ctx, Gallery_State *g);
 static void section_inputbox(WLX_Context *ctx, Gallery_State *g);
+static void section_editor(WLX_Context *ctx, Gallery_State *g);
 static void section_scroll_panel(WLX_Context *ctx, Gallery_State *g);
 static void section_widget(WLX_Context *ctx, Gallery_State *g);
 static void section_layout_linear(WLX_Context *ctx, Gallery_State *g);
@@ -137,6 +139,7 @@ static const Section section_checkbox_entry = { "Checkbox", section_checkbox, WL
 static const Section section_image_entry = { "Image", section_image, WLX_ICON_IMAGE };
 static const Section section_slider_entry = { "Slider", section_slider, WLX_ICON_SLIDERS_HORIZONTAL };
 static const Section section_inputbox_entry = { "Input Box", section_inputbox, WLX_ICON_TEXT_CURSOR_INPUT };
+static const Section section_editor_entry = { "Editor", section_editor, WLX_ICON_SQUARE_PEN };
 static const Section section_scroll_panel_entry = { "Scroll Panel", section_scroll_panel, WLX_ICON_SCROLL_TEXT };
 static const Section section_widget_entry = { "Widget", section_widget, WLX_ICON_COMPONENT };
 static const Section section_layout_linear_entry = { "Linear Layout", section_layout_linear, WLX_ICON_ALIGN_HORIZONTAL_SPACE_BETWEEN };
@@ -168,7 +171,8 @@ static const Group groups[] = {
     { "Tokens",     { &section_tokens_entry }, 1, 0, WLX_ICON_PALETTE },
     { "Components", { &section_label_entry, &section_button_entry, &section_checkbox_entry,
                       &section_image_entry, &section_slider_entry, &section_inputbox_entry,
-                      &section_widget_entry, &section_progress_toggle_radio_entry }, 8, 0,
+                      &section_editor_entry, &section_widget_entry,
+                      &section_progress_toggle_radio_entry }, 9, 0,
                     WLX_ICON_BLOCKS },
     { "Layouts",    { &section_layout_linear_entry, &section_layout_grid_entry,
                       &section_layout_flex_entry, &section_auto_layout_entry }, 4, 0,
@@ -218,9 +222,22 @@ struct Gallery_State {
 
     // Input Box
     char  inputs[4][256];
+    char  input_password[64];
+    char  input_readonly[64];
+    char  input_multiline[2048];
     float input_font_size;
     float input_height;
     ColorF input_focus_color;
+
+    // Editor (document buffer lives at file scope; the demo owns the
+    // buffer, the length, and the revision, like a real embedder)
+    size_t   editor_len;
+    size_t   editor_lines;
+    uint32_t editor_revision;
+    bool     editor_line_numbers;
+    bool     editor_read_only;
+    bool     editor_wrap;
+    float    editor_font_size;
 
     // Scroll Panel
     float scroll_sb_width;
@@ -317,9 +334,21 @@ static Gallery_State g = {
     .slider_min = 0.0f, .slider_max = 1.0f,
 
     .inputs = { "Hello!", "", "", "" },
+    .input_password = "hunter2",
+    .input_readonly = "WLX-TOKEN-4242 (copy me)",
+    .input_multiline = "Multiline notes: Enter starts a new line.\n"
+                       "Hard breaks and soft wrapping both show here, so a long line like this one wraps.\n"
+                       "UP/DOWN keep the column while moving between lines.\n"
+                       "Content taller than the field scrolls: the wheel scrolls while hovered,\n"
+                       "the bar on the right drags, and the caret pulls the view along as you type.\n"
+                       "Drag a selection past the edge and the view follows it.\n"
+                       "Line seven.\nLine eight.\nLine nine.\nLine ten keeps the scrollbar busy.",
     .input_font_size = 16.0f,
     .input_height = 40.0f,
     .input_focus_color = { 0.35f, 0.55f, 0.82f },
+
+    .editor_line_numbers = true,
+    .editor_font_size = 16.0f,
 
     .scroll_sb_width = 10.0f,
     .scroll_wheel_speed = 20.0f,
@@ -1389,6 +1418,20 @@ static void section_inputbox(WLX_Context *ctx, Gallery_State *st) {
             .border_focus_color = fc,
             .cursor_color = fc);
 
+        SUB_HEADING(ctx, "Password & Read-only");
+        wlx_label(ctx, "Password masks the text and blocks copy/cut; read-only allows select/copy but no edits.",
+            .height = DESC_H);
+        wlx_inputbox(ctx, "Password: ", st->input_password, sizeof(st->input_password),
+            .height = ih, .font_size = fs, .password = true);
+        wlx_inputbox(ctx, "Token:    ", st->input_readonly, sizeof(st->input_readonly),
+            .height = ih, .font_size = fs, .read_only = true);
+
+        SUB_HEADING(ctx, "Multiline");
+        wlx_label(ctx, "Enter inserts a newline; UP/DOWN move by line; overflowing content scrolls (wheel, scrollbar, caret-follow).",
+            .height = DESC_H);
+        wlx_textarea(ctx, "Notes (multiline): ", st->input_multiline, sizeof(st->input_multiline),
+            .height = 120, .font_size = fs);
+
         if (wlx_button(ctx, "Clear All Inputs",
             .height = ROW_H, .align = WLX_CENTER,
             .back_color = DANGER_BG(ctx))) {
@@ -1396,6 +1439,223 @@ static void section_inputbox(WLX_Context *ctx, Gallery_State *st) {
         }
 
         wlx_panel_end(ctx);
+
+    SECTION_END(ctx);
+}
+
+// ---------------------------------------------------------------------------
+// Section: Editor -- wlx_editor over a caller-owned document buffer. The
+// document lives at file scope so its capacity stays off Gallery_State; the
+// demo owns the buffer, the length, and the revision, exactly as an
+// application embedding the widget would.
+// ---------------------------------------------------------------------------
+#define GALLERY_EDITOR_CAP (1u << 20)
+static char g_gallery_editor_buf[GALLERY_EDITOR_CAP];
+
+// Hard line count for the stats row. The gallery documents are LF-only, so
+// a plain '\n' count is exact here (the widget itself handles CRLF).
+static size_t gallery_editor_count_lines(const char *s, size_t len) {
+    size_t lines = 1;
+    for (size_t i = 0; i < len; i++) {
+        if (s[i] == '\n') lines++;
+    }
+    return lines;
+}
+
+// The startup document: a self-describing snippet with tabs (next-tab-stop
+// rendering) and one deliberately long line for horizontal scrolling.
+static const char gallery_editor_sample[] =
+    "// wlx_editor - click here and start typing.\n"
+    "//\n"
+    "// A windowed editor over a caller-owned buffer: only the visible\n"
+    "// lines are measured and drawn, so frame cost is O(viewport) at\n"
+    "// any document size. Try: wheel and Shift+wheel, PageUp/PageDown,\n"
+    "// Ctrl+Home/End, double/triple click, drag-select past the edges,\n"
+    "// Tab, and Ctrl+C/X/V.\n"
+    "\n"
+    "typedef struct {\n"
+    "\tchar    *bytes;   // caller-owned document\n"
+    "\tsize_t   len;     // authoritative length, in and out\n"
+    "\tuint32_t rev;     // bump after external mutations\n"
+    "} Document;\n"
+    "\n"
+    "static bool document_frame(WLX_Context *ctx, Document *doc, size_t cap) {\n"
+    "\t// The widget edits the buffer in place and returns true on change;\n"
+    "\t// doc->len is already updated when it does.\n"
+    "\treturn wlx_editor(ctx, NULL, doc->bytes, cap, &doc->len,\n"
+    "\t\t.line_numbers = true, .revision = doc->rev);\n"
+    "}\n"
+    "\n"
+    "// One long line to scroll into: the vertical thumb is exact from the line count, and the horizontal range opens as the window reaches deeper into the line ------------------------------------------------------------------------>\n";
+
+static void gallery_editor_load_sample(Gallery_State *st) {
+    size_t len = sizeof(gallery_editor_sample) - 1;
+    memcpy(g_gallery_editor_buf, gallery_editor_sample, len + 1);
+    st->editor_len = len;
+    st->editor_lines = gallery_editor_count_lines(g_gallery_editor_buf, len);
+    st->editor_revision++;
+}
+
+// Generated numbered document (~30k lines) so the windowed frame cost shows
+// at document scale; every 100th line runs long so horizontal scrolling has
+// something to reach.
+static void gallery_editor_generate(Gallery_State *st, size_t target_lines) {
+    size_t off = 0;
+    for (size_t i = 0; i < target_lines; i++) {
+        int n = snprintf(g_gallery_editor_buf + off, GALLERY_EDITOR_CAP - off,
+            "%u\tvalue = %u;", (unsigned)(i + 1), (unsigned)(i * 7u % 1000u));
+        if (n <= 0 || off + (size_t)n + 200 >= GALLERY_EDITOR_CAP) break;
+        off += (size_t)n;
+        if (i % 100 == 99) {
+            memset(g_gallery_editor_buf + off, '-', 160);
+            off += 160;
+        }
+        g_gallery_editor_buf[off++] = '\n';
+    }
+    g_gallery_editor_buf[off] = '\0';
+    st->editor_len = off;
+    st->editor_lines = gallery_editor_count_lines(g_gallery_editor_buf, off);
+    st->editor_revision++;
+}
+
+// Prose document: every paragraph is one long hard line - unreadable
+// unwrapped, the wrapped mode's target workload. The caller turns wrap on
+// when loading it (the toggle stays live, so flipping it back shows the
+// same paragraphs as single lines with horizontal scrolling).
+static void gallery_editor_load_prose(Gallery_State *st) {
+    static const char *sentences[] = {
+        "Wollix wraps hard lines into band-wide rows on demand, so the scroll "
+        "anchor is a line plus a row within it and nothing is measured beyond "
+        "the viewport.",
+        "The vertical thumb maps hard lines: exact when nothing wraps, a "
+        "documented approximation elsewhere, and the track end always lands "
+        "on the document's last row.",
+        "Vertical motion, hit tests, and caret-follow work in visual rows "
+        "with a row-relative sticky column, while HOME and END keep "
+        "whole-line semantics.",
+        "Resize the window and the rows reflow for free: no wrap geometry is "
+        "stored anywhere, so there is nothing to invalidate.",
+        "Each of these paragraphs is a single hard line in the buffer; the "
+        "line-number gutter marks only its first row.",
+    };
+    enum { PROSE_SENTENCES = 5, PROSE_PARAGRAPHS = 24 };
+    size_t off = 0;
+    for (int p = 0; p < PROSE_PARAGRAPHS; p++) {
+        int n = snprintf(g_gallery_editor_buf + off, GALLERY_EDITOR_CAP - off,
+            "%d. ", p + 1);
+        if (n <= 0 || off + (size_t)n >= GALLERY_EDITOR_CAP) break;
+        off += (size_t)n;
+        for (int s = 0; s < 3; s++) {
+            const char *sentence = sentences[(p + s) % PROSE_SENTENCES];
+            size_t sentence_len = strlen(sentence);
+            if (off + sentence_len + 4 >= GALLERY_EDITOR_CAP) break;
+            memcpy(g_gallery_editor_buf + off, sentence, sentence_len);
+            off += sentence_len;
+            g_gallery_editor_buf[off++] = ' ';
+        }
+        g_gallery_editor_buf[off++] = '\n';
+        g_gallery_editor_buf[off++] = '\n';
+    }
+    g_gallery_editor_buf[off] = '\0';
+    st->editor_len = off;
+    st->editor_lines = gallery_editor_count_lines(g_gallery_editor_buf, off);
+    st->editor_revision++;
+}
+
+static void gallery_editor_seed_once(Gallery_State *st) {
+    static bool seeded = false;
+    if (seeded) return;
+    seeded = true;
+    gallery_editor_load_sample(st);
+}
+
+static void section_editor(WLX_Context *ctx, Gallery_State *st) {
+    gallery_editor_seed_once(st);
+    Gallery_Semantic_Theme semantic = gallery_semantic_theme(ctx->theme);
+    int fs = (int)st->editor_font_size;
+
+    SECTION_BEGIN(ctx);
+
+        // ======== LEFT: Options ========
+        wlx_panel_begin(ctx, .content_padding = 0);
+
+            gallery_panel_heading(ctx,
+                WLX_ICON_SLIDERS_HORIZONTAL, GALLERY_ICON_ROLE_TEXT,
+                "Options", HEADING_H);
+
+
+            gallery_option_slider(ctx, "Font Size  ", &st->editor_font_size,
+                .height = OPT_H, .font_size = OPT_FS, .min_value = 10.0f, .max_value = 28.0f);
+            gallery_option_checkbox(ctx, "Line Numbers", &st->editor_line_numbers,
+                .height = OPT_H, .font_size = OPT_FS);
+            gallery_option_checkbox(ctx, "Read Only", &st->editor_read_only,
+                .height = OPT_H, .font_size = OPT_FS);
+            gallery_option_checkbox(ctx, "Wrap", &st->editor_wrap,
+                .height = OPT_H, .font_size = OPT_FS);
+
+            // Document pickers: out-of-widget buffer swaps that showcase the
+            // .revision guard rebuilding the line index.
+            gallery_option_label(ctx, "Documents",
+                .height = SMALL_H, .font_size = TINY_FS, .align = WLX_LEFT,
+                .front_color = semantic.color_text_muted);
+            if (wlx_button(ctx, "Sample Doc",
+                .height = OPT_H, .font_size = OPT_FS, .align = WLX_CENTER)) {
+                gallery_editor_load_sample(st);
+            }
+            if (wlx_button(ctx, "Generate 30k Lines",
+                .height = OPT_H, .font_size = OPT_FS, .align = WLX_CENTER)) {
+                gallery_editor_generate(st, 30000);
+            }
+            if (wlx_button(ctx, "Prose Doc (wrap on)",
+                .height = OPT_H, .font_size = OPT_FS, .align = WLX_CENTER)) {
+                gallery_editor_load_prose(st);
+                st->editor_wrap = true;
+            }
+
+        wlx_panel_end(ctx);
+
+    SECTION_NEXT(ctx);
+
+        // ======== RIGHT: Content ========
+        // Explicit layout instead of a panel: panels offer CONTENT slots
+        // only, and the editor wants the FLEX fill slot.
+        wlx_layout_begin_s(ctx, WLX_VERT,
+            WLX_SIZES(WLX_SLOT_PX(HEADING_H), WLX_SLOT_PX(DESC_H), WLX_SLOT_PX(DESC_H),
+                      WLX_SLOT_FLEX(1), WLX_SLOT_PX(SMALL_H)),
+            .gap = 4);
+
+            SECTION_HEADING(ctx, "Editor");
+
+            wlx_label(ctx, "Windowed text editor over a caller-owned buffer: only the visible lines are measured and drawn, so frame cost is O(viewport) at any document size.",
+                .height = DESC_H, .font_size = SMALL_FS,
+                .front_color = semantic.color_text_2);
+            wlx_label(ctx, "Wheel / Shift+wheel scroll both axes; PageUp/PageDown page the caret; Tab renders at next-tab-stops; Wrap breaks hard lines into band-wide rows.",
+                .height = DESC_H, .font_size = SMALL_FS,
+                .front_color = semantic.color_text_2);
+
+            if (wlx_editor(ctx, NULL, g_gallery_editor_buf, GALLERY_EDITOR_CAP,
+                    &st->editor_len, .id = "gallery-editor",
+                    .content_padding = 6, .font_size = fs,
+                    .line_numbers = st->editor_line_numbers,
+                    .read_only = st->editor_read_only,
+                    .wrap = st->editor_wrap,
+                    .revision = st->editor_revision)) {
+                st->editor_lines = gallery_editor_count_lines(
+                    g_gallery_editor_buf, st->editor_len);
+            }
+
+            char ed_stats[96];
+            snprintf(ed_stats, sizeof(ed_stats),
+                "%u lines - %u of %u KB - revision %u",
+                (unsigned)st->editor_lines,
+                (unsigned)(st->editor_len / 1024u),
+                (unsigned)(GALLERY_EDITOR_CAP / 1024u),
+                (unsigned)st->editor_revision);
+            wlx_label(ctx, ed_stats,
+                .height = SMALL_H, .font_size = TINY_FS, .align = WLX_LEFT,
+                .front_color = semantic.color_text_muted);
+
+        wlx_layout_end(ctx);
 
     SECTION_END(ctx);
 }
@@ -3809,10 +4069,21 @@ static void gallery_raylib_measure_text_slice(const char *text, size_t slice_len
     wlx_raylib_measure_text_slice(text, slice_len, gallery_raylib_scaled_text_style(style), out_w, out_h);
 }
 
+// The advances callback must scale identically to the slice measure: the
+// editor retains its results as caret/hit-test/fit geometry against text
+// drawn at the scaled size.
+static size_t gallery_raylib_measure_text_advances(const char *text, size_t len,
+    WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
+    float *out_advances) {
+    return wlx_raylib_measure_text_advances(text, len, gallery_raylib_scaled_text_style(style),
+        unit_ends, unit_count, out_advances);
+}
+
 static void gallery_raylib_install_text_scale(WLX_Context *ctx) {
     ctx->backend.draw_text = gallery_raylib_draw_text;
     ctx->backend.measure_text = gallery_raylib_measure_text;
     ctx->backend.measure_text_slice = gallery_raylib_measure_text_slice;
+    ctx->backend.measure_text_advances = gallery_raylib_measure_text_advances;
 }
 
 static void gallery_icon_atlas_create(WLX_Context *ctx) {
