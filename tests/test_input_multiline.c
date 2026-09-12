@@ -112,6 +112,7 @@ TEST(multiline_enter_inserts_newline_keeps_focus) {
     // Subsequent typing lands after the newline.
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "c");
     ASSERT_EQ_STR(buf, "ab\nc");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(multiline_enter_autorepeat_inserts_again) {
@@ -127,6 +128,7 @@ TEST(multiline_enter_autorepeat_inserts_again) {
     bool focused = ml_frame_key_repeat(&ctx, buf, sizeof(buf), true, false, WLX_KEY_ENTER);
     ASSERT_EQ_STR(buf, "x\n\n");
     ASSERT_TRUE(focused);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(multiline_enter_replaces_selection) {
@@ -138,6 +140,7 @@ TEST(multiline_enter_replaces_selection) {
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_A, ml_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_ENTER, 0);
     ASSERT_EQ_STR(buf, "\n");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(singleline_enter_blurs_no_insert) {
@@ -152,6 +155,7 @@ TEST(singleline_enter_blurs_no_insert) {
     focused = ml_frame_key(&ctx, buf, sizeof(buf), false, false, WLX_KEY_ENTER, 0);
     ASSERT_FALSE(focused);
     ASSERT_EQ_STR(buf, "ab");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -169,6 +173,7 @@ TEST(multiline_readonly_rejects_insert_keeps_focus) {
     focused = ml_frame_key(&ctx, buf, sizeof(buf), true, true, WLX_KEY_ENTER, 0);
     ASSERT_EQ_STR(buf, "ab");
     ASSERT_TRUE(focused);
+    wlx_context_destroy(&ctx);
 }
 
 // Stable call site so the password+multiline widget keeps one ID across
@@ -214,6 +219,7 @@ TEST(password_forces_multiline_off) {
     test_frame_end(&ctx);
     ASSERT_FALSE(focused);
     ASSERT_EQ_STR(buf, "pw");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(multiline_escape_blurs) {
@@ -227,6 +233,7 @@ TEST(multiline_escape_blurs) {
     focused = ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_ESCAPE, 0);
     ASSERT_FALSE(focused);
     ASSERT_EQ_STR(buf, "ab");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -254,6 +261,8 @@ TEST(multiline_full_buffer_inserts_nothing) {
     ml_frame_mouse(&ctx2, buf2, sizeof(buf2), true, false, 380, true, true);
     ml_frame_key(&ctx2, buf2, sizeof(buf2), true, false, WLX_KEY_ENTER, 0);
     ASSERT_EQ_STR(buf2, "abc\n");
+    wlx_context_destroy(&ctx);
+    wlx_context_destroy(&ctx2);
 }
 
 // ============================================================================
@@ -279,6 +288,7 @@ TEST(multiline_down_moves_same_column) {
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
     ASSERT_EQ_STR(buf, "ABCD\nEFXGH");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(multiline_up_moves_same_column) {
@@ -295,6 +305,7 @@ TEST(multiline_up_moves_same_column) {
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_UP, 0);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
     ASSERT_EQ_STR(buf, "ABXCD\nEFGH");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(multiline_sticky_column_across_short_line) {
@@ -314,6 +325,7 @@ TEST(multiline_sticky_column_across_short_line) {
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
     ASSERT_EQ_STR(buf, "ABCDE\nZ\nFGHIXJ");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(multiline_sticky_column_roundtrip) {
@@ -334,6 +346,7 @@ TEST(multiline_sticky_column_roundtrip) {
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_UP, 0);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
     ASSERT_EQ_STR(buf, "ABCDXE\nZ\nFGHIJ");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(multiline_up_first_down_last_clamp) {
@@ -356,6 +369,7 @@ TEST(multiline_up_first_down_last_clamp) {
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "Y");
     ASSERT_EQ_STR(buf, "XAB\nCDY");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(multiline_shift_down_extends_selection) {
@@ -371,6 +385,7 @@ TEST(multiline_shift_down_extends_selection) {
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, WLX_MOD_SHIFT);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
     ASSERT_EQ_STR(buf, "XCD");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(multiline_horizontal_motion_resets_column) {
@@ -391,6 +406,7 @@ TEST(multiline_horizontal_motion_resets_column) {
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
     ASSERT_EQ_STR(buf, "ABCD\nE\nXFGHI");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(multiline_wrapped_soft_line_traversal) {
@@ -410,6 +426,7 @@ TEST(multiline_wrapped_soft_line_traversal) {
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
     ASSERT_EQ_STR(buf, "AAAA BBXBB");
+    wlx_context_destroy(&ctx);
 }
 
 // Stable call site + drivers for the wrap = false variant: hard newlines must
@@ -470,6 +487,7 @@ TEST(multiline_nowrap_hard_lines_traversal) {
     ml_nowrap_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_DOWN, 0);
     ml_nowrap_frame_type(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "ABCD\nEFXGH");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================

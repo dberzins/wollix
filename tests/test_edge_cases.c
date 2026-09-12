@@ -428,6 +428,7 @@ TEST(border_clamp_subpixel) {
     ASSERT_EQ_INT(_mock_last_border_color.a, 64);    // 128 * 0.5 = 64
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ── wlx_begin_immediate opt-out ─────────────────────────────────────────────
@@ -454,6 +455,7 @@ TEST(begin_immediate_dispatches_directly) {
     ASSERT_EQ_INT((int)ctx.arena.commands.count, 0);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================

@@ -616,15 +616,18 @@ int main(void) {
     // line geometry and stop measuring: idle and post-sweep frames issue
     // only the frame's reference measure; typing re-measures the edited
     // line; vertical scroll the entering lines. Cold frames still measure
-    // everything once. Giant-wrap steady frames carry the band-resolve
-    // overflow row probe, which deliberately measures outside the store
-    // at the pre-strip width - the recorded residual.
+    // everything once; a wrapped cold frame also counts the rows of the
+    // band of lines at the document end (the bottom anchor behind the
+    // thumb's range end), retained from then on. Giant-wrap steady frames
+    // carry the band-resolve overflow row probe, which deliberately
+    // measures outside the store at the pre-strip width - the recorded
+    // residual.
     failures += traffic_check("prose no-wrap", "cold", tp_nw.cold, 4400, 422000);
     failures += traffic_check("prose no-wrap", "idle", tp_nw.idle, 2, 2);            // (3821/366721)
     failures += traffic_check("prose no-wrap", "vscroll", tp_nw.vscroll, 225, 21100); // (3821/366721)
     failures += traffic_check("prose no-wrap", "typing", tp_nw.typing, 12, 40);       // (3826/366733)
     failures += traffic_check("prose no-wrap", "hscroll-steady", tp_nw.hscroll_steady, 2, 2); // (8336/1748030)
-    failures += traffic_check("prose wrap", "cold", tp_w.cold, 3450, 161200);
+    failures += traffic_check("prose wrap", "cold", tp_w.cold, 6320, 296300);       // 2026-09-06: 5490/257589
     failures += traffic_check("prose wrap", "idle", tp_w.idle, 2, 2);                 // (3459/162025)
     failures += traffic_check("prose wrap", "vscroll", tp_w.vscroll, 2, 2);           // (3538/165937)
     failures += traffic_check("prose wrap", "typing", tp_w.typing, 505, 23000);       // (3929/184867)
@@ -653,7 +656,7 @@ int main(void) {
     failures += traffic_check("prose nw +adv", "typing", ta_nw.typing, 3, 5);          // (2/4)
     failures += traffic_check("prose nw +adv", "hscroll-sweep", ta_nw.hscroll_sweep, 58, 3800); // (50/3241)
     failures += traffic_check("prose nw +adv", "hscroll-steady", ta_nw.hscroll_steady, 2, 2);
-    failures += traffic_check("prose wr +adv", "cold", ta_w.cold, 41, 7500);           // (35/6473)
+    failures += traffic_check("prose wr +adv", "cold", ta_w.cold, 75, 13600);         // 2026-09-06: 65/11813
     failures += traffic_check("prose wr +adv", "idle", ta_w.idle, 2, 2);
     failures += traffic_check("prose wr +adv", "vscroll", ta_w.vscroll, 2, 2);
     failures += traffic_check("prose wr +adv", "typing", ta_w.typing, 7, 1100);        // (6/951)

@@ -146,7 +146,9 @@ always written in their qualified forms.
 - **replay** — answering geometry from stored floats with zero backend
   calls; its failure always falls back to measuring.
 - **pseudo scroll** — wrapped mode's scroll value in hard-line pseudo
-  pixels (`line_count * line_h` as if nothing wrapped).
+  pixels (the anchor line plus its row fraction, times `line_h`, as if
+  nothing wrapped); its range ends at the **bottom anchor**, the cached
+  anchor that bottom-aligns the document's last row.
 - **lookahead** — the extra band width the linear window measures past
   the view so the thumb range stays ahead of the reach.
 - **back margin** — the half-band the measure origin sits behind the
@@ -206,16 +208,21 @@ hit-testing).
 8. Metrics: reference space measure gives `line_h` and the tab
    advance.
 9. Line index guard and rebuild; retained-geometry `edit_shift` (the
-   edit-only path) or `clear` (every other rebuild cause).
+   edit-only path) or `clear` (every other rebuild cause); the cached
+   wrapped bottom anchor shifts with an edit ending before its line and
+   drops otherwise.
 10. Band resolve (`wlx_editor_resolve_band`): gutter, scrollbar
     strips, pre-strip window band height.
-11. Retained-geometry environment check and store sizing.
+11. Retained-geometry environment check and store sizing; an
+    environment change also drops the cached bottom anchor.
 12. Wrap inputs at the final band width; anchor clamp against the
     current index; anchor row count.
 13. Scroll limits (`wlx_editor_scroll_limits`): derives the
-    frame-local `scroll_y` from the anchor, the max scrolls, and the
-    horizontal thumb content width; a linear clamp change normalizes
-    the anchor through `wlx_editor_anchor_set_scroll_y`.
+    frame-local `scroll_y` from the anchor, the max scrolls (wrapped:
+    the range ends at the bottom anchor's pseudo scroll,
+    `wlx_editor_wrap_bottom_anchor` filling the cache on a miss), and
+    the horizontal thumb content width; a linear clamp change
+    normalizes the anchor through `wlx_editor_anchor_set_scroll_y`.
 14. Scroll resolve (`wlx_editor_scroll_resolve`): wheel and thumb
     gestures — each vertical gesture decomposes its scroll into the
     anchor at its own site (a wrapped drag to the track end anchors
@@ -265,6 +272,7 @@ Summary only — the site-local comments carry the full rationale.
 | Anchor `(first_line, first_row, y_frac)` (persistent, THE authoritative scroll state) | Wrap-toggle remap (3); anchor clamp (12); limits clamp normalization (13); gesture-site decomposes (14-16); wrapped caret-follow (16); wrapped build bottom clamp (18) | Scroll limits (13), wrap hit/auto-scroll (15), window builds (18), gutter (19) |
 | `h_reach_open` (persistent, cross-frame) | Both window builds (18); rebuilt-document release (17) | Next frame: band resolve (10, bar visibility), scroll limits (13, open reach limit) |
 | `max_line_w` (persistent, monotone per document generation) | Grown by the linear window build (18); zeroed by the rebuilt-document release (17) | Band resolve (10), scroll limits (13), carets and bars (20, thumb range) |
+| Wrapped bottom anchor cache (persistent, end-relative) | Filled on a miss by scroll limits (13) or the wrapped build's bottom clamp (18); shifted or dropped by the index rebuild (9); dropped by the environment check (11) | Scroll limits (13, thumb range end), wrapped build bottom clamp (18) |
 
 ---
 

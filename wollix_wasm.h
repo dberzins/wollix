@@ -10,7 +10,7 @@
 #endif
 
 // ============================================================================
-// wollix_wasm.h — Bare-wasm32 backend adapter for wollix
+// wollix_wasm.h - Bare-wasm32 backend adapter for wollix
 //
 // Bridges the WLX_Backend interface to wasm imports implemented by the JS
 // host (wollix_wasm.js). Structs (WLX_Rect, WLX_Color) are
@@ -51,44 +51,27 @@ static inline uint32_t wlx_wasm_pack_color(WLX_Color c) {
 // general-group buffers (commands, scratch, etc.) cap well below 1 MiB.
 // ============================================================================
 
+// Both orders are overridable before including this header.
+#ifndef WLX_WASM_POOL_MIN_ORDER
 #define WLX_WASM_POOL_MIN_ORDER  8
+#endif
+#ifndef WLX_WASM_POOL_MAX_ORDER
 #define WLX_WASM_POOL_MAX_ORDER  20
+#endif
 #define WLX_WASM_POOL_CLASSES    (WLX_WASM_POOL_MAX_ORDER - WLX_WASM_POOL_MIN_ORDER + 1)
 
 #ifdef WLX_PERF
 typedef struct {
-    uint64_t frame_index;
-    bool timer_available;
-    uint64_t draw_text_calls;
-    uint64_t measure_text_calls;
-    uint64_t draw_rect_calls;
-    uint64_t draw_rect_lines_calls;
-    uint64_t draw_rect_rounded_calls;
-    uint64_t draw_rect_rounded_lines_calls;
-    uint64_t draw_circle_calls;
-    uint64_t draw_ring_calls;
-    uint64_t draw_line_calls;
-    uint64_t draw_texture_calls;
-    uint64_t begin_scissor_calls;
-    uint64_t end_scissor_calls;
-    uint64_t geometry_submit_calls;
-    uint64_t clip_change_calls;
-    uint64_t text_draw_ns;
-    uint64_t text_measure_ns;
-    uint64_t geometry_ns;
-    uint64_t scissor_ns;
-    uint64_t texture_ns;
-    uint64_t present_ns;
+    WLX_PERF_BACKEND_COMMON_FIELDS;
 } WLX_Perf_Wasm_Frame;
 
 typedef struct {
     WLX_Perf_Wasm_Frame current;
     WLX_Perf_Wasm_Frame last;
-    uint64_t present_start_ns;
-    bool capturing;
+    WLX_Perf_Backend_Clock clock;
 } WLX_Perf_Wasm_State;
 
-static WLX_Perf_Wasm_State wlx_perf_wasm_state = {0};
+static WLX_Perf_Wasm_State g_wlx_perf_wasm_state = {0};
 #endif
 
 typedef struct WLX_Wasm_Block {
@@ -309,6 +292,11 @@ extern uint32_t wlx_wasm_import_clipboard_get_into(char *buf, uint32_t cap);
 WLX_WASM_IMPORT("clipboard_set")
 extern void wlx_wasm_import_clipboard_set(const char *text, uint32_t len);
 
+// Cursor shape: the host maps a WLX_Cursor_Shape value onto the canvas CSS
+// cursor. Called by the core only when the shape changes.
+WLX_WASM_IMPORT("set_cursor")
+extern void wlx_wasm_import_set_cursor(uint32_t shape);
+
 #if defined(WLX_PERF) && defined(WLX_WASM_PERF_TIMESTAMP)
 WLX_WASM_IMPORT("perf_now_ns")
 extern uint64_t wlx_wasm_import_perf_now_ns(void);
@@ -343,216 +331,166 @@ static inline void wlx_perf_wasm_install_timer(WLX_Context *ctx) {
 }
 
 static inline void wlx_perf_wasm_begin_frame(uint64_t frame_index) {
-    wlx_zero_struct(wlx_perf_wasm_state.current);
-    wlx_perf_wasm_state.current.frame_index = frame_index;
-    wlx_perf_wasm_state.current.timer_available = wlx_perf_wasm_timer_available();
-    wlx_perf_wasm_state.present_start_ns = 0;
-    wlx_perf_wasm_state.capturing = true;
+    WLX_Perf_Wasm_State *st = &g_wlx_perf_wasm_state;
+    wlx_zero_struct(st->current);
+    st->current.frame_index = frame_index;
+    st->current.timer_available = wlx_perf_wasm_timer_available();
+    st->clock.timer_available = st->current.timer_available;
+    st->clock.timestamp = wlx_perf_wasm_timestamp;
+    st->clock.timestamp_user = NULL;
+    wlx_perf_backend_frame_begin(&st->clock);
 }
 
 static inline void wlx_perf_wasm_end_frame(uint64_t frame_index) {
-    if (!wlx_perf_wasm_state.capturing) return;
-    if (frame_index != 0) wlx_perf_wasm_state.current.frame_index = frame_index;
-    wlx_perf_wasm_state.last = wlx_perf_wasm_state.current;
-    wlx_perf_wasm_state.capturing = false;
-    wlx_perf_wasm_state.present_start_ns = 0;
+    WLX_Perf_Wasm_State *st = &g_wlx_perf_wasm_state;
+    if (!st->clock.capturing) return;
+    if (frame_index != 0) st->current.frame_index = frame_index;
+    st->last = st->current;
+    wlx_perf_backend_frame_end(&st->clock);
 }
 
 static inline void wlx_perf_wasm_reset(void) {
-    wlx_zero_struct(wlx_perf_wasm_state);
+    wlx_zero_struct(g_wlx_perf_wasm_state);
 }
 
 static inline const WLX_Perf_Wasm_Frame *wlx_perf_wasm_get_last_frame(void) {
-    return &wlx_perf_wasm_state.last;
-}
-
-static inline void wlx_perf_wasm_inc(uint64_t *counter) {
-    if (!wlx_perf_wasm_state.capturing) return;
-    (*counter)++;
-}
-
-static inline uint64_t wlx_perf_wasm_time_begin(void) {
-    if (!wlx_perf_wasm_state.capturing || !wlx_perf_wasm_state.current.timer_available) return 0;
-    return wlx_perf_wasm_timestamp(NULL);
-}
-
-static inline void wlx_perf_wasm_time_end(uint64_t start_ns, uint64_t *total_ns) {
-    uint64_t end_ns;
-
-    if (!wlx_perf_wasm_state.capturing || !wlx_perf_wasm_state.current.timer_available) return;
-    end_ns = wlx_perf_wasm_timestamp(NULL);
-    if (end_ns >= start_ns) *total_ns += end_ns - start_ns;
+    return &g_wlx_perf_wasm_state.last;
 }
 
 static inline void wlx_perf_wasm_present_begin(void) {
-    wlx_perf_wasm_state.present_start_ns = wlx_perf_wasm_time_begin();
+    wlx_perf_backend_present_begin(&g_wlx_perf_wasm_state.clock);
 }
 
 static inline void wlx_perf_wasm_present_end(void) {
-    wlx_perf_wasm_time_end(wlx_perf_wasm_state.present_start_ns,
-        &wlx_perf_wasm_state.current.present_ns);
-    wlx_perf_wasm_state.present_start_ns = 0;
+    wlx_perf_backend_present_end(&g_wlx_perf_wasm_state.clock,
+        &g_wlx_perf_wasm_state.current.present_ns);
 }
 
 #define WLX_WASM_PERF_INC(field) \
-    wlx_perf_wasm_inc(&wlx_perf_wasm_state.current.field)
+    wlx_perf_backend_inc(&g_wlx_perf_wasm_state.clock, \
+                         &g_wlx_perf_wasm_state.current.field)
 #else
 #define WLX_WASM_PERF_INC(field) ((void)0)
 #endif
+
+// Timed scope of one backend callback body: END (one per exit path)
+// accumulates into the named duration field; both are no-ops without
+// WLX_PERF.
+#define WLX_WASM_SCOPE_BEGIN() \
+    WLX_PERF_SCOPE_BEGIN(&g_wlx_perf_wasm_state.clock)
+#define WLX_WASM_SCOPE_END(field) \
+    WLX_PERF_SCOPE_END(&g_wlx_perf_wasm_state.clock, \
+                       &g_wlx_perf_wasm_state.current.field)
 
 // ============================================================================
 // Backend callback wrappers
 // ============================================================================
 
 static inline void wlx_wasm_draw_rect(WLX_Rect r, WLX_Color c) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_rect_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_rect(r.x, r.y, r.w, r.h, wlx_wasm_pack_color(c));
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
-#endif
+    WLX_WASM_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_wasm_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_rect_lines_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_rect_lines(
         r.x, r.y, r.w, r.h, thick, wlx_wasm_pack_color(c));
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
-#endif
+    WLX_WASM_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_wasm_draw_rect_rounded(
         WLX_Rect r, float roundness, int segments, WLX_Color c) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_rect_rounded_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_rect_rounded(
         r.x, r.y, r.w, r.h, roundness, segments, wlx_wasm_pack_color(c));
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
-#endif
+    WLX_WASM_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_wasm_draw_rect_rounded_lines(
         WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_rect_rounded_lines_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_rect_rounded_lines(
         r.x, r.y, r.w, r.h, roundness, segments, thick, wlx_wasm_pack_color(c));
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
-#endif
+    WLX_WASM_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_wasm_draw_circle(
         float cx, float cy, float radius, int segments, WLX_Color c) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_circle_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_circle(
         cx, cy, radius, segments, wlx_wasm_pack_color(c));
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
-#endif
+    WLX_WASM_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_wasm_draw_ring(
         float cx, float cy, float inner_r, float outer_r, int segments,
         WLX_Color c) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_ring_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_ring(
         cx, cy, inner_r, outer_r, segments, wlx_wasm_pack_color(c));
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
-#endif
+    WLX_WASM_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_wasm_draw_line(
         float x1, float y1, float x2, float y2, float thick, WLX_Color c) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_line_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
     wlx_wasm_import_draw_line(x1, y1, x2, y2, thick, wlx_wasm_pack_color(c));
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.geometry_ns);
-#endif
+    WLX_WASM_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_wasm_draw_text(
         const char *text, float x, float y, WLX_Text_Style style) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_text_calls);
     wlx_wasm_import_draw_text(
         text, x, y, style.font, style.font_size,
         wlx_wasm_pack_color(style.color));
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.text_draw_ns);
-#endif
+    WLX_WASM_SCOPE_END(text_draw_ns);
 }
 
 static inline void wlx_wasm_measure_text(
         const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(measure_text_calls);
     wlx_wasm_import_measure_text(
         text, style.font, style.font_size, out_w, out_h);
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.text_measure_ns);
-#endif
+    WLX_WASM_SCOPE_END(text_measure_ns);
 }
 
 static inline void wlx_wasm_draw_text_slice(
         const char *text, size_t len, float x, float y, WLX_Text_Style style) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_text_calls);
     wlx_wasm_import_draw_text_slice(
         text, (uint32_t)len, x, y, style.font, style.font_size,
         wlx_wasm_pack_color(style.color));
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.text_draw_ns);
-#endif
+    WLX_WASM_SCOPE_END(text_draw_ns);
 }
 
 static inline void wlx_wasm_measure_text_slice(
         const char *text, size_t len, WLX_Text_Style style,
         float *out_w, float *out_h) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(measure_text_calls);
     wlx_wasm_import_measure_text_slice(
         text, (uint32_t)len, style.font, style.font_size,
         out_w, out_h);
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.text_measure_ns);
-#endif
+    WLX_WASM_SCOPE_END(text_measure_ns);
 }
 
 static inline size_t wlx_wasm_measure_text_advances(
@@ -560,33 +498,25 @@ static inline size_t wlx_wasm_measure_text_advances(
         const size_t *unit_ends, size_t unit_count, float *out_advances) {
     if (text == NULL || unit_ends == NULL || out_advances == NULL || unit_count == 0)
         return 0;
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(measure_text_calls);
     uint32_t filled = wlx_wasm_import_measure_text_advances(
         text, (uint32_t)len, style.font, style.font_size,
         unit_ends, (uint32_t)unit_count, out_advances);
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.text_measure_ns);
-#endif
+    WLX_WASM_SCOPE_END(text_measure_ns);
     return (size_t)filled;
 }
 
 static inline void wlx_wasm_draw_texture(
         WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_texture_calls);
     wlx_wasm_import_draw_texture(
         tex.handle,
         src.x, src.y, src.w, src.h,
         dst.x, dst.y, dst.w, dst.h,
         wlx_wasm_pack_color(tint));
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.texture_ns);
-#endif
+    WLX_WASM_SCOPE_END(texture_ns);
 }
 
 static inline WLX_Texture wlx_wasm_texture_create(
@@ -607,45 +537,81 @@ static inline void wlx_wasm_texture_destroy(WLX_Texture tex) {
 }
 
 static inline void wlx_wasm_begin_scissor(WLX_Rect r) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(begin_scissor_calls);
     WLX_WASM_PERF_INC(clip_change_calls);
     wlx_wasm_import_begin_scissor(r.x, r.y, r.w, r.h);
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.scissor_ns);
-#endif
+    WLX_WASM_SCOPE_END(scissor_ns);
 }
 
 static inline void wlx_wasm_end_scissor(void) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_wasm_time_begin();
-#endif
+    WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(end_scissor_calls);
     WLX_WASM_PERF_INC(clip_change_calls);
     wlx_wasm_import_end_scissor();
-#ifdef WLX_PERF
-    wlx_perf_wasm_time_end(perf_start_ns, &wlx_perf_wasm_state.current.scissor_ns);
-#endif
+    WLX_WASM_SCOPE_END(scissor_ns);
 }
 
 static inline float wlx_wasm_get_frame_time(void) {
     return wlx_wasm_import_get_frame_time();
 }
 
-static char wlx_wasm_clipboard_buf[1024];
+// Upper bound for the clipboard receive buffer. Overridable before include.
+#ifndef WLX_WASM_CLIPBOARD_MAX
+#define WLX_WASM_CLIPBOARD_MAX (16u * 1024u * 1024u)
+#endif
+
+// Grow-and-reuse receive buffer. The host writes at most `cap` bytes (never
+// splitting a UTF-8 sequence) and returns the count, so a count within the
+// 3-byte backoff window of the cap may mean truncation: grow and re-fetch
+// until the text provably fit or the soft cap is reached. Growth is
+// geometric, so the no-op-free libc shim leaks at most ~1x the final size.
+static char *g_wlx_wasm_clipboard_buf = NULL;
+static uint32_t g_wlx_wasm_clipboard_cap = 0;
 
 static inline const char *wlx_wasm_clipboard_get(void) {
-    uint32_t n = wlx_wasm_import_clipboard_get_into(
-        wlx_wasm_clipboard_buf, (uint32_t)(sizeof(wlx_wasm_clipboard_buf) - 1));
-    if (n >= sizeof(wlx_wasm_clipboard_buf)) n = sizeof(wlx_wasm_clipboard_buf) - 1;
-    wlx_wasm_clipboard_buf[n] = '\0';
-    return wlx_wasm_clipboard_buf;
+    if (g_wlx_wasm_clipboard_buf == NULL) {
+        // First fetch: start small, but never above the (overridable) soft
+        // cap plus its terminator byte.
+        g_wlx_wasm_clipboard_cap = 4096 < WLX_WASM_CLIPBOARD_MAX + 1
+            ? 4096 : WLX_WASM_CLIPBOARD_MAX + 1;
+        g_wlx_wasm_clipboard_buf = (char *)wlx_alloc(g_wlx_wasm_clipboard_cap);
+        if (g_wlx_wasm_clipboard_buf == NULL) {
+            g_wlx_wasm_clipboard_cap = 0;
+            return "";
+        }
+    }
+    for (;;) {
+        uint32_t room = g_wlx_wasm_clipboard_cap - 1;
+        uint32_t n = wlx_wasm_import_clipboard_get_into(g_wlx_wasm_clipboard_buf, room);
+        if (n > room) n = room;
+        if (n + 4 <= room || room >= WLX_WASM_CLIPBOARD_MAX) {
+            g_wlx_wasm_clipboard_buf[n] = '\0';
+            return g_wlx_wasm_clipboard_buf;
+        }
+        uint32_t new_cap = g_wlx_wasm_clipboard_cap * 2;
+        if (new_cap > WLX_WASM_CLIPBOARD_MAX + 1) new_cap = WLX_WASM_CLIPBOARD_MAX + 1;
+        char *new_buf = (char *)wlx_alloc(new_cap);
+        if (new_buf == NULL) {
+            g_wlx_wasm_clipboard_buf[n] = '\0';
+            return g_wlx_wasm_clipboard_buf;
+        }
+        wlx_free(g_wlx_wasm_clipboard_buf);
+        g_wlx_wasm_clipboard_buf = new_buf;
+        g_wlx_wasm_clipboard_cap = new_cap;
+    }
 }
 
 static inline void wlx_wasm_clipboard_set(const char *text, size_t len) {
     wlx_wasm_import_clipboard_set(text, (uint32_t)len);
+}
+
+// The host's set_cursor (web/wollix_wasm.js) maps the shape onto the canvas
+// CSS cursor. The enum is append-only; this build check flags a new shape
+// the JS map must learn about.
+_Static_assert(WLX_CURSOR_COUNT == 2, "update the JS set_cursor map for the new WLX_Cursor_Shape");
+static inline void wlx_wasm_set_cursor(WLX_Cursor_Shape shape) {
+    wlx_wasm_import_set_cursor((uint32_t)shape);
 }
 
 // ============================================================================
@@ -672,6 +638,7 @@ static inline WLX_Backend wlx_backend_wasm(void) {
         .measure_text_advances = wlx_wasm_measure_text_advances,
         .clipboard_get     = wlx_wasm_clipboard_get,
         .clipboard_set     = wlx_wasm_clipboard_set,
+        .set_cursor        = wlx_wasm_set_cursor,
     };
 }
 
@@ -689,11 +656,13 @@ extern WLX_Input_State wlx_wasm_input_state;
 // fixed byte offsets. Lock them here so any change to WLX_Input_State or
 // WLX_KEY_COUNT fails the build until the JS table is updated to match.
 _Static_assert(offsetof(WLX_Input_State, keys_down)     == 16,  "WASM INPUT_OFFSETS.keys_down out of sync");
-_Static_assert(offsetof(WLX_Input_State, keys_pressed)  == 67,  "WASM INPUT_OFFSETS.keys_pressed out of sync");
-_Static_assert(offsetof(WLX_Input_State, text_input)    == 118, "WASM INPUT_OFFSETS.text_input out of sync");
-_Static_assert(offsetof(WLX_Input_State, keys_repeated) == 150, "WASM INPUT_OFFSETS.keys_repeated out of sync");
-_Static_assert(offsetof(WLX_Input_State, modifiers)     == 204, "WASM INPUT_OFFSETS.modifiers out of sync");
-_Static_assert(sizeof(WLX_Input_State)                  == 208, "WASM INPUT_SIZE out of sync");
+_Static_assert(offsetof(WLX_Input_State, keys_pressed)  == 80,  "WASM INPUT_OFFSETS.keys_pressed out of sync");
+_Static_assert(offsetof(WLX_Input_State, text_input)    == 144, "WASM INPUT_OFFSETS.text_input out of sync");
+_Static_assert(offsetof(WLX_Input_State, keys_repeated) == 176, "WASM INPUT_OFFSETS.keys_repeated out of sync");
+_Static_assert(offsetof(WLX_Input_State, modifiers)     == 240, "WASM INPUT_OFFSETS.modifiers out of sync");
+_Static_assert(offsetof(WLX_Input_State, wheel_delta_x) == 244, "WASM INPUT_OFFSETS.wheel_delta_x out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_right_down) == 248, "WASM INPUT_OFFSETS.mouse_right_down out of sync");
+_Static_assert(sizeof(WLX_Input_State)                  == 252, "WASM INPUT_SIZE out of sync");
 
 static inline WLX_Input_State *wlx_wasm_get_input_ptr(void) {
     return &wlx_wasm_input_state;

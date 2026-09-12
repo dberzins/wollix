@@ -7,6 +7,10 @@
 //   - wlx_scissor_scope_begin aborts on scissor-stack overflow
 //   - wlx_prepare_content_sizes clamps (warn + no CONTENT tracking) instead of
 //     smashing the stack when a CONTENT layout exceeds WLX_CONTENT_SLOTS_MAX
+//   - wlx_menu_end / wlx_menu_item / wlx_submenu_begin abort on an empty
+//     menu stack instead of indexing menu_stack[-1]
+//   - the sub-arena size_t-overflow guards abort instead of wrapping to an
+//     undersized reserve (out-of-bounds writes)
 //
 // Death checks fork: the child triggers the guard and must die with SIGABRT.
 
@@ -74,6 +78,47 @@ static void content_slots_over_max_frame(void) {
     wlx_context_destroy(&ctx);
 }
 
+static void trigger_overlay_end_without_begin(void) {
+    WLX_Context ctx = {0};
+    wlx_context_init(&ctx);
+    wlx_overlay_end(&ctx);   // empty layout stack: count - 1 would wrap
+}
+
+static void trigger_menu_stack_overflow(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    static bool open = true;
+    for (int i = 0; i <= WLX_MENU_STACK_MAX; i++) {
+        wlx_push_id(&ctx, (size_t)i + 1);
+        (void)wlx_menu_begin(&ctx, &open, 10, 10);
+    }
+}
+
+static void trigger_menu_end_without_begin(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_menu_end(&ctx);      // empty menu stack: count would go to -1
+}
+
+static void trigger_sub_arena_reserve_overflow(void) {
+    // A negative count converted to size_t arrives here as a huge 'needed';
+    // the capacity-doubling guard must abort before the wrap.
+    WLX_Sub_Arena sa;
+    wlx_sub_arena_init(&sa, sizeof(float), NULL);
+    wlx_sub_arena_reserve(&sa, SIZE_MAX);
+}
+
+static void trigger_sub_arena_alloc_count_overflow(void) {
+    WLX_Sub_Arena sa;
+    wlx_sub_arena_init(&sa, sizeof(float), NULL);
+    (void)wlx_sub_arena_alloc(&sa, 1);
+    (void)wlx_sub_arena_alloc(&sa, SIZE_MAX);  // count + n wraps
+}
+
 // --- Tests ---
 
 TEST(hard_assert_fires_on_state_size_mismatch) {
@@ -88,6 +133,26 @@ TEST(content_slots_over_max_clamps_instead_of_corrupting) {
     ASSERT_TRUE(run_in_child(content_slots_over_max_frame) == CHILD_EXITED_CLEAN);
 }
 
+TEST(hard_assert_fires_on_overlay_end_without_begin) {
+    ASSERT_TRUE(run_in_child(trigger_overlay_end_without_begin) == CHILD_ABORTED);
+}
+
+TEST(hard_assert_fires_on_menu_stack_overflow) {
+    ASSERT_TRUE(run_in_child(trigger_menu_stack_overflow) == CHILD_ABORTED);
+}
+
+TEST(hard_assert_fires_on_menu_end_without_begin) {
+    ASSERT_TRUE(run_in_child(trigger_menu_end_without_begin) == CHILD_ABORTED);
+}
+
+TEST(hard_assert_fires_on_sub_arena_reserve_overflow) {
+    ASSERT_TRUE(run_in_child(trigger_sub_arena_reserve_overflow) == CHILD_ABORTED);
+}
+
+TEST(hard_assert_fires_on_sub_arena_alloc_count_overflow) {
+    ASSERT_TRUE(run_in_child(trigger_sub_arena_alloc_count_overflow) == CHILD_ABORTED);
+}
+
 TEST(plain_assert_is_inert_under_ndebug) {
     // Meta-check: this TU really is a release-style build.
     int reached = 0;
@@ -100,6 +165,11 @@ SUITE(hard_assert) {
     RUN_TEST(hard_assert_fires_on_state_size_mismatch);
     RUN_TEST(hard_assert_fires_on_scissor_stack_overflow);
     RUN_TEST(content_slots_over_max_clamps_instead_of_corrupting);
+    RUN_TEST(hard_assert_fires_on_overlay_end_without_begin);
+    RUN_TEST(hard_assert_fires_on_menu_stack_overflow);
+    RUN_TEST(hard_assert_fires_on_menu_end_without_begin);
+    RUN_TEST(hard_assert_fires_on_sub_arena_reserve_overflow);
+    RUN_TEST(hard_assert_fires_on_sub_arena_alloc_count_overflow);
     RUN_TEST(plain_assert_is_inert_under_ndebug);
 }
 

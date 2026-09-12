@@ -4060,6 +4060,11 @@ static void gallery_raylib_draw_text(const char *text, float x, float y, WLX_Tex
     wlx_raylib_draw_text(text, x, y, gallery_raylib_scaled_text_style(style));
 }
 
+static void gallery_raylib_draw_text_slice(const char *text, size_t len, float x, float y,
+    WLX_Text_Style style) {
+    wlx_raylib_draw_text_slice(text, len, x, y, gallery_raylib_scaled_text_style(style));
+}
+
 static void gallery_raylib_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
     wlx_raylib_measure_text(text, gallery_raylib_scaled_text_style(style), out_w, out_h);
 }
@@ -4079,8 +4084,12 @@ static size_t gallery_raylib_measure_text_advances(const char *text, size_t len,
         unit_ends, unit_count, out_advances);
 }
 
+// Every text callback the raylib adapter installs is wrapped here; the core
+// prefers draw_text_slice over draw_text, so an unwrapped draw path would render
+// at nominal size against a layout measured at the scaled size.
 static void gallery_raylib_install_text_scale(WLX_Context *ctx) {
     ctx->backend.draw_text = gallery_raylib_draw_text;
+    ctx->backend.draw_text_slice = gallery_raylib_draw_text_slice;
     ctx->backend.measure_text = gallery_raylib_measure_text;
     ctx->backend.measure_text_slice = gallery_raylib_measure_text_slice;
     ctx->backend.measure_text_advances = gallery_raylib_measure_text_advances;

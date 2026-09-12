@@ -70,6 +70,7 @@ TEST(clipper_range_top) {
     wlx_list_clipper_end(&ctx, &c);
     lc_close(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(clipper_range_scrolled_and_position) {
@@ -110,6 +111,7 @@ TEST(clipper_range_scrolled_and_position) {
     wlx_list_clipper_end(&ctx, &c);
     lc_close(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(clipper_range_clamps_when_content_fits) {
@@ -126,6 +128,7 @@ TEST(clipper_range_clamps_when_content_fits) {
     wlx_list_clipper_end(&ctx, &c);
     lc_close(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(clipper_empty_list) {
@@ -140,6 +143,7 @@ TEST(clipper_empty_list) {
     wlx_list_clipper_end(&ctx, &c);
     lc_close(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // Visible row count is bounded by the viewport, independent of total count.
@@ -168,6 +172,7 @@ TEST(clipper_virtualizes_visible_count) {
     // Same viewport -> same number of produced rows regardless of total.
     ASSERT_EQ_INT(n100, nbig);
     ASSERT_TRUE(nbig < 100); // far fewer than the full list
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -198,6 +203,7 @@ TEST(clipper_variable_range_top) {
     wlx_list_clipper_end(&ctx, &c);
     lc_close(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(clipper_variable_range_scrolled) {
@@ -228,6 +234,7 @@ TEST(clipper_variable_range_scrolled) {
     wlx_list_clipper_end(&ctx, &c);
     lc_close(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================

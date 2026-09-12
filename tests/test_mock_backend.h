@@ -85,18 +85,21 @@ static float noop_get_frame_time(void) {
 }
 
 // ----------------------------------------------------------------------------
-// Clipboard stub: a static buffer standing in for the system clipboard so
-// copy/cut/paste behaviour is testable without a real backend.
+// Clipboard stub: a growable heap buffer standing in for the system clipboard
+// so copy/cut/paste round-trips of any size are testable without a real
+// backend (mirrors the adapters' grow-and-reuse transports). Never freed
+// (test-process lifetime).
 // ----------------------------------------------------------------------------
-static char _mock_clipboard[1024] = {0};
+static char  *_mock_clipboard = NULL;
+static size_t _mock_clipboard_cap = 0;
 
 static const char *mock_clipboard_get(void) {
-    return _mock_clipboard;
+    return _mock_clipboard != NULL ? _mock_clipboard : "";
 }
 
 static void mock_clipboard_set(const char *text, size_t len) {
-    if (len >= sizeof(_mock_clipboard)) len = sizeof(_mock_clipboard) - 1;
-    memcpy(_mock_clipboard, text, len);
+    if (!wlx_buf_reserve(&_mock_clipboard, &_mock_clipboard_cap, len + 1)) return;
+    if (len > 0) memcpy(_mock_clipboard, text, len);
     _mock_clipboard[len] = '\0';
 }
 
@@ -171,6 +174,32 @@ static inline int test_mock_advances_calls(void) {
 }
 
 // ============================================================================
+// Cursor-shape recording stub
+// ============================================================================
+
+static WLX_Cursor_Shape _mock_last_cursor = WLX_CURSOR_ARROW;
+static int _mock_cursor_calls = 0;
+
+static void mock_set_cursor(WLX_Cursor_Shape shape) {
+    _mock_last_cursor = shape;
+    _mock_cursor_calls++;
+}
+
+// Last shape the core pushed through set_cursor (ARROW before any push).
+static inline WLX_Cursor_Shape mock_last_cursor(void) {
+    return _mock_last_cursor;
+}
+
+static inline int mock_cursor_calls(void) {
+    return _mock_cursor_calls;
+}
+
+static inline void test_reset_mock_cursor(void) {
+    _mock_last_cursor = WLX_CURSOR_ARROW;
+    _mock_cursor_calls = 0;
+}
+
+// ============================================================================
 // Mock backend constructor
 // ============================================================================
 
@@ -191,7 +220,73 @@ static inline WLX_Backend mock_backend(void) {
         .get_frame_time    = noop_get_frame_time,
         .clipboard_get     = mock_clipboard_get,
         .clipboard_set     = mock_clipboard_set,
+        .set_cursor        = mock_set_cursor,
     };
+}
+
+// ============================================================================
+// Draw-stream recorder
+// ============================================================================
+//
+// Records the shape of what a frame draws (rect-bounded primitives and text)
+// so two widgets can be compared call-for-call. Install with
+// test_stream_install(ctx), reset per frame with test_stream_reset(), and
+// compare two recordings with test_stream_equal(). Colors are recorded too,
+// so a hover/disabled tint difference shows up.
+
+typedef struct {
+    int       kind;     // 1 rect, 2 rect_lines, 3 rounded, 4 rounded_lines, 5 text
+    WLX_Rect  rect;     // text: x, y in rect.x/rect.y, len in rect.w
+    float     a, b;     // thickness / roundness extras
+    WLX_Color color;
+} Test_Stream_Cmd;
+
+#define TEST_STREAM_MAX 128
+typedef struct {
+    Test_Stream_Cmd cmds[TEST_STREAM_MAX];
+    int count;
+} Test_Stream;
+
+static Test_Stream _test_stream;
+
+static void _test_stream_push(int kind, WLX_Rect r, float a, float b, WLX_Color c) {
+    if (_test_stream.count >= TEST_STREAM_MAX) return;
+    _test_stream.cmds[_test_stream.count++] = (Test_Stream_Cmd){ kind, r, a, b, c };
+}
+static void _ts_rect(WLX_Rect r, WLX_Color c) { _test_stream_push(1, r, 0, 0, c); }
+static void _ts_rect_lines(WLX_Rect r, float t, WLX_Color c) { _test_stream_push(2, r, t, 0, c); }
+static void _ts_rounded(WLX_Rect r, float ro, int seg, WLX_Color c) { _test_stream_push(3, r, ro, (float)seg, c); }
+static void _ts_rounded_lines(WLX_Rect r, float ro, int seg, float t, WLX_Color c) { (void)seg; _test_stream_push(4, r, ro, t, c); }
+static void _ts_text(const char *text, float x, float y, WLX_Text_Style st) {
+    (void)text;
+    _test_stream_push(5, (WLX_Rect){ x, y, (float)(text ? strlen(text) : 0), (float)st.font_size }, 0, 0, st.color);
+}
+
+static inline void test_stream_install(WLX_Context *ctx) {
+    ctx->backend.draw_rect               = _ts_rect;
+    ctx->backend.draw_rect_lines         = _ts_rect_lines;
+    ctx->backend.draw_rect_rounded       = _ts_rounded;
+    ctx->backend.draw_rect_rounded_lines = _ts_rounded_lines;
+    ctx->backend.draw_text               = _ts_text;
+}
+static inline void test_stream_reset(void) { _test_stream.count = 0; }
+static inline Test_Stream test_stream_take(void) {
+    Test_Stream s = _test_stream;
+    _test_stream.count = 0;
+    return s;
+}
+static inline bool test_stream_equal(const Test_Stream *a, const Test_Stream *b) {
+    if (a->count != b->count) return false;
+    for (int i = 0; i < a->count; i++) {
+        const Test_Stream_Cmd *x = &a->cmds[i], *y = &b->cmds[i];
+        if (x->kind != y->kind) return false;
+        if (x->rect.x != y->rect.x || x->rect.y != y->rect.y
+                || x->rect.w != y->rect.w || x->rect.h != y->rect.h) return false;
+        if (x->a != y->a || x->b != y->b) return false;
+        if (x->color.r != y->color.r || x->color.g != y->color.g
+                || x->color.b != y->color.b || x->color.a != y->color.a) return false;
+    }
+    return true;
 }
 
 // ============================================================================
@@ -296,6 +391,14 @@ static inline void test_frame_begin_full(WLX_Context *ctx, int mx, int my,
         memcpy(_test_staged_input.text_input, text_input, len);
         _test_staged_input.text_input[len] = '\0';
     }
+    wlx_begin(ctx, ctx->rect, _test_input_handler);
+}
+
+// Begin a frame from a fully caller-populated input state. Widest tier:
+// stages the whole struct verbatim, so tests reach every contract field
+// (buttons, wheel axes) without another parameter-list helper.
+static inline void test_frame_begin_input(WLX_Context *ctx, const WLX_Input_State *input) {
+    _test_staged_input = *input;
     wlx_begin(ctx, ctx->rect, _test_input_handler);
 }
 

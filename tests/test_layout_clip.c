@@ -54,6 +54,7 @@ TEST(layout_clip_emits_scissor_on_content_rect) {
     // The SCISSOR_END follows the SCISSOR_BEGIN.
     int se = crec_find(WLX_CMD_SCISSOR_END, (size_t)sb + 1);
     ASSERT_TRUE(se >= 0);
+    wlx_context_destroy(&ctx);
 }
 
 // A default (no-clip) layout records no scissor commands at all.
@@ -69,6 +70,7 @@ TEST(layout_no_clip_emits_no_scissor) {
 
     ASSERT_EQ_INT(-1, crec_find(WLX_CMD_SCISSOR_BEGIN, 0));
     ASSERT_EQ_INT(-1, crec_find(WLX_CMD_SCISSOR_END, 0));
+    wlx_context_destroy(&ctx);
 }
 
 // A clip layout nested inside a scroll panel records a scissor that stays
@@ -95,6 +97,7 @@ TEST(layout_clip_nested_intersects_scroll_panel) {
     ASSERT_TRUE(sb_layout >= 0);
 
     ASSERT_TRUE(clip_rect_contains(_crec_log[sb_panel].rect, _crec_log[sb_layout].rect));
+    wlx_context_destroy(&ctx);
 }
 
 // After the refactor, wlx_panel_begin(.clip = true) still emits exactly one
@@ -119,6 +122,7 @@ TEST(panel_clip_parity_after_refactor) {
     int sb = crec_find(WLX_CMD_SCISSOR_BEGIN, 0);
     ASSERT_TRUE(sb >= 0);
     ASSERT_EQ_RECT(_crec_log[sb].rect, content, 0.5f);
+    wlx_context_destroy(&ctx);
 }
 
 // A panel without .clip emits no scissor (the refactor must not leak a scissor).
@@ -136,6 +140,7 @@ TEST(panel_no_clip_emits_no_scissor) {
 
     ASSERT_EQ_INT(-1, crec_find(WLX_CMD_SCISSOR_BEGIN, 0));
     ASSERT_EQ_INT(-1, crec_find(WLX_CMD_SCISSOR_END, 0));
+    wlx_context_destroy(&ctx);
 }
 
 // Nested clip layouts restore their enclosing scissor on release. Backends end
@@ -174,6 +179,7 @@ TEST(layout_clip_stack_balanced) {
         if (_crec_log[i].type == WLX_CMD_SCISSOR_END)   last_end   = (int)i;
     }
     ASSERT_TRUE(last_end > last_begin);
+    wlx_context_destroy(&ctx);
 }
 
 SUITE(layout_clip) {

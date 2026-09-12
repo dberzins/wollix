@@ -131,6 +131,7 @@ TEST(editor_build_from_offset_zero_matches_full_build) {
         }
     }
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -167,6 +168,7 @@ TEST(editor_build_from_each_hard_line_start_yields_tail) {
         }
     }
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // The tail equivalence also holds in truncate-and-continue mode, where
@@ -200,6 +202,7 @@ TEST(editor_build_from_hard_line_start_yields_tail_truncate_mode) {
     }
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -258,6 +261,7 @@ TEST(editor_truncate_continue_builds_past_overwide_lines) {
     ASSERT_EQ_INT((long)length, (long)lines[count - 1].source_end);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_truncate_continue_no_trailing_newline_reaches_eof) {
@@ -282,6 +286,7 @@ TEST(editor_truncate_continue_no_trailing_newline_reaches_eof) {
     ASSERT_FALSE(lines[0].ended_by_newline);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_truncate_continue_crlf_tail_consumes_pair) {
@@ -306,6 +311,7 @@ TEST(editor_truncate_continue_crlf_tail_consumes_pair) {
     ASSERT_EQ_INT((long)length, (long)lines[1].source_end);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_truncate_continue_multibyte_boundary) {
@@ -330,6 +336,7 @@ TEST(editor_truncate_continue_multibyte_boundary) {
     ASSERT_EQ_INT((long)length, (long)lines[1].source_end);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -373,6 +380,7 @@ TEST(editor_truncate_continue_per_record_budget_resets) {
     ASSERT_EQ_INT((long)length, (long)lines[1].source_end);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // The mode leaves the global build-wide cap semantics alone: without it, an
@@ -407,6 +415,7 @@ TEST(editor_default_mode_keeps_shared_unit_cap) {
     ASSERT_EQ_INT(8, (long)cursor.text_unit_count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_truncate_continue_empty_text_builds_nothing) {
@@ -420,6 +429,7 @@ TEST(editor_truncate_continue_empty_text_builds_nothing) {
     ASSERT_EQ_INT(0, (long)count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -477,6 +487,7 @@ TEST(editor_wrap_build_from_hard_line_start_yields_tail) {
         }
     }
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -518,6 +529,7 @@ TEST(editor_wrap_line_budget_freezes_tail_and_continues) {
     ASSERT_EQ_INT(2, (long)(lines[1].visible_end - lines[1].visible_start));
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_wrap_line_budget_exhausts_across_rows) {
@@ -566,6 +578,7 @@ TEST(editor_wrap_line_budget_exhausts_across_rows) {
     ASSERT_EQ_INT((long)length, (long)lines[EP_WROWS_].source_end);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // Without the mode flag, wrap keeps the shared build-wide cap semantics: an
@@ -601,6 +614,7 @@ TEST(editor_wrap_without_truncate_keeps_shared_cap) {
     ASSERT_EQ_INT(8, (long)cursor.text_unit_count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -660,6 +674,7 @@ TEST(editor_batch_heights_line_h_per_unit_heights_measured) {
     ASSERT_EQ_F(10.0f, lines[1].measured_h, 0.001f);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_non_editor_builds_never_batch) {
@@ -691,6 +706,7 @@ TEST(editor_non_editor_builds_never_batch) {
     ASSERT_TRUE(test_mock_advances_calls() > 0);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 SUITE(editor_pipeline) {

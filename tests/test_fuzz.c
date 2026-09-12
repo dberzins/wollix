@@ -64,6 +64,48 @@ static WLX_Slot_Size fuzz_random_slot(void) {
     }
 }
 
+// Fixed seeds gate every run: each is a seed captured from an earlier
+// time-seeded failure. One time-seeded round follows and only adds
+// coverage; when it fails it prints its seed so the seed can join this
+// table.
+static const unsigned int fuzz_fixed_seeds[] = {
+    3034957205u, 3034957313u, 3034957297u, 3034957289u,
+};
+#define FUZZ_FIXED_SEED_COUNT (sizeof(fuzz_fixed_seeds) / sizeof(fuzz_fixed_seeds[0]))
+
+// Run one round per fixed seed, then one time-seeded round. A round
+// reports failure through _test_current_failed, so the first failing
+// round ends the test.
+#define FUZZ_RUN_ROUNDS(round_fn, time_xor) do {                          \
+    for (size_t s = 0; s < FUZZ_FIXED_SEED_COUNT; s++) {                   \
+        round_fn(fuzz_fixed_seeds[s]);                                     \
+        if (_test_current_failed) return;                                  \
+    }                                                                      \
+    round_fn((unsigned int)time(NULL) ^ (time_xor));                       \
+} while (0)
+
+static const char *fuzz_kind_name(WLX_Size_Kind kind) {
+    switch (kind) {
+        case WLX_SIZE_AUTO:    return "AUTO";
+        case WLX_SIZE_PIXELS:  return "PIXELS";
+        case WLX_SIZE_PERCENT: return "PERCENT";
+        case WLX_SIZE_FLEX:    return "FLEX";
+        case WLX_SIZE_FILL:    return "FILL";
+        case WLX_SIZE_CONTENT: return "CONTENT";
+    }
+    return "?";
+}
+
+// Print the failing iteration's slots so one log reproduces the case.
+static void fuzz_dump_slots(const WLX_Slot_Size *sizes, const float *offsets, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        fprintf(stderr, "      slot %zu: %-7s value=%.6f min=%.6f max=%.6f -> size=%.6f\n",
+                i, fuzz_kind_name(sizes[i].kind), (double)sizes[i].value,
+                (double)sizes[i].min, (double)sizes[i].max,
+                (double)(offsets[i + 1] - offsets[i]));
+    }
+}
+
 // ============================================================================
 // Fuzz: wlx_compute_offsets invariants
 // ============================================================================
@@ -75,8 +117,7 @@ static WLX_Slot_Size fuzz_random_slot(void) {
 // Invariant 5: if max constraint, slot_size <= max
 // Invariant 6: with NULL sizes (equal split), offsets[count] == total exactly
 
-TEST(fuzz_offsets_monotonic) {
-    unsigned int seed = (unsigned int)time(NULL) ^ 0xDEAD0001;
+static void fuzz_offsets_monotonic_round(unsigned int seed) {
     fuzz_srand(seed);
 
     for (int iter = 0; iter < FUZZ_ITERATIONS; iter++) {
@@ -96,6 +137,7 @@ TEST(fuzz_offsets_monotonic) {
             fprintf(stderr, "    fuzz_offsets_monotonic: offsets[0]=%.4f != 0 "
                     "(seed=%u, iter=%d, count=%zu, total=%.2f)\n",
                     (double)offsets[0], seed, iter, count, (double)total);
+            fuzz_dump_slots(sizes, offsets, count);
             _test_current_failed = 1;
             return;
         }
@@ -108,6 +150,7 @@ TEST(fuzz_offsets_monotonic) {
                 fprintf(stderr, "    fuzz_offsets_monotonic: slot %zu has negative size %.4f "
                         "(seed=%u, iter=%d, count=%zu, total=%.2f)\n",
                         i, (double)slot_size, seed, iter, count, (double)total);
+                fuzz_dump_slots(sizes, offsets, count);
                 _test_current_failed = 1;
                 return;
             }
@@ -116,8 +159,11 @@ TEST(fuzz_offsets_monotonic) {
     }
 }
 
-TEST(fuzz_offsets_equal_split) {
-    unsigned int seed = (unsigned int)time(NULL) ^ 0xDEAD0002;
+TEST(fuzz_offsets_monotonic) {
+    FUZZ_RUN_ROUNDS(fuzz_offsets_monotonic_round, 0xDEAD0001);
+}
+
+static void fuzz_offsets_equal_split_round(unsigned int seed) {
     fuzz_srand(seed);
 
     for (int iter = 0; iter < FUZZ_ITERATIONS; iter++) {
@@ -136,7 +182,7 @@ TEST(fuzz_offsets_equal_split) {
         }
         tests_assertions++;
 
-        // offsets[count] == total (±1px due to pixel snapping)
+        // offsets[count] == total (+/-1px due to pixel snapping)
         if (fabsf(offsets[count] - total) > 1.0f) {
             fprintf(stderr, "    fuzz_offsets_equal_split: offsets[%zu]=%.4f != total=%.4f "
                     "(seed=%u, iter=%d)\n",
@@ -146,7 +192,7 @@ TEST(fuzz_offsets_equal_split) {
         }
         tests_assertions++;
 
-        // All slots are equal (within tolerance; ±1px from pixel snapping)
+        // All slots are equal (within tolerance; +/-1px from pixel snapping)
         float expected_size = total / (float)count;
         for (size_t i = 0; i < count; i++) {
             float slot_size = offsets[i + 1] - offsets[i];
@@ -173,8 +219,11 @@ TEST(fuzz_offsets_equal_split) {
     }
 }
 
-TEST(fuzz_offsets_minmax_respected) {
-    unsigned int seed = (unsigned int)time(NULL) ^ 0xDEAD0003;
+TEST(fuzz_offsets_equal_split) {
+    FUZZ_RUN_ROUNDS(fuzz_offsets_equal_split_round, 0xDEAD0002);
+}
+
+static void fuzz_offsets_minmax_respected_round(unsigned int seed) {
     fuzz_srand(seed);
 
     for (int iter = 0; iter < FUZZ_ITERATIONS; iter++) {
@@ -192,11 +241,12 @@ TEST(fuzz_offsets_minmax_respected) {
         for (size_t i = 0; i < count; i++) {
             float slot_size = offsets[i + 1] - offsets[i];
 
-            // Max constraint: slot should not exceed max (±1px from pixel snapping)
+            // Max constraint: slot should not exceed max (+/-1px from pixel snapping)
             if (sizes[i].max > 0 && slot_size > sizes[i].max + 1.0f) {
                 fprintf(stderr, "    fuzz_offsets_minmax_respected: slot %zu size=%.4f > max=%.4f "
                         "(seed=%u, iter=%d, count=%zu, total=%.2f)\n",
                         i, (double)slot_size, (double)sizes[i].max, seed, iter, count, (double)total);
+                fuzz_dump_slots(sizes, offsets, count);
                 _test_current_failed = 1;
                 return;
             }
@@ -214,6 +264,7 @@ TEST(fuzz_offsets_minmax_respected) {
                     fprintf(stderr, "    fuzz_offsets_minmax_respected: slot %zu size=%.4f < min=%.4f "
                             "(seed=%u, iter=%d, count=%zu, total=%.2f)\n",
                             i, (double)slot_size, (double)sizes[i].min, seed, iter, count, (double)total);
+                    fuzz_dump_slots(sizes, offsets, count);
                     _test_current_failed = 1;
                     return;
                 }
@@ -223,8 +274,11 @@ TEST(fuzz_offsets_minmax_respected) {
     }
 }
 
-TEST(fuzz_offsets_nonnegative_sizes) {
-    unsigned int seed = (unsigned int)time(NULL) ^ 0xDEAD0004;
+TEST(fuzz_offsets_minmax_respected) {
+    FUZZ_RUN_ROUNDS(fuzz_offsets_minmax_respected_round, 0xDEAD0003);
+}
+
+static void fuzz_offsets_nonnegative_sizes_round(unsigned int seed) {
     fuzz_srand(seed);
 
     for (int iter = 0; iter < FUZZ_ITERATIONS; iter++) {
@@ -245,6 +299,7 @@ TEST(fuzz_offsets_nonnegative_sizes) {
                 fprintf(stderr, "    fuzz_offsets_nonnegative_sizes: slot %zu = %.4f < 0 "
                         "(seed=%u, iter=%d, count=%zu, total=%.2f)\n",
                         i, (double)slot_size, seed, iter, count, (double)total);
+                fuzz_dump_slots(sizes, offsets, count);
                 _test_current_failed = 1;
                 return;
             }
@@ -253,12 +308,15 @@ TEST(fuzz_offsets_nonnegative_sizes) {
     }
 }
 
+TEST(fuzz_offsets_nonnegative_sizes) {
+    FUZZ_RUN_ROUNDS(fuzz_offsets_nonnegative_sizes_round, 0xDEAD0004);
+}
+
 // ============================================================================
 // Fuzz: wlx_get_align_rect invariants
 // ============================================================================
 
-TEST(fuzz_align_rect_contained) {
-    unsigned int seed = (unsigned int)time(NULL) ^ 0xDEAD0005;
+static void fuzz_align_rect_contained_round(unsigned int seed) {
     fuzz_srand(seed);
 
     WLX_Align aligns[] = {
@@ -342,12 +400,15 @@ TEST(fuzz_align_rect_contained) {
     }
 }
 
+TEST(fuzz_align_rect_contained) {
+    FUZZ_RUN_ROUNDS(fuzz_align_rect_contained_round, 0xDEAD0005);
+}
+
 // ============================================================================
 // Fuzz: wlx_rect_intersect invariants
 // ============================================================================
 
-TEST(fuzz_rect_intersect_commutative) {
-    unsigned int seed = (unsigned int)time(NULL) ^ 0xDEAD0006;
+static void fuzz_rect_intersect_commutative_round(unsigned int seed) {
     fuzz_srand(seed);
 
     for (int iter = 0; iter < FUZZ_ITERATIONS; iter++) {
@@ -399,12 +460,15 @@ TEST(fuzz_rect_intersect_commutative) {
     }
 }
 
+TEST(fuzz_rect_intersect_commutative) {
+    FUZZ_RUN_ROUNDS(fuzz_rect_intersect_commutative_round, 0xDEAD0006);
+}
+
 // ============================================================================
 // Fuzz: wlx_point_in_rect boundary invariants
 // ============================================================================
 
-TEST(fuzz_point_in_rect_boundary) {
-    unsigned int seed = (unsigned int)time(NULL) ^ 0xDEAD0007;
+static void fuzz_point_in_rect_boundary_round(unsigned int seed) {
     fuzz_srand(seed);
 
     for (int iter = 0; iter < FUZZ_ITERATIONS; iter++) {
@@ -426,6 +490,10 @@ TEST(fuzz_point_in_rect_boundary) {
         ASSERT_FALSE(wlx_point_in_rect(rx - 1, ry, rx, ry, rw, rh));
         ASSERT_FALSE(wlx_point_in_rect(rx, ry - 1, rx, ry, rw, rh));
     }
+}
+
+TEST(fuzz_point_in_rect_boundary) {
+    FUZZ_RUN_ROUNDS(fuzz_point_in_rect_boundary_round, 0xDEAD0007);
 }
 
 // ============================================================================

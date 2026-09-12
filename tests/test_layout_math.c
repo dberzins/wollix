@@ -648,6 +648,7 @@ TEST(parent_rect_no_layout_returns_root) {
     ASSERT_EQ_F(r.h, 600.0f, EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(parent_rect_single_layout) {
@@ -663,6 +664,7 @@ TEST(parent_rect_single_layout) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(parent_rect_nested_layout) {
@@ -690,6 +692,7 @@ TEST(parent_rect_nested_layout) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(available_width_height_helpers) {
@@ -718,6 +721,7 @@ TEST(available_width_height_helpers) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_panel_viewport_none) {
@@ -731,6 +735,7 @@ TEST(scroll_panel_viewport_none) {
     ASSERT_EQ_F(vp.h, 0.0f, EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_panel_viewport_active) {
@@ -747,6 +752,7 @@ TEST(scroll_panel_viewport_active) {
     wlx_layout_end(&ctx);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_panel_viewport_nested) {
@@ -786,6 +792,7 @@ TEST(scroll_panel_viewport_nested) {
     wlx_layout_end(&ctx);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -837,6 +844,7 @@ TEST(layout_begin_s_basic) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(layout_begin_s_with_options) {
@@ -856,6 +864,7 @@ TEST(layout_begin_s_with_options) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(layout_begin_s_single_slot) {
@@ -874,6 +883,7 @@ TEST(layout_begin_s_single_slot) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -895,6 +905,7 @@ TEST(layout_perside_uniform_regression) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(layout_perside_top_override) {
@@ -912,6 +923,7 @@ TEST(layout_perside_top_override) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(layout_perside_left_only) {
@@ -929,6 +941,7 @@ TEST(layout_perside_left_only) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(layout_perside_all_independent) {
@@ -947,6 +960,7 @@ TEST(layout_perside_all_independent) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(layout_perside_content_height_asymmetric) {
@@ -973,6 +987,7 @@ TEST(layout_perside_content_height_asymmetric) {
         ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
         test_frame_end(&ctx);
     }
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -1033,6 +1048,7 @@ TEST(gap_with_padding) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(gap_flex_distribution) {
@@ -1096,6 +1112,7 @@ TEST(gap_content_height_vert) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(gap_slot_rect_horz) {
@@ -1124,6 +1141,7 @@ TEST(gap_slot_rect_horz) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(gap_slot_rect_vert) {
@@ -1145,6 +1163,7 @@ TEST(gap_slot_rect_vert) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================

@@ -90,6 +90,7 @@ TEST(tsp_explicit_spacing_round_trips_through_cmd_record_replay) {
 
     ASSERT_EQ_INT(1, _tsp_draw_span_count);
     ASSERT_EQ_INT(3, _tsp_span_spacing);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(tsp_natural_spacing_round_trips_zero) {
@@ -104,6 +105,7 @@ TEST(tsp_natural_spacing_round_trips_zero) {
 
     ASSERT_EQ_INT(1, _tsp_draw_span_count);
     ASSERT_EQ_INT(0, _tsp_span_spacing);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(tsp_label_widget_propagates_explicit_spacing) {
@@ -121,6 +123,7 @@ TEST(tsp_label_widget_propagates_explicit_spacing) {
 
     ASSERT_TRUE(_tsp_draw_span_count > 0);
     ASSERT_EQ_INT(2, _tsp_span_spacing);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(tsp_slider_opt_spacing_defaults_zero) {

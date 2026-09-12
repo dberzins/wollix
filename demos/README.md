@@ -23,6 +23,7 @@ README for the full target list.
 | [image.c](image.c) | `wlx_image` scale modes (STRETCH/FIT/FILL/NONE), alignment anchors, and opacity-stack folding with procedurally-generated textures |
 | [button_image.c](button_image.c) | Image-capable `wlx_button`: text-only, image-only, and image+text modes; four placements (LEFT/RIGHT/TOP/BOTTOM) and four scale modes |
 | [label_image.c](label_image.c) | Image-capable `wlx_label`: four placements and four scale modes; documents the image-only label edge case |
+| [popup.c](popup.c) | Overlay popups over a scrollable base: `wlx_dropdown`, `wlx_tooltip_for`, and `wlx_menu_button_begin` with one submenu level; the wheel stays on the pointer's layer and an outside press closes the popup without eating the click |
 
 ## Layout demos
 

@@ -113,6 +113,7 @@ TEST(scroll_follows_ctrl_end_and_home) {
     // Ctrl+HOME jumps back to offset 0; the view follows to the top.
     sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_HOME, sc_command_mod());
     ASSERT_EQ_INT(0, (int)st->scroll_y);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_enter_at_bottom_keeps_following) {
@@ -130,6 +131,7 @@ TEST(scroll_enter_at_bottom_keeps_following) {
     // line (content 110), and the view follows to the new bottom (58).
     sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_ENTER, 0);
     ASSERT_EQ_INT(58, (int)st->scroll_y);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_up_down_across_band_edges) {
@@ -154,6 +156,7 @@ TEST(scroll_up_down_across_band_edges) {
     for (int i = 0; i < 5; i++)
         sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_DOWN, 0);
     ASSERT_EQ_INT(48, (int)st->scroll_y);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_paste_follows_caret) {
@@ -173,6 +176,7 @@ TEST(scroll_paste_follows_caret) {
     test_set_clipboard("A\nB\nC\nD\nE\nF\nG\nH\n");
     sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, sc_command_mod());
     ASSERT_EQ_INT(58, (int)st->scroll_y);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -191,6 +195,7 @@ TEST(scroll_wheel_hovered_overflow_consumes) {
     ASSERT_TRUE(st != NULL);
     ASSERT_EQ_INT(20, (int)st->scroll_y);
     ASSERT_EQ_INT(0, (int)ctx.input.wheel_delta);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_wheel_content_fits_not_consumed) {
@@ -203,6 +208,7 @@ TEST(scroll_wheel_content_fits_not_consumed) {
     ASSERT_TRUE(st != NULL);
     ASSERT_EQ_INT(0, (int)st->scroll_y);
     ASSERT_EQ_INT(-1, (int)ctx.input.wheel_delta);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_wheel_not_hovered_not_consumed) {
@@ -218,6 +224,7 @@ TEST(scroll_wheel_not_hovered_not_consumed) {
     ASSERT_TRUE(st != NULL);
     ASSERT_EQ_INT(0, (int)st->scroll_y);
     ASSERT_EQ_INT(-1, (int)ctx.input.wheel_delta);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_wheel_away_then_keypress_follows_back) {
@@ -239,6 +246,7 @@ TEST(scroll_wheel_away_then_keypress_follows_back) {
     // The next caret motion snaps the view back to the caret line.
     sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, 0);
     ASSERT_EQ_INT(48, (int)st->scroll_y);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -274,6 +282,7 @@ TEST(scroll_thumb_drag_maps_to_offset) {
     sc_frame_mouse(&ctx, buf, sizeof(buf), 390, 0, true, false);
     ASSERT_EQ_INT(0, (int)st->scroll_y);
     sc_frame_mouse(&ctx, buf, sizeof(buf), 390, 0, false, false);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_thumb_press_keeps_caret_and_focus) {
@@ -297,6 +306,7 @@ TEST(scroll_thumb_press_keeps_caret_and_focus) {
     ASSERT_EQ_INT(8, (int)st->caret.selection_anchor);
     ASSERT_FALSE(st->caret.mouse_selecting);
     sc_frame_mouse(&ctx, buf, sizeof(buf), 390, 10, false, false);
+    wlx_context_destroy(&ctx);
 }
 
 // show_scrollbar = false: no bar strip (clicks there place the caret) while
@@ -350,6 +360,7 @@ TEST(scroll_hidden_scrollbar_keeps_wheel) {
     sc_frame_wheel_nobar(&ctx, buf, sizeof(buf), 200, 30, -1.0f);
     ASSERT_EQ_INT(20, (int)st->scroll_y);
     ASSERT_EQ_INT(0, (int)ctx.input.wheel_delta);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -377,6 +388,7 @@ TEST(scroll_drag_select_autoscrolls) {
     ASSERT_EQ_INT(29, (int)st->caret.cursor_pos);
     ASSERT_EQ_INT(8, (int)st->caret.selection_anchor);
     sc_frame_mouse(&ctx, buf, sizeof(buf), 200, 100, false, false);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -398,6 +410,7 @@ TEST(scroll_content_fits_never_scrolls) {
     ASSERT_EQ_INT(0, (int)st->scroll_y);
     sc_frame_wheel(&ctx, buf, sizeof(buf), 200, 30, -1.0f);
     ASSERT_EQ_INT(0, (int)st->scroll_y);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -428,6 +441,7 @@ TEST(scroll_geometry_past_old_unit_cap) {
     ASSERT_EQ_INT(548, (int)st->scroll_y);
     sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_HOME, sc_command_mod());
     ASSERT_EQ_INT(0, (int)st->scroll_y);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_freeze_at_multiline_cap_is_bounded) {
@@ -454,6 +468,7 @@ TEST(scroll_freeze_at_multiline_cap_is_bounded) {
 
     sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, sc_command_mod());
     ASSERT_EQ_INT(4048, (int)st->scroll_y);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -507,6 +522,7 @@ TEST(scroll_wrap_hysteresis_keeps_scrollbar) {
     sc_frame_mouse(&ctx, buf, sizeof(buf), -50, -50, false, false);
     ASSERT_FALSE(st->sb_was_visible);
     ASSERT_EQ_INT(0, (int)st->scroll_y);
+    wlx_context_destroy(&ctx);
 }
 
 // wrap = false: content height is anti-monotonic in width (a width-truncated
@@ -554,6 +570,7 @@ TEST(scroll_nowrap_long_line_stays_stable) {
     sc_frame_nowrap(&ctx, buf, sizeof(buf), -1.0f);
     ASSERT_EQ_INT(0, (int)sc_state(&ctx)->scroll_y);
     ASSERT_EQ_INT(-1, (int)ctx.input.wheel_delta);
+    wlx_context_destroy(&ctx);
 }
 
 #ifdef WLX_PERF
@@ -576,6 +593,7 @@ TEST(scroll_steady_scrollbar_single_build) {
         pf = wlx_perf_get_last_frame(&ctx);
         ASSERT_EQ_INT(1, (int)pf->text.fitted_text_runs);
     }
+    wlx_context_destroy(&ctx);
 }
 
 #endif  // WLX_PERF

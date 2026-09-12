@@ -117,6 +117,7 @@ TEST(right_aligned_no_spurious_wrap) {
     // WLX_RIGHT centers vertically and places the cursor at the line end.
     ASSERT_EQ_F(cx, 25.0f, 0.1f);
     ASSERT_EQ_F(cy, 45.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(center_aligned_no_spurious_wrap) {
@@ -134,6 +135,7 @@ TEST(center_aligned_no_spurious_wrap) {
     // WLX_CENTER centers vertically and places the cursor at the line end.
     ASSERT_EQ_F(cx, 24.0f, 0.1f);
     ASSERT_EQ_F(cy, 45.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(single_line_fitted_emits_one_run) {
@@ -152,6 +154,7 @@ TEST(single_line_fitted_emits_one_run) {
     ASSERT_EQ_STR(_tl_captures[0].text, "ABCDE");
     ASSERT_EQ_F(_tl_captures[0].x, 0.0f, 0.1f);
     ASSERT_EQ_F(_tl_captures[0].y, 0.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(range_measure_uses_whole_run_metrics) {
@@ -169,6 +172,7 @@ TEST(range_measure_uses_whole_run_metrics) {
     ASSERT_TRUE(ok);
     ASSERT_EQ_F(w, 23.0f, 0.1f);
     ASSERT_EQ_F(h, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(range_measure_rejects_utf8_split) {
@@ -186,6 +190,7 @@ TEST(range_measure_rejects_utf8_split) {
     ASSERT_FALSE(ok);
     ASSERT_EQ_F(w, 0.0f, 0.1f);
     ASSERT_EQ_F(h, 0.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(range_measure_accepts_utf8_boundary) {
@@ -203,6 +208,7 @@ TEST(range_measure_accepts_utf8_boundary) {
     ASSERT_TRUE(ok);
     ASSERT_EQ_F(w, 10.0f, 0.1f);
     ASSERT_EQ_F(h, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(wrap_right_aligned_per_line) {
@@ -237,6 +243,7 @@ TEST(wrap_right_aligned_per_line) {
     float line1_end = _tl_captures[1].x + 5.0f;
     ASSERT_EQ_F(line0_end, 30.0f, 0.1f);
     ASSERT_EQ_F(line1_end, 30.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(no_wrap_overflow_stops_after_first_fitting_prefix) {
@@ -259,6 +266,7 @@ TEST(no_wrap_overflow_stops_after_first_fitting_prefix) {
     ASSERT_EQ_F(_tl_captures[0].y, 0.0f, 0.1f);
     ASSERT_EQ_F(cx, 10.0f, 0.1f);
     ASSERT_EQ_F(cy, 0.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(cursor_consistent_with_render) {
@@ -277,6 +285,7 @@ TEST(cursor_consistent_with_render) {
     // Line 1 y = 70.
     ASSERT_EQ_F(cx, 30.0f, 0.1f);
     ASSERT_EQ_F(cy, 70.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(cursor_positions_within_single_line) {
@@ -303,6 +312,7 @@ TEST(cursor_positions_within_single_line) {
     ASSERT_EQ_F(cy, 0.0f, 0.1f);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(cursor_wrap_boundary_stays_on_previous_line) {
@@ -319,6 +329,7 @@ TEST(cursor_wrap_boundary_stays_on_previous_line) {
 
     ASSERT_EQ_F(cx, 28.0f, 0.1f);
     ASSERT_EQ_F(cy, 20.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(cursor_newline_separator_and_next_line_positions) {
@@ -345,6 +356,7 @@ TEST(cursor_newline_separator_and_next_line_positions) {
     ASSERT_EQ_F(cy, 10.0f, 0.1f);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(cursor_forced_codepoint_progress_position) {
@@ -361,6 +373,7 @@ TEST(cursor_forced_codepoint_progress_position) {
 
     ASSERT_EQ_F(cx, 5.0f, 0.1f);
     ASSERT_EQ_F(cy, 0.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(cursor_normalizes_utf8_split_boundary) {
@@ -378,6 +391,7 @@ TEST(cursor_normalizes_utf8_split_boundary) {
 
     ASSERT_EQ_F(cx, 5.0f, 0.1f);
     ASSERT_EQ_F(cy, 0.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(explicit_newline_starts_new_line) {
@@ -399,6 +413,7 @@ TEST(explicit_newline_starts_new_line) {
     ASSERT_EQ_STR(_tl_captures[1].text, "C");
     ASSERT_EQ_F(_tl_captures[1].x, 0.0f, 0.1f);
     ASSERT_EQ_F(_tl_captures[1].y, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(partially_visible_last_line_still_emits) {
@@ -418,6 +433,7 @@ TEST(partially_visible_last_line_still_emits) {
     ASSERT_EQ_F(_tl_captures[0].y, 0.0f, 0.1f);
     ASSERT_EQ_STR(_tl_captures[1].text, "B");
     ASSERT_EQ_F(_tl_captures[1].y, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(trailing_newline_preserves_empty_visual_line) {
@@ -434,6 +450,7 @@ TEST(trailing_newline_preserves_empty_visual_line) {
 
     ASSERT_EQ_F(cx, 0.0f, 0.1f);
     ASSERT_EQ_F(cy, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(leading_newline_preserves_empty_visual_line) {
@@ -451,6 +468,7 @@ TEST(leading_newline_preserves_empty_visual_line) {
     ASSERT_EQ_INT(1, _tl_capture_count);
     ASSERT_EQ_STR(_tl_captures[0].text, "A");
     ASSERT_EQ_F(_tl_captures[0].y, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(consecutive_newlines_preserve_empty_visual_line) {
@@ -470,6 +488,7 @@ TEST(consecutive_newlines_preserve_empty_visual_line) {
     ASSERT_EQ_F(_tl_captures[0].y, 0.0f, 0.1f);
     ASSERT_EQ_STR(_tl_captures[1].text, "B");
     ASSERT_EQ_F(_tl_captures[1].y, 20.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(empty_string_cursor_stays_at_aligned_origin) {
@@ -487,6 +506,7 @@ TEST(empty_string_cursor_stays_at_aligned_origin) {
     ASSERT_TRUE(ok);
     ASSERT_EQ_F(cx, 2.0f, 0.1f);
     ASSERT_EQ_F(cy, 4.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(carriage_return_newlines_start_new_lines) {
@@ -508,6 +528,7 @@ TEST(carriage_return_newlines_start_new_lines) {
     ASSERT_EQ_F(_tl_captures[1].y, 10.0f, 0.1f);
     ASSERT_EQ_STR(_tl_captures[2].text, "C");
     ASSERT_EQ_F(_tl_captures[2].y, 20.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(narrow_rect_forces_codepoint_progress) {
@@ -527,6 +548,7 @@ TEST(narrow_rect_forces_codepoint_progress) {
     ASSERT_EQ_F(_tl_captures[0].y, 0.0f, 0.1f);
     ASSERT_EQ_STR(_tl_captures[1].text, "B");
     ASSERT_EQ_F(_tl_captures[1].y, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(cursor_falls_back_to_last_visible_line_when_line_cap_hits) {
@@ -548,6 +570,7 @@ TEST(cursor_falls_back_to_last_visible_line_when_line_cap_hits) {
 
     ASSERT_EQ_F(cx, 5.0f, 0.1f);
     ASSERT_EQ_F(cy, (float)(WLX_TEXT_RUN_MAX_LINES - 1) * 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(cursor_stops_at_text_unit_cap_on_single_line) {
@@ -569,6 +592,7 @@ TEST(cursor_stops_at_text_unit_cap_on_single_line) {
 
     ASSERT_EQ_F(cx, (float)WLX_TEXT_RUN_MAX_UNITS * 5.0f - 2.0f, 0.1f);
     ASSERT_EQ_F(cy, 0.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(range_measure_accepts_invalid_utf8_fallback_byte) {
@@ -586,6 +610,7 @@ TEST(range_measure_accepts_invalid_utf8_fallback_byte) {
     ASSERT_TRUE(ok);
     ASSERT_EQ_F(w, 5.0f, 0.1f);
     ASSERT_EQ_F(h, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(range_measure_accepts_long_invalid_utf8_fallback_bytes) {
@@ -607,6 +632,7 @@ TEST(range_measure_accepts_long_invalid_utf8_fallback_bytes) {
     ASSERT_TRUE(ok);
     ASSERT_EQ_F(w, (float)text_len * 5.0f - 2.0f, 0.1f);
     ASSERT_EQ_F(h, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(invalid_utf8_fallback_bytes_make_progress) {
@@ -625,6 +651,7 @@ TEST(invalid_utf8_fallback_bytes_make_progress) {
     ASSERT_TRUE(ok);
     ASSERT_EQ_F(cx, 5.0f, 0.1f);
     ASSERT_EQ_F(cy, 20.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -645,6 +672,7 @@ TEST(fitted_text_skips_scissor_when_lines_fit) {
 
     ASSERT_EQ_INT(0, (int)_tl_scissor_count);
     ASSERT_TRUE(_tl_capture_count >= 1);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(fitted_text_scissors_when_first_unit_exceeds_width) {
@@ -664,6 +692,7 @@ TEST(fitted_text_scissors_when_first_unit_exceeds_width) {
     ASSERT_EQ_F(_tl_scissor_log[0].rect.w, 3.0f, 0.1f);
     ASSERT_EQ_F(_tl_scissor_log[0].rect.h, 20.0f, 0.1f);
     ASSERT_EQ_INT(_tl_scissor_log[1].kind, 2);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(fitted_text_scissors_partially_visible_line) {
@@ -681,6 +710,7 @@ TEST(fitted_text_scissors_partially_visible_line) {
     ASSERT_EQ_F(_tl_scissor_log[0].rect.w, 10.0f, 0.1f);
     ASSERT_EQ_F(_tl_scissor_log[0].rect.h, 15.0f, 0.1f);
     ASSERT_EQ_INT(_tl_scissor_log[1].kind, 2);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -748,6 +778,7 @@ TEST(span_measure_prefers_slice_callback) {
     ASSERT_TRUE(ok);
     ASSERT_EQ_INT((int)_tl_slice_measure_called_len, 3);
     ASSERT_EQ_F(w, 3.0f * 10.0f * 0.5f, 0.1f); // "ABC" = 3 * 5 = 15
+    wlx_context_destroy(&ctx);
 }
 
 // span_draw_immediate_prefers_slice_callback: in immediate mode with
@@ -771,6 +802,7 @@ TEST(span_draw_immediate_prefers_slice_callback) {
     ASSERT_EQ_INT(_tl_capture_count, 0); // draw_text not called
     ASSERT_EQ_F(_tl_slice_draw_x, 5.0f, 0.1f);
     ASSERT_EQ_F(_tl_slice_draw_y, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 // span_measure_fallback_null_text: wlx_measure_text_range with NULL text is
@@ -788,6 +820,7 @@ TEST(span_measure_fallback_null_text) {
     ASSERT_TRUE(ok);
     ASSERT_EQ_F(w, 0.0f, 0.1f);
     ASSERT_EQ_F(h, 10.0f, 0.1f); // empty span produces height = font_size
+    wlx_context_destroy(&ctx);
 }
 
 // span_measure_fallback_empty_span: zero-length range returns immediately.
@@ -806,6 +839,7 @@ TEST(span_measure_fallback_empty_span) {
     // empty range produces the empty-string measure: w=0, h=font_size
     ASSERT_EQ_F(w, 0.0f, 0.1f);
     ASSERT_EQ_F(h, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 // span_range_routes_through_span_helpers: with slice callback set, range
@@ -833,6 +867,7 @@ TEST(span_range_routes_through_span_helpers) {
 
     ASSERT_EQ_F(w_slice, w_plain, 0.1f);
     ASSERT_EQ_F(h_slice, h_plain, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 // span_measure_long_range_fallback: range > WLX_TEXT_RANGE_STACK_CAP still
@@ -860,6 +895,7 @@ TEST(span_measure_long_range_fallback) {
     // kerning mock: text_len * 5.0 - 2.0 for len > 3
     ASSERT_EQ_F(w, (float)text_len * 5.0f - 2.0f, 0.1f);
     ASSERT_EQ_F(h, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 // span_draw_range_long_range_fallback: drawing a range > stack cap in
@@ -883,6 +919,7 @@ TEST(span_draw_range_long_range_fallback) {
 
     ASSERT_TRUE(ok);
     ASSERT_EQ_INT(1, _tl_capture_count);
+    wlx_context_destroy(&ctx);
 }
 
 // span_utf8_boundary_still_rejected_at_range_level: even with slice callbacks
@@ -906,6 +943,7 @@ TEST(span_utf8_boundary_still_rejected_at_range_level) {
     ASSERT_EQ_F(w, 0.0f, 0.1f);
     ASSERT_EQ_F(h, 0.0f, 0.1f);
     ASSERT_EQ_INT((int)_tl_slice_measure_called_len, 99); // callback not invoked
+    wlx_context_destroy(&ctx);
 }
 
 SUITE(text_layout) {

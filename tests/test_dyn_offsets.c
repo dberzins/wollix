@@ -41,6 +41,7 @@ TEST(dyn_offsets_static_inside_dynamic_linear) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -73,6 +74,7 @@ TEST(dyn_offsets_static_inside_dynamic_grid) {
     ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -116,6 +118,7 @@ TEST(dyn_offsets_no_aliasing) {
     wlx_layout_end(&ctx);  // close static slot 0's content; consume slot 1
     // (test_frame_end drains remaining layouts)
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================

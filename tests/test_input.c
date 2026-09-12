@@ -159,6 +159,7 @@ TEST(input_focus_on_click) {
     wlx_layout_end(&ctx);
     ASSERT_TRUE(focused);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_unfocus_enter) {
@@ -183,6 +184,7 @@ TEST(input_unfocus_enter) {
     wlx_layout_end(&ctx);
     ASSERT_FALSE(focused);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_unfocus_click_away) {
@@ -212,6 +214,7 @@ TEST(input_unfocus_click_away) {
     // impossible. Use two inputboxes in separate layout slots instead.
 
     // Reset and use two widgets
+    wlx_context_destroy(&ctx);
     test_ctx_init(&ctx, 400, 300);
     buf[0] = '\0';
     char buf2[64] = "";
@@ -234,6 +237,49 @@ TEST(input_unfocus_click_away) {
     ASSERT_FALSE(fA2);   // A lost focus
     ASSERT_TRUE(fB2);    // B gained focus
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// Same two-field fixture, Tab instead of the second click: typing focus
+// moves from A to B and A's Tab does not insert anything (the inputbox
+// leaves Tab to traversal).
+TEST(input_tab_transfers_focus) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "";
+    char buf2[64] = "";
+
+    test_frame_begin(&ctx, 200, 75, true, true);
+    wlx_layout_begin(&ctx, 2, WLX_VERT);
+    bool fA1 = do_inputbox_A(&ctx, buf, sizeof(buf));
+    do_inputbox_B(&ctx, buf2, sizeof(buf2));
+    wlx_layout_end(&ctx);
+    ASSERT_TRUE(fA1);
+    test_frame_end(&ctx);
+
+    bool tab[WLX_KEY_COUNT] = {0};
+    tab[WLX_KEY_TAB] = true;
+    test_frame_begin_ex(&ctx, 200, 75, false, false, false, 0.0f, NULL, tab, NULL);
+    wlx_layout_begin(&ctx, 2, WLX_VERT);
+    bool fA2 = do_inputbox_A(&ctx, buf, sizeof(buf));
+    bool fB2 = do_inputbox_B(&ctx, buf2, sizeof(buf2));
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_FALSE(fA2);
+    ASSERT_TRUE(fB2);
+    ASSERT_EQ_INT(0, (int)strlen(buf));
+    ASSERT_EQ_INT(0, (int)strlen(buf2));
+
+    // Typing now lands in B.
+    test_frame_begin_ex(&ctx, 200, 75, false, false, false, 0.0f, NULL, NULL, "x");
+    wlx_layout_begin(&ctx, 2, WLX_VERT);
+    do_inputbox_A(&ctx, buf, sizeof(buf));
+    do_inputbox_B(&ctx, buf2, sizeof(buf2));
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_STR("", buf);
+    ASSERT_EQ_STR("x", buf2);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -323,6 +369,7 @@ TEST(input_type_char) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "A");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_type_multiple_chars) {
@@ -346,6 +393,7 @@ TEST(input_type_multiple_chars) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "Hi");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_type_across_frames) {
@@ -377,6 +425,7 @@ TEST(input_type_across_frames) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "AB");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -406,6 +455,7 @@ TEST(input_backspace) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "AB");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_backspace_empty) {
@@ -431,6 +481,7 @@ TEST(input_backspace_empty) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -484,6 +535,7 @@ TEST(input_backspace_held_repeat) {
     frame_key_repeated(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE);
 
     ASSERT_EQ_STR(buf, "AB");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_delete_forward) {
@@ -510,6 +562,7 @@ TEST(input_delete_forward) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "XBC");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_delete_at_end_noop) {
@@ -522,6 +575,7 @@ TEST(input_delete_at_end_noop) {
     frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_DELETE);
 
     ASSERT_EQ_STR(buf, "AB");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_delete_utf8_forward) {
@@ -538,6 +592,7 @@ TEST(input_delete_utf8_forward) {
     frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_DELETE);
 
     ASSERT_EQ_STR(buf, "B");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_delete_held_repeat) {
@@ -553,6 +608,7 @@ TEST(input_delete_held_repeat) {
     frame_key_repeated(&ctx, buf, sizeof(buf), WLX_KEY_DELETE);
 
     ASSERT_EQ_STR(buf, "CD");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -590,6 +646,7 @@ TEST(input_cursor_move_left_right) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "AXB");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_cursor_move_left_insert) {
@@ -631,6 +688,7 @@ TEST(input_cursor_move_left_insert) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "ZCD");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -683,6 +741,7 @@ TEST(input_arrow_held_repeat) {
     frame_type_text(&ctx, buf, sizeof(buf), "X");
 
     ASSERT_EQ_STR(buf, "AXBC");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_word_motion_left_right) {
@@ -705,6 +764,7 @@ TEST(input_word_motion_left_right) {
     frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_RIGHT, WLX_MOD_CTRL);
     frame_type_text(&ctx, buf, sizeof(buf), "Y");
     ASSERT_EQ_STR(buf, "fooY bar Xbaz");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_word_motion_alt_modifier) {
@@ -718,6 +778,7 @@ TEST(input_word_motion_alt_modifier) {
     frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, WLX_MOD_ALT);
     frame_type_text(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "ab Xcd");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_home_end_single_line) {
@@ -734,6 +795,7 @@ TEST(input_home_end_single_line) {
     frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_END);
     frame_type_text(&ctx, buf, sizeof(buf), "Y");
     ASSERT_EQ_STR(buf, "XABCY");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_home_end_visual_line_with_newline) {
@@ -753,6 +815,7 @@ TEST(input_home_end_visual_line_with_newline) {
     frame_key_pressed(&ctx, buf, sizeof(buf), WLX_KEY_END);
     frame_type_text(&ctx, buf, sizeof(buf), "Y");
     ASSERT_EQ_STR(buf, "AB\nXCDY");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_command_home_end_whole_buffer) {
@@ -771,6 +834,7 @@ TEST(input_command_home_end_whole_buffer) {
     frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_END, command_modifier());
     frame_type_text(&ctx, buf, sizeof(buf), "Y");
     ASSERT_EQ_STR(buf, "XAB\nCDY");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_visual_line_bounds_wrapped) {
@@ -799,6 +863,7 @@ TEST(input_visual_line_bounds_wrapped) {
     ASSERT_EQ_INT(5, (int)end);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -828,6 +893,7 @@ TEST(input_buffer_overflow) {
 
     ASSERT_EQ_INT((int)strlen(buf), 4);
     ASSERT_EQ_STR(buf, "ABCD");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_no_type_when_unfocused) {
@@ -846,6 +912,7 @@ TEST(input_no_type_when_unfocused) {
 
     // Buffer should still be empty
     ASSERT_EQ_STR(buf, "");
+    wlx_context_destroy(&ctx);
 }
 
 // Size of the truncated prefix the pre-slice cursor path measured; kept
@@ -920,6 +987,7 @@ TEST(input_cursor_position_uses_full_buffer_layout) {
     ASSERT_TRUE(fabsf(expected_x - legacy_x) > 0.1f || fabsf(expected_y - legacy_y) > 0.1f);
     ASSERT_EQ_F(_input_cursor_x2, expected_x, 0.1f);
     ASSERT_EQ_F(_input_cursor_y2, expected_y + 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_text_clip_restores_scroll_panel_clip) {
@@ -948,6 +1016,7 @@ TEST(input_text_clip_restores_scroll_panel_clip) {
     ASSERT_EQ_RECT(_input_clip_log[3].rect, _input_clip_log[0].rect, 0.1f);
     ASSERT_TRUE(_input_clip_log[1].rect.w < _input_clip_log[0].rect.w);
     ASSERT_TRUE(_input_clip_log[1].rect.h < _input_clip_log[0].rect.h);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(inputbox_draws_when_line_height_exceeds_text_rect) {
@@ -982,6 +1051,7 @@ TEST(inputbox_draws_when_line_height_exceeds_text_rect) {
     // while still matching the text extent rather than shrinking below it.
     ASSERT_EQ_F(_input_cursor_y1, 13.0f, 0.1f);
     ASSERT_EQ_F(_input_cursor_y2, 27.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -1010,6 +1080,7 @@ TEST(input_type_utf8_2byte) {
 
     ASSERT_EQ_STR(buf, "\xC3\xB6");
     ASSERT_EQ_INT(2, strlen(buf));
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_type_utf8_mixed) {
@@ -1041,6 +1112,7 @@ TEST(input_type_utf8_mixed) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "A\xC3\xB6");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -1087,6 +1159,7 @@ TEST(input_cursor_utf8_left) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "XA\xC3\xB6");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_cursor_utf8_right) {
@@ -1138,6 +1211,7 @@ TEST(input_cursor_utf8_right) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "\xC3\xB6XB");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -1178,6 +1252,7 @@ TEST(input_backspace_utf8) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "AB");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(input_backspace_utf8_at_start) {
@@ -1221,6 +1296,7 @@ TEST(input_backspace_utf8_at_start) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "\xC3\xB6\x42");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -1259,6 +1335,7 @@ TEST(input_utf8_buffer_full) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_STR(buf, "\xC3\xB6");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -1302,6 +1379,7 @@ TEST(inputbox_cursor_uses_scissor_scope) {
         if (_input_clip_log[i].kind == 2) { cursor_end = (int)i; break; }
     }
     ASSERT_TRUE(cursor_end > cursor_begin);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(inputbox_typing_resets_cursor_blink) {
@@ -1334,6 +1412,7 @@ TEST(inputbox_typing_resets_cursor_blink) {
 
     ASSERT_EQ_STR(buf, "X");
     ASSERT_EQ_INT(1, _input_cursor_draw_count);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -1346,6 +1425,7 @@ SUITE(input) {
     RUN_TEST(input_focus_on_click);
     RUN_TEST(input_unfocus_enter);
     RUN_TEST(input_unfocus_click_away);
+    RUN_TEST(input_tab_transfers_focus);
 
     // Typing
     RUN_TEST(input_type_char);

@@ -14,7 +14,7 @@ CLAUDE.md
 graphify-out
 compile_commands.json
 .shots
-
+TODO.md
 
 #copilot
 .github/copilot-instructions.md
@@ -52,6 +52,7 @@ demos/border_demo
 demos/auth
 demos/gallery_sdl3
 tests/test_runner_perf
+tests/test_runner_asan
 tests/test_single_pass
 tests/test_hard_assert
 demos/gallery_perf
@@ -62,6 +63,7 @@ demos/label_image
 demos/disabled_demo
 tests/perf_editor
 demos/editor
+demos/popup
 demos/assets/icons/lucide-icons-1.14.0
 demos/dashboard/dashboard
 demos/dashboard/dashboard_sdl3
@@ -69,3 +71,4 @@ demos/dashboard/dashboard_perf
 
 dist/
 session
+tests/test_config_override

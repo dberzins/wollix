@@ -49,6 +49,7 @@ TEST(caret_click_places_in_scrolled_window) {
     ASSERT_EQ_INT(12 * 4 + 2, (long)st->caret.selection_anchor);
     // The caret line was already visible, so the view did not move.
     ASSERT_EQ_INT(10, (long)st->first_line);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(caret_click_places_in_horizontally_scrolled_window) {
@@ -69,6 +70,7 @@ TEST(caret_click_places_in_horizontally_scrolled_window) {
     // Click 2px into the band: content x = 52 -> column 10 (midpoint 52.5).
     ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 11, 20, true, true, 0.0f, 0, NULL);
     ASSERT_EQ_INT(10, (long)st->caret.cursor_pos);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(caret_multi_click_word_then_select_all) {
@@ -99,6 +101,7 @@ TEST(caret_multi_click_word_then_select_all) {
     ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 50, 9, true, true, 0.0f, 0, NULL);
     ASSERT_EQ_INT(0, (long)st->caret.selection_anchor);
     ASSERT_EQ_INT((long)len, (long)st->caret.cursor_pos);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -134,6 +137,7 @@ TEST(caret_drag_select_auto_scrolls_down) {
     // Release ends the gesture.
     ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 20, 200, false, false, 0.0f, 0, NULL);
     ASSERT_FALSE(st->caret.mouse_selecting);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(caret_drag_select_auto_scrolls_right) {
@@ -161,6 +165,7 @@ TEST(caret_drag_select_auto_scrolls_right) {
     ASSERT_TRUE(st->scroll_x > 0.0f);
     ASSERT_TRUE(st->caret.cursor_pos > anchor);
     ASSERT_EQ_INT((long)anchor, (long)st->caret.selection_anchor);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -213,6 +218,7 @@ TEST(caret_arrows_word_home_end_vocabulary) {
     ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_RIGHT, WLX_MOD_SHIFT);
     ASSERT_EQ_INT(0, (long)st->caret.selection_anchor); // SHIFT extends
     ASSERT_EQ_INT(2, (long)st->caret.cursor_pos);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(caret_up_down_sticky_column_survives_short_lines) {
@@ -243,6 +249,7 @@ TEST(caret_up_down_sticky_column_survives_short_lines) {
 
     ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_DOWN, 0);
     ASSERT_EQ_INT(26 + 8, (long)st->caret.cursor_pos); // and back to column 8
+    wlx_context_destroy(&ctx);
 }
 
 TEST(caret_left_right_drop_sticky_column_only_on_change) {
@@ -283,6 +290,7 @@ TEST(caret_left_right_drop_sticky_column_only_on_change) {
     ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_RIGHT, 0);
     ASSERT_EQ_INT((long)len, (long)st->caret.cursor_pos);
     ASSERT_TRUE(st->caret.preferred_x_valid);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(caret_up_down_across_window_edges_follows) {
@@ -313,6 +321,7 @@ TEST(caret_up_down_across_window_edges_follows) {
     ASSERT_EQ_INT(20 * 4 + 1, (long)st->caret.cursor_pos);
     ASSERT_EQ_INT(20, (long)st->first_line);
     ASSERT_EQ_F(st->y_frac, 0.0f, 0.001f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(caret_ctrl_a_selects_all) {
@@ -333,6 +342,7 @@ TEST(caret_ctrl_a_selects_all) {
     ASSERT_TRUE(st != NULL);
     ASSERT_EQ_INT(0, (long)st->caret.selection_anchor);
     ASSERT_EQ_INT((long)len, (long)st->caret.cursor_pos);
+    wlx_context_destroy(&ctx);
 }
 
 // Caret draw capture: every editor draw_line is a caret; remember the x
@@ -383,6 +393,7 @@ TEST(caret_column0_draws_fully_inside_band) {
         ASSERT_TRUE(ec_caret_lines[i].x
             >= ec_caret_lines[i].clip_x + WLX_TEXT_CARET_WIDTH * 0.5f);
     }
+    wlx_context_destroy(&ctx);
 }
 
 TEST(caret_ctrl_a_snaps_view_back_to_parked_caret) {
@@ -413,6 +424,7 @@ TEST(caret_ctrl_a_snaps_view_back_to_parked_caret) {
     ASSERT_EQ_INT(0, (long)st->caret.selection_anchor);
     ASSERT_EQ_INT((long)len, (long)st->caret.cursor_pos);
     ASSERT_EQ_INT((long)bottom_line, (long)st->first_line);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -446,6 +458,7 @@ TEST(caret_follow_horizontal_on_end_and_home) {
     ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, 0);
     ASSERT_EQ_INT(0, (long)st->caret.cursor_pos);
     ASSERT_EQ_F(st->scroll_x, 0.0f, 0.001f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(caret_follow_end_of_line_survives_idle_and_wheel_reaches_it) {
@@ -482,6 +495,7 @@ TEST(caret_follow_end_of_line_survives_idle_and_wheel_reaches_it) {
         ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 200, 50, false, false,
                       -2.0f, WLX_MOD_SHIFT, NULL);
     ASSERT_EQ_F(st->scroll_x, 621.0f, 0.5f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -515,6 +529,7 @@ TEST(caret_scrollbar_press_excluded) {
     ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 390, 10, true, true, 0.0f, 0, NULL);
     ASSERT_TRUE(st->caret.dragging_scrollbar);
     ASSERT_EQ_INT((long)caret_before, (long)st->caret.cursor_pos);
+    wlx_context_destroy(&ctx);
 }
 
 SUITE(editor_caret) {

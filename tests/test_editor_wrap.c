@@ -2,7 +2,8 @@
 // the band width, row-space wheel scrolling (anchor first_line/first_row),
 // the overflow probe for few heavily wrapped lines, top and bottom clamps
 // (backfilled exact end), thumb drag with track-end-means-document-end,
-// wrap toggling carrying the anchor, anchor row clamping on document
+// the thumb range ending at the bottom anchor (no sticking at the track
+// end), wrap toggling carrying the anchor, anchor row clamping on document
 // change, and first-row-only gutter numbering.
 //
 // Geometry model (mock backend): char width = font_size/2 = 5 px at
@@ -245,6 +246,96 @@ TEST(editor_wrap_thumb_drag_to_track_end_reaches_document_end) {
     ASSERT_EQ_INT(21, (long)state->first_line);
     ASSERT_EQ_INT(0, (long)state->first_row);
     ASSERT_EQ_F(state->y_frac, 0.8f, 0.01f);
+
+    wlx_context_destroy(&ctx);
+}
+
+// The vertical thumb among the captured rects: strip-wide at the track's
+// right edge and shorter than the track.
+static bool _ew_find_vthumb(WLX_Context *ctx, WLX_Rect *out) {
+    float sb_w = ctx->theme->scrollbar.width > 0.0f ? ctx->theme->scrollbar.width : 10.0f;
+    float x = 4.0f + 392.0f - sb_w;
+    for (int i = 0; i < _ev_rect_count; i++) {
+        WLX_Rect g = _ev_rects[i].r;
+        if (fabsf(g.x - x) <= 0.01f && fabsf(g.w - sb_w) <= 0.01f && g.h < 92.0f) {
+            if (out != NULL) *out = g;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Heavily wrapped rows: the thumb range ends at the bottom anchor's pseudo
+// scroll, so the thumb leaves the track end on the first rows scrolled
+// back up and moves strictly up on every notch after. With the range
+// ending at line_count * line_h - band.h (28 here) the thumb reached the
+// track end at line 2.8 of 12 and sat there while the view scrolled up
+// through the last nine lines.
+TEST(editor_wrap_thumb_tracks_rows_near_document_end) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+    ctx.backend.draw_rect = _ev_capture_draw_rect;
+
+    // 12 lines of 200 'a's: three rows each (74 + 74 + 52) at the 373 px
+    // band, 36 rows against the 92 px band (need = 10 rows). The bottom
+    // anchor fills 10 rows backward from the last row: line 8 row 2,
+    // y_frac 0.8, pseudo scroll (8 + 2.8/3) * 10.
+    static char buf[4096];
+    size_t len = 0;
+    for (int l = 0; l < 12; l++) {
+        if (l > 0) buf[len++] = '\n';
+        for (int i = 0; i < 200; i++) buf[len++] = 'a';
+    }
+    buf[len] = '\0';
+
+    ew_frame(&ctx, buf, sizeof(buf), &len, 0);
+    WLX_Editor_State *state = ev_state(&ctx);
+    ASSERT_TRUE(state != NULL);
+
+    float sb_w = ctx.theme->scrollbar.width > 0.0f ? ctx.theme->scrollbar.width : 10.0f;
+    WLX_Rect track = { 4, 4, 392, 92 };
+    float bottom = (8.0f + (2.0f + 0.8f) / 3.0f) * 10.0f;
+    float content_h = bottom + 92.0f;
+
+    // Wheel far past the end: the backfilled bottom anchor, thumb at the
+    // track end.
+    _ev_reset_rects();
+    ew_frame_wheel(&ctx, buf, sizeof(buf), &len, 0, -100.0f);
+    ASSERT_EQ_INT(8, (long)state->first_line);
+    ASSERT_EQ_INT(2, (long)state->first_row);
+    ASSERT_EQ_F(state->y_frac, 0.8f, 0.01f);
+    WLX_Rect end_thumb = wlx_scrollbar_rect(track, content_h, bottom, sb_w);
+    ASSERT_TRUE(_ev_rect_captured(end_thumb, 0.05f));
+    ASSERT_EQ_F(end_thumb.y + end_thumb.h, track.y + track.h, 0.01f);
+
+    // One notch up (two rows): anchor (8, 0, 0.8), pseudo (8 + 0.8/3) * 10
+    // - the thumb leaves the track end right away.
+    _ev_reset_rects();
+    ew_frame_wheel(&ctx, buf, sizeof(buf), &len, 0, 1.0f);
+    ASSERT_EQ_INT(8, (long)state->first_line);
+    ASSERT_EQ_INT(0, (long)state->first_row);
+    ASSERT_EQ_F(state->y_frac, 0.8f, 0.01f);
+    WLX_Rect up_thumb = wlx_scrollbar_rect(track, content_h,
+        (8.0f + 0.8f / 3.0f) * 10.0f, sb_w);
+    ASSERT_TRUE(_ev_rect_captured(up_thumb, 0.05f));
+    ASSERT_TRUE(up_thumb.y + up_thumb.h < track.y + track.h - 1.0f);
+
+    // Every further notch moves the thumb strictly up until the top.
+    float prev_y = up_thumb.y;
+    for (int i = 0; i < 16; i++) {
+        _ev_reset_rects();
+        ew_frame_wheel(&ctx, buf, sizeof(buf), &len, 0, 1.0f);
+        WLX_Rect thumb = {0};
+        ASSERT_TRUE(_ew_find_vthumb(&ctx, &thumb));
+        if (state->first_line == 0 && state->first_row == 0 && state->y_frac <= 0.0f) {
+            ASSERT_EQ_F(thumb.y, track.y, 0.01f);
+            break;
+        }
+        ASSERT_TRUE(thumb.y < prev_y - 0.5f);
+        prev_y = thumb.y;
+    }
+    ASSERT_EQ_INT(0, (long)state->first_line);
+    ASSERT_EQ_F(state->y_frac, 0.0f, 0.001f);
 
     wlx_context_destroy(&ctx);
 }
@@ -782,6 +873,7 @@ TEST(editor_wrap_caret_col0_draws_at_row_start) {
     for (int i = 0; i < _ew_line_count; i++) {
         ASSERT_TRUE(_ew_lines[i].x < 60.0f);
     }
+    wlx_context_destroy(&ctx);
 }
 
 SUITE(editor_wrap) {
@@ -791,6 +883,7 @@ SUITE(editor_wrap) {
     RUN_TEST(editor_wrap_no_overflow_leaves_anchor_alone);
     RUN_TEST(editor_wrap_bottom_clamp_lands_exact_end);
     RUN_TEST(editor_wrap_thumb_drag_to_track_end_reaches_document_end);
+    RUN_TEST(editor_wrap_thumb_tracks_rows_near_document_end);
     RUN_TEST(editor_wrap_toggle_carries_anchor_and_resets);
     RUN_TEST(editor_wrap_anchor_row_clamps_on_document_change);
     RUN_TEST(editor_wrap_gutter_numbers_first_rows_only);

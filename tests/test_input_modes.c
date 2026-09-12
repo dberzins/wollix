@@ -113,6 +113,7 @@ TEST(modes_password_masks_display_keeps_buffer) {
     modes_frame_type(&ctx, buf, sizeof(buf), true, false, "d");
     ASSERT_EQ_STR(buf, "abcd");
     ASSERT_EQ_STR(_modes_text_drawn, "****");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(modes_password_masks_one_char_per_codepoint) {
@@ -127,6 +128,7 @@ TEST(modes_password_masks_one_char_per_codepoint) {
 
     ASSERT_EQ_STR(_modes_text_drawn, "**");
     ASSERT_EQ_STR(buf, "\xC3\xB6\x42");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(modes_password_copy_cut_suppressed) {
@@ -145,6 +147,7 @@ TEST(modes_password_copy_cut_suppressed) {
     modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_X, modes_command_mod());
     ASSERT_EQ_STR("seed", test_get_clipboard());
     ASSERT_EQ_STR(buf, "secret");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(modes_password_paste_and_edit_work) {
@@ -159,6 +162,7 @@ TEST(modes_password_paste_and_edit_work) {
 
     modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_BACKSPACE, 0);
     ASSERT_EQ_STR(buf, "abX");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(modes_password_click_maps_to_plaintext_offset) {
@@ -173,6 +177,7 @@ TEST(modes_password_click_maps_to_plaintext_offset) {
     modes_frame_mouse(&ctx, buf, sizeof(buf), true, false, 15, true, true);
     modes_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
     ASSERT_EQ_STR(buf, "\xC3\xB6X\x42");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -202,6 +207,7 @@ TEST(modes_readonly_rejects_all_edits) {
     modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_X, modes_command_mod());
     ASSERT_EQ_STR(buf, "AB");
     ASSERT_EQ_STR("ZZ", test_get_clipboard());
+    wlx_context_destroy(&ctx);
 }
 
 TEST(modes_readonly_allows_selection_and_copy) {
@@ -216,6 +222,7 @@ TEST(modes_readonly_allows_selection_and_copy) {
 
     ASSERT_EQ_STR("hello", test_get_clipboard());
     ASSERT_EQ_STR(buf, "hello");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(modes_password_readonly_combo) {
@@ -235,6 +242,7 @@ TEST(modes_password_readonly_combo) {
     modes_frame_key(&ctx, buf, sizeof(buf), true, true, WLX_KEY_A, modes_command_mod());
     modes_frame_key(&ctx, buf, sizeof(buf), true, true, WLX_KEY_C, modes_command_mod());
     ASSERT_EQ_STR("seed", test_get_clipboard());
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================

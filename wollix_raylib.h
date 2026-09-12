@@ -18,7 +18,7 @@
 // unique (font, size, spacing, text) tuples per frame; Validation
 // captured ~1700 unique tuples on the warmed Theme Lab Dark workload at
 // 1920x1080, mirroring the working-set finding that drove SDL3's default
-// cap from 256 to 1024. The Raylib default has therefore been raised to
+// cap up (now 4096). The Raylib default has therefore been raised to
 // 2048 to keep steady-state hit rate comfortably above the >95% target
 // without thrashing. Setting this to 0 disables the cache entirely; lookup
 // short-circuits to a forced miss with no counter increments and no table
@@ -36,8 +36,8 @@
 
 #if WLX_RAYLIB_TEXT_CACHE_CAP > 0
 // Pick the smallest power of two strictly greater than CAP * 5/3 so the load
-// factor at full CAP stays below 0.6. For default CAP=256 this resolves to
-// 512 slots (load factor max ~0.5). Hardcoded list covers caps up to 65536.
+// factor at full CAP stays below 0.6. For the default CAP=2048 this resolves
+// to 4096 slots (load factor max 0.5). Hardcoded list covers caps up to 65536.
 #define WLX_RAYLIB_TEXT_CACHE__MIN_SLOTS \
     ((unsigned)((WLX_RAYLIB_TEXT_CACHE_CAP) * 5 / 3 + 1))
 #define WLX_RAYLIB_TEXT_CACHE__POW2_GE(x) \
@@ -71,18 +71,10 @@ static size_t   g_wlx_raylib_text_cache_pending_slot = 0;
 static bool     g_wlx_raylib_text_cache_pending_valid = false;
 #endif
 
-// FNV-1a 64-bit hash over the byte range [text, text+len). Cache key uses
-// (font_handle, font_size_bits, spacing_bits, text_len, text_hash) without
-// storing the original bytes; hash collisions therefore manifest as
-// false-positive hits and are tracked by text_cache_collision_rejections.
-static inline uint64_t wlx_raylib_text_cache_hash(const char *text, size_t len) {
-    uint64_t h = 0xcbf29ce484222325ULL;
-    for (size_t i = 0; i < len; ++i) {
-        h ^= (uint64_t)(unsigned char)text[i];
-        h *= 0x100000001b3ULL;
-    }
-    return h;
-}
+// Cache key: (font_handle, font_size_bits, spacing_bits, text_len, and the
+// core's wlx_hash_fnv1a64 over the text) without storing the original
+// bytes; hash collisions therefore manifest as false-positive hits and are
+// tracked by text_cache_collision_rejections.
 
 static inline uint32_t wlx_raylib_text_cache_float_bits(float v) {
     union { float f; uint32_t u; } pun;
@@ -92,28 +84,7 @@ static inline uint32_t wlx_raylib_text_cache_float_bits(float v) {
 
 #ifdef WLX_PERF
 typedef struct {
-    uint64_t frame_index;
-    bool timer_available;
-    uint64_t draw_text_calls;
-    uint64_t measure_text_calls;
-    uint64_t draw_rect_calls;
-    uint64_t draw_rect_lines_calls;
-    uint64_t draw_rect_rounded_calls;
-    uint64_t draw_rect_rounded_lines_calls;
-    uint64_t draw_circle_calls;
-    uint64_t draw_ring_calls;
-    uint64_t draw_line_calls;
-    uint64_t draw_texture_calls;
-    uint64_t begin_scissor_calls;
-    uint64_t end_scissor_calls;
-    uint64_t geometry_submit_calls;
-    uint64_t clip_change_calls;
-    uint64_t text_draw_ns;
-    uint64_t text_measure_ns;
-    uint64_t geometry_ns;
-    uint64_t scissor_ns;
-    uint64_t texture_ns;
-    uint64_t present_ns;
+    WLX_PERF_BACKEND_COMMON_FIELDS;
     uint64_t text_cache_lookups;
     uint64_t text_cache_hits;
     uint64_t text_cache_misses;
@@ -124,8 +95,7 @@ typedef struct {
 typedef struct {
     WLX_Perf_Raylib_Frame current;
     WLX_Perf_Raylib_Frame last;
-    uint64_t present_start_ns;
-    bool capturing;
+    WLX_Perf_Backend_Clock clock;
 } WLX_Perf_Raylib_State;
 
 static WLX_Perf_Raylib_State g_wlx_perf_raylib_state = {0};
@@ -144,19 +114,22 @@ static inline void wlx_perf_raylib_install_timer(WLX_Context *ctx) {
 }
 
 static inline void wlx_perf_raylib_begin_frame(uint64_t frame_index) {
-    wlx_zero_struct(g_wlx_perf_raylib_state.current);
-    g_wlx_perf_raylib_state.current.frame_index = frame_index;
-    g_wlx_perf_raylib_state.current.timer_available = true;
-    g_wlx_perf_raylib_state.present_start_ns = 0;
-    g_wlx_perf_raylib_state.capturing = true;
+    WLX_Perf_Raylib_State *st = &g_wlx_perf_raylib_state;
+    wlx_zero_struct(st->current);
+    st->current.frame_index = frame_index;
+    st->current.timer_available = true;
+    st->clock.timer_available = true;
+    st->clock.timestamp = wlx_perf_raylib_timestamp;
+    st->clock.timestamp_user = NULL;
+    wlx_perf_backend_frame_begin(&st->clock);
 }
 
 static inline void wlx_perf_raylib_end_frame(uint64_t frame_index) {
-    if (!g_wlx_perf_raylib_state.capturing) return;
-    if (frame_index != 0) g_wlx_perf_raylib_state.current.frame_index = frame_index;
-    g_wlx_perf_raylib_state.last = g_wlx_perf_raylib_state.current;
-    g_wlx_perf_raylib_state.capturing = false;
-    g_wlx_perf_raylib_state.present_start_ns = 0;
+    WLX_Perf_Raylib_State *st = &g_wlx_perf_raylib_state;
+    if (!st->clock.capturing) return;
+    if (frame_index != 0) st->current.frame_index = frame_index;
+    st->last = st->current;
+    wlx_perf_backend_frame_end(&st->clock);
 }
 
 static inline void wlx_perf_raylib_reset(void) {
@@ -167,100 +140,109 @@ static inline const WLX_Perf_Raylib_Frame *wlx_perf_raylib_get_last_frame(void) 
     return &g_wlx_perf_raylib_state.last;
 }
 
-static inline void wlx_perf_raylib_inc(uint64_t *counter) {
-    if (!g_wlx_perf_raylib_state.capturing) return;
-    (*counter)++;
-}
-
-static inline uint64_t wlx_perf_raylib_time_begin(void) {
-    if (!g_wlx_perf_raylib_state.capturing || !g_wlx_perf_raylib_state.current.timer_available) return 0;
-    return wlx_perf_raylib_timestamp(NULL);
-}
-
-static inline void wlx_perf_raylib_time_end(uint64_t start_ns, uint64_t *total_ns) {
-    uint64_t end_ns;
-
-    if (!g_wlx_perf_raylib_state.capturing || !g_wlx_perf_raylib_state.current.timer_available) return;
-    end_ns = wlx_perf_raylib_timestamp(NULL);
-    if (end_ns >= start_ns) *total_ns += end_ns - start_ns;
-}
-
 static inline void wlx_perf_raylib_present_begin(void) {
-    g_wlx_perf_raylib_state.present_start_ns = wlx_perf_raylib_time_begin();
+    wlx_perf_backend_present_begin(&g_wlx_perf_raylib_state.clock);
 }
 
 static inline void wlx_perf_raylib_present_end(void) {
-    wlx_perf_raylib_time_end(g_wlx_perf_raylib_state.present_start_ns,
+    wlx_perf_backend_present_end(&g_wlx_perf_raylib_state.clock,
         &g_wlx_perf_raylib_state.current.present_ns);
-    g_wlx_perf_raylib_state.present_start_ns = 0;
 }
 
 #define WLX_RAYLIB_PERF_INC(field) \
-    wlx_perf_raylib_inc(&g_wlx_perf_raylib_state.current.field)
+    wlx_perf_backend_inc(&g_wlx_perf_raylib_state.clock, \
+                         &g_wlx_perf_raylib_state.current.field)
 #else
 #define WLX_RAYLIB_PERF_INC(field) ((void)0)
 #endif
 
-static inline WLX_Key_Code wlx_raylib_map_key(int raylib_key) {
-    switch (raylib_key) {
-        case KEY_ESCAPE: return WLX_KEY_ESCAPE;
-        case KEY_ENTER: return WLX_KEY_ENTER;
-        case KEY_BACKSPACE: return WLX_KEY_BACKSPACE;
-        case KEY_TAB: return WLX_KEY_TAB;
-        case KEY_SPACE: return WLX_KEY_SPACE;
-        case KEY_LEFT: return WLX_KEY_LEFT;
-        case KEY_RIGHT: return WLX_KEY_RIGHT;
-        case KEY_UP: return WLX_KEY_UP;
-        case KEY_DOWN: return WLX_KEY_DOWN;
-        case KEY_A: return WLX_KEY_A;
-        case KEY_B: return WLX_KEY_B;
-        case KEY_C: return WLX_KEY_C;
-        case KEY_D: return WLX_KEY_D;
-        case KEY_E: return WLX_KEY_E;
-        case KEY_F: return WLX_KEY_F;
-        case KEY_G: return WLX_KEY_G;
-        case KEY_H: return WLX_KEY_H;
-        case KEY_I: return WLX_KEY_I;
-        case KEY_J: return WLX_KEY_J;
-        case KEY_K: return WLX_KEY_K;
-        case KEY_L: return WLX_KEY_L;
-        case KEY_M: return WLX_KEY_M;
-        case KEY_N: return WLX_KEY_N;
-        case KEY_O: return WLX_KEY_O;
-        case KEY_P: return WLX_KEY_P;
-        case KEY_Q: return WLX_KEY_Q;
-        case KEY_R: return WLX_KEY_R;
-        case KEY_S: return WLX_KEY_S;
-        case KEY_T: return WLX_KEY_T;
-        case KEY_U: return WLX_KEY_U;
-        case KEY_V: return WLX_KEY_V;
-        case KEY_W: return WLX_KEY_W;
-        case KEY_X: return WLX_KEY_X;
-        case KEY_Y: return WLX_KEY_Y;
-        case KEY_Z: return WLX_KEY_Z;
-        case KEY_ZERO: return WLX_KEY_0;
-        case KEY_ONE: return WLX_KEY_1;
-        case KEY_TWO: return WLX_KEY_2;
-        case KEY_THREE: return WLX_KEY_3;
-        case KEY_FOUR: return WLX_KEY_4;
-        case KEY_FIVE: return WLX_KEY_5;
-        case KEY_SIX: return WLX_KEY_6;
-        case KEY_SEVEN: return WLX_KEY_7;
-        case KEY_EIGHT: return WLX_KEY_8;
-        case KEY_NINE: return WLX_KEY_9;
-        case KEY_DELETE: return WLX_KEY_DELETE;
-        case KEY_HOME: return WLX_KEY_HOME;
-        case KEY_END: return WLX_KEY_END;
-        case KEY_PAGE_UP: return WLX_KEY_PAGE_UP;
-        case KEY_PAGE_DOWN: return WLX_KEY_PAGE_DOWN;
-        default: return WLX_KEY_NONE;
+// Timed scope of one backend callback body: END (one per exit path)
+// accumulates into the named duration field; both are no-ops without
+// WLX_PERF.
+#define WLX_RAYLIB_SCOPE_BEGIN() \
+    WLX_PERF_SCOPE_BEGIN(&g_wlx_perf_raylib_state.clock)
+#define WLX_RAYLIB_SCOPE_END(field) \
+    WLX_PERF_SCOPE_END(&g_wlx_perf_raylib_state.clock, \
+                       &g_wlx_perf_raylib_state.current.field)
+
+// Raylib key for one WLX key code (0 = unmapped). WLX -> platform like the
+// SDL3 table, so the two maps read side by side; the switch has no default,
+// so -Wswitch reports any WLX_Key_Code added without a mapping here.
+static inline int wlx_raylib_key_for(WLX_Key_Code key) {
+    switch (key) {
+        case WLX_KEY_NONE: return 0;
+        case WLX_KEY_ESCAPE: return KEY_ESCAPE;
+        case WLX_KEY_ENTER: return KEY_ENTER;
+        case WLX_KEY_BACKSPACE: return KEY_BACKSPACE;
+        case WLX_KEY_TAB: return KEY_TAB;
+        case WLX_KEY_SPACE: return KEY_SPACE;
+        case WLX_KEY_LEFT: return KEY_LEFT;
+        case WLX_KEY_RIGHT: return KEY_RIGHT;
+        case WLX_KEY_UP: return KEY_UP;
+        case WLX_KEY_DOWN: return KEY_DOWN;
+        case WLX_KEY_A: return KEY_A;
+        case WLX_KEY_B: return KEY_B;
+        case WLX_KEY_C: return KEY_C;
+        case WLX_KEY_D: return KEY_D;
+        case WLX_KEY_E: return KEY_E;
+        case WLX_KEY_F: return KEY_F;
+        case WLX_KEY_G: return KEY_G;
+        case WLX_KEY_H: return KEY_H;
+        case WLX_KEY_I: return KEY_I;
+        case WLX_KEY_J: return KEY_J;
+        case WLX_KEY_K: return KEY_K;
+        case WLX_KEY_L: return KEY_L;
+        case WLX_KEY_M: return KEY_M;
+        case WLX_KEY_N: return KEY_N;
+        case WLX_KEY_O: return KEY_O;
+        case WLX_KEY_P: return KEY_P;
+        case WLX_KEY_Q: return KEY_Q;
+        case WLX_KEY_R: return KEY_R;
+        case WLX_KEY_S: return KEY_S;
+        case WLX_KEY_T: return KEY_T;
+        case WLX_KEY_U: return KEY_U;
+        case WLX_KEY_V: return KEY_V;
+        case WLX_KEY_W: return KEY_W;
+        case WLX_KEY_X: return KEY_X;
+        case WLX_KEY_Y: return KEY_Y;
+        case WLX_KEY_Z: return KEY_Z;
+        case WLX_KEY_0: return KEY_ZERO;
+        case WLX_KEY_1: return KEY_ONE;
+        case WLX_KEY_2: return KEY_TWO;
+        case WLX_KEY_3: return KEY_THREE;
+        case WLX_KEY_4: return KEY_FOUR;
+        case WLX_KEY_5: return KEY_FIVE;
+        case WLX_KEY_6: return KEY_SIX;
+        case WLX_KEY_7: return KEY_SEVEN;
+        case WLX_KEY_8: return KEY_EIGHT;
+        case WLX_KEY_9: return KEY_NINE;
+        case WLX_KEY_DELETE: return KEY_DELETE;
+        case WLX_KEY_HOME: return KEY_HOME;
+        case WLX_KEY_END: return KEY_END;
+        case WLX_KEY_PAGE_UP: return KEY_PAGE_UP;
+        case WLX_KEY_PAGE_DOWN: return KEY_PAGE_DOWN;
+        case WLX_KEY_F1: return KEY_F1;
+        case WLX_KEY_F2: return KEY_F2;
+        case WLX_KEY_F3: return KEY_F3;
+        case WLX_KEY_F4: return KEY_F4;
+        case WLX_KEY_F5: return KEY_F5;
+        case WLX_KEY_F6: return KEY_F6;
+        case WLX_KEY_F7: return KEY_F7;
+        case WLX_KEY_F8: return KEY_F8;
+        case WLX_KEY_F9: return KEY_F9;
+        case WLX_KEY_F10: return KEY_F10;
+        case WLX_KEY_F11: return KEY_F11;
+        case WLX_KEY_F12: return KEY_F12;
+        case WLX_KEY_INSERT: return KEY_INSERT;
+        case WLX_KEY_COUNT: return 0;
     }
+    return 0;
 }
 
 static inline void wlx_process_raylib_input(WLX_Context *ctx) {
     static bool prev_mouse_down = false;
-    static float prev_wheel_dir = 0.0f;   // last non-zero wheel direction (+1 or -1)
-    static bool  prev_was_zero  = true;    // was previous frame's raw wheel zero?
+    static bool prev_right_down = false;
+    static bool prev_middle_down = false;
 
     Vector2 mouse_pos = GetMousePosition();
     ctx->input.mouse_x = mouse_pos.x;
@@ -268,41 +250,34 @@ static inline void wlx_process_raylib_input(WLX_Context *ctx) {
     ctx->input.mouse_down = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
     ctx->input.mouse_clicked = ctx->input.mouse_down && !prev_mouse_down;
     ctx->input.mouse_held = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+    ctx->input.mouse_right_down = IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
+    ctx->input.mouse_right_clicked = ctx->input.mouse_right_down && !prev_right_down;
+    ctx->input.mouse_middle_down = IsMouseButtonDown(MOUSE_BUTTON_MIDDLE);
+    ctx->input.mouse_middle_clicked = ctx->input.mouse_middle_down && !prev_middle_down;
 
-    // Debounce mouse wheel encoder bounce: if the direction suddenly
-    // reverses for a single frame mid-scroll, suppress the spurious tick.
-    float raw_wheel = GetMouseWheelMove();
-    if (raw_wheel != 0.0f) {
-        float dir = (raw_wheel > 0.0f) ? 1.0f : -1.0f;
-        if (prev_wheel_dir != 0.0f && dir != prev_wheel_dir && !prev_was_zero) {
-            // Single-frame reversal mid-scroll -> likely encoder bounce, suppress
-            ctx->input.wheel_delta = 0.0f;
-            // Don't update prev_wheel_dir - keep the "real" direction
-        } else {
-            ctx->input.wheel_delta = raw_wheel;
-            prev_wheel_dir = dir;
-        }
-        prev_was_zero = false;
-    } else {
-        ctx->input.wheel_delta = 0.0f;
-        prev_was_zero = true;
-    }
+    // Raw float detents on both axes: the input contract forbids adapter-side
+    // quantizing or debouncing, so precision trackpads keep their fractions.
+    Vector2 wheel = GetMouseWheelMoveV();
+    ctx->input.wheel_delta = wheel.y;
+    ctx->input.wheel_delta_x = wheel.x;
+
     prev_mouse_down = ctx->input.mouse_down;
+    prev_right_down = ctx->input.mouse_right_down;
+    prev_middle_down = ctx->input.mouse_middle_down;
 
     wlx_zero_struct(ctx->input.keys_pressed);
     wlx_zero_struct(ctx->input.keys_repeated);
-    for (int raylib_key = 0; raylib_key < 350; raylib_key++) {
-        WLX_Key_Code key = wlx_raylib_map_key(raylib_key);
-        if (key != WLX_KEY_NONE) {
-            bool is_down = IsKeyDown(raylib_key);
-            bool was_down = ctx->input.keys_down[key];
-            ctx->input.keys_down[key] = is_down;
-            if (is_down && !was_down) {
-                ctx->input.keys_pressed[key] = true;
-            }
-            if (IsKeyPressedRepeat(raylib_key)) {
-                ctx->input.keys_repeated[key] = true;
-            }
+    for (int key = 1; key < WLX_KEY_COUNT; key++) {
+        int raylib_key = wlx_raylib_key_for((WLX_Key_Code)key);
+        if (raylib_key == 0) continue;
+        bool is_down = IsKeyDown(raylib_key);
+        bool was_down = ctx->input.keys_down[key];
+        ctx->input.keys_down[key] = is_down;
+        if (is_down && !was_down) {
+            ctx->input.keys_pressed[key] = true;
+        }
+        if (IsKeyPressedRepeat(raylib_key)) {
+            ctx->input.keys_repeated[key] = true;
         }
     }
 
@@ -331,9 +306,7 @@ static inline void wlx_process_raylib_input(WLX_Context *ctx) {
 }
 
 static inline void wlx_raylib_draw_texture(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_texture_calls);
     DrawTexturePro(
         texture,
@@ -343,57 +316,39 @@ static inline void wlx_raylib_draw_texture(WLX_Texture texture, WLX_Rect src, WL
         0.0f,
         tint
     );
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.texture_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(texture_ns);
 }
 
 static inline void wlx_raylib_draw_rect(WLX_Rect rect, WLX_Color color) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_rect_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
     DrawRectangleRec((Rectangle){rect.x, rect.y, rect.w, rect.h}, color);
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.geometry_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_raylib_draw_rect_lines(WLX_Rect rect, float thick, WLX_Color color) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_rect_lines_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
     DrawRectangleLinesEx((Rectangle){rect.x, rect.y, rect.w, rect.h}, thick, color);
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.geometry_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_raylib_draw_rect_rounded(WLX_Rect rect, float roundness, int segments, WLX_Color color) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_rect_rounded_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
     DrawRectangleRounded((Rectangle){rect.x, rect.y, rect.w, rect.h}, roundness, segments, color);
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.geometry_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_raylib_draw_rect_rounded_lines(WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_rect_rounded_lines_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
     DrawRectangleRoundedLinesEx((Rectangle){rect.x, rect.y, rect.w, rect.h}, roundness, segments, thick, color);
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.geometry_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
 // Native vertical two-stop gradient. Sharp rects use raylib's float-precise
@@ -402,9 +357,7 @@ static inline void wlx_raylib_draw_rect_rounded_lines(WLX_Rect rect, float round
 // stacked rounded bands (the same approximation the core software fallback uses).
 static inline void wlx_raylib_draw_gradient_v(WLX_Rect rect, WLX_Color top, WLX_Color bottom,
                                               float roundness, int rounded_segs) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
     if (roundness <= 0.0f) {
         DrawRectangleGradientEx((Rectangle){rect.x, rect.y, rect.w, rect.h},
@@ -420,45 +373,31 @@ static inline void wlx_raylib_draw_gradient_v(WLX_Rect rect, WLX_Color top, WLX_
                                              rect.w, band_h + 1.0f}, roundness, rounded_segs, c);
         }
     }
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.geometry_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_raylib_draw_circle(float cx, float cy, float radius, int segments, WLX_Color color) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_circle_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
     DrawCircleSector((Vector2){cx, cy}, radius, 0, 360, segments, color);
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.geometry_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_raylib_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_ring_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
     DrawRing((Vector2){cx, cy}, inner_r, outer_r, 0, 360, segments, color);
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.geometry_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_raylib_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color color) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_line_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
     DrawLineEx((Vector2){x1, y1}, (Vector2){x2, y2}, thick, color);
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.geometry_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
 // Effective spacing for a text style. Raylib's default bitmap font stores no
@@ -486,9 +425,7 @@ static inline float wlx_raylib_effective_spacing(WLX_Text_Style style) {
 }
 
 static inline void wlx_raylib_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_text_calls);
     Font font = (style.font != WLX_FONT_DEFAULT)
               ? *(Font *)(uintptr_t)style.font
@@ -496,9 +433,7 @@ static inline void wlx_raylib_draw_text(const char *text, float x, float y, WLX_
     DrawTextEx(font, text, (Vector2){x, y}, style.font_size,
                wlx_raylib_effective_spacing(style),
                (Color){style.color.r, style.color.g, style.color.b, style.color.a});
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.text_draw_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(text_draw_ns);
 }
 
 // Probe the open-addressed measurement cache for the given key. On hit,
@@ -599,21 +534,28 @@ static inline void wlx_raylib_text_cache_store(uintptr_t font_handle,
 #endif
 }
 
+// Slice draw: DrawTextEx needs a C string either way, so the copy the core
+// fallback used to make now lives here; measurement-cache behavior is
+// untouched (draws are uncached).
+static inline void wlx_raylib_draw_text_slice(const char *text, size_t len,
+        float x, float y, WLX_Text_Style style) {
+    WLX_CStr_Tmp tmp;
+    const char *cstr = wlx_cstr_tmp_begin(&tmp, text, len);
+    if (cstr == NULL) return;
+    wlx_raylib_draw_text(cstr, x, y, style);
+    wlx_cstr_tmp_end(&tmp);
+}
+
 static inline void wlx_raylib_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(measure_text_calls);
 
     size_t   len  = (text != NULL) ? strlen(text) : 0;
-    uint64_t hash = wlx_raylib_text_cache_hash(text != NULL ? text : "", len);
+    uint64_t hash = wlx_hash_fnv1a64(text != NULL ? text : "", len);
 
     if (wlx_raylib_text_cache_lookup((uintptr_t)style.font, style, len, hash,
                                      out_w, out_h)) {
-#ifdef WLX_PERF
-        wlx_perf_raylib_time_end(perf_start_ns,
-            &g_wlx_perf_raylib_state.current.text_measure_ns);
-#endif
+        WLX_RAYLIB_SCOPE_END(text_measure_ns);
         return;
     }
 
@@ -626,34 +568,28 @@ static inline void wlx_raylib_measure_text(const char *text, WLX_Text_Style styl
     *out_h = size.y;
     wlx_raylib_text_cache_store((uintptr_t)style.font, style, len, hash,
                                 *out_w, *out_h);
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.text_measure_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(text_measure_ns);
 }
 
 // Slice-aware measure: accepts explicit byte length so wlx_span_measure_text
 // can avoid the temporary null-terminated copy on internal measurement.
-// MeasureTextEx requires a C-string, so we reuse the input directly when the
-// byte at text[len] is already 0; otherwise we copy into a small stack buffer
-// and fall back to wlx_alloc only for slices longer than the stack buffer.
-// Cache lookup happens before any copy so cache hits skip the copy work too.
+// MeasureTextEx requires a C-string, so the slice is always copied through
+// the core's WLX_CStr_Tmp (stack buffer, heap for long slices): probing
+// text[len] for an existing terminator would read one byte past the slice,
+// and spans may end exactly at the end of an allocation.
+// Cache lookup happens before the copy so cache hits skip the copy work.
 static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_len,
         WLX_Text_Style style, float *out_w, float *out_h) {
     if (out_w == NULL || out_h == NULL) return;
     if (text == NULL) { text = ""; slice_len = 0; }
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(measure_text_calls);
 
-    uint64_t hash = wlx_raylib_text_cache_hash(text, slice_len);
+    uint64_t hash = wlx_hash_fnv1a64(text, slice_len);
     if (wlx_raylib_text_cache_lookup((uintptr_t)style.font, style, slice_len,
                                      hash, out_w, out_h)) {
-#ifdef WLX_PERF
-        wlx_perf_raylib_time_end(perf_start_ns,
-            &g_wlx_perf_raylib_state.current.text_measure_ns);
-#endif
+        WLX_RAYLIB_SCOPE_END(text_measure_ns);
         return;
     }
 
@@ -661,30 +597,13 @@ static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_
               ? *(Font *)(uintptr_t)style.font
               : GetFontDefault();
 
-    const char *measure_text = text;
-    char stack_buf[256];
-    char *heap_buf = NULL;
-    if (slice_len > 0 && text[slice_len] != '\0') {
-        if (slice_len + 1 <= sizeof(stack_buf)) {
-            memcpy(stack_buf, text, slice_len);
-            stack_buf[slice_len] = '\0';
-            measure_text = stack_buf;
-        } else {
-            heap_buf = (char *)wlx_alloc(slice_len + 1);
-            if (heap_buf == NULL) {
-                *out_w = 0.0f;
-                *out_h = 0.0f;
-#ifdef WLX_PERF
-                wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.text_measure_ns);
-#endif
-                return;
-            }
-            memcpy(heap_buf, text, slice_len);
-            heap_buf[slice_len] = '\0';
-            measure_text = heap_buf;
-        }
-    } else if (slice_len == 0) {
-        measure_text = "";
+    WLX_CStr_Tmp tmp;
+    const char *measure_text = wlx_cstr_tmp_begin(&tmp, text, slice_len);
+    if (measure_text == NULL) {
+        *out_w = 0.0f;
+        *out_h = 0.0f;
+        WLX_RAYLIB_SCOPE_END(text_measure_ns);
+        return;
     }
 
     Vector2 size = MeasureTextEx(font, measure_text, style.font_size,
@@ -694,10 +613,8 @@ static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_
     wlx_raylib_text_cache_store((uintptr_t)style.font, style, slice_len, hash,
                                 *out_w, *out_h);
 
-    if (heap_buf != NULL) wlx_free(heap_buf);
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.text_measure_ns);
-#endif
+    wlx_cstr_tmp_end(&tmp);
+    WLX_RAYLIB_SCOPE_END(text_measure_ns);
 }
 
 // Cumulative glyph advances of one run at each requested unit end,
@@ -705,46 +622,27 @@ static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_
 // advanceX at base size, one scale-factor multiply, plus
 // (codepoints - 1) * spacing), so callback-built geometry matches the
 // whole-prefix slice measures bit-for-bit on Raylib's additive model.
-// Codepoint decoding needs NUL-terminated input, so unterminated slices
-// copy with the same stack/heap discipline as the slice measure.
+// Codepoint decoding needs NUL-terminated input, so every slice copies
+// through the core's WLX_CStr_Tmp like the slice measure (probing text[len]
+// for an existing terminator would read one byte past the slice).
 static inline size_t wlx_raylib_measure_text_advances(const char *text, size_t len,
         WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
         float *out_advances) {
     if (text == NULL || unit_ends == NULL || out_advances == NULL || unit_count == 0)
         return 0;
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(measure_text_calls);
 
     Font font = (style.font != WLX_FONT_DEFAULT)
               ? *(Font *)(uintptr_t)style.font
               : GetFontDefault();
     size_t filled = 0;
-    const char *walk_text = text;
-    char stack_buf[1024];
-    char *heap_buf = NULL;
+    WLX_CStr_Tmp tmp;
+    const char *walk_text = NULL;
 
     if (font.glyphs != NULL && font.baseSize > 0) {
-        if (len > 0 && text[len] != '\0') {
-            if (len + 1 <= sizeof(stack_buf)) {
-                memcpy(stack_buf, text, len);
-                stack_buf[len] = '\0';
-                walk_text = stack_buf;
-            } else {
-                heap_buf = (char *)wlx_alloc(len + 1);
-                if (heap_buf != NULL) {
-                    memcpy(heap_buf, text, len);
-                    heap_buf[len] = '\0';
-                    walk_text = heap_buf;
-                } else {
-                    walk_text = NULL;
-                }
-            }
-        }
-    } else {
-        walk_text = NULL;
+        walk_text = wlx_cstr_tmp_begin(&tmp, text, len);  // NULL on alloc failure
     }
 
     if (walk_text != NULL) {
@@ -771,10 +669,8 @@ static inline size_t wlx_raylib_measure_text_advances(const char *text, size_t l
         filled = unit_count;
     }
 
-    if (heap_buf != NULL) wlx_free(heap_buf);
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.text_measure_ns);
-#endif
+    if (walk_text != NULL) wlx_cstr_tmp_end(&tmp);
+    WLX_RAYLIB_SCOPE_END(text_measure_ns);
     return filled;
 }
 
@@ -812,32 +708,20 @@ static inline void wlx_raylib_text_cache_clear(void) {
 #endif
 }
 
-static inline WLX_Font wlx_font_from_raylib(Font *font) {
-    return (WLX_Font)(uintptr_t)font;
-}
-
 static inline void wlx_raylib_begin_scissor(WLX_Rect rect) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(begin_scissor_calls);
     WLX_RAYLIB_PERF_INC(clip_change_calls);
     BeginScissorMode(rect.x, rect.y, rect.w, rect.h);
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.scissor_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(scissor_ns);
 }
 
 static inline void wlx_raylib_end_scissor(void) {
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_raylib_time_begin();
-#endif
+    WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(end_scissor_calls);
     WLX_RAYLIB_PERF_INC(clip_change_calls);
     EndScissorMode();
-#ifdef WLX_PERF
-    wlx_perf_raylib_time_end(perf_start_ns, &g_wlx_perf_raylib_state.current.scissor_ns);
-#endif
+    WLX_RAYLIB_SCOPE_END(scissor_ns);
 }
 
 static inline float wlx_raylib_get_frame_time(void) {
@@ -848,14 +732,36 @@ static inline const char *wlx_raylib_clipboard_get(void) {
     return GetClipboardText();
 }
 
+// Upper bound for the clipboard transport buffer; spans beyond it are
+// truncated at a UTF-8 boundary. Overridable before include.
+#ifndef WLX_RAYLIB_CLIPBOARD_MAX
+#define WLX_RAYLIB_CLIPBOARD_MAX (16u * 1024u * 1024u)
+#endif
+
 static inline void wlx_raylib_clipboard_set(const char *text, size_t len) {
     // SetClipboardText needs a NUL-terminated string; copy the span into a
-    // static buffer (truncating overlong input). Cleared between calls.
-    static char buf[1024];
-    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+    // core wlx_buf_reserve grow-and-reuse buffer (process lifetime) so
+    // arbitrarily long spans survive, bounded only by the soft cap.
+    static char *buf = NULL;
+    static size_t cap = 0;
+    if (text == NULL) return;
+    if (len > WLX_RAYLIB_CLIPBOARD_MAX - 1) {
+        len = WLX_RAYLIB_CLIPBOARD_MAX - 1;
+        // Never split a UTF-8 sequence at the cap (text[len] stays inside
+        // the original span here, since the original length exceeds it).
+        len = wlx_utf8_floor(text, len);
+    }
+    if (!wlx_buf_reserve(&buf, &cap, len + 1)) return;
     memcpy(buf, text, len);
     buf[len] = '\0';
     SetClipboardText(buf);
+}
+
+// The core calls this only when the resolved shape changes. The enum is
+// append-only; this build check flags a new shape this mapping ignores.
+_Static_assert(WLX_CURSOR_COUNT == 2, "update wlx_raylib_set_cursor for the new WLX_Cursor_Shape");
+static inline void wlx_raylib_set_cursor(WLX_Cursor_Shape shape) {
+    SetMouseCursor(shape == WLX_CURSOR_IBEAM ? MOUSE_CURSOR_IBEAM : MOUSE_CURSOR_DEFAULT);
 }
 
 static inline WLX_Backend wlx_backend_raylib(void) {
@@ -869,6 +775,7 @@ static inline WLX_Backend wlx_backend_raylib(void) {
         .draw_gradient_v = wlx_raylib_draw_gradient_v,
         .draw_line = wlx_raylib_draw_line,
         .draw_text = wlx_raylib_draw_text,
+        .draw_text_slice = wlx_raylib_draw_text_slice,
         .measure_text = wlx_raylib_measure_text,
         .measure_text_slice = wlx_raylib_measure_text_slice,
         .measure_text_advances = wlx_raylib_measure_text_advances,
@@ -878,7 +785,12 @@ static inline WLX_Backend wlx_backend_raylib(void) {
         .get_frame_time = wlx_raylib_get_frame_time,
         .clipboard_get = wlx_raylib_clipboard_get,
         .clipboard_set = wlx_raylib_clipboard_set,
+        .set_cursor = wlx_raylib_set_cursor,
     };
+}
+
+static inline WLX_Font wlx_font_from_raylib(Font *font) {
+    return (WLX_Font)(uintptr_t)font;
 }
 
 static inline void wlx_context_init_raylib(WLX_Context *ctx) {

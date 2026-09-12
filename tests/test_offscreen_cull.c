@@ -37,6 +37,7 @@ static int run_inside_outside(bool cull) {
     int rects = cull_count_type(&ctx, WLX_CMD_RECT);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
     return rects;
 }
 
@@ -60,6 +61,7 @@ TEST(cull_edge_touching_is_dropped) {
         ASSERT_EQ_INT(cull_count_type(&ctx, WLX_CMD_RECT), 0);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(cull_excludes_text) {
@@ -78,6 +80,7 @@ TEST(cull_excludes_text) {
         ASSERT_EQ_INT(cull_count_type(&ctx, WLX_CMD_RECT), 0);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // Nested clip: the effective clip is the intersection. A rect inside the outer
@@ -103,6 +106,7 @@ TEST(cull_nested_clip_intersects) {
         wlx_layout_end(&ctx);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // No active clip -> nothing is culled even with the flag on.
@@ -115,6 +119,7 @@ TEST(cull_no_clip_keeps_everything) {
     wlx_draw_rect(&ctx, wlx_rect(0, 5000, 50, 50), WLX_WHITE);
     ASSERT_EQ_INT(cull_count_type(&ctx, WLX_CMD_RECT), 1);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 SUITE(offscreen_cull) {

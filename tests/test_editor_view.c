@@ -2,8 +2,8 @@
 // construction and guards (length / revision / boundary-byte probe, idle
 // frames rebuild nothing), anchor clamp on document shrink, wheel
 // consume/leave rules (incl. editor inside a scroll panel), exact vertical
-// thumb proportion, Shift+wheel horizontal scroll, PageUp/PageDown, and the
-// window build drawing exactly the anchored lines.
+// thumb proportion, Shift+wheel and horizontal-axis wheel scroll,
+// PageUp/PageDown, and the window build drawing exactly the anchored lines.
 //
 // Geometry model (mock backend): char width = font_size/2, line height =
 // font_size. Fixture: 400x100 context, content_padding 4, border 0,
@@ -62,6 +62,18 @@ static bool ev_frame_full(WLX_Context *ctx, char *buf, size_t cap, size_t *len, 
 
 static bool ev_frame(WLX_Context *ctx, char *buf, size_t cap, size_t *len, uint32_t rev) {
     return ev_frame_full(ctx, buf, cap, len, rev, 0, 0, false, false, 0.0f, 0, NULL);
+}
+
+// Whole-struct staging variant for contract fields the parameter helpers do
+// not carry (horizontal wheel, right/middle buttons).
+static bool ev_frame_input(WLX_Context *ctx, char *buf, size_t cap, size_t *len, uint32_t rev,
+                           const WLX_Input_State *in) {
+    test_frame_begin_input(ctx, in);
+    wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+    bool focused = ev_editor(ctx, buf, cap, len, rev);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+    return focused;
 }
 
 static bool ev_frame_key(WLX_Context *ctx, char *buf, size_t cap, size_t *len, uint32_t rev,
@@ -214,6 +226,7 @@ TEST(editor_index_idle_frames_never_rebuild) {
     ASSERT_TRUE(idx != NULL);
     ASSERT_EQ_INT(1, (long)idx->rebuilds);
     ASSERT_EQ_INT(21, (long)idx->count); // 20 lines + trailing empty line
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_index_guard_length_change) {
@@ -232,6 +245,7 @@ TEST(editor_index_guard_length_change) {
     ASSERT_EQ_INT(2, (long)idx->rebuilds);
     // The trailing empty line became a one-char line: still 6 entries.
     ASSERT_EQ_INT(6, (long)idx->count);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_index_guard_revision_bump) {
@@ -249,6 +263,7 @@ TEST(editor_index_guard_revision_bump) {
 
     ev_frame(&ctx, buf, sizeof(buf), &len, 1); // revision bump, same bytes
     ASSERT_EQ_INT(2, (long)idx->rebuilds);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_index_guard_boundary_probe) {
@@ -270,6 +285,7 @@ TEST(editor_index_guard_boundary_probe) {
     ev_frame(&ctx, buf, sizeof(buf), &len, 0);
     ASSERT_EQ_INT(2, (long)idx->rebuilds);
     ASSERT_EQ_INT(3, (long)idx->count);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -300,6 +316,7 @@ TEST(editor_anchor_clamps_on_document_shrink) {
     ev_frame(&ctx, buf, sizeof(buf), &len, 0);
     ASSERT_EQ_INT(0, (long)st->first_line);
     ASSERT_EQ_F(st->y_frac, 0.0f, 0.001f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -321,6 +338,7 @@ TEST(editor_wheel_scrolls_and_consumes_when_overflowing) {
     ASSERT_EQ_INT(4, (long)st->first_line);
     ASSERT_EQ_F(st->y_frac, 0.0f, 0.001f);
     ASSERT_EQ_F(ctx.input.wheel_delta, 0.0f, 0.001f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_wheel_left_alone_when_content_fits) {
@@ -336,6 +354,7 @@ TEST(editor_wheel_left_alone_when_content_fits) {
     ASSERT_TRUE(st != NULL);
     ASSERT_EQ_INT(0, (long)st->first_line);
     ASSERT_EQ_F(ctx.input.wheel_delta, -2.0f, 0.001f); // left to enclosing panels
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_wheel_unhovered_left_alone) {
@@ -352,6 +371,7 @@ TEST(editor_wheel_unhovered_left_alone) {
     WLX_Editor_State *st = ev_state(&ctx);
     ASSERT_TRUE(st != NULL);
     ASSERT_EQ_INT(0, (long)st->first_line);
+    wlx_context_destroy(&ctx);
 }
 
 // Editor inside a scroll panel: with editor overflow the editor consumes and
@@ -436,6 +456,42 @@ TEST(editor_shift_wheel_scrolls_horizontally) {
     wlx_context_destroy(&ctx);
 }
 
+// The horizontal wheel axis scrolls scroll_x directly, no Shift needed;
+// without horizontal overflow the delta is left for enclosing consumers.
+TEST(editor_horizontal_wheel_scrolls_x) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+
+    char buf[256];
+    memset(buf, 'a', 200);
+    buf[200] = '\0';
+    size_t len = 200;
+
+    ev_frame(&ctx, buf, sizeof(buf), &len, 0);
+    WLX_Editor_State *st = ev_state(&ctx);
+    ASSERT_TRUE(st != NULL);
+    ASSERT_TRUE(st->h_reach_open);
+
+    WLX_Input_State in = {0};
+    in.mouse_x = 200;
+    in.mouse_y = 50;
+    in.wheel_delta_x = -2.0f;
+    ev_frame_input(&ctx, buf, sizeof(buf), &len, 0, &in);
+    ASSERT_EQ_F(st->scroll_x, 40.0f, 0.001f);
+    ASSERT_EQ_F(ctx.input.wheel_delta_x, 0.0f, 0.001f);
+
+    // Content fits horizontally: the delta must survive the frame.
+    WLX_Context ctx2;
+    test_ctx_init(&ctx2, 400, 100);
+    char buf2[64];
+    size_t len2 = ev_fill_lines(buf2, sizeof(buf2), 3);
+    ev_frame(&ctx2, buf2, sizeof(buf2), &len2, 0);
+    ev_frame_input(&ctx2, buf2, sizeof(buf2), &len2, 0, &in);
+    ASSERT_EQ_F(ctx2.input.wheel_delta_x, -2.0f, 0.001f);
+    wlx_context_destroy(&ctx2);
+    wlx_context_destroy(&ctx);
+}
+
 // ============================================================================
 // PageUp / PageDown (caret-coupled: viewport-sized caret motion + follow)
 // ============================================================================
@@ -469,6 +525,7 @@ TEST(editor_page_keys_move_caret_by_viewport) {
     ASSERT_EQ_INT(4 * 4 + 3, (long)st->caret.cursor_pos);
     ASSERT_EQ_INT(4, (long)st->first_line);
     ASSERT_EQ_F(st->y_frac, 0.0f, 0.001f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -492,6 +549,50 @@ TEST(editor_vertical_thumb_exact_from_line_count) {
     float sb_w = ctx.theme->scrollbar.width > 0.0f ? ctx.theme->scrollbar.width : 10.0f;
     WLX_Rect want = wlx_scrollbar_rect((WLX_Rect){ 4, 4, 392, 92 }, 410.0f, 0.0f, sb_w);
     ASSERT_TRUE(_ev_rect_captured(want, 0.01f));
+    wlx_context_destroy(&ctx);
+}
+
+// A long document's proportional thumb is a fraction of a pixel: it draws
+// at the floor, and a drag to the track end still reaches the document end.
+TEST(editor_vertical_thumb_floors_on_long_document) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+    ctx.backend.draw_rect = _ev_capture_draw_rect;
+
+    static char buf[8192];
+    size_t len = ev_fill_lines(buf, sizeof(buf), 2000); // content_h = 20010
+
+    ev_frame(&ctx, buf, sizeof(buf), &len, 0);
+    _ev_reset_rects();
+    ev_frame(&ctx, buf, sizeof(buf), &len, 0);
+
+    // Track {4,4,392,92}: the proportional thumb would be 92/20010*92
+    // (0.42px); it draws WLX_SCROLLBAR_MIN_THUMB tall at the track top.
+    float sb_w = ctx.theme->scrollbar.width > 0.0f ? ctx.theme->scrollbar.width : 10.0f;
+    WLX_Rect want = { 4 + 392 - sb_w, 4, sb_w, WLX_SCROLLBAR_MIN_THUMB };
+    ASSERT_TRUE(_ev_rect_captured(want, 0.01f));
+
+    // Press the thumb and drag far below the track: the position clamps
+    // to the leftover track, which maps to the scroll limit.
+    WLX_Editor_State *st = ev_state(&ctx);
+    ASSERT_TRUE(st != NULL);
+    int tx = (int)(want.x + want.w * 0.5f);
+    int ty = (int)(want.y + want.h * 0.5f);
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, tx, ty, true, true, 0.0f, 0, NULL);
+    ASSERT_TRUE(st->caret.dragging_scrollbar);
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, tx, 500, true, false, 0.0f, 0, NULL);
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, tx, 500, false, false, 0.0f, 0, NULL);
+
+    // max_scroll 20010 - 92 = 19918 -> anchor line 1991, frac 0.8.
+    ASSERT_EQ_INT(1991, (long)st->first_line);
+    ASSERT_EQ_F(st->y_frac, 0.8f, 0.01f);
+
+    // The idle thumb now ends at the track bottom.
+    _ev_reset_rects();
+    ev_frame(&ctx, buf, sizeof(buf), &len, 0);
+    want.y = 4 + 92 - WLX_SCROLLBAR_MIN_THUMB;
+    ASSERT_TRUE(_ev_rect_captured(want, 0.01f));
+    wlx_context_destroy(&ctx);
 }
 
 // Horizontal thumb among the captured rects: one strip (10px) tall and
@@ -553,6 +654,7 @@ TEST(editor_hbar_visibility_stable_at_window_edge) {
             ASSERT_TRUE(_ev_find_hbar_thumb(NULL) == want);
         }
     }
+    wlx_context_destroy(&ctx);
 }
 
 // The thumb drawn on the frame a wheel notch moves scroll_x must land where
@@ -586,6 +688,7 @@ TEST(editor_hbar_thumb_stable_after_wheel_notch) {
         ASSERT_EQ_F(wheel_thumb.x, idle_thumb.x, 0.001f);
         ASSERT_EQ_F(wheel_thumb.w, idle_thumb.w, 0.001f);
     }
+    wlx_context_destroy(&ctx);
 }
 
 // A thumb drag maps the pointer through the horizontal range, but the live
@@ -659,6 +762,7 @@ TEST(editor_hbar_drag_hold_is_stable_on_long_line) {
     ASSERT_EQ_F(released.w, held_thumb.w, 0.001f);
     ev_frame(&ctx, buf, sizeof(buf), &len, 0);
     ASSERT_EQ_F(st->scroll_x, held_scroll_x, 0.001f);
+    wlx_context_destroy(&ctx);
 }
 
 // The thumb maps only through the content measured so far, never the
@@ -727,6 +831,7 @@ TEST(editor_hbar_thumb_continuous_across_reach_flip) {
         ASSERT_EQ_F(prev.x - t.x, 40.0f * 383.0f / 1004.0f, 0.01f);
         prev = t;
     }
+    wlx_context_destroy(&ctx);
 }
 
 // Dragging the thumb away from scroll_x 0 must scroll the view: without
@@ -757,6 +862,7 @@ TEST(editor_hbar_drag_scrolls_from_origin) {
     ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, press_x + 100, 90, true, false,
                   0.0f, 0, NULL);
     ASSERT_TRUE(st->scroll_x > 50.0f);
+    wlx_context_destroy(&ctx);
 }
 
 // The max-seen width reach is sticky only within one document: deleting the
@@ -796,6 +902,7 @@ TEST(editor_hbar_drops_after_widest_line_deleted) {
     WLX_Editor_State *st = ev_state(&ctx);
     ASSERT_TRUE(st != NULL);
     ASSERT_TRUE(st->max_line_w < 383.0f);
+    wlx_context_destroy(&ctx);
 }
 
 // Releasing the reach on document change must not disturb an h-scrolled
@@ -847,6 +954,7 @@ TEST(editor_edit_while_h_scrolled_keeps_view) {
 
     ev_frame(&ctx, buf, sizeof(buf), &len, 0);
     ASSERT_EQ_F(st->scroll_x, scroll_before, 0.001f);
+    wlx_context_destroy(&ctx);
 }
 
 // A press beside or below the horizontal strip is not a text click, and a
@@ -902,6 +1010,7 @@ TEST(editor_click_under_hbar_strip_is_not_a_text_click) {
     ASSERT_EQ_F(st->scroll_x, 300.0f, 0.001f);
     ASSERT_TRUE(st->first_line == 0);
     ASSERT_EQ_F(st->y_frac, 0.8f, 0.001f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_window_draws_lines_at_anchor) {
@@ -939,6 +1048,7 @@ TEST(editor_window_draws_lines_at_anchor) {
     ev_frame(&ctx, buf, sizeof(buf), &len, 0);
     ASSERT_TRUE(_ev_capture_count > 0);
     ASSERT_EQ_F(_ev_captures[0].x, 3.0f, 0.01f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -988,6 +1098,7 @@ TEST(editor_gutter_numbers_and_band_shift) {
     }
     ASSERT_TRUE(found_text);
     ASSERT_TRUE(found_num1);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(editor_gutter_press_is_inert) {
@@ -1017,6 +1128,7 @@ TEST(editor_gutter_press_is_inert) {
     evg_frame(&ctx, buf, sizeof(buf), &len, 15, 70, true, true);
     ASSERT_EQ_INT((long)caret_before, (long)st->caret.cursor_pos);
     ASSERT_EQ_INT((long)caret_before, (long)st->caret.selection_anchor);
+    wlx_context_destroy(&ctx);
 }
 
 SUITE(editor_view) {
@@ -1031,8 +1143,10 @@ SUITE(editor_view) {
     RUN_TEST(editor_wheel_unhovered_left_alone);
     RUN_TEST(editor_inside_scroll_panel_wheel_routing);
     RUN_TEST(editor_shift_wheel_scrolls_horizontally);
+    RUN_TEST(editor_horizontal_wheel_scrolls_x);
     RUN_TEST(editor_page_keys_move_caret_by_viewport);
     RUN_TEST(editor_vertical_thumb_exact_from_line_count);
+    RUN_TEST(editor_vertical_thumb_floors_on_long_document);
     RUN_TEST(editor_hbar_visibility_stable_at_window_edge);
     RUN_TEST(editor_hbar_thumb_stable_after_wheel_notch);
     RUN_TEST(editor_hbar_drag_hold_is_stable_on_long_line);

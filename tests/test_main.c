@@ -17,6 +17,7 @@
 #include "test_slot_redistribute.c"
 #include "test_color.c"
 #include "test_utf8.c"
+#include "test_core_utils.c"
 #include "test_sub_arena.c"
 
 // Test files (need mock backend / WLX_Context)
@@ -30,6 +31,15 @@
 #include "test_input_modes.c"
 #include "test_input_multiline.c"
 #include "test_input_scroll.c"
+#include "test_frame_time.c"
+#include "test_focus_release.c"
+#include "test_cursor_shape.c"
+#include "test_tab_traversal.c"
+#include "test_content_axis.c"
+#include "test_overlay.c"
+#include "test_dropdown.c"
+#include "test_tooltip.c"
+#include "test_menu.c"
 #include "test_auto_layout.c"
 
 // fuzz + edge cases
@@ -71,6 +81,10 @@
 // Interaction-aware containers (.interact / .interact_out / hover-variant
 // chrome) and the per-call wlx_button hover override.
 #include "test_interactive_container.c"
+
+// WASM clipboard transport against a test-TU host (owns the wasm header's
+// first include so its cap override applies)
+#include "test_wasm_clipboard.c"
 
 // WASM page-pool allocator
 #include "test_wasm_pool.c"
@@ -230,6 +244,7 @@ int main(void) {
     RUN_SUITE(slot_redistribute);
     RUN_SUITE(color);
     RUN_SUITE(utf8);
+    RUN_SUITE(core_utils);
     RUN_SUITE(sub_arena);
     RUN_SUITE(grid);
     RUN_SUITE(interaction);
@@ -256,6 +271,7 @@ int main(void) {
     RUN_SUITE(slot_style);
     RUN_SUITE(per_side_border);
     RUN_SUITE(interactive_container);
+    RUN_SUITE(wasm_clipboard);
     RUN_SUITE(wasm_pool);
     RUN_SUITE(dyn_offsets);
     RUN_SUITE(text_layout);
@@ -292,5 +308,14 @@ int main(void) {
     RUN_SUITE(editor_geom_cache);
     RUN_SUITE(advances_parity);
     RUN_SUITE(editor_windowed_origin);
+    RUN_SUITE(frame_time);
+    RUN_SUITE(focus_release);
+    RUN_SUITE(cursor_shape);
+    RUN_SUITE(tab_traversal);
+    RUN_SUITE(content_axis);
+    RUN_SUITE(overlay);
+    RUN_SUITE(dropdown);
+    RUN_SUITE(tooltip);
+    RUN_SUITE(menu);
     return test_summary();
 }

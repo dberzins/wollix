@@ -120,6 +120,7 @@ TEST(clip_copy_then_paste_roundtrip) {
 
     clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, clip_command_mod());
     ASSERT_EQ_STR(buf, "Xhello");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(clip_cut_removes_and_copies) {
@@ -141,6 +142,7 @@ TEST(clip_cut_removes_and_copies) {
     clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, clip_command_mod());
     clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, clip_command_mod());
     ASSERT_EQ_STR(buf, "ABCDCD");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(clip_select_all_then_delete) {
@@ -153,6 +155,7 @@ TEST(clip_select_all_then_delete) {
     clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE, 0);
 
     ASSERT_EQ_STR(buf, "");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(clip_paste_truncates_on_utf8_boundary) {
@@ -168,6 +171,7 @@ TEST(clip_paste_truncates_on_utf8_boundary) {
 
     ASSERT_EQ_STR(buf, "\xC3\xA9\xC3\xA9");
     ASSERT_EQ_INT(4, (int)strlen(buf));
+    wlx_context_destroy(&ctx);
 }
 
 TEST(clip_paste_replaces_selection) {
@@ -182,6 +186,7 @@ TEST(clip_paste_replaces_selection) {
     clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, clip_command_mod());
 
     ASSERT_EQ_STR(buf, "ABXY");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(clip_empty_selection_copy_is_noop) {
@@ -197,6 +202,7 @@ TEST(clip_empty_selection_copy_is_noop) {
     // Neither copy nor cut touched the clipboard or the buffer.
     ASSERT_EQ_STR("seed", test_get_clipboard());
     ASSERT_EQ_STR(buf, "AB");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(clip_paste_empty_clipboard_is_noop) {
@@ -209,6 +215,7 @@ TEST(clip_paste_empty_clipboard_is_noop) {
     clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, clip_command_mod());
 
     ASSERT_EQ_STR(buf, "AB");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(clip_masked_field_never_exports_plaintext) {
@@ -229,6 +236,30 @@ TEST(clip_masked_field_never_exports_plaintext) {
     clip_frame_key_pw(&ctx, buf, sizeof(buf), WLX_KEY_X, clip_command_mod());
     ASSERT_EQ_STR("sentinel", test_get_clipboard());
     ASSERT_EQ_STR(buf, "secret");
+    wlx_context_destroy(&ctx);
+}
+
+// The transport must carry spans far beyond the historic 1 KB adapter
+// buffers: a 5,000-byte round-trip through the core helpers must come back
+// byte-identical, not truncated.
+TEST(clip_large_round_trip_grows_transport) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+
+    enum { BIG = 5000 };
+    static char big[BIG + 1];
+    for (size_t i = 0; i < BIG; i++) big[i] = (char)('a' + (i % 23));
+    big[BIG] = '\0';
+
+    wlx_clipboard_set_text(&ctx, big, BIG);
+
+    static char out[BIG + 16];
+    size_t got = wlx_clipboard_get_copy(&ctx, out, sizeof(out));
+    ASSERT_TRUE(got == (size_t)BIG);
+    ASSERT_TRUE(memcmp(out, big, BIG) == 0);
+    ASSERT_TRUE(out[BIG] == '\0');
+
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -236,6 +267,7 @@ TEST(clip_masked_field_never_exports_plaintext) {
 // ============================================================================
 
 SUITE(input_clipboard) {
+    RUN_TEST(clip_large_round_trip_grows_transport);
     RUN_TEST(clip_copy_then_paste_roundtrip);
     RUN_TEST(clip_cut_removes_and_copies);
     RUN_TEST(clip_select_all_then_delete);

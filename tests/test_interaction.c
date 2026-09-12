@@ -41,6 +41,7 @@ TEST(hover_sets_hot) {
     WLX_Interaction s = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     ASSERT_TRUE(s.hover);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(hover_clears_on_leave) {
@@ -59,6 +60,7 @@ TEST(hover_clears_on_leave) {
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     ASSERT_FALSE(s2.hover);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(hover_edge_cases) {
@@ -77,6 +79,7 @@ TEST(hover_edge_cases) {
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     ASSERT_FALSE(s2.hover);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -103,6 +106,7 @@ TEST(click_basic) {
     ASSERT_TRUE(s2.clicked);
     ASSERT_FALSE(s2.pressed);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(click_release_outside) {
@@ -122,6 +126,7 @@ TEST(click_release_outside) {
     ASSERT_FALSE(s2.clicked);
     ASSERT_FALSE(s2.active);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(click_pressed_state) {
@@ -143,6 +148,7 @@ TEST(click_pressed_state) {
     ASSERT_TRUE(s2.active);
     ASSERT_FALSE(s2.clicked);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(click_no_double_active) {
@@ -158,6 +164,7 @@ TEST(click_no_double_active) {
     ASSERT_TRUE(sA1.active);
     ASSERT_FALSE(sB1.active);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(click_outside_no_activate) {
@@ -173,6 +180,7 @@ TEST(click_outside_no_activate) {
     ASSERT_FALSE(s.pressed);
     ASSERT_FALSE(s.clicked);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -191,6 +199,7 @@ TEST(focus_click_to_focus) {
     ASSERT_TRUE(s.just_focused);
     ASSERT_TRUE(s.active);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(focus_persists) {
@@ -210,6 +219,7 @@ TEST(focus_persists) {
     ASSERT_FALSE(s.just_focused);
     ASSERT_TRUE(s.active);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(focus_click_away) {
@@ -229,6 +239,7 @@ TEST(focus_click_away) {
     ASSERT_TRUE(s.just_unfocused);
     ASSERT_FALSE(s.active);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(focus_enter_unfocus) {
@@ -250,6 +261,7 @@ TEST(focus_enter_unfocus) {
     ASSERT_FALSE(s.focused);
     ASSERT_TRUE(s.just_unfocused);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(focus_transfer) {
@@ -274,6 +286,7 @@ TEST(focus_transfer) {
     ASSERT_TRUE(sB2.focused);
     ASSERT_TRUE(sB2.just_focused);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -301,6 +314,7 @@ TEST(focus_escape_unfocus) {
     ASSERT_TRUE(s.just_unfocused);
     ASSERT_FALSE(s.active);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(focus_hold_enter_keeps_focus) {
@@ -324,6 +338,7 @@ TEST(focus_hold_enter_keeps_focus) {
     ASSERT_FALSE(s.just_unfocused);
     ASSERT_TRUE(s.active);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(focus_hold_enter_escape_blurs) {
@@ -346,6 +361,7 @@ TEST(focus_hold_enter_escape_blurs) {
     ASSERT_FALSE(s.focused);
     ASSERT_TRUE(s.just_unfocused);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(focus_hold_enter_click_away_blurs) {
@@ -365,6 +381,7 @@ TEST(focus_hold_enter_click_away_blurs) {
     ASSERT_FALSE(s.focused);
     ASSERT_TRUE(s.just_unfocused);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(enter_blur_no_same_frame_activation) {
@@ -396,7 +413,10 @@ TEST(enter_blur_no_same_frame_activation) {
     ASSERT_FALSE(sB.hover);    // hover gate: field still held active_id
     ASSERT_FALSE(sB.clicked);
     ASSERT_TRUE(sA.just_unfocused);
-    ASSERT_TRUE(sC.hover);     // active_id cleared by the blur
+    // Hover ownership is resolved once at frame begin, while the field
+    // still held active_id - the mid-frame blur re-enables hover on the
+    // NEXT frame (frame 3 below proves activation resumes).
+    ASSERT_FALSE(sC.hover);
     ASSERT_FALSE(sC.clicked);  // Enter was consumed by the blur
     test_frame_end(&ctx);
 
@@ -408,6 +428,7 @@ TEST(enter_blur_no_same_frame_activation) {
     WLX_Interaction sC3 = interact_widget_C(&ctx, r_btn, WLX_INTERACT_HOVER | WLX_INTERACT_KEYBOARD);
     ASSERT_TRUE(sC3.clicked);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(hover_gate_unchanged_while_focused) {
@@ -434,6 +455,7 @@ TEST(hover_gate_unchanged_while_focused) {
     ASSERT_FALSE(sB.hover);
     ASSERT_FALSE(sB.clicked);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -459,6 +481,32 @@ TEST(drag_while_held) {
     ASSERT_TRUE(s2.pressed);
     ASSERT_FALSE(s2.hover);   // mouse is outside
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// A host that fills only mouse_down (mouse_held is its legacy twin per
+// ADR_040) must keep the drag alive across frames.
+TEST(drag_holds_on_mouse_down_without_mouse_held) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+
+    WLX_Input_State in = {0};
+    in.mouse_x = 150; in.mouse_y = 120;
+    in.mouse_down = true; in.mouse_held = false;   // acquire frame
+
+    test_frame_begin_input(&ctx, &in);
+    WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_DRAG);
+    ASSERT_TRUE(s1.active);
+    test_frame_end(&ctx);
+
+    in.mouse_x = 0; in.mouse_y = 0;                 // hold frame, pointer away
+    test_frame_begin_input(&ctx, &in);
+    WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_DRAG);
+    ASSERT_TRUE(s2.active);
+    ASSERT_TRUE(s2.pressed);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(drag_release) {
@@ -477,6 +525,7 @@ TEST(drag_release) {
     ASSERT_FALSE(s.active);
     ASSERT_FALSE(s.pressed);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(drag_no_activate_outside) {
@@ -490,6 +539,7 @@ TEST(drag_no_activate_outside) {
     ASSERT_FALSE(s.active);
     ASSERT_FALSE(s.pressed);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -511,6 +561,7 @@ TEST(keyboard_space) {
     ASSERT_TRUE(s.hover);
     ASSERT_TRUE(s.clicked);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(keyboard_enter) {
@@ -526,6 +577,7 @@ TEST(keyboard_enter) {
                                           WLX_INTERACT_HOVER | WLX_INTERACT_KEYBOARD);
     ASSERT_TRUE(s.clicked);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(keyboard_not_hot) {
@@ -543,6 +595,37 @@ TEST(keyboard_not_hot) {
     ASSERT_FALSE(s.hover);
     ASSERT_FALSE(s.clicked);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// The keyboard gate admits either identity: not hovered but holding the
+// keyboard (Tab) focus activates on Space/Enter.
+TEST(keyboard_focused_not_hot) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    WLX_Rect r = wlx_rect(100, 100, 200, 50);
+
+    // Frame 1 records the candidate; frame 2's Tab lands the ring on it;
+    // frame 3's Space activates it with the pointer far away.
+    test_frame_begin(&ctx, 0, 0, false, false);
+    interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD);
+    test_frame_end(&ctx);
+
+    bool tab[WLX_KEY_COUNT] = {0};
+    tab[WLX_KEY_TAB] = true;
+    test_frame_begin_ex(&ctx, 0, 0, false, false, false, 0.0f, NULL, tab, NULL);
+    WLX_Interaction f = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT((long)f.id, (long)wlx_focused_id(&ctx));
+
+    bool space[WLX_KEY_COUNT] = {0};
+    space[WLX_KEY_SPACE] = true;
+    test_frame_begin_ex(&ctx, 0, 0, false, false, false, 0.0f, NULL, space, NULL);
+    WLX_Interaction s = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD);
+    ASSERT_FALSE(s.hover);
+    ASSERT_TRUE(s.clicked);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -568,6 +651,7 @@ TEST(id_push_pop_unique) {
 
     ASSERT_NEQ_INT((int)s1.id, (int)s2.id);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(id_same_stack_same_id_across_frames) {
@@ -590,6 +674,7 @@ TEST(id_same_stack_same_id_across_frames) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_INT((int)s1.id, (int)s2.id);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(id_different_without_stack) {
@@ -603,6 +688,7 @@ TEST(id_different_without_stack) {
     WLX_Interaction sB = interact_widget_B(&ctx, r, WLX_INTERACT_HOVER);
     ASSERT_NEQ_INT((int)sA.id, (int)sB.id);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(id_same_site_same_id_without_push) {
@@ -617,6 +703,7 @@ TEST(id_same_site_same_id_without_push) {
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     ASSERT_EQ_INT((int)s1.id, (int)s2.id);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(id_same_site_different_push_id) {
@@ -635,6 +722,7 @@ TEST(id_same_site_different_push_id) {
     wlx_pop_id(&ctx);
     ASSERT_NEQ_INT((int)s1.id, (int)s2.id);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -659,6 +747,7 @@ TEST(string_id_different_strings_different_ids) {
 
     ASSERT_NEQ_INT((int)s1.id, (int)s2.id);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(string_id_stable_across_frames) {
@@ -680,6 +769,7 @@ TEST(string_id_stable_across_frames) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_INT((int)s1.id, (int)s2.id);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(string_id_hash_deterministic) {
@@ -741,6 +831,7 @@ TEST(debug_warn_same_site_no_push_id) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_INT(1, _debug_warn_count);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(debug_warn_different_sites_no_warning) {
@@ -756,6 +847,7 @@ TEST(debug_warn_different_sites_no_warning) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_INT(0, _debug_warn_count);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(debug_warn_push_id_suppresses) {
@@ -776,6 +868,7 @@ TEST(debug_warn_push_id_suppresses) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_INT(0, _debug_warn_count);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(debug_warn_resets_each_frame) {
@@ -797,6 +890,7 @@ TEST(debug_warn_resets_each_frame) {
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     test_frame_end(&ctx);
     ASSERT_EQ_INT(0, _debug_warn_count);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(debug_warn_only_once_per_site_per_frame) {
@@ -813,6 +907,7 @@ TEST(debug_warn_only_once_per_site_per_frame) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_INT(1, _debug_warn_count);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(debug_warn_once_same_file_text_different_pointer) {
@@ -827,6 +922,7 @@ TEST(debug_warn_once_same_file_text_different_pointer) {
     wlx_dbg_warn_once(&ctx, file_b, 123, "second warning");
 
     ASSERT_EQ_INT(1, _debug_warn_count);
+    wlx_context_destroy(&ctx);
 }
 
 #endif // WLX_DEBUG
@@ -866,12 +962,14 @@ SUITE(interaction) {
     // Drag
     RUN_TEST(drag_while_held);
     RUN_TEST(drag_release);
+    RUN_TEST(drag_holds_on_mouse_down_without_mouse_held);
     RUN_TEST(drag_no_activate_outside);
 
     // Keyboard
     RUN_TEST(keyboard_space);
     RUN_TEST(keyboard_enter);
     RUN_TEST(keyboard_not_hot);
+    RUN_TEST(keyboard_focused_not_hot);
 
     // ID stack
     RUN_TEST(id_push_pop_unique);

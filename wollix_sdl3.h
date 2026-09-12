@@ -16,7 +16,8 @@
 #include <stdint.h>
 
 static SDL_Renderer *g_wlx_sdl3_renderer = NULL;
-static int g_wlx_sdl3_wheel_delta = 0;
+static float g_wlx_sdl3_wheel_delta = 0.0f;
+static float g_wlx_sdl3_wheel_delta_x = 0.0f;
 static char g_wlx_sdl3_text_input[32] = {0};
 static size_t g_wlx_sdl3_text_len = 0;
 static bool g_wlx_sdl3_event_watch_installed = false;
@@ -35,28 +36,7 @@ static inline float wlx_sdl3_snap_text_coord(float value) {
 
 #ifdef WLX_PERF
 typedef struct {
-    uint64_t frame_index;
-    bool timer_available;
-    uint64_t draw_text_calls;
-    uint64_t measure_text_calls;
-    uint64_t draw_rect_calls;
-    uint64_t draw_rect_lines_calls;
-    uint64_t draw_rect_rounded_calls;
-    uint64_t draw_rect_rounded_lines_calls;
-    uint64_t draw_circle_calls;
-    uint64_t draw_ring_calls;
-    uint64_t draw_line_calls;
-    uint64_t draw_texture_calls;
-    uint64_t begin_scissor_calls;
-    uint64_t end_scissor_calls;
-    uint64_t geometry_submit_calls;
-    uint64_t clip_change_calls;
-    uint64_t text_draw_ns;
-    uint64_t text_measure_ns;
-    uint64_t geometry_ns;
-    uint64_t scissor_ns;
-    uint64_t texture_ns;
-    uint64_t present_ns;
+    WLX_PERF_BACKEND_COMMON_FIELDS;
     uint64_t ttf_get_string_size_calls;
     uint64_t ttf_render_text_blended_calls;
     uint64_t create_texture_from_surface_calls;
@@ -101,8 +81,7 @@ typedef struct {
 typedef struct {
     WLX_Perf_SDL3_Frame current;
     WLX_Perf_SDL3_Frame last;
-    uint64_t present_start_ns;
-    bool capturing;
+    WLX_Perf_Backend_Clock clock;
 } WLX_Perf_SDL3_State;
 
 static WLX_Perf_SDL3_State g_wlx_perf_sdl3_state = {0};
@@ -127,19 +106,22 @@ static inline void wlx_perf_sdl3_install_timer(WLX_Context *ctx) {
 }
 
 static inline void wlx_perf_sdl3_begin_frame(uint64_t frame_index) {
-    wlx_zero_struct(g_wlx_perf_sdl3_state.current);
-    g_wlx_perf_sdl3_state.current.frame_index = frame_index;
-    g_wlx_perf_sdl3_state.current.timer_available = wlx_perf_sdl3_timer_available();
-    g_wlx_perf_sdl3_state.present_start_ns = 0;
-    g_wlx_perf_sdl3_state.capturing = true;
+    WLX_Perf_SDL3_State *st = &g_wlx_perf_sdl3_state;
+    wlx_zero_struct(st->current);
+    st->current.frame_index = frame_index;
+    st->current.timer_available = wlx_perf_sdl3_timer_available();
+    st->clock.timer_available = st->current.timer_available;
+    st->clock.timestamp = wlx_perf_sdl3_timestamp;
+    st->clock.timestamp_user = NULL;
+    wlx_perf_backend_frame_begin(&st->clock);
 }
 
 static inline void wlx_perf_sdl3_end_frame(uint64_t frame_index) {
-    if (!g_wlx_perf_sdl3_state.capturing) return;
-    if (frame_index != 0) g_wlx_perf_sdl3_state.current.frame_index = frame_index;
-    g_wlx_perf_sdl3_state.last = g_wlx_perf_sdl3_state.current;
-    g_wlx_perf_sdl3_state.capturing = false;
-    g_wlx_perf_sdl3_state.present_start_ns = 0;
+    WLX_Perf_SDL3_State *st = &g_wlx_perf_sdl3_state;
+    if (!st->clock.capturing) return;
+    if (frame_index != 0) st->current.frame_index = frame_index;
+    st->last = st->current;
+    wlx_perf_backend_frame_end(&st->clock);
 }
 
 static inline void wlx_perf_sdl3_reset(void) {
@@ -150,39 +132,30 @@ static inline const WLX_Perf_SDL3_Frame *wlx_perf_sdl3_get_last_frame(void) {
     return &g_wlx_perf_sdl3_state.last;
 }
 
-static inline void wlx_perf_sdl3_inc(uint64_t *counter) {
-    if (!g_wlx_perf_sdl3_state.capturing) return;
-    (*counter)++;
-}
-
-static inline uint64_t wlx_perf_sdl3_time_begin(void) {
-    if (!g_wlx_perf_sdl3_state.capturing || !g_wlx_perf_sdl3_state.current.timer_available) return 0;
-    return wlx_perf_sdl3_timestamp(NULL);
-}
-
-static inline void wlx_perf_sdl3_time_end(uint64_t start_ns, uint64_t *total_ns) {
-    uint64_t end_ns;
-
-    if (!g_wlx_perf_sdl3_state.capturing || !g_wlx_perf_sdl3_state.current.timer_available) return;
-    end_ns = wlx_perf_sdl3_timestamp(NULL);
-    if (end_ns >= start_ns) *total_ns += end_ns - start_ns;
-}
-
 static inline void wlx_perf_sdl3_present_begin(void) {
-    g_wlx_perf_sdl3_state.present_start_ns = wlx_perf_sdl3_time_begin();
+    wlx_perf_backend_present_begin(&g_wlx_perf_sdl3_state.clock);
 }
 
 static inline void wlx_perf_sdl3_present_end(void) {
-    wlx_perf_sdl3_time_end(g_wlx_perf_sdl3_state.present_start_ns,
+    wlx_perf_backend_present_end(&g_wlx_perf_sdl3_state.clock,
         &g_wlx_perf_sdl3_state.current.present_ns);
-    g_wlx_perf_sdl3_state.present_start_ns = 0;
 }
 
 #define WLX_SDL3_PERF_INC(field) \
-    wlx_perf_sdl3_inc(&g_wlx_perf_sdl3_state.current.field)
+    wlx_perf_backend_inc(&g_wlx_perf_sdl3_state.clock, \
+                         &g_wlx_perf_sdl3_state.current.field)
 #else
 #define WLX_SDL3_PERF_INC(field) ((void)0)
 #endif
+
+// Timed scope of one backend callback body: END (one per exit path)
+// accumulates into the named duration field; both are no-ops without
+// WLX_PERF.
+#define WLX_SDL3_SCOPE_BEGIN() \
+    WLX_PERF_SCOPE_BEGIN(&g_wlx_perf_sdl3_state.clock)
+#define WLX_SDL3_SCOPE_END(field) \
+    WLX_PERF_SCOPE_END(&g_wlx_perf_sdl3_state.clock, \
+                       &g_wlx_perf_sdl3_state.current.field)
 
 static inline SDL_Color wlx_sdl3_to_color(WLX_Color c) {
     return (SDL_Color){ c.r, c.g, c.b, c.a };
@@ -252,6 +225,19 @@ static inline SDL_Scancode wlx_sdl3_to_scancode(WLX_Key_Code key) {
         case WLX_KEY_END: return SDL_SCANCODE_END;
         case WLX_KEY_PAGE_UP: return SDL_SCANCODE_PAGEUP;
         case WLX_KEY_PAGE_DOWN: return SDL_SCANCODE_PAGEDOWN;
+        case WLX_KEY_F1: return SDL_SCANCODE_F1;
+        case WLX_KEY_F2: return SDL_SCANCODE_F2;
+        case WLX_KEY_F3: return SDL_SCANCODE_F3;
+        case WLX_KEY_F4: return SDL_SCANCODE_F4;
+        case WLX_KEY_F5: return SDL_SCANCODE_F5;
+        case WLX_KEY_F6: return SDL_SCANCODE_F6;
+        case WLX_KEY_F7: return SDL_SCANCODE_F7;
+        case WLX_KEY_F8: return SDL_SCANCODE_F8;
+        case WLX_KEY_F9: return SDL_SCANCODE_F9;
+        case WLX_KEY_F10: return SDL_SCANCODE_F10;
+        case WLX_KEY_F11: return SDL_SCANCODE_F11;
+        case WLX_KEY_F12: return SDL_SCANCODE_F12;
+        case WLX_KEY_INSERT: return SDL_SCANCODE_INSERT;
         default: return SDL_SCANCODE_UNKNOWN;
     }
 }
@@ -263,14 +249,33 @@ static bool wlx_sdl3_event_watch(void *userdata, SDL_Event *event) {
 
     switch (event->type) {
         case SDL_EVENT_MOUSE_WHEEL: {
-            if (event->wheel.y > 0) g_wlx_sdl3_wheel_delta += 1;
-            else if (event->wheel.y < 0) g_wlx_sdl3_wheel_delta -= 1;
+            // Raw float detents on both axes: the input contract forbids
+            // adapter-side quantizing, so precision trackpads keep their
+            // fractions. Flipped ("natural") scrolling reports inverted
+            // values; undo it so positive stays up.
+            float wy = event->wheel.y;
+            float wx = event->wheel.x;
+            if (event->wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
+                wy = -wy;
+                wx = -wx;
+            }
+            g_wlx_sdl3_wheel_delta   += wy;
+            g_wlx_sdl3_wheel_delta_x += wx;
             break;
         }
         case SDL_EVENT_TEXT_INPUT: {
+            // Append whole UTF-8 sequences only: a codepoint that does not
+            // fit in the remaining room is dropped with the rest of the
+            // event text, never split at the byte cap.
             const char *src = event->text.text;
-            while (*src != '\0' && g_wlx_sdl3_text_len < sizeof(g_wlx_sdl3_text_input) - 1) {
-                g_wlx_sdl3_text_input[g_wlx_sdl3_text_len++] = *src++;
+            size_t room = sizeof(g_wlx_sdl3_text_input) - 1;
+            while (*src != '\0') {
+                size_t seq = 1;
+                while (src[seq] != '\0' && ((unsigned char)src[seq] & 0xC0) == 0x80) seq++;
+                if (g_wlx_sdl3_text_len + seq > room) break;
+                memcpy(&g_wlx_sdl3_text_input[g_wlx_sdl3_text_len], src, seq);
+                g_wlx_sdl3_text_len += seq;
+                src += seq;
             }
             g_wlx_sdl3_text_input[g_wlx_sdl3_text_len] = '\0';
             break;
@@ -299,9 +304,14 @@ static inline void wlx_process_sdl3_input(WLX_Context *ctx) {
     assert(ctx != NULL);
 
     static bool prev_mouse_down = false;
+    static bool prev_right_down = false;
+    static bool prev_middle_down = false;
 
     SDL_PumpEvents();
 
+    // Touch arrives through the same mouse state: SDL3 synthesizes mouse
+    // events for single-finger touch by default (SDL_TOUCH_MOUSEID), so no
+    // finger-event handling is needed here.
     float mx = 0.0f;
     float my = 0.0f;
     SDL_MouseButtonFlags mouse = SDL_GetMouseState(&mx, &my);
@@ -311,6 +321,12 @@ static inline void wlx_process_sdl3_input(WLX_Context *ctx) {
     ctx->input.mouse_clicked = ctx->input.mouse_down && !prev_mouse_down;
     ctx->input.mouse_held = ctx->input.mouse_down;
     prev_mouse_down = ctx->input.mouse_down;
+    ctx->input.mouse_right_down = (mouse & SDL_BUTTON_RMASK) != 0;
+    ctx->input.mouse_right_clicked = ctx->input.mouse_right_down && !prev_right_down;
+    prev_right_down = ctx->input.mouse_right_down;
+    ctx->input.mouse_middle_down = (mouse & SDL_BUTTON_MMASK) != 0;
+    ctx->input.mouse_middle_clicked = ctx->input.mouse_middle_down && !prev_middle_down;
+    prev_middle_down = ctx->input.mouse_middle_down;
 
     const bool *state = SDL_GetKeyboardState(NULL);
     for (int k = 0; k < WLX_KEY_COUNT; k++) {
@@ -336,7 +352,9 @@ static inline void wlx_process_sdl3_input(WLX_Context *ctx) {
     if (mod & SDL_KMOD_GUI)   ctx->input.modifiers |= WLX_MOD_SUPER;
 
     ctx->input.wheel_delta = g_wlx_sdl3_wheel_delta;
-    g_wlx_sdl3_wheel_delta = 0;
+    g_wlx_sdl3_wheel_delta = 0.0f;
+    ctx->input.wheel_delta_x = g_wlx_sdl3_wheel_delta_x;
+    g_wlx_sdl3_wheel_delta_x = 0.0f;
 
     wlx_zero_struct(ctx->input.text_input);
     if (g_wlx_sdl3_text_len > 0) {
@@ -356,9 +374,7 @@ static inline void wlx_sdl3_draw_texture(WLX_Texture texture, WLX_Rect src, WLX_
     SDL_Texture *tex = (SDL_Texture *)(uintptr_t)texture.handle;
     assert(tex != NULL && "WLX_Texture.handle must contain SDL_Texture*");
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(draw_texture_calls);
 
     SDL_SetTextureColorMod(tex, tint.r, tint.g, tint.b);
@@ -368,9 +384,7 @@ static inline void wlx_sdl3_draw_texture(WLX_Texture texture, WLX_Rect src, WLX_
     SDL_FRect d = wlx_sdl3_to_frect(dst);
     WLX_SDL3_PERF_INC(render_texture_calls);
     SDL_RenderTexture(g_wlx_sdl3_renderer, tex, &s, &d);
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.texture_ns);
-#endif
+    WLX_SDL3_SCOPE_END(texture_ns);
 }
 
 #define WLX_SDL3_MAX_CORNER_SEGMENTS 32
@@ -505,14 +519,10 @@ static inline void wlx_sdl3_draw_rect_impl(WLX_Rect rect, WLX_Color color) {
 static inline void wlx_sdl3_draw_rect(WLX_Rect rect, WLX_Color color) {
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(draw_rect_calls);
     wlx_sdl3_draw_rect_impl(rect, color);
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.geometry_ns);
-#endif
+    WLX_SDL3_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_sdl3_draw_rect_lines_impl(WLX_Rect rect, float thick, WLX_Color color) {
@@ -530,14 +540,10 @@ static inline void wlx_sdl3_draw_rect_lines_impl(WLX_Rect rect, float thick, WLX
 static inline void wlx_sdl3_draw_rect_lines(WLX_Rect rect, float thick, WLX_Color color) {
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(draw_rect_lines_calls);
     wlx_sdl3_draw_rect_lines_impl(rect, thick, color);
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.geometry_ns);
-#endif
+    WLX_SDL3_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_sdl3_draw_rect_rounded(
@@ -545,17 +551,13 @@ static inline void wlx_sdl3_draw_rect_rounded(
 {
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(draw_rect_rounded_calls);
 
     float r = wlx_sdl3_corner_radius(rect, roundness);
     if (r < 0.5f) {
         wlx_sdl3_draw_rect_impl(rect, color);
-#ifdef WLX_PERF
-        wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.geometry_ns);
-#endif
+        WLX_SDL3_SCOPE_END(geometry_ns);
         return;
     }
 
@@ -579,9 +581,7 @@ static inline void wlx_sdl3_draw_rect_rounded(
     WLX_SDL3_PERF_INC(geometry_submit_calls);
     WLX_SDL3_PERF_INC(render_geometry_calls);
     SDL_RenderGeometry(g_wlx_sdl3_renderer, NULL, verts, nv, indices, perimeter_count * 3);
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.geometry_ns);
-#endif
+    WLX_SDL3_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_sdl3_draw_rect_rounded_lines(
@@ -589,17 +589,13 @@ static inline void wlx_sdl3_draw_rect_rounded_lines(
 {
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(draw_rect_rounded_lines_calls);
 
     float r = wlx_sdl3_corner_radius(rect, roundness);
     if (r < 0.5f) {
         wlx_sdl3_draw_rect_lines_impl(rect, thick, color);
-#ifdef WLX_PERF
-        wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.geometry_ns);
-#endif
+        WLX_SDL3_SCOPE_END(geometry_ns);
         return;
     }
 
@@ -624,17 +620,13 @@ static inline void wlx_sdl3_draw_rect_rounded_lines(
     WLX_SDL3_PERF_INC(geometry_submit_calls);
     WLX_SDL3_PERF_INC(render_geometry_calls);
     SDL_RenderGeometry(g_wlx_sdl3_renderer, NULL, verts, nv, indices, perimeter_count * 6);
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.geometry_ns);
-#endif
+    WLX_SDL3_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_sdl3_draw_circle(float cx, float cy, float radius, int segments, WLX_Color color) {
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(draw_circle_calls);
 
     segments = wlx_sdl3_clamp_segments(segments);
@@ -649,18 +641,14 @@ static inline void wlx_sdl3_draw_circle(float cx, float cy, float radius, int se
     WLX_SDL3_PERF_INC(geometry_submit_calls);
     WLX_SDL3_PERF_INC(render_geometry_calls);
     SDL_RenderGeometry(g_wlx_sdl3_renderer, NULL, verts, segments + 1, indices, segments * 3);
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.geometry_ns);
-#endif
+    WLX_SDL3_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_sdl3_draw_ring(float cx, float cy, float inner_r, float outer_r,
         int segments, WLX_Color color) {
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(draw_ring_calls);
 
     segments = wlx_sdl3_clamp_segments(segments);
@@ -675,17 +663,13 @@ static inline void wlx_sdl3_draw_ring(float cx, float cy, float inner_r, float o
     WLX_SDL3_PERF_INC(geometry_submit_calls);
     WLX_SDL3_PERF_INC(render_geometry_calls);
     SDL_RenderGeometry(g_wlx_sdl3_renderer, NULL, verts, segments * 2, indices, segments * 6);
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.geometry_ns);
-#endif
+    WLX_SDL3_SCOPE_END(geometry_ns);
 }
 
 static inline void wlx_sdl3_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color color) {
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(draw_line_calls);
 
     WLX_SDL3_PERF_INC(set_draw_blend_mode_calls);
@@ -712,9 +696,7 @@ static inline void wlx_sdl3_draw_line(float x1, float y1, float x2, float y2, fl
         WLX_SDL3_PERF_INC(render_line_calls);
         SDL_RenderLine(g_wlx_sdl3_renderer, x1, y1, x2, y2);
     }
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.geometry_ns);
-#endif
+    WLX_SDL3_SCOPE_END(geometry_ns);
 }
 
 #ifdef SDL_TTF_VERSION
@@ -804,12 +786,12 @@ typedef struct {
     uint64_t  last_use;
 } WLX_SDL3_Font_Variant;
 
-static WLX_SDL3_Font_Variant wlx_sdl3_font_variants[WLX_SDL3_FONT_VARIANT_CAP] = {0};
+static WLX_SDL3_Font_Variant g_wlx_sdl3_font_variants[WLX_SDL3_FONT_VARIANT_CAP] = {0};
 static uint64_t g_wlx_sdl3_font_variant_cursor = 0;
 #endif
 
 // Backend-owned retained TTF_Text cache.
-// One entry per (font_variant, text bytes) pair. Color is not part of the key; 
+// One entry per (font_variant, text bytes) pair. Color is not part of the key;
 // TTF_SetTextColor is applied per draw with a
 // last_color_rgba32 redundancy. Each entry stores the
 // resolved variant pointer (never the base font), the
@@ -865,8 +847,7 @@ typedef struct {
     uint64_t  last_use;
 } WLX_SDL3_Text_Cache_Entry;
 
-static WLX_SDL3_Text_Cache_Entry 
-    wlx_sdl3_text_cache[WLX_SDL3_TEXT_CACHE_CAP] = {0};
+static WLX_SDL3_Text_Cache_Entry g_wlx_sdl3_text_cache[WLX_SDL3_TEXT_CACHE_CAP] = {0};
 static uint64_t g_wlx_sdl3_text_cache_cursor = 0;
 #endif
 
@@ -882,7 +863,7 @@ static uint64_t g_wlx_sdl3_text_cache_cursor = 0;
 // LRU entry if the table is full, calls TTF_CopyFont, applies the size and
 // spacing once, and publishes the entry.
 static inline TTF_Font *wlx_sdl3_get_font_variant(TTF_Font *base_font, int font_size, int spacing) {
-    
+
     if (base_font == NULL || font_size <= 0) {
         WLX_SDL3_PERF_INC(font_variant_fallback_resolutions);
         return NULL;
@@ -895,10 +876,10 @@ static inline TTF_Font *wlx_sdl3_get_font_variant(TTF_Font *base_font, int font_
 
     int      free_slot = -1;
     int      lru_slot = 0;
-    uint64_t lru_stamp = wlx_sdl3_font_variants[0].last_use;
+    uint64_t lru_stamp = g_wlx_sdl3_font_variants[0].last_use;
 
     for (int i = 0; i < WLX_SDL3_FONT_VARIANT_CAP; ++i) {
-        WLX_SDL3_Font_Variant *e = &wlx_sdl3_font_variants[i];
+        WLX_SDL3_Font_Variant *e = &g_wlx_sdl3_font_variants[i];
 
         if (e->base_font == base_font
                 && e->font_size == font_size
@@ -932,7 +913,7 @@ static inline TTF_Font *wlx_sdl3_get_font_variant(TTF_Font *base_font, int font_
     WLX_SDL3_PERF_INC(font_variant_misses);
 
     int slot = (free_slot >= 0) ? free_slot : lru_slot;
-    WLX_SDL3_Font_Variant *e = &wlx_sdl3_font_variants[slot];
+    WLX_SDL3_Font_Variant *e = &g_wlx_sdl3_font_variants[slot];
     if (e->variant != NULL) {
         // LRU eviction: evict any retained TTF_Text dependents before
         // releasing the variant they reference.
@@ -975,18 +956,10 @@ static inline TTF_Font *wlx_sdl3_get_font_variant(TTF_Font *base_font, int font_
 }
 
 #if WLX_SDL3_HAS_TEXT_CACHE
-// FNV-1a 64-bit hash over the byte range [text, text+len). Used as the text
-// portion of the retained TTF_Text cache key. Hash matches alone are not
-// sufficient for a hit; entries also store text_len and the original bytes
-// for collision-rejecting verification.
-static inline uint64_t wlx_sdl3_text_cache_hash(const char *text, size_t len) {
-    uint64_t h = 0xcbf29ce484222325ULL;
-    for (size_t i = 0; i < len; ++i) {
-        h ^= (uint64_t)(unsigned char)text[i];
-        h *= 0x100000001b3ULL;
-    }
-    return h;
-}
+// The text portion of the retained TTF_Text cache key is the core's
+// wlx_hash_fnv1a64. Hash matches alone are not sufficient for a hit;
+// entries also store text_len and the original bytes for
+// collision-rejecting verification.
 
 // Bytes accessor: inline buffer when text fits, heap allocation otherwise.
 static inline const char *wlx_sdl3_text_cache_entry_bytes(const WLX_SDL3_Text_Cache_Entry *e) {
@@ -1003,7 +976,7 @@ static inline void wlx_sdl3_text_cache_release_bytes(WLX_SDL3_Text_Cache_Entry *
 }
 
 // Destroy the retained TTF_Text and any heap-owned bytes for an entry, then
-// zero it. Bumps both text_cache_destroys counter and the 
+// zero it. Bumps both text_cache_destroys counter and the
 // ttf_text_destroys counter so totals stay consistent. Callers that need
 // eviction or invalidation accounting must increment the appropriate counter
 // before calling.
@@ -1025,7 +998,7 @@ static inline void wlx_sdl3_text_cache_destroy_entry(WLX_SDL3_Text_Cache_Entry *
 static inline void wlx_sdl3_destroy_text_cache(void) {
 #if WLX_SDL3_HAS_TEXT_CACHE
     for (int i = 0; i < WLX_SDL3_TEXT_CACHE_CAP; ++i) {
-        WLX_SDL3_Text_Cache_Entry *e = &wlx_sdl3_text_cache[i];
+        WLX_SDL3_Text_Cache_Entry *e = &g_wlx_sdl3_text_cache[i];
         if (e->text != NULL) {
             wlx_sdl3_text_cache_destroy_entry(e);
         } else if (e->heap_bytes != NULL) {
@@ -1047,7 +1020,7 @@ static inline void wlx_sdl3_evict_text_cache_for_variant(TTF_Font *variant) {
 #if WLX_SDL3_HAS_TEXT_CACHE
     if (variant == NULL) return;
     for (int i = 0; i < WLX_SDL3_TEXT_CACHE_CAP; ++i) {
-        WLX_SDL3_Text_Cache_Entry *e = &wlx_sdl3_text_cache[i];
+        WLX_SDL3_Text_Cache_Entry *e = &g_wlx_sdl3_text_cache[i];
         if (e->text != NULL && e->font_variant == variant) {
             WLX_SDL3_PERF_INC(text_cache_variant_invalidation_evictions);
             wlx_sdl3_text_cache_destroy_entry(e);
@@ -1096,29 +1069,24 @@ static inline WLX_SDL3_Text_Cache_Entry *wlx_sdl3_get_text_cache_entry(
 
     WLX_SDL3_PERF_INC(text_cache_lookups);
 
-    uint64_t text_hash   = wlx_sdl3_text_cache_hash(text, effective_len);
+    uint64_t text_hash   = wlx_hash_fnv1a64(text, effective_len);
     Uint32   variant_gen = TTF_GetFontGeneration(variant);
 
     int      free_slot = -1;
     int      lru_slot  = 0;
-    uint64_t lru_stamp = wlx_sdl3_text_cache[0].last_use;
+    uint64_t lru_stamp = g_wlx_sdl3_text_cache[0].last_use;
 
-    // Code is evicting (removing) cache entries that collide (same hash, font, etc., 
-    // but different text or font generation) to ensure that only valid, 
-    // non-colliding entries remain in the cache. This prevents stale or mismatched 
-    // entries from being reused, so every cache slot is either empty, a valid match, 
-    // or available for new data. This keeps the cache consistent and avoids collisions.
-   
-    // NOTE: If this turns out to be a performance bottleneck due to high collision rates, 
-    // consider using set-associative cache techniques or a more robust hashing strategy to 
-    // reduce collisions.
+    // A collision (same hash, different text or font generation) evicts the
+    // colliding entry, so a slot is empty, a verified match, or free; a
+    // set-associative table would cut collisions if they ever show in the
+    // perf counters.
     for (int i = 0; i < WLX_SDL3_TEXT_CACHE_CAP; ++i) {
-        WLX_SDL3_Text_Cache_Entry *e = &wlx_sdl3_text_cache[i];
+        WLX_SDL3_Text_Cache_Entry *e = &g_wlx_sdl3_text_cache[i];
 
         if (e->text != NULL
             && e->font_variant == variant
             && e->slice_len == effective_len
-            && e->text_hash == text_hash) 
+            && e->text_hash == text_hash)
         {
             const char *stored = wlx_sdl3_text_cache_entry_bytes(e);
             if (e->text_len != effective_len
@@ -1149,7 +1117,7 @@ static inline WLX_SDL3_Text_Cache_Entry *wlx_sdl3_get_text_cache_entry(
     WLX_SDL3_PERF_INC(text_cache_misses);
 
     int slot = (free_slot >= 0) ? free_slot : lru_slot;
-    WLX_SDL3_Text_Cache_Entry *e = &wlx_sdl3_text_cache[slot];
+    WLX_SDL3_Text_Cache_Entry *e = &g_wlx_sdl3_text_cache[slot];
     if (e->text != NULL) {
         WLX_SDL3_PERF_INC(text_cache_evictions);
         wlx_sdl3_text_cache_destroy_entry(e);
@@ -1350,7 +1318,7 @@ static inline void wlx_sdl3_measure_ttf_text(
 static inline void wlx_sdl3_destroy_font_variants(void) {
 #if WLX_SDL3_HAS_FONT_VARIANTS
     for (int i = 0; i < WLX_SDL3_FONT_VARIANT_CAP; ++i) {
-        WLX_SDL3_Font_Variant *e = &wlx_sdl3_font_variants[i];
+        WLX_SDL3_Font_Variant *e = &g_wlx_sdl3_font_variants[i];
         if (e->variant != NULL) TTF_CloseFont(e->variant);
         wlx_zero_struct(*e);
     }
@@ -1380,18 +1348,14 @@ static inline void wlx_sdl3_draw_text(const char *text, float x, float y, WLX_Te
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
     if (text == NULL || text[0] == '\0') return;
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(draw_text_calls);
 
 #ifdef SDL_TTF_VERSION
     if (style.font != WLX_FONT_DEFAULT) {
         TTF_Font *font = (TTF_Font *)(uintptr_t)style.font;
         wlx_sdl3_draw_ttf_text(font, text, 0, x, y, style);
-#ifdef WLX_PERF
-        wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.text_draw_ns);
-#endif
+        WLX_SDL3_SCOPE_END(text_draw_ns);
         return;
     }
 #endif
@@ -1403,27 +1367,21 @@ static inline void wlx_sdl3_draw_text(const char *text, float x, float y, WLX_Te
     SDL_SetRenderDrawColor(g_wlx_sdl3_renderer, sc.r, sc.g, sc.b, sc.a);
     SDL_RenderDebugText(g_wlx_sdl3_renderer,
         wlx_sdl3_snap_text_coord(x), wlx_sdl3_snap_text_coord(y), text);
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.text_draw_ns);
-#endif
+    WLX_SDL3_SCOPE_END(text_draw_ns);
 }
 
 static inline void wlx_sdl3_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
     if (out_w == NULL || out_h == NULL) return;
     if (text == NULL) text = "";
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(measure_text_calls);
 
 #ifdef SDL_TTF_VERSION
     if (style.font != WLX_FONT_DEFAULT) {
         TTF_Font *base_font = (TTF_Font *)(uintptr_t)style.font;
         wlx_sdl3_measure_ttf_text(base_font, text, 0, style, out_w, out_h);
-#ifdef WLX_PERF
-        wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.text_measure_ns);
-#endif
+        WLX_SDL3_SCOPE_END(text_measure_ns);
         return;
     }
 #endif
@@ -1436,14 +1394,13 @@ static inline void wlx_sdl3_measure_text(const char *text, WLX_Text_Style style,
     if (len == 0) {
         *out_w = glyph_w;
         *out_h = glyph_h;
+        WLX_SDL3_SCOPE_END(text_measure_ns);
         return;
     }
 
     *out_w = (float)len * glyph_w;
     *out_h = glyph_h;
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.text_measure_ns);
-#endif
+    WLX_SDL3_SCOPE_END(text_measure_ns);
 }
 
 // Slice-aware draw: accepts explicit byte length.
@@ -1454,58 +1411,38 @@ static inline void wlx_sdl3_draw_text_slice(
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
     if (text == NULL || slice_len == 0) return;
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(draw_text_calls);
 
 #ifdef SDL_TTF_VERSION
     if (style.font != WLX_FONT_DEFAULT) {
         TTF_Font *font = (TTF_Font *)(uintptr_t)style.font;
         wlx_sdl3_draw_ttf_text(font, text, slice_len, x, y, style);
-#ifdef WLX_PERF
-        wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.text_draw_ns);
-#endif
+        WLX_SDL3_SCOPE_END(text_draw_ns);
         return;
     }
 #endif
 
     // Fallback: debug font (SDL_RenderDebugText requires null-terminated).
-    if (text[slice_len] == '\0') {
-        SDL_Color sc = wlx_sdl3_to_color(style.color);
-        WLX_SDL3_PERF_INC(set_draw_blend_mode_calls);
-        SDL_SetRenderDrawBlendMode(g_wlx_sdl3_renderer, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderDrawColor(g_wlx_sdl3_renderer, sc.r, sc.g, sc.b, sc.a);
-        SDL_RenderDebugText(g_wlx_sdl3_renderer,
-            wlx_sdl3_snap_text_coord(x), wlx_sdl3_snap_text_coord(y), text);
-    } else {
-        char stack_buf[WLX_TEXT_RANGE_STACK_CAP];
-        char *buf = stack_buf;
-        bool heap_buf = false;
-        if (slice_len + 1 > sizeof(stack_buf)) {
-            buf = (char *)wlx_alloc(slice_len + 1);
-            if (buf == NULL) {
-#ifdef WLX_PERF
-                wlx_perf_sdl3_time_end(perf_start_ns,
-                    &g_wlx_perf_sdl3_state.current.text_draw_ns);
-#endif
-                return;
-            }
-            heap_buf = true;
+    // Always copy, through the core's WLX_CStr_Tmp: probing text[slice_len]
+    // for an existing terminator would read one byte past the slice, and
+    // spans may end exactly at the end of an allocation.
+    {
+        WLX_CStr_Tmp tmp;
+        const char *cstr = wlx_cstr_tmp_begin(&tmp, text, slice_len);
+        if (cstr == NULL) {
+            WLX_SDL3_SCOPE_END(text_draw_ns);
+            return;
         }
-        memcpy(buf, text, slice_len);
-        buf[slice_len] = '\0';
         SDL_Color sc = wlx_sdl3_to_color(style.color);
         WLX_SDL3_PERF_INC(set_draw_blend_mode_calls);
         SDL_SetRenderDrawBlendMode(g_wlx_sdl3_renderer, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(g_wlx_sdl3_renderer, sc.r, sc.g, sc.b, sc.a);
         SDL_RenderDebugText(g_wlx_sdl3_renderer,
-            wlx_sdl3_snap_text_coord(x), wlx_sdl3_snap_text_coord(y), buf);
-        if (heap_buf) wlx_free(buf);
+            wlx_sdl3_snap_text_coord(x), wlx_sdl3_snap_text_coord(y), cstr);
+        wlx_cstr_tmp_end(&tmp);
     }
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.text_draw_ns);
-#endif
+    WLX_SDL3_SCOPE_END(text_draw_ns);
 }
 
 // Slice-aware measure: accepts explicit byte length.
@@ -1522,19 +1459,14 @@ static inline void wlx_sdl3_measure_text_slice(
     // the document. Point the whole-string convention at an empty string.
     if (text == NULL || slice_len == 0) text = "";
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(measure_text_calls);
 
 #ifdef SDL_TTF_VERSION
     if (style.font != WLX_FONT_DEFAULT) {
         TTF_Font *base_font = (TTF_Font *)(uintptr_t)style.font;
         wlx_sdl3_measure_ttf_text(base_font, text, slice_len, style, out_w, out_h);
-#ifdef WLX_PERF
-        wlx_perf_sdl3_time_end(perf_start_ns,
-            &g_wlx_perf_sdl3_state.current.text_measure_ns);
-#endif
+        WLX_SDL3_SCOPE_END(text_measure_ns);
         return;
     }
 #endif
@@ -1552,9 +1484,7 @@ static inline void wlx_sdl3_measure_text_slice(
         *out_w = (float)codepoints * glyph_w;
         *out_h = glyph_h;
     }
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.text_measure_ns);
-#endif
+    WLX_SDL3_SCOPE_END(text_measure_ns);
 }
 
 // Cumulative advances at each requested unit end of one run, read from the
@@ -1575,9 +1505,7 @@ static inline size_t wlx_sdl3_measure_text_advances(const char *text, size_t len
     if (text == NULL || unit_ends == NULL || out_advances == NULL || unit_count == 0)
         return 0;
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(measure_text_calls);
 
 #ifdef SDL_TTF_VERSION
@@ -1628,10 +1556,7 @@ static inline size_t wlx_sdl3_measure_text_advances(const char *text, size_t len
                 if (transient) TTF_DestroyText(ttext);
             }
         }
-#ifdef WLX_PERF
-        wlx_perf_sdl3_time_end(perf_start_ns,
-            &g_wlx_perf_sdl3_state.current.text_measure_ns);
-#endif
+        WLX_SDL3_SCOPE_END(text_measure_ns);
         return filled;
     }
 #endif
@@ -1649,18 +1574,14 @@ static inline size_t wlx_sdl3_measure_text_advances(const char *text, size_t len
         }
         out_advances[u] = (float)codepoints * glyph_w;
     }
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.text_measure_ns);
-#endif
+    WLX_SDL3_SCOPE_END(text_measure_ns);
     return unit_count;
 }
 
 static inline void wlx_sdl3_begin_scissor(WLX_Rect rect) {
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(begin_scissor_calls);
     WLX_SDL3_PERF_INC(clip_change_calls);
 
@@ -1672,24 +1593,18 @@ static inline void wlx_sdl3_begin_scissor(WLX_Rect rect) {
     };
     WLX_SDL3_PERF_INC(set_clip_rect_calls);
     SDL_SetRenderClipRect(g_wlx_sdl3_renderer, &r);
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.scissor_ns);
-#endif
+    WLX_SDL3_SCOPE_END(scissor_ns);
 }
 
 static inline void wlx_sdl3_end_scissor(void) {
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
-#ifdef WLX_PERF
-    uint64_t perf_start_ns = wlx_perf_sdl3_time_begin();
-#endif
+    WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(end_scissor_calls);
     WLX_SDL3_PERF_INC(clip_change_calls);
     WLX_SDL3_PERF_INC(set_clip_rect_calls);
     SDL_SetRenderClipRect(g_wlx_sdl3_renderer, NULL);
-#ifdef WLX_PERF
-    wlx_perf_sdl3_time_end(perf_start_ns, &g_wlx_perf_sdl3_state.current.scissor_ns);
-#endif
+    WLX_SDL3_SCOPE_END(scissor_ns);
 }
 
 static inline float wlx_sdl3_get_frame_time(void) {
@@ -1706,27 +1621,67 @@ static inline float wlx_sdl3_get_frame_time(void) {
     return frame_time;
 }
 
+// Upper bound for the clipboard transport buffers; text beyond it is
+// truncated at a UTF-8 boundary. Overridable before include.
+#ifndef WLX_SDL3_CLIPBOARD_MAX
+#define WLX_SDL3_CLIPBOARD_MAX (16u * 1024u * 1024u)
+#endif
+
+
 static inline const char *wlx_sdl3_clipboard_get(void) {
-    // SDL_GetClipboardText returns a heap string the caller must free. Copy it
-    // into a static buffer and free immediately so the returned pointer is
-    // borrowed and valid until the next clipboard call (per the backend contract).
-    static char buf[1024];
+    // SDL_GetClipboardText returns a heap string the caller must free. Copy
+    // it into the reused buffer and free immediately so the returned pointer
+    // is borrowed and valid until the next clipboard call (per the backend
+    // contract), without capping the text at the transport.
+    static char *buf = NULL;
+    static size_t cap = 0;
     char *text = SDL_GetClipboardText();
-    if (text == NULL) { buf[0] = '\0'; return buf; }
-    size_t len = strlen(text);
-    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
-    memcpy(buf, text, len);
+    size_t len = text != NULL ? strlen(text) : 0;
+    if (len > WLX_SDL3_CLIPBOARD_MAX - 1) {
+        len = WLX_SDL3_CLIPBOARD_MAX - 1;
+        len = wlx_utf8_floor(text, len);
+    }
+    if (!wlx_buf_reserve(&buf, &cap, len + 1)) {
+        if (text != NULL) SDL_free(text);
+        return "";
+    }
+    if (len > 0) memcpy(buf, text, len);
     buf[len] = '\0';
-    SDL_free(text);
+    if (text != NULL) SDL_free(text);
     return buf;
 }
 
 static inline void wlx_sdl3_clipboard_set(const char *text, size_t len) {
-    static char buf[1024];
-    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+    // SDL_SetClipboardText needs a NUL-terminated string; same core
+    // wlx_buf_reserve grow-and-reuse discipline as the get side.
+    static char *buf = NULL;
+    static size_t cap = 0;
+    if (text == NULL) return;
+    if (len > WLX_SDL3_CLIPBOARD_MAX - 1) {
+        len = WLX_SDL3_CLIPBOARD_MAX - 1;
+        len = wlx_utf8_floor(text, len);
+    }
+    if (!wlx_buf_reserve(&buf, &cap, len + 1)) return;
     memcpy(buf, text, len);
     buf[len] = '\0';
     SDL_SetClipboardText(buf);
+}
+
+// SDL cursors are objects: create each system cursor on first use and keep
+// it for the process lifetime (the OS reclaims them at exit, like the other
+// adapter globals). The core calls this only when the shape changes. The
+// enum is append-only; this build check flags a new shape the map ignores.
+_Static_assert(WLX_CURSOR_COUNT == 2, "update wlx_sdl3_set_cursor for the new WLX_Cursor_Shape");
+static inline void wlx_sdl3_set_cursor(WLX_Cursor_Shape shape) {
+    static SDL_Cursor *cursors[WLX_CURSOR_COUNT] = {0};
+    if ((int)shape < 0 || (int)shape >= WLX_CURSOR_COUNT) shape = WLX_CURSOR_ARROW;
+    if (cursors[shape] == NULL) {
+        SDL_SystemCursor sys = (shape == WLX_CURSOR_IBEAM)
+            ? SDL_SYSTEM_CURSOR_TEXT : SDL_SYSTEM_CURSOR_DEFAULT;
+        cursors[shape] = SDL_CreateSystemCursor(sys);
+        if (cursors[shape] == NULL) return;
+    }
+    SDL_SetCursor(cursors[shape]);
 }
 
 static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer) {
@@ -1751,6 +1706,7 @@ static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer) {
         .measure_text_slice = wlx_sdl3_measure_text_slice,
         .clipboard_get = wlx_sdl3_clipboard_get,
         .clipboard_set = wlx_sdl3_clipboard_set,
+        .set_cursor = wlx_sdl3_set_cursor,
     };
     // Registered only where it can actually fill: cluster geometry needs
     // the font-variant machinery (SDL_ttf >= 3.3.0); a TTF build without

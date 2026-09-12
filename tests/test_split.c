@@ -49,6 +49,7 @@ TEST(split_stack_balance_basic) {
     ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(split_stack_balance_no_inner_layout) {
@@ -73,6 +74,7 @@ TEST(split_stack_balance_no_inner_layout) {
     ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(split_stack_balance_multiple_sequential) {
@@ -112,6 +114,7 @@ TEST(split_stack_balance_multiple_sequential) {
     ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -161,6 +164,7 @@ TEST(split_nested) {
     ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(split_nested_both_panes) {
@@ -198,6 +202,7 @@ TEST(split_nested_both_panes) {
     ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -267,6 +272,7 @@ TEST(split_fill_min_option) {
     ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -367,6 +373,7 @@ TEST(split_in_loop_with_push_id) {
     ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -400,6 +407,7 @@ TEST(split_next_back_color_override) {
     ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -427,6 +435,7 @@ TEST(split_zero_padding) {
     ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -463,6 +472,7 @@ TEST(split_perside_top_zero) {
     ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -508,6 +518,7 @@ TEST(split_gap_basic) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================

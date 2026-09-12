@@ -1,5 +1,7 @@
 CC = clang
-BASE_CFLAGS = -Wall -Wextra -std=c11 -ggdb
+# -Werror=switch turns a WLX enum member missing from a no-default switch
+# (the key and cursor maps' completeness tripwire) into a build failure.
+BASE_CFLAGS = -Wall -Wextra -Werror=switch -std=c11 -ggdb
 
 ifeq ($(findstring gcc,$(notdir $(CC))),gcc)
 BASE_CFLAGS += -Wno-override-init
@@ -40,7 +42,7 @@ DASHBOARD_HEADERS = $(wildcard $(DASHBOARD_DIR)/*.h)
 # The packaged site (dist/wasm-demo, the GitHub Pages artifact) is the dashboard;
 # the gallery keeps building into its own coexisting site dir.
 GALLERY_WASM_SITE_DIR = dist/gallery-demo
-RAYLIB_DEMOS = layout button button_image label_image text checkbox checkbox_tex image input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo disabled_demo gallery auth editor
+RAYLIB_DEMOS = layout button button_image label_image text checkbox checkbox_tex image input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo disabled_demo gallery auth editor popup
 SDL3_DEMOS = sdl3_demo gallery_sdl3
 PERF_DEMOS = gallery_perf gallery_sdl3_perf
 DEMO_NAMES = $(RAYLIB_DEMOS) $(SDL3_DEMOS)
@@ -50,7 +52,7 @@ DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
 WASM_SITE_TARGETS = $(WASM_SITE_DIR)/dashboard.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js $(WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 GALLERY_WASM_SITE_TARGETS = $(GALLERY_WASM_SITE_DIR)/gallery.wasm $(GALLERY_WASM_SITE_DIR)/index.html $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 
-.PHONY: all clean debug release help test test-single-pass perf-test test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
+.PHONY: all clean debug release help test test-single-pass perf-test test-asan test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
 
 # The dashboard is the primary showcase, so the default build includes it. It
 # keeps its own -DWLX_PERF recipe ($(DASHBOARD_BIN)) rather than joining the
@@ -168,11 +170,13 @@ TEST_DIR = tests
 TEST_BIN = $(TEST_DIR)/test_runner
 SINGLE_PASS_BIN = $(TEST_DIR)/test_single_pass
 HARD_ASSERT_BIN = $(TEST_DIR)/test_hard_assert
+CONFIG_OVERRIDE_BIN = $(TEST_DIR)/test_config_override
 
-test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN)
+test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN)
 	./$(TEST_BIN)
 	./$(SINGLE_PASS_BIN)
 	./$(HARD_ASSERT_BIN)
+	./$(CONFIG_OVERRIDE_BIN)
 
 $(TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
@@ -190,6 +194,11 @@ $(SINGLE_PASS_BIN): $(TEST_DIR)/test_single_pass.c wollix.h
 $(HARD_ASSERT_BIN): $(TEST_DIR)/test_hard_assert.c $(TEST_DIR)/tests.h $(TEST_DIR)/test_mock_backend.h wollix.h
 	$(CC) $(BASE_CFLAGS) -DNDEBUG -I. -o $@ $(TEST_DIR)/test_hard_assert.c -lm
 
+# The documented limit macros must honor a pre-include user definition. Built
+# as its own translation unit; the overrides live in the test source itself.
+$(CONFIG_OVERRIDE_BIN): $(TEST_DIR)/test_config_override.c wollix.h
+	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_config_override.c -lm
+
 PERF_TEST_BIN = $(TEST_DIR)/test_runner_perf
 
 perf-test: $(PERF_TEST_BIN)
@@ -197,6 +206,18 @@ perf-test: $(PERF_TEST_BIN)
 
 $(PERF_TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) -DWLX_PERF -I. -o $@ $(TEST_DIR)/test_main.c -lm
+
+# Sanitizer gate: the runner under ASan + UBSan with leak detection on. LSan
+# is off by default on some hosts, so the option is spelled out. The runner
+# alone is the gate; test_hard_assert longjmps out of asserts by design.
+TEST_ASAN_BIN = $(TEST_DIR)/test_runner_asan
+SANITIZE_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
+
+test-asan: $(TEST_ASAN_BIN)
+	ASAN_OPTIONS=detect_leaks=1 ./$(TEST_ASAN_BIN)
+
+$(TEST_ASAN_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
+	$(CC) $(BASE_CFLAGS) $(SANITIZE_FLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
 
 # Editor perf gate: frame cost flat with document size (100 KB vs 10 MB),
 # idle frames free of O(document) work. Optimized build, headless (mock
@@ -213,7 +234,7 @@ test-demos: $(DEFAULT_TARGETS) $(DASHBOARD_BIN)
 	@echo "All demos built successfully."
 
 clean:
-	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(PERF_TEST_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
+	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
 	rm -rf $(WASM_SITE_DIR) $(GALLERY_WASM_SITE_DIR)
 
 # Help target
@@ -238,5 +259,6 @@ help:
 	@echo "  wasm-bare    - Alias for wasm-site"
 	@echo "  test         - Build and run the unit test suite"
 	@echo "  perf-test    - Build and run tests with WLX_PERF enabled"
+	@echo "  test-asan    - Run the test runner under ASan + UBSan with leak detection on"
 	@echo "  test-demos   - Build all Raylib demos and verify exit codes"
 	@echo "  help         - Show this help message"

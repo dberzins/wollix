@@ -223,6 +223,7 @@ TEST(replay_frame1_positions) {
     ASSERT_EQ_F(_crec_log[ai].y, 0.0f, 0.5f);
     ASSERT_EQ_F(_crec_log[bi].y, 40.0f, 0.5f);
     ASSERT_EQ_F(_crec_log[ci].y, 100.0f, 0.5f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -261,6 +262,7 @@ TEST(replay_content_convergence) {
     ASSERT_EQ_F(_crec_log[ai].y, 0.0f, 0.5f);
     ASSERT_EQ_F(_crec_log[bi].y, 40.0f, 0.5f);
     ASSERT_EQ_F(_crec_log[ci].y, 70.0f, 0.5f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -295,6 +297,7 @@ TEST(replay_section_switch) {
     ASSERT_TRUE(ci >= 0);
     // After switch: top(30) + body(50) = 80
     ASSERT_EQ_F(_crec_log[ci].y, 80.0f, 1.0f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -331,6 +334,7 @@ TEST(replay_interaction_frame1) {
     bool clicked = _crec_interaction_frame(&ctx);
 
     ASSERT_TRUE(clicked);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -369,6 +373,7 @@ TEST(replay_scissor_ordering) {
     ASSERT_EQ_INT(_crec_log[4].color.g, 255);
 
     ASSERT_EQ_INT(_crec_log[5].type, WLX_CMD_SCISSOR_END);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -428,6 +433,7 @@ TEST(replay_cascade_nested_content) {
     ASSERT_EQ_F(_crec_log[bi].y, 50.0f, 1.0f);
     ASSERT_EQ_F(_crec_log[ci].y, 80.0f, 1.0f);
     ASSERT_EQ_F(_crec_log[di].y, 100.0f, 1.0f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -451,6 +457,7 @@ TEST(replay_string_lifetime) {
     int idx = crec_find_text("Dynamic_42", 0);
     ASSERT_TRUE(idx >= 0);
     ASSERT_TRUE(strcmp(_crec_log[idx].text, "Dynamic_42") == 0);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -475,6 +482,7 @@ TEST(replay_stress_10k_widgets) {
     }
     ASSERT_TRUE(text_count >= 10000);
     ASSERT_TRUE(_crec_count <= CREC_CAP);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -526,6 +534,7 @@ TEST(replay_optout_parity) {
     ASSERT_EQ_F(_crec_log[ai2].y, ya_def, 0.5f);
     ASSERT_EQ_F(_crec_log[bi2].y, yb_def, 0.5f);
     ASSERT_EQ_F(_crec_log[ci2].y, yc_def, 0.5f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -556,6 +565,7 @@ TEST(replay_no_range_sentinel) {
         ASSERT_TRUE(ranges[i].parent_range_idx == WLX_NO_RANGE ||
                     (size_t)ranges[i].parent_range_idx < ctx.arena.cmd_ranges.count);
     }
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -619,6 +629,7 @@ TEST(replay_nested_layout_parentage) {
         }
     }
     ASSERT_EQ_INT((int)root_count, 1);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -679,6 +690,7 @@ TEST(replay_text_cmd_stores_byte_length) {
     wlx_end(&ctx);
 
     ASSERT_TRUE(found >= 1);
+    wlx_context_destroy(&ctx);
 }
 
 // record_text_span_drops_trailing_nul: wlx_cmd_record_text_span consumes
@@ -714,6 +726,7 @@ TEST(record_text_span_drops_trailing_nul) {
     ASSERT_EQ_INT(memcmp(bytes, "Hello", 5), 0);
 
     wlx_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // record_text_span_empty_text_no_scratch: empty text records a command with
@@ -741,6 +754,7 @@ TEST(record_text_span_empty_text_no_scratch) {
     ASSERT_EQ_INT((int)cmds[found_idx].data.text.text_len, 0);
 
     wlx_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // replay_text_cmd_uses_slice_callback: when draw_text_slice is set on the
@@ -767,6 +781,7 @@ TEST(replay_text_cmd_uses_slice_callback) {
     // draw_text (crec_draw_text) should not have been called for text
     int text_idx = crec_find_text("World", 0);
     ASSERT_EQ_INT(text_idx, -1);
+    wlx_context_destroy(&ctx);
 }
 
 SUITE(cmd_replay) {

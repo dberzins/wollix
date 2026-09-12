@@ -26,23 +26,35 @@ const TINT_FILTER_PROBE_RGB = 0x7F7F7F;
 
 // Byte offsets into WLX_Input_State. These MUST track the C struct layout in
 // wollix.h: WLX_KEY_COUNT sizes the keys_* arrays, so adding keycodes shifts
-// every field after keys_down. New fields (keys_repeated, modifiers) are
-// appended after text_input.
+// every field after keys_down. New fields are appended at the end of the
+// struct. wollix_wasm.h static-asserts the same offsets, so a mismatch fails
+// the wasm build rather than the demo.
 const INPUT_OFFSETS = {
-    mouse_x:       0,   // int32
-    mouse_y:       4,   // int32
-    mouse_down:    8,   // bool (uint8)
-    mouse_clicked: 9,   // bool (uint8)
-    mouse_held:    10,  // bool (uint8)
-    wheel_delta:   12,  // float32
-    keys_down:     16,  // bool[51]
-    keys_pressed:  67,  // bool[51]
-    text_input:    118, // char[32]
-    keys_repeated: 150, // bool[51]
-    modifiers:     204, // uint32 (4-byte aligned)
+    mouse_x:              0,   // int32
+    mouse_y:              4,   // int32
+    mouse_down:           8,   // bool (uint8)
+    mouse_clicked:        9,   // bool (uint8)
+    mouse_held:           10,  // bool (uint8)
+    wheel_delta:          12,  // float32 (vertical detents, positive = up)
+    keys_down:            16,  // bool[64]
+    keys_pressed:         80,  // bool[64]
+    text_input:           144, // char[32]
+    keys_repeated:        176, // bool[64]
+    modifiers:            240, // uint32 (4-byte aligned)
+    wheel_delta_x:        244, // float32 (horizontal detents)
+    mouse_right_down:     248, // bool (uint8)
+    mouse_right_clicked:  249, // bool (uint8)
+    mouse_middle_down:    250, // bool (uint8)
+    mouse_middle_clicked: 251, // bool (uint8)
 };
-const INPUT_SIZE = 208;
-const WLX_KEY_COUNT = 51;
+const INPUT_SIZE = 252;
+const WLX_KEY_COUNT = 64;
+
+// DOM wheel deltas arrive in pixels (deltaMode 0), lines (1), or pages (2).
+// The input contract carries float detents (1.0 = one notch); these divisors
+// convert each mode to detents without quantizing trackpad fractions.
+const WHEEL_PIXELS_PER_DETENT = 100;
+const WHEEL_LINES_PER_DETENT  = 3;
 
 // WLX_Key_Mod bit flags (must match wollix.h)
 const WLX_MOD = { SHIFT: 1 << 0, CTRL: 1 << 1, ALT: 1 << 2, SUPER: 1 << 3 };
@@ -57,6 +69,9 @@ const WLX_KEY = {
     Y: 34, Z: 35,
     0: 36, 1: 37, 2: 38, 3: 39, 4: 40, 5: 41, 6: 42, 7: 43, 8: 44, 9: 45,
     DELETE: 46, HOME: 47, END: 48, PAGE_UP: 49, PAGE_DOWN: 50,
+    F1: 51, F2: 52, F3: 53, F4: 54, F5: 55, F6: 56,
+    F7: 57, F8: 58, F9: 59, F10: 60, F11: 61, F12: 62,
+    INSERT: 63,
 };
 
 // Map DOM KeyboardEvent.code to WLX_Key_Code
@@ -78,7 +93,18 @@ const KEY_MAP = {
     Digit9: WLX_KEY[9],
     Delete: WLX_KEY.DELETE, Home: WLX_KEY.HOME, End: WLX_KEY.END,
     PageUp: WLX_KEY.PAGE_UP, PageDown: WLX_KEY.PAGE_DOWN,
+    F1: WLX_KEY.F1, F2: WLX_KEY.F2, F3: WLX_KEY.F3, F4: WLX_KEY.F4,
+    F5: WLX_KEY.F5, F6: WLX_KEY.F6, F7: WLX_KEY.F7, F8: WLX_KEY.F8,
+    F9: WLX_KEY.F9, F10: WLX_KEY.F10, F11: WLX_KEY.F11, F12: WLX_KEY.F12,
+    Insert: WLX_KEY.INSERT,
 };
+
+// F-keys are recorded for the widget but never preventDefault'd: F5 reload,
+// F11 fullscreen and F12 devtools keep their browser meaning.
+const BROWSER_OWNED_KEYS = new Set([
+    WLX_KEY.F1, WLX_KEY.F2, WLX_KEY.F3, WLX_KEY.F4, WLX_KEY.F5, WLX_KEY.F6,
+    WLX_KEY.F7, WLX_KEY.F8, WLX_KEY.F9, WLX_KEY.F10, WLX_KEY.F11, WLX_KEY.F12,
+]);
 
 // ============================================================================
 // Helpers
@@ -192,7 +218,9 @@ function probeCtxFilterSupported() {
     const input = {
         mouseX: 0, mouseY: 0,
         mouseDown: false, prevMouseDown: false,
-        wheelDelta: 0,
+        rightDown: false, prevRightDown: false,
+        middleDown: false, prevMiddleDown: false,
+        wheelDelta: 0, wheelDeltaX: 0,
         keysDown: new Uint8Array(WLX_KEY_COUNT),
         keysPressed: new Uint8Array(WLX_KEY_COUNT),
         keysRepeated: new Uint8Array(WLX_KEY_COUNT),
@@ -654,6 +682,14 @@ function probeCtxFilterSupported() {
                 navigator.clipboard.writeText(clipboardCache).catch(() => {});
             }
         },
+
+        // Cursor shape (WLX_Cursor_Shape: 0 arrow, 1 I-beam). The core calls
+        // this only on change, so the style write is already rate-limited.
+        // The enum is append-only and wollix_wasm.h static-asserts its size,
+        // so a new shape fails the C build until this map learns it.
+        set_cursor(shape) {
+            canvas.style.cursor = (shape === 1) ? "text" : "default";
+        },
     };
 
     // ========================================================================
@@ -867,23 +903,57 @@ function probeCtxFilterSupported() {
     // ========================================================================
     // Input event listeners
     // ========================================================================
-    canvas.addEventListener("mousemove", (e) => {
+    // Pointer events cover mouse, pen and touch with one listener set.
+    // Capturing the pointer on press keeps move/up arriving while the pointer
+    // is outside the canvas, so a drag released off-canvas ends cleanly
+    // instead of leaving a button stuck down. touch-action: none stops the
+    // browser from panning/zooming the page on touch drags.
+    canvas.style.touchAction = "none";
+
+    function updatePointerPos(e) {
         const rect = canvas.getBoundingClientRect();
         input.mouseX = e.clientX - rect.left;
         input.mouseY = e.clientY - rect.top;
+    }
+
+    function setPointerButton(button, down) {
+        if (button === 0)      input.mouseDown  = down;
+        else if (button === 1) input.middleDown = down;
+        else if (button === 2) input.rightDown  = down;
+    }
+
+    canvas.addEventListener("pointermove", updatePointerPos);
+
+    canvas.addEventListener("pointerdown", (e) => {
+        updatePointerPos(e);
+        setPointerButton(e.button, true);
+        try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* capture unsupported */ }
     });
 
-    canvas.addEventListener("mousedown", (e) => {
-        if (e.button === 0) input.mouseDown = true;
+    canvas.addEventListener("pointerup", (e) => {
+        updatePointerPos(e);
+        setPointerButton(e.button, false);
     });
 
-    canvas.addEventListener("mouseup", (e) => {
-        if (e.button === 0) input.mouseDown = false;
+    // The browser took the pointer away (touch became a scroll, the window
+    // lost the device): release every button so nothing stays latched.
+    canvas.addEventListener("pointercancel", () => {
+        input.mouseDown = false;
+        input.rightDown = false;
+        input.middleDown = false;
     });
 
     canvas.addEventListener("wheel", (e) => {
         e.preventDefault();
-        input.wheelDelta += e.deltaY < 0 ? 1 : e.deltaY > 0 ? -1 : 0;
+        let scale;
+        if (e.deltaMode === 1)      scale = 1 / WHEEL_LINES_PER_DETENT;   // lines
+        else if (e.deltaMode === 2) scale = 1;                            // pages
+        else                        scale = 1 / WHEEL_PIXELS_PER_DETENT;  // pixels
+        // DOM: positive deltaY scrolls the page down; the contract's positive
+        // wheel is up. Horizontal keeps the same sign family (positive = back
+        // toward offset 0).
+        input.wheelDelta  += -e.deltaY * scale;
+        input.wheelDeltaX += -e.deltaX * scale;
     }, { passive: false });
 
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -919,10 +989,10 @@ function probeCtxFilterSupported() {
             const cmd = e.ctrlKey || e.metaKey;
             // Let the browser handle command-modifier shortcuts (copy/cut/paste/
             // select-all) so the native copy/cut/paste events can carry the
-            // system clipboard; still record the key for the widget. Other
-            // mapped keys keep their default suppressed (e.g. arrows must not
-            // scroll the page).
-            if (!cmd) e.preventDefault();
+            // system clipboard, and leave F-keys to the browser; still record
+            // the key for the widget. Other mapped keys keep their default
+            // suppressed (e.g. arrows must not scroll the page).
+            if (!cmd && !BROWSER_OWNED_KEYS.has(wlxKey)) e.preventDefault();
             if (e.repeat) {
                 input.keysRepeated[wlxKey] = 1;
             } else if (!input.keysDown[wlxKey]) {
@@ -987,8 +1057,15 @@ function probeCtxFilterSupported() {
         u8[base + INPUT_OFFSETS.mouse_clicked] =
             (input.mouseDown && !input.prevMouseDown) ? 1 : 0;
         u8[base + INPUT_OFFSETS.mouse_held]    = input.mouseDown ? 1 : 0;
+        u8[base + INPUT_OFFSETS.mouse_right_down]     = input.rightDown ? 1 : 0;
+        u8[base + INPUT_OFFSETS.mouse_right_clicked]  =
+            (input.rightDown && !input.prevRightDown) ? 1 : 0;
+        u8[base + INPUT_OFFSETS.mouse_middle_down]    = input.middleDown ? 1 : 0;
+        u8[base + INPUT_OFFSETS.mouse_middle_clicked] =
+            (input.middleDown && !input.prevMiddleDown) ? 1 : 0;
 
-        f32[(base + INPUT_OFFSETS.wheel_delta) >> 2] = input.wheelDelta;
+        f32[(base + INPUT_OFFSETS.wheel_delta) >> 2]   = input.wheelDelta;
+        f32[(base + INPUT_OFFSETS.wheel_delta_x) >> 2] = input.wheelDeltaX;
 
         // keys_down, keys_pressed, keys_repeated
         u8.set(input.keysDown, base + INPUT_OFFSETS.keys_down);
@@ -1002,7 +1079,12 @@ function probeCtxFilterSupported() {
         // text_input (NUL-terminated, max 31 chars)
         const textBytes = encoder.encode(input.textInput);
         const maxLen = 31;
-        const len = Math.min(textBytes.length, maxLen);
+        let len = Math.min(textBytes.length, maxLen);
+        // Truncation must never split a UTF-8 sequence: back off any
+        // continuation bytes at the cap.
+        if (len < textBytes.length) {
+            while (len > 0 && (textBytes[len] & 0xC0) === 0x80) len--;
+        }
         u8.set(textBytes.subarray(0, len), base + INPUT_OFFSETS.text_input);
         u8[base + INPUT_OFFSETS.text_input + len] = 0;
         // Zero remaining bytes
@@ -1012,7 +1094,10 @@ function probeCtxFilterSupported() {
 
         // Reset per-frame state
         input.prevMouseDown = input.mouseDown;
+        input.prevRightDown = input.rightDown;
+        input.prevMiddleDown = input.middleDown;
         input.wheelDelta = 0;
+        input.wheelDeltaX = 0;
         input.keysPressed.fill(0);
         input.keysRepeated.fill(0);
         input.textInput = "";

@@ -250,7 +250,7 @@ unchanged and pays no cost. When active, the gradient replaces the solid fill;
 the border still draws on top.
 
 **Rendering.** When the backend provides the optional `draw_gradient_v` callback
-the gradient is one native call (Raylib uses `DrawRectangleGradientV` for sharp
+the gradient is one native call (Raylib uses `DrawRectangleGradientEx` for sharp
 rects); otherwise — and for rounded rects on Raylib — a software fallback slices
 the rect into `max(1, rect.h / 4)` solid bands interpolating the two stops. The
 band approximation is intentional; SDL3 and WASM render through it.
@@ -329,6 +329,73 @@ All leaf-widget opt structs include an optional identity field:
 | `id` | `const char *` | `NULL` | An explicit string ID. When non-NULL, the string is hashed and pushed onto the ID stack for the duration of the widget call, giving it a stable identity independent of call-site order. Useful for widgets created in loops or dynamic lists. Compound widgets that keep their body open document their scope-style `id` behavior in their own sections. See [LAYOUT_MODEL § Explicit String IDs](LAYOUT_MODEL.md) for details. |
 
 ---
+
+## Intrinsic widths (CONTENT slots in HORZ layouts)
+
+A `WLX_SLOT_CONTENT` slot in a horizontal linear layout sizes from its
+children's widths. An explicit `.width` always wins; otherwise each widget
+offers its intrinsic (natural) width — always the single-line, unwrapped
+measure, even when `.wrap` is set (the fit slot renders the text unwrapped;
+combined with `WLX_SLOT_CONTENT_MAX` the text wraps inside the clamp while
+the measurement stays stable):
+
+| Widget | Intrinsic width |
+|---|---|
+| `wlx_label`, `wlx_button` | single-line measured text + resolved left/right content padding + the image band the face draws (`image_size`, else the auto band `font_size * 1.5` when text is present, else `texture_src` / texture width for image-only faces; + `image_text_gap` beside text; `TOP`/`BOTTOM` placements take the wider of image and text) |
+| `wlx_checkbox`, `wlx_toggle`, `wlx_radio` | glyph box + label gap + single-line label measure + padding (checkbox uses `font_size` as the glyph's upper bound) |
+| `wlx_dropdown` | the widest of the label and every option (single-line measures) + resolved left/right content padding, so the face does not resize when the selection changes |
+| `wlx_menu_button_begin` | single-line measured label + resolved left/right content padding (the face; the list takes `menu_width`) |
+| `wlx_image` | source sub-rect width, else texture width |
+| `wlx_separator` | its `thickness` (it renders as a vertical divider) |
+| `wlx_slider`, `wlx_progress`, `wlx_inputbox`, `wlx_textarea`, `wlx_editor`, `wlx_scroll_panel`, `wlx_widget` | none — these fill their slot; explicit `.width` or the slot's `MIN` clamp only |
+| nested layouts | none — place the width-defining widget directly in the slot, or give the slot an explicit size or `MIN` clamp |
+
+The measured width settles one frame after content changes (use
+`WLX_SLOT_CONTENT_MIN` to avoid the first-frame pop, exactly as with
+vertical CONTENT slots), and on the measuring frame the deferred replay
+corrects drawn positions — HORZ CONTENT gets the same same-frame treatment
+VERT layouts get vertically, scissors included. The intrinsic measure runs
+only when the widget actually sits in a width-consuming slot, so layouts
+that do not use the feature perform no extra text measurement.
+
+## Keyboard operation
+
+Every operable widget can be reached and driven without a pointer.
+
+**Tab / Shift-Tab** move the keyboard focus ring through the widgets in
+declaration order (wrapping at both ends): buttons, checkboxes, toggles,
+radios, dropdowns, menu buttons, inputboxes, textareas, and the editor are
+Tab stops; sliders, separators, labels, progress bars, and disabled widgets
+are skipped. When a popup (menu, dropdown list) is open, Tab cycles only
+inside it. While a widget holds the ring, an accent outline is drawn around
+it (`theme->accent`; thickness and gap are `WLX_FOCUS_RING_THICKNESS` /
+`WLX_FOCUS_RING_GAP`, overridable before include).
+
+**Enter / Space** activate the focused button-like widget exactly like a
+click (`wlx_button` returns `true`, a checkbox flips, a dropdown opens).
+Hovering a widget and pressing Enter/Space still works as before.
+
+**Inputbox / textarea.** Tabbing onto a field focuses it for typing; Tab
+again moves on (the field never swallows Tab - a form should stay
+traversable). Enter in a single-line field blurs it without activating the
+next widget; Escape blurs it and keeps the ring on it, so a further Tab
+continues from there.
+
+**Editor.** A focused editor keeps Tab for itself: Tab inserts `\t` with
+tab-stop expansion. To leave it by keyboard, press Escape (blurs the
+editor, ring stays) and then Tab. The Tab that moves the ring *onto* the
+editor focuses it without inserting.
+
+**Leaving keyboard mode.** Any pointer press drops the ring (so the outline
+never shows in mouse-driven sessions); Escape drops it when no field is
+focused.
+
+Read the focused widget's id with `wlx_focused_id(ctx)` and compare it with
+`WLX_Interaction.id` (for example to scroll the focused control into view).
+Custom widgets built on `wlx_get_interaction` join the ring automatically
+when they query `WLX_INTERACT_FOCUS` or `WLX_INTERACT_CLICK |
+WLX_INTERACT_KEYBOARD`; add `WLX_INTERACT_TAB_SKIP` to opt out, or
+`WLX_INTERACT_FOCUS_HOLD_TAB` to keep Tab while focused.
 
 ## Disabled state
 
@@ -1062,7 +1129,9 @@ wlx_inputbox(ctx, "API token:", token, sizeof(token), .height = 40, .read_only =
   - **Scrollbar**: a draggable thumb appears at the field's right edge while
     content overflows (`.show_scrollbar`, default `true`). Pressing or
     dragging it never moves the caret, starts a selection, or blurs the
-    field.
+    field. The thumb is never shorter than 20px: over long content its
+    length floors and its travel maps the scroll range onto the remaining
+    track.
   - **Drag-select auto-scroll**: dragging a selection past the top or bottom
     edge scrolls toward the pointer (speed grows with the overshoot), so a
     selection can span more than one viewport.
@@ -1180,12 +1249,14 @@ long messages.
 
 One deliberate behavior asymmetry between the two: the editor **handles
 Tab** — the key inserts a literal `\t` and every `\t` renders with
-next-tab-stop expansion (`.tab_columns`) — while the multiline inputbox
-does neither: its Tab stays reserved for keyboard focus traversal (a form
-field should not swallow the key), and any `\t` already in the buffer is
-measured as whatever glyph the backend gives it. Everything else in the
-editing vocabulary (clipboard, select-all, word motion and word deletes,
-sticky-column UP/DOWN) is shared and behaves identically.
+next-tab-stop expansion (`.tab_columns`), and the user leaves the editor
+by keyboard with Escape, then Tab — while the multiline inputbox does
+neither: its Tab moves the keyboard focus to the next widget (a form field
+should not swallow the key; see [Keyboard operation](#keyboard-operation)),
+and any `\t` already in the buffer is measured as whatever glyph the backend
+gives it. Everything else in the editing vocabulary (clipboard, select-all,
+word motion and word deletes, sticky-column UP/DOWN) is shared and behaves
+identically.
 
 ### Signature
 
@@ -1271,6 +1342,11 @@ position — clicking there places the caret at the next row's start.
   band or font changes cost nothing.
 - The vertical scrollbar is exact when unwrapped: content height is
   `line_count * line_h` from the line index.
+- Thumbs never draw shorter than 20px on either axis: a 30k-line document's
+  proportional thumb would be a fraction of a pixel, so the length floors and
+  the thumb's travel maps the scroll range onto the remaining track (the
+  track end still means the document end, and a held thumb stays under the
+  pointer).
 - Under `.wrap` the vertical thumb is an **approximation**: it maps hard
   lines (as if nothing wrapped), so it moves at uneven speed through
   heavily wrapped regions and a drag lands on a hard line. It is
@@ -1752,6 +1828,11 @@ Shared placement and sizing fields also apply (no typography or text-color field
 When `.id` is set, that scope stays active for the full scroll-panel body
 until `wlx_scroll_panel_end(ctx)`.
 
+The thumb is proportional to the visible share of the content and never
+shorter than 20px: over tall content the length floors and the thumb's
+travel maps the scroll range onto the remaining track, so the track end
+still means the content end.
+
 ### Common overrides
 
 Styled scroll panel with explicit content height:
@@ -2074,6 +2155,330 @@ wlx_panel_end(ctx);
   `wlx_layout_begin_s` API instead.
 
 ---
+
+## `wlx_overlay_begin` / `wlx_overlay_end`
+
+Absolutely positioned subtree on the next layer. The body is a linear
+layout rooted at a window-space rect; it consumes no parent slot,
+contributes nothing to content measurement, draws over everything on
+lower layers this frame, and its widgets win hover and presses over
+whatever they cover (see LAYOUT_MODEL.md section 9). Overlays nest: each
+level draws and arbitrates one layer higher, up to
+`WLX_OVERLAY_MAX_LAYERS`.
+
+An overlay may be declared anywhere - inside a scroll panel or a `.clip`
+layout included, which is where dropdowns and menus usually live. It
+escapes every enclosing clip for drawing **and** input: its own rect is
+the only clip on its layer (`clip = true`, the default, records it as the
+body scissor; hit-testing, the inner scroll panel's scissor and offscreen
+culling use the same rect), so rows that extend past the base panel's
+viewport draw and take presses, while base widgets scrolled out of their
+panel stay unclickable underneath. A nested overlay starts its own clip
+context again and the enclosing one returns at its `wlx_overlay_end`.
+
+Deferred mode only; in immediate mode the body draws in place at the call
+position (a `WLX_DEBUG` build warns once per site).
+
+### Signature
+
+```c
+void wlx_overlay_begin(WLX_Context *ctx, size_t count, WLX_Rect rect, ...options);
+void wlx_overlay_end(WLX_Context *ctx);
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `count` | Body slot count (the body is a linear layout) |
+| `rect` | Absolute window-space rect for the overlay |
+
+### Minimal example
+
+```c
+wlx_overlay_begin(ctx, 2, ((WLX_Rect){ 200, 100, 300, 120 }),
+    .back_color = (WLX_Color){ 30, 30, 30, 255 }, .border_width = 1);
+    wlx_label(ctx, "Floating panel");
+    if (wlx_button(ctx, "Close")) close_it();
+wlx_overlay_end(ctx);
+```
+
+### Widget-specific options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | `const char *` | `NULL` | Scope id for the overlay body |
+| `sizes` | `const WLX_Slot_Size *` | `NULL` | Per-slot sizes (`NULL` = equal split); CONTENT is unsupported here |
+| `orient` | `WLX_Orient` | `WLX_VERT` | Body orientation |
+| `gap` | `float` | `0` | Gap between body slots |
+| `clip` | `bool` | `true` | Scissor body content to the rect |
+| `back_color` | `WLX_Color` | `{0}` | Panel fill (`{0}` = none) |
+| `border_color` / `border_width` | | `{0}` / `0` | Panel border |
+| `roundness` / `rounded_segments` | | `0` / `0` | Corner rounding |
+| `content_padding` (+ per-side) | `float` | `-1` | Body inset |
+
+## `wlx_dropdown`
+
+Closed-face dropdown. The face styles like a button and shows
+`options[*selected]` (or `label` while `*selected` is out of range);
+clicking it toggles an overlay list anchored below at face width. Choosing
+an option writes `*selected`, closes the list, and returns `true`. The
+list closes on Escape or on a press whose owner lies outside the dropdown
+(the press still reaches its own target). Lists taller than
+`max_list_height` scroll.
+
+Uses persistent state internally (`WLX_Dropdown_State`) for the open flag.
+In a `CONTENT`-sized column the face width follows the widest option, so
+it does not resize when the selection changes.
+
+### Signature
+
+```c
+bool wlx_dropdown(WLX_Context *ctx, const char *label, int *selected,
+                  const char **options, size_t count, ...options);
+```
+
+### Minimal example
+
+```c
+static int size = 1;
+const char *sizes[] = { "Small", "Medium", "Large", "Huge" };
+if (wlx_dropdown(ctx, "size", &size, sizes, 4))
+    printf("size is now %s\n", sizes[size]);
+```
+
+### Widget-specific options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | `const char *` | `NULL` | Scope id (needed for loop-generated dropdowns) |
+| `row_height` | `float` | `0` | List row height. `<= 0` = `font_size + 12` |
+| `max_list_height` | `float` | `0` | Open-list height cap. `<= 0` = `WLX_DROPDOWN_MAX_LIST_HEIGHT` (240) |
+| `list_back_color` | `WLX_Color` | `{0}` | List panel + row fill. `{0}` = theme background |
+| `list_border_color` | `WLX_Color` | `{0}` | List border. `{0}` = face border color |
+| `list_border_width` | `float` | `-1` | List border width. `-1` = face border width |
+| `hover_brightness` / `hover_back_color` | | unset / `{0}` | Hover treatment for face and rows (as on `wlx_button`) |
+
+Shared placement, sizing, state, typography (no wrap), color, border, and
+content-padding fields also apply to the face.
+
+## `wlx_tooltip_for`
+
+Pointer-anchored tooltip for an anchor rect. While the pointer rests over
+the anchor with the button up — and the pointer actually belongs to the
+anchor's layer, so an overlay covering the anchor suppresses its tip — a
+per-id timer accumulates frame time; past the delay a single-line tip
+draws near the pointer on the next layer, clamped to the window. Returns
+whether the tip is showing.
+
+The anchor test is the same viewport-clipped containment widgets use for
+hover: inside a scroll panel the pointer must also be inside every
+enclosing panel's viewport, so an anchor scrolled out of view does not
+light its tip from under whatever covers it.
+
+**Draw-only:** the tooltip never takes part in input, so it cannot steal
+hover or a press from the widget it describes. A press hides the tip and
+restarts the delay.
+
+### Signature
+
+```c
+bool wlx_tooltip_for(WLX_Context *ctx, WLX_Rect anchor, const char *text, ...options);
+```
+
+### Minimal example
+
+```c
+wlx_button(ctx, "Save");
+wlx_tooltip_for(ctx, wlx_last_rect(ctx), "Write the file to disk");
+```
+
+`wlx_last_rect` returns the rect of the widget just placed, so a tooltip
+follows its anchor with no manual geometry (see API_REFERENCE.md).
+
+### Widget-specific options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | `const char *` | `NULL` | Scope id for the tip's persistent hover-delay state |
+| `delay` | `float` | `-1` | Seconds of hover before showing. `< 0` = 0.5 |
+| `offset_x` / `offset_y` | `float` | `12` / `18` | Tip origin relative to the pointer |
+| `padding` | `float` | `-1` | Inner text inset. `< 0` = 6 |
+| `front_color` / `back_color` | `WLX_Color` | `{0}` | Text / panel colors. `{0}` = theme foreground / background |
+| `border_color` / `border_width` | | `{0}` / `-1` | Panel border. Unset = theme |
+| `roundness` / `rounded_segments` | | `-1` | Corner rounding. Unset = theme |
+
+Typography fields also apply. There are no placement or sizing fields: the
+tip sizes itself from the text.
+
+## `wlx_menu_begin` / `wlx_menu_item` / `wlx_menu_end`
+
+Point-anchored overlay menu with a caller-owned open flag. Opening is
+caller-triggered — any event may set `*open` — and `wlx_menu_begin`
+builds the menu while it stays true. An item click, Escape, or a press
+whose owner lies outside the menu clears `*open`. A nested
+`wlx_submenu_begin` inside the body opens a submenu on the next layer
+(anchored beside its trigger item automatically — see below); choosing a
+submenu item dismisses the whole menu chain, exactly like choosing a
+top-level item (`keep_open` items are the exception). A nested
+`wlx_menu_begin` also works when a submenu needs a manual position.
+
+`wlx_menu_begin` returns whether the menu is open. Add items and call
+`wlx_menu_end` **only** when it returned true. Loop-generated items need
+`wlx_push_id` like any widget.
+
+Use `wlx_menu_begin` for context menus and submenus, where the press that
+summons the menu may land anywhere. For a menu opened by a dedicated
+button, use `wlx_menu_button_begin` (below): a separate opener button
+sits outside the menu's press scope, so pressing it while the menu is
+open counts as an outside press — the menu closes on the press and the
+button's click reopens it, a visible close-reopen flicker instead of a
+toggle.
+
+Uses persistent state internally (`WLX_Menu_State`); the panel chrome
+takes its height from the previous frame's item count, so it adapts one
+frame after the item list changes.
+
+### Signature
+
+```c
+bool wlx_menu_begin(WLX_Context *ctx, bool *open, float x, float y, ...options);
+bool wlx_menu_item(WLX_Context *ctx, const char *text, ...options);
+void wlx_menu_end(WLX_Context *ctx);
+```
+
+### Minimal example
+
+```c
+static bool open = false;
+if (wlx_button(ctx, "Menu")) open = true;
+if (wlx_menu_begin(ctx, &open, 200, 80)) {
+    if (wlx_menu_item(ctx, "Copy"))  do_copy();
+    if (wlx_menu_item(ctx, "Paste")) do_paste();
+    wlx_menu_end(ctx);
+}
+```
+
+### Widget-specific options
+
+`wlx_menu_begin`:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `width` | `float` | `0` | Menu width. `<= 0` = 180 |
+| `row_height` | `float` | `0` | Item height. `<= 0` = `font_size + 12` |
+| `item_padding` | `float` | `-1` | Left/right text inset on items. `< 0` = 8 |
+| `front_color` / `back_color` | `WLX_Color` | `{0}` | Item text / panel colors. `{0}` = theme foreground / background |
+| `border_color` / `border_width` | | `{0}` / `-1` | Panel border. Unset = theme |
+| `roundness` / `rounded_segments` | | `-1` | Corner rounding. Unset = theme |
+| `hover_brightness` / `hover_back_color` | | unset / `{0}` | Item hover treatment |
+| `id` | `const char *` | `NULL` | Scope id (needed for loop-generated menus) |
+
+`wlx_menu_item`:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `disabled` | `bool` | `false` | Disable the item |
+| `front_color` | `WLX_Color` | `{0}` | Per-item text color. `{0}` = menu `front_color` |
+| `keep_open` | `bool` | `false` | Clicking does not close the menu — for submenu triggers and checkable items |
+
+A plain item click dismisses the whole open menu chain (the item's menu
+and every ancestor) at the `wlx_menu_end` calls. A submenu trigger must
+therefore pass `.keep_open = true`, otherwise its own click closes
+everything before the submenu can show:
+
+```c
+if (wlx_menu_item(ctx, "More...", .keep_open = true))
+    submenu_open = !submenu_open;
+if (wlx_submenu_begin(ctx, &submenu_open)) { ... wlx_menu_end(ctx); }
+```
+
+Menus nest at most `WLX_MENU_STACK_MAX` (4) levels deep.
+
+## `wlx_menu_button_begin`
+
+Button-anchored menu: a face button (drawn every frame, consuming a
+layout slot like `wlx_button`) that toggles `*open` and anchors the list
+below itself — the first click opens, the second closes, exactly like the
+dropdown face. The face belongs to the menu's press scope, so its press
+never counts as an outside press. Items, submenus, and closing behavior
+are the shared menu machinery: use `wlx_menu_item` / `wlx_menu_end` (and
+`wlx_submenu_begin` for a submenu) with the same contract — body and
+`wlx_menu_end` **only** when it returned true.
+
+### Signature
+
+```c
+bool wlx_menu_button_begin(WLX_Context *ctx, const char *label, bool *open, ...options);
+```
+
+### Minimal example
+
+```c
+static bool open = false;
+if (wlx_menu_button_begin(ctx, "File", &open)) {
+    if (wlx_menu_item(ctx, "New"))  do_new();
+    if (wlx_menu_item(ctx, "Open")) do_open();
+    wlx_menu_end(ctx);
+}
+```
+
+### Widget-specific options
+
+The face takes the shared placement, sizing, state, typography (no wrap),
+color, border, content-padding, and hover fields — `.width` sizes the
+**face** like any widget, and in a `CONTENT`-sized column the face width
+follows its label. The list adds:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | `const char *` | `NULL` | Scope id (needed for loop-generated menu buttons) |
+| `menu_width` | `float` | `0` | List width. `<= 0` = the face's resolved width |
+| `row_height` | `float` | `0` | Item height. `<= 0` = `font_size + 12` |
+| `item_padding` | `float` | `-1` | Item text left/right inset. `< 0` = 8 |
+| `list_back_color` | `WLX_Color` | `{0}` | List panel + item fill. `{0}` = theme background |
+| `list_border_color` | `WLX_Color` | `{0}` | List border. `{0}` = face border color |
+| `list_border_width` | `float` | `-1` | List border width. `-1` = face border width |
+
+## `wlx_submenu_begin`
+
+Submenu, valid only inside a menu body. It takes no position: the list
+anchors flush to the parent panel's right edge at the row of the last
+emitted item — the trigger, which should be a `.keep_open` item that
+toggles `*open`. Every unset option inherits the parent's resolved
+styling (width, row height, item padding, typography, colors, border), so
+a submenu matches its parent by default. `align` and `spacing` have no
+"unset" sentinel (`WLX_LEFT` and `0` are real values), so they inherit
+whenever left at those defaults - a submenu under a centered or tracked
+parent cannot ask for left-aligned, untracked rows explicitly. It shares the parent's press
+scope: pressing anything in the parent (the trigger included) counts as
+inside, so the trigger toggles the submenu cleanly. Items and closing use
+the shared machinery — a leaf click dismisses the whole chain, submenu
+and ancestors alike, and the submenu's `*open` flag is cleared by the core
+whenever its parent closes or re-opens, whichever side of the submenu the
+clicked leaf was declared on (no `if (!menu_open) sub_open = false;` in
+the caller) — body and `wlx_menu_end` **only** when it returned true.
+
+### Signature
+
+```c
+bool wlx_submenu_begin(WLX_Context *ctx, bool *open, ...options);
+```
+
+### Minimal example
+
+```c
+if (wlx_menu_item(ctx, "More...", .keep_open = true))
+    sub_open = !sub_open;
+if (wlx_submenu_begin(ctx, &sub_open)) {
+    if (wlx_menu_item(ctx, "Rename")) do_rename();
+    if (wlx_menu_item(ctx, "Delete")) do_delete();
+    wlx_menu_end(ctx);
+}
+```
+
+### Options
+
+Takes the same option set as `wlx_menu_begin`; every field left unset
+inherits the parent menu's resolved value instead of the theme's.
 
 ## `wlx_widget`
 

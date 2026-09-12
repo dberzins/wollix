@@ -30,6 +30,7 @@ TEST(auto_slot_px_basic) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -57,6 +58,7 @@ TEST(auto_slot_pct) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -89,6 +91,7 @@ TEST(auto_slot_flex_single) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(auto_slot_flex_greedy_takes_all) {
@@ -117,6 +120,7 @@ TEST(auto_slot_flex_greedy_takes_all) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -139,6 +143,7 @@ TEST(auto_slot_fill) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(auto_slot_fill_pct) {
@@ -156,6 +161,7 @@ TEST(auto_slot_fill_pct) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -183,6 +189,7 @@ TEST(auto_slot_horz_pct) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -209,6 +216,7 @@ TEST(auto_slot_flex_with_min) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(auto_slot_flex_with_max) {
@@ -231,6 +239,7 @@ TEST(auto_slot_flex_with_max) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(auto_slot_pct_with_minmax) {
@@ -248,6 +257,7 @@ TEST(auto_slot_pct_with_minmax) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -282,6 +292,7 @@ TEST(auto_slot_mixed_header_body_footer) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(auto_slot_px_then_flex_end) {
@@ -311,6 +322,7 @@ TEST(auto_slot_px_then_flex_end) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -336,6 +348,7 @@ TEST(auto_slot_px_wrapper_compat) {
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -375,6 +388,7 @@ TEST(gap_auto_layout) {
     wlx_layout_end(&ctx);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================

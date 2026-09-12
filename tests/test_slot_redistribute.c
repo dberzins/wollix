@@ -95,6 +95,25 @@ TEST(redistribute_residual_overflow_when_mins_exceed) {
     ASSERT_TRUE(off[2] > 300.0f);
 }
 
+// A clamped fixed slot lands within one pixel of its bound. The frame is
+// overconstrained (two 300 px slots in 100 px), the AUTO slot sits at a min
+// just under .5 and the first PIXELS slot is capped at a fractional max:
+// redistribution used to re-read that slot's snapped span (103) and snap
+// the rebuilt boundaries again, landing at 29 / 133 - a 104 px span.
+TEST(redistribute_clamped_fixed_slot_lands_within_one_px_of_its_max) {
+    WLX_Slot_Size sizes[] = {
+        (WLX_Slot_Size){ WLX_SIZE_AUTO,   0.0f,   29.499998f, 0.0f },
+        (WLX_Slot_Size){ WLX_SIZE_PIXELS, 300.0f, 0.0f,       102.001999f },
+        (WLX_Slot_Size){ WLX_SIZE_PIXELS, 300.0f, 0.0f,       0.0f },
+    };
+    float off[4];
+    wlx_compute_offsets(off, 3, 100.0f, 100.0f, sizes, 0.0f);
+    ASSERT_EQ_F(off[1], 29.0f, RD_EPS);
+    ASSERT_TRUE(off[2] - off[1] <= sizes[1].max + 1.0f);
+    ASSERT_EQ_F(off[2] - off[1], 103.0f, RD_EPS);
+    ASSERT_EQ_F(off[3] - off[2], 300.0f, RD_EPS);
+}
+
 // ============================================================================
 // Over-allocation diagnostic (WLX_DEBUG only)
 // ============================================================================
@@ -130,6 +149,7 @@ TEST(slot_overflow_warns_unclipped) {
     test_frame_end(&ctx);
 
     ASSERT_TRUE(_rd_warn_count >= 1);
+    wlx_context_destroy(&ctx);
 }
 
 // The same over-allocation under .clip = true is contained, so it stays quiet.
@@ -145,6 +165,7 @@ TEST(slot_overflow_suppressed_when_clipped) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_INT(0, _rd_warn_count);
+    wlx_context_destroy(&ctx);
 }
 
 // A layout whose slots fit (capped flex + flex sibling) produces no warning.
@@ -160,6 +181,42 @@ TEST(slot_overflow_quiet_when_fits) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_INT(0, _rd_warn_count);
+    wlx_context_destroy(&ctx);
+}
+
+// CONTENT in HORZ layouts sizes from intrinsic/explicit child widths and is
+// supported: the former unsupported-orientation diagnostic must stay gone.
+TEST(content_in_horz_layout_no_longer_warns) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    _rd_warn_reset(&ctx);
+
+    for (int frame = 0; frame < 2; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin(&ctx, 2, WLX_HORZ,
+            .sizes = (WLX_Slot_Size[]){ WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) });
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+
+    ASSERT_EQ_INT(0, _rd_warn_count);
+    wlx_context_destroy(&ctx);
+}
+
+// The supported orientation stays quiet.
+TEST(content_in_vert_layout_no_warning) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    _rd_warn_reset(&ctx);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 2, WLX_VERT,
+        .sizes = (WLX_Slot_Size[]){ WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) });
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT(0, _rd_warn_count);
+    wlx_context_destroy(&ctx);
 }
 #endif // WLX_DEBUG
 
@@ -169,9 +226,12 @@ SUITE(slot_redistribute) {
     RUN_TEST(redistribute_chained_minmax_converges);
     RUN_TEST(redistribute_no_constraints_unchanged);
     RUN_TEST(redistribute_residual_overflow_when_mins_exceed);
+    RUN_TEST(redistribute_clamped_fixed_slot_lands_within_one_px_of_its_max);
 #ifdef WLX_DEBUG
     RUN_TEST(slot_overflow_warns_unclipped);
     RUN_TEST(slot_overflow_suppressed_when_clipped);
     RUN_TEST(slot_overflow_quiet_when_fits);
+    RUN_TEST(content_in_horz_layout_no_longer_warns);
+    RUN_TEST(content_in_vert_layout_no_warning);
 #endif
 }

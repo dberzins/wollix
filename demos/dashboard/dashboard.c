@@ -145,6 +145,9 @@ typedef struct {
     float comp_styled_slider;     // custom track/thumb slider value
     float comp_progress;          // progress / segmented bar value
     int   comp_clicks;            // button click counter
+    int   comp_env;               // popups module: dropdown selection
+    bool  comp_menu_open;         // popups module: actions menu open flag
+    bool  comp_menu_sub;          // popups module: submenu open flag
     char  comp_name[64];          // text input
     char  comp_email[64];         // text input
     char  comp_password[64];      // masked text input
@@ -156,6 +159,7 @@ typedef struct {
     size_t   editor_len;          // authoritative document length, in and out
     size_t   editor_lines;        // line count for the stats caption
     uint32_t editor_revision;     // bumped when the demo swaps the document
+    int      editor_doc;          // DASHBOARD_EDITOR_DOC_*: which picker is active
     bool     editor_line_numbers; // gutter toggle
     bool     editor_read_only;    // read-only toggle
     bool     editor_wrap;         // wrapped-mode toggle
@@ -773,6 +777,12 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     .widget_align = WLX_CENTER, .align = WLX_CENTER)) {
                 st->theme_toggle = true;
             }
+            wlx_tooltip_for(ctx, wlx_last_rect(ctx), "Switch light / dark theme",
+                .font = dashboard_type_font(fonts, tk->type.body_sm),
+                .font_size = dashboard_type_px(tk->type.body_sm),
+                .back_color = tk->color.surface_variant,
+                .front_color = tk->color.on_surface,
+                .border_color = tk->color.field_border, .border_width = 1.0f);
             // Notification bell: tints to the accent while the action log holds
             // unread entries and reverts to muted once acknowledged. Clicking it
             // marks the log read.
@@ -786,6 +796,15 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     .widget_align = WLX_CENTER, .align = WLX_CENTER)) {
                 g_dashboard_log.unread = 0;
             }
+            char bell_tip[48];
+            snprintf(bell_tip, sizeof(bell_tip), "Action log: %d unread",
+                g_dashboard_log.unread);
+            wlx_tooltip_for(ctx, wlx_last_rect(ctx), bell_tip,
+                .font = dashboard_type_font(fonts, tk->type.body_sm),
+                .font_size = dashboard_type_px(tk->type.body_sm),
+                .back_color = tk->color.surface_variant,
+                .front_color = tk->color.on_surface,
+                .border_color = tk->color.field_border, .border_width = 1.0f);
             // Settings opens the Theme Lab section (appearance / theme configuration).
             if (dashboard_icon_button(ctx, tk, "", WLX_ICON_SETTINGS, DASHBOARD_ICON_ROLE_MUTED,
                     .id = "settings",
@@ -795,6 +814,12 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     .widget_align = WLX_CENTER, .align = WLX_CENTER)) {
                 st->current_view = DASHBOARD_VIEW_THEME_LAB;
             }
+            wlx_tooltip_for(ctx, wlx_last_rect(ctx), "Open the Theme Lab",
+                .font = dashboard_type_font(fonts, tk->type.body_sm),
+                .font_size = dashboard_type_px(tk->type.body_sm),
+                .back_color = tk->color.surface_variant,
+                .front_color = tk->color.on_surface,
+                .border_color = tk->color.field_border, .border_width = 1.0f);
             wlx_layout_begin(ctx, 2, WLX_VERT,
                 .sizes = (WLX_Slot_Size[]){ WLX_SLOT_FLEX(1), WLX_SLOT_FLEX(1) });
                 wlx_label(ctx, "Admin_User",
@@ -1567,11 +1592,12 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
     WLX_Font  body_font = dashboard_type_font(fonts, tk->type.body_md);
     int       body_px   = dashboard_type_px(tk->type.body_md);
 
-    wlx_layout_begin(ctx, 8, WLX_VERT, .padding = 32, .gap = 24,
+    wlx_layout_begin(ctx, 9, WLX_VERT, .padding = 32, .gap = 24,
         .sizes = (WLX_Slot_Size[]){
             WLX_SLOT_PX(dashboard_header_h(tk)),
             WLX_SLOT_PX(dashboard_module_h(160)),   // labels
             WLX_SLOT_PX(dashboard_module_h(98)),    // buttons
+            WLX_SLOT_PX(dashboard_module_h(96)),    // popups
             WLX_SLOT_PX(dashboard_module_h(140)),   // selection
             WLX_SLOT_PX(dashboard_module_h(196)),   // sliders & progress
             WLX_SLOT_PX(dashboard_module_h(340)),   // inputs (name/email/pass/token/notes/clear)
@@ -1664,6 +1690,77 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
                         .align = WLX_CENTER, .wrap = false,
                         .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                 wlx_layout_end(ctx);
+            wlx_layout_end(ctx);
+        dashboard_demo_module_end(ctx);
+
+        // -- Popups: dropdown, actions menu (with submenu), tooltip -- all
+        // floating on overlay layers above this scrolling content. The open
+        // lists win hover and presses over whatever they cover, the wheel
+        // stays with the pointer's layer, and Escape or an outside press
+        // closes without eating that press.
+        dashboard_demo_module(ctx, tk, fonts, "Popups");
+            wlx_layout_begin(ctx, 2, WLX_VERT, .gap = 14,
+                .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(42), WLX_SLOT_PX(20) });
+                wlx_layout_begin(ctx, 3, WLX_HORZ, .gap = 12,
+                    .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(220), WLX_SLOT_PX(150),
+                                                WLX_SLOT_FLEX(1) });
+                    // Dropdown: closed face + overlay list below it.
+                    static const char *envs[] = { "Production", "Staging", "Development" };
+                    if (wlx_dropdown(ctx, "environment", &st->comp_env, envs, 3,
+                            .id = "env-dd", .height = 42, .row_height = 36,
+                            .back_color = tk->color.field, .front_color = tk->color.on_surface,
+                            .border_color = tk->color.field_border, .border_width = 1.0f,
+                            .roundness = 0.15f, .font = body_font, .font_size = body_px,
+                            .content_padding_left = 12, .content_padding_right = 12,
+                            .list_back_color = tk->color.surface_variant,
+                            .list_border_color = tk->color.field_border,
+                            .list_border_width = 1.0f)) {
+                        char msg[64];
+                        snprintf(msg, sizeof(msg), "Environment set to %s", envs[st->comp_env]);
+                        dashboard_log_emit(DASH_LOG_INFO, msg);
+                    }
+                    wlx_tooltip_for(ctx, wlx_last_rect(ctx),
+                        "Target environment for deploys (logged to the action log)",
+                        .font = dashboard_type_font(fonts, tk->type.body_sm),
+                        .font_size = dashboard_type_px(tk->type.body_sm),
+                        .back_color = tk->color.surface_variant,
+                        .front_color = tk->color.on_surface,
+                        .border_color = tk->color.field_border, .border_width = 1.0f);
+                    // Button-anchored menu with one submenu level; every
+                    // action lands in the Overview action log.
+                    if (wlx_menu_button_begin(ctx, "Actions", &st->comp_menu_open,
+                            .id = "actions-menu", .height = 42, .row_height = 36,
+                            .back_color = tk->color.surface_variant,
+                            .front_color = tk->color.on_surface,
+                            .roundness = 0.15f, .font = body_font, .font_size = body_px,
+                            .align = WLX_CENTER, .item_padding = 12,
+                            .list_back_color = tk->color.surface_variant,
+                            .list_border_color = tk->color.field_border,
+                            .list_border_width = 1.0f)) {
+                        if (wlx_menu_item(ctx, "Deploy")) {
+                            dashboard_log_emit(DASH_LOG_OK, "Deploy requested (Actions menu)");
+                        }
+                        if (wlx_menu_item(ctx, "Restart service")) {
+                            dashboard_log_emit(DASH_LOG_WARN, "Service restart requested");
+                        }
+                        if (wlx_menu_item(ctx, "More...", .keep_open = true)) {
+                            st->comp_menu_sub = !st->comp_menu_sub;
+                        }
+                        if (wlx_submenu_begin(ctx, &st->comp_menu_sub)) {
+                            if (wlx_menu_item(ctx, "Export log")) {
+                                dashboard_log_emit(DASH_LOG_INFO, "Log export queued");
+                            }
+                            if (wlx_menu_item(ctx, "Rotate token")) {
+                                dashboard_log_emit(DASH_LOG_WARN, "API token rotated");
+                            }
+                            wlx_menu_end(ctx);
+                        }
+                        wlx_menu_end(ctx);
+                    }
+                wlx_layout_end(ctx);
+                dashboard_caption(ctx, tk, fonts,
+                    "wlx_dropdown, wlx_menu_button_begin (+ submenu), wlx_tooltip_for on the faces "
+                    "and the top-bar icons.");
             wlx_layout_end(ctx);
         dashboard_demo_module_end(ctx);
 
@@ -1869,11 +1966,18 @@ static const char dashboard_editor_sample[] =
     "\n"
     "// One long line to scroll into: the vertical thumb is exact from the line count, and the horizontal range opens as the window reaches deeper into the line ------------------------------------------------------------------------>\n";
 
+enum {
+    DASHBOARD_EDITOR_DOC_SAMPLE = 0,
+    DASHBOARD_EDITOR_DOC_GENERATED,
+    DASHBOARD_EDITOR_DOC_PROSE,
+};
+
 static void dashboard_editor_set_sample(Dashboard_Demo_State *st) {
     size_t len = sizeof(dashboard_editor_sample) - 1;
     memcpy(g_dashboard_editor_buf, dashboard_editor_sample, len + 1);
     st->editor_len = len;
     st->editor_lines = dashboard_editor_count_lines(g_dashboard_editor_buf, len);
+    st->editor_doc = DASHBOARD_EDITOR_DOC_SAMPLE;
     st->editor_revision++;
 }
 
@@ -1896,6 +2000,7 @@ static void dashboard_editor_generate(Dashboard_Demo_State *st, size_t target_li
     g_dashboard_editor_buf[off] = '\0';
     st->editor_len = off;
     st->editor_lines = dashboard_editor_count_lines(g_dashboard_editor_buf, off);
+    st->editor_doc = DASHBOARD_EDITOR_DOC_GENERATED;
     st->editor_revision++;
 }
 
@@ -1940,7 +2045,23 @@ static void dashboard_editor_prose(Dashboard_Demo_State *st) {
     g_dashboard_editor_buf[off] = '\0';
     st->editor_len = off;
     st->editor_lines = dashboard_editor_count_lines(g_dashboard_editor_buf, off);
+    st->editor_doc = DASHBOARD_EDITOR_DOC_PROSE;
     st->editor_revision++;
+}
+
+// One document picker button: accent-filled when its document is the one
+// loaded, surface-filled otherwise. Returns nonzero on click.
+static int dashboard_editor_doc_button(WLX_Context *ctx, const Dashboard_Tokens *tk,
+                                       WLX_Font font, int font_px,
+                                       const char *text, const char *id,
+                                       int active) {
+    return wlx_button(ctx, text, .id = id, .height = 36,
+        .back_color   = active ? tk->color.accent    : tk->color.surface_variant,
+        .front_color  = active ? tk->color.on_accent : tk->color.on_surface,
+        .border_color = tk->color.field_border,
+        .border_width = active ? 0.0f : 1.0f,
+        .roundness = 0.15f, .font = font, .font_size = font_px,
+        .align = WLX_CENTER);
 }
 
 static void dashboard_editor_seed_once(Dashboard_Demo_State *st) {
@@ -1981,26 +2102,21 @@ static void section_editor(WLX_Context *ctx, const Dashboard_Tokens *tk,
                                                 WLX_SLOT_PX(120), WLX_SLOT_PX(150),
                                                 WLX_SLOT_PX(130), WLX_SLOT_PX(100),
                                                 WLX_SLOT_FLEX(1) });
-                    if (wlx_button(ctx, "Sample doc", .id = "ed-sample", .height = 36,
-                            .back_color = tk->color.accent, .front_color = tk->color.on_accent,
-                            .roundness = 0.15f, .font = body_font, .font_size = body_px,
-                            .align = WLX_CENTER)) {
+                    if (dashboard_editor_doc_button(ctx, tk, body_font, body_px,
+                            "Sample doc", "ed-sample",
+                            st->editor_doc == DASHBOARD_EDITOR_DOC_SAMPLE)) {
                         dashboard_editor_set_sample(st);
                         dashboard_log_emit(DASH_LOG_INFO, "Editor: sample document loaded");
                     }
-                    if (wlx_button(ctx, "Generate 30k lines", .id = "ed-generate", .height = 36,
-                            .back_color = tk->color.surface_variant, .front_color = tk->color.on_surface,
-                            .border_color = tk->color.field_border, .border_width = 1.0f,
-                            .roundness = 0.15f, .font = body_font, .font_size = body_px,
-                            .align = WLX_CENTER)) {
+                    if (dashboard_editor_doc_button(ctx, tk, body_font, body_px,
+                            "Generate 30k lines", "ed-generate",
+                            st->editor_doc == DASHBOARD_EDITOR_DOC_GENERATED)) {
                         dashboard_editor_generate(st, 30000);
                         dashboard_log_emit(DASH_LOG_INFO, "Editor: generated 30k-line document");
                     }
-                    if (wlx_button(ctx, "Prose doc", .id = "ed-prose", .height = 36,
-                            .back_color = tk->color.surface_variant, .front_color = tk->color.on_surface,
-                            .border_color = tk->color.field_border, .border_width = 1.0f,
-                            .roundness = 0.15f, .font = body_font, .font_size = body_px,
-                            .align = WLX_CENTER)) {
+                    if (dashboard_editor_doc_button(ctx, tk, body_font, body_px,
+                            "Prose doc", "ed-prose",
+                            st->editor_doc == DASHBOARD_EDITOR_DOC_PROSE)) {
                         dashboard_editor_prose(st);
                         st->editor_wrap = true;
                         dashboard_log_emit(DASH_LOG_INFO,
@@ -2770,6 +2886,10 @@ static WLX_Text_Style dashboard_raylib_scale_style(WLX_Text_Style style) {
 static void dashboard_raylib_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
     wlx_raylib_draw_text(text, x, y, dashboard_raylib_scale_style(style));
 }
+static void dashboard_raylib_draw_text_slice(const char *text, size_t len, float x, float y,
+                                             WLX_Text_Style style) {
+    wlx_raylib_draw_text_slice(text, len, x, y, dashboard_raylib_scale_style(style));
+}
 static void dashboard_raylib_measure_text(const char *text, WLX_Text_Style style,
                                           float *out_w, float *out_h) {
     wlx_raylib_measure_text(text, dashboard_raylib_scale_style(style), out_w, out_h);
@@ -2786,12 +2906,15 @@ static size_t dashboard_raylib_measure_text_advances(const char *text, size_t le
                                             unit_ends, unit_count, out_advances);
 }
 
-// raylib has no draw_text_slice (the core falls back to draw_text), so the four
-// installed text paths cover both draw and measure. measure_text_advances must
-// scale identically to the slice measure: the editor retains its results as
-// caret/hit-test/fit geometry against text drawn at the scaled size.
+// Every text callback the raylib adapter installs is wrapped here. The core
+// prefers draw_text_slice over draw_text, so an unwrapped draw path renders at
+// nominal size while the scaled measure lays out for 1.31x -- text visibly
+// shrinks and the editor's retained caret/hit-test/fit geometry (built from
+// measure_text_advances) no longer matches what is drawn. Any new WLX_Backend
+// text callback must be added to this set.
 static void dashboard_raylib_install_text_scale(WLX_Context *ctx) {
     ctx->backend.draw_text              = dashboard_raylib_draw_text;
+    ctx->backend.draw_text_slice        = dashboard_raylib_draw_text_slice;
     ctx->backend.measure_text           = dashboard_raylib_measure_text;
     ctx->backend.measure_text_slice     = dashboard_raylib_measure_text_slice;
     ctx->backend.measure_text_advances  = dashboard_raylib_measure_text_advances;

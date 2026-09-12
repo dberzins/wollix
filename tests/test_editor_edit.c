@@ -83,6 +83,7 @@ TEST(edit_typing_inserts_at_caret_and_rebuilds) {
     ASSERT_EQ_INT(3, (long)st->caret.cursor_pos);
     ASSERT_EQ_INT((long)(rebuilds_before + 1), (long)idx->rebuilds);
     ASSERT_EQ_INT(2, (long)idx->count);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(edit_enter_inserts_newline_and_grows_index) {
@@ -106,6 +107,7 @@ TEST(edit_enter_inserts_newline_and_grows_index) {
     ASSERT_TRUE(memcmp(buf, "ab\ncd", 5) == 0);
     ASSERT_EQ_INT(3, (long)st->caret.cursor_pos);
     ASSERT_EQ_INT(2, (long)idx->count);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(edit_backspace_delete_codepoint_and_word) {
@@ -138,6 +140,7 @@ TEST(edit_backspace_delete_codepoint_and_word) {
     ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_DELETE, WLX_MOD_CTRL); // word
     ASSERT_EQ_INT(1, (long)len);
     ASSERT_TRUE(buf[0] == ' ');
+    wlx_context_destroy(&ctx);
 }
 
 TEST(edit_same_length_replace_still_rebuilds_index) {
@@ -162,6 +165,7 @@ TEST(edit_same_length_replace_still_rebuilds_index) {
     ASSERT_EQ_INT(5, (long)len);
     ASSERT_TRUE(memcmp(buf, "xb\ncd", 5) == 0);
     ASSERT_EQ_INT((long)(rebuilds_before + 1), (long)idx->rebuilds);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(edit_crlf_pairs_delete_bytewise_and_by_selection) {
@@ -200,6 +204,7 @@ TEST(edit_crlf_pairs_delete_bytewise_and_by_selection) {
     ASSERT_EQ_INT(2, (long)len);
     ASSERT_TRUE(memcmp(buf, "ab", 2) == 0);
     ASSERT_EQ_INT(1, (long)st->caret.cursor_pos);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(edit_select_all_replace_whole_document) {
@@ -222,6 +227,7 @@ TEST(edit_select_all_replace_whole_document) {
     ASSERT_TRUE(buf[0] == 'z');
     ASSERT_EQ_INT(1, (long)idx->count);
     (void)keys;
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -248,6 +254,7 @@ TEST(edit_paste_multiline_block) {
     ASSERT_TRUE(memcmp(buf, "aone\ntwo\nthreeb", 15) == 0);
     ASSERT_EQ_INT(14, (long)st->caret.cursor_pos);
     ASSERT_EQ_INT(3, (long)idx->count);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(edit_cut_across_window_boundary) {
@@ -274,6 +281,7 @@ TEST(edit_cut_across_window_boundary) {
     ASSERT_EQ_INT(48, (long)len);
     ASSERT_EQ_INT(8, (long)st->caret.cursor_pos);
     ASSERT_EQ_INT(13, (long)idx->count); // 12 lines + trailing empty line
+    wlx_context_destroy(&ctx);
 }
 
 TEST(edit_read_only_rejects_mutations_allows_copy) {
@@ -302,6 +310,7 @@ TEST(edit_read_only_rejects_mutations_allows_copy) {
     ASSERT_EQ_STR(test_get_clipboard(), "secret");
 
     ed_read_only = false;
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -332,6 +341,7 @@ TEST(edit_full_buffer_rejects_and_truncates_on_utf8_boundary) {
     // A full buffer rejects further input; the length is stable.
     ed_type(&ctx, buf, 3, &len, "c");
     ASSERT_EQ_INT(3, (long)len);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(edit_revision_guard_interplay_with_edits) {
@@ -357,6 +367,7 @@ TEST(edit_revision_guard_interplay_with_edits) {
     ed_frame_ex(&ctx, buf, sizeof(buf), &len, 2, 0, 0, false, false, WLX_KEY_NONE, 0, NULL);
     ASSERT_EQ_INT(3, (long)idx->rebuilds);
     ASSERT_EQ_INT(3, (long)idx->count);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -387,6 +398,7 @@ TEST(edit_tab_prefix_measure_hits_next_stop) {
     ASSERT_TRUE(wlx_text_measure_prefix_tabs(&ctx, "\tX", 2, 0, 2, ts, 0.0f, &w, &h));
     ASSERT_EQ_F(w, 10.0f, 0.01f);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(edit_tab_key_inserts_and_segments_draw_at_stops) {
@@ -419,6 +431,7 @@ TEST(edit_tab_key_inserts_and_segments_draw_at_stops) {
     // click at the tab stop lands the caret after the tab.
     ed_click(&ctx, buf, sizeof(buf), &len, 9 + 19, 9);
     ASSERT_EQ_INT(1, (long)st->caret.cursor_pos);
+    wlx_context_destroy(&ctx);
 }
 
 SUITE(editor_edit) {

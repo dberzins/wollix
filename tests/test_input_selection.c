@@ -97,6 +97,7 @@ TEST(sel_shift_arrow_extends_and_typing_replaces) {
     // Selection [2,4) replaced by the typed character.
     sel_frame_type(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "ABX");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(sel_backspace_deletes_selection) {
@@ -113,6 +114,7 @@ TEST(sel_backspace_deletes_selection) {
     // Caret collapsed to the selection start: typing appends at the end.
     sel_frame_type(&ctx, buf, sizeof(buf), "Y");
     ASSERT_EQ_STR(buf, "ABY");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(sel_delete_key_deletes_selection) {
@@ -125,6 +127,7 @@ TEST(sel_delete_key_deletes_selection) {
     sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, WLX_MOD_SHIFT);
     sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_DELETE, 0);
     ASSERT_EQ_STR(buf, "AB");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(sel_plain_left_collapses_to_start) {
@@ -140,6 +143,7 @@ TEST(sel_plain_left_collapses_to_start) {
     sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, 0);
     sel_frame_type(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "ABXCD");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(sel_plain_right_collapses_to_end) {
@@ -155,6 +159,7 @@ TEST(sel_plain_right_collapses_to_end) {
     sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_RIGHT, 0);
     sel_frame_type(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "ABCDX");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(sel_shift_home_end_extends) {
@@ -168,6 +173,7 @@ TEST(sel_shift_home_end_extends) {
     sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_HOME, WLX_MOD_SHIFT);
     sel_frame_type(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "X");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -182,6 +188,7 @@ TEST(sel_mouse_click_places_caret) {
     sel_frame_mouse(&ctx, buf, sizeof(buf), SEL_BOUNDARY_X(2), true, true);
     sel_frame_type(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "ABXCDEF");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(sel_mouse_drag_selects_range) {
@@ -195,6 +202,7 @@ TEST(sel_mouse_drag_selects_range) {
     sel_frame_mouse(&ctx, buf, sizeof(buf), SEL_BOUNDARY_X(4), true, false);
     sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE, 0);
     ASSERT_EQ_STR(buf, "AEF");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(sel_shift_click_extends) {
@@ -208,6 +216,7 @@ TEST(sel_shift_click_extends) {
     sel_frame_mouse_mods(&ctx, buf, sizeof(buf), SEL_BOUNDARY_X(4), true, true, WLX_MOD_SHIFT);
     sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE, 0);
     ASSERT_EQ_STR(buf, "AEF");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(sel_double_click_selects_word) {
@@ -221,6 +230,7 @@ TEST(sel_double_click_selects_word) {
     sel_frame_mouse(&ctx, buf, sizeof(buf), SEL_BOUNDARY_X(1), true, true);
     sel_frame_type(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "X bar");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(sel_triple_click_selects_all) {
@@ -233,6 +243,7 @@ TEST(sel_triple_click_selects_all) {
     sel_frame_mouse(&ctx, buf, sizeof(buf), SEL_BOUNDARY_X(1), true, true);
     sel_frame_type(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "X");
+    wlx_context_destroy(&ctx);
 }
 
 TEST(sel_double_click_times_out) {
@@ -250,6 +261,7 @@ TEST(sel_double_click_times_out) {
     sel_frame_mouse(&ctx, buf, sizeof(buf), SEL_BOUNDARY_X(1), true, true);
     sel_frame_type(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "fXoo bar");
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -276,6 +288,7 @@ TEST(sel_offset_at_point_single_line) {
     ASSERT_EQ_INT(6, (int)wlx_text_offset_at_point(&ctx, rect, text, 6, ts, WLX_TOP_LEFT, false, 200.0f, 90.0f));
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(sel_offset_at_point_multi_line) {
@@ -295,6 +308,7 @@ TEST(sel_offset_at_point_multi_line) {
     ASSERT_EQ_INT(3, (int)wlx_text_offset_at_point(&ctx, rect, text, 5, ts, WLX_TOP_LEFT, true, 0.0f, 90.0f));
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(sel_word_bounds) {
@@ -354,6 +368,7 @@ TEST(sel_highlight_rect_geometry) {
     ASSERT_EQ_F(_sel_rect_last.y, 145.0f, 0.1f);
     ASSERT_EQ_F(_sel_rect_last.w, 10.0f, 0.1f);
     ASSERT_EQ_F(_sel_rect_last.h, 10.0f, 0.1f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================

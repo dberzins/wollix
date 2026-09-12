@@ -68,6 +68,7 @@ TEST(scroll_initial_zero) {
     wlx_scroll_panel_end(&ctx);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_wheel_down) {
@@ -100,6 +101,7 @@ TEST(scroll_wheel_down) {
 
     close_scroll_panel_A(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_wheel_up) {
@@ -137,6 +139,7 @@ TEST(scroll_wheel_up) {
 
     close_scroll_panel_A(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_clamp_top) {
@@ -167,6 +170,7 @@ TEST(scroll_clamp_top) {
 
     close_scroll_panel_A(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_clamp_bottom) {
@@ -198,6 +202,7 @@ TEST(scroll_clamp_bottom) {
 
     close_scroll_panel_A(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_no_scroll_when_content_fits) {
@@ -228,6 +233,7 @@ TEST(scroll_no_scroll_when_content_fits) {
 
     close_scroll_panel_A(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scroll_auto_height) {
@@ -264,6 +270,7 @@ TEST(scroll_auto_height) {
     wlx_scroll_panel_end(&ctx);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -312,6 +319,7 @@ TEST(scroll_nested_grid_no_double_count) {
         ASSERT_TRUE(sp->content_height <= 60.0f);
     close_auto_scroll(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // T2: Flat VERT - basic 3-widget measurement still correct.
@@ -337,6 +345,7 @@ TEST(scroll_flat_vert_height) {
         ASSERT_EQ_F(sp->content_height, 150.0f, 5.0f);
     close_auto_scroll(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // T3: Nested VERT-in-VERT - inner content propagates correctly.
@@ -364,6 +373,7 @@ TEST(scroll_nested_vert_propagation) {
         ASSERT_TRUE(sp->content_height >= 95.0f && sp->content_height <= 115.0f);
     close_auto_scroll(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // T4: HORZ layout - max semantics for height.
@@ -388,6 +398,7 @@ TEST(scroll_horz_layout_max_height) {
         ASSERT_EQ_F(sp->content_height, 80.0f, 5.0f);
     close_auto_scroll(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -418,7 +429,38 @@ TEST(scroll_transparent_background_keeps_zero_fill) {
 // Suite
 // ============================================================================
 
+// The shared thumb rect helper: proportional over modest content, floored
+// at WLX_SCROLLBAR_MIN_THUMB over long content, and in both cases the
+// position maps the scroll range onto the leftover track so the track end
+// means the content end (the exact inverse of the drag handlers).
+TEST(scroll_thumb_rect_floors_and_maps_to_track_end) {
+    WLX_Rect track = { 0, 0, 100, 300 };
+
+    // Half the content shows: the thumb is half the track, at the
+    // scroll's share of the leftover track.
+    WLX_Rect mid = wlx_scrollbar_rect(track, 600.0f, 150.0f, 10.0f);
+    ASSERT_EQ_F(mid.x, 90.0f, 0.001f);
+    ASSERT_EQ_F(mid.y, 75.0f, 0.001f);
+    ASSERT_EQ_F(mid.w, 10.0f, 0.001f);
+    ASSERT_EQ_F(mid.h, 150.0f, 0.001f);
+
+    // Long content: the proportional thumb (0.15px) floors, and at the
+    // scroll limit it ends exactly at the track end.
+    WLX_Rect top = wlx_scrollbar_rect(track, 600000.0f, 0.0f, 10.0f);
+    ASSERT_EQ_F(top.y, 0.0f, 0.001f);
+    ASSERT_EQ_F(top.h, WLX_SCROLLBAR_MIN_THUMB, 0.001f);
+    WLX_Rect end = wlx_scrollbar_rect(track, 600000.0f, 600000.0f - 300.0f, 10.0f);
+    ASSERT_EQ_F(end.h, WLX_SCROLLBAR_MIN_THUMB, 0.001f);
+    ASSERT_EQ_F(end.y + end.h, 300.0f, 0.01f);
+
+    // A track shorter than the floor: the thumb fills it.
+    WLX_Rect tiny = wlx_scrollbar_rect((WLX_Rect){ 0, 0, 100, 12 }, 1000.0f, 0.0f, 10.0f);
+    ASSERT_EQ_F(tiny.y, 0.0f, 0.001f);
+    ASSERT_EQ_F(tiny.h, 12.0f, 0.001f);
+}
+
 SUITE(scroll_panel) {
+    RUN_TEST(scroll_thumb_rect_floors_and_maps_to_track_end);
     RUN_TEST(scroll_transparent_background_keeps_zero_fill);
     RUN_TEST(scroll_initial_zero);
     RUN_TEST(scroll_wheel_down);

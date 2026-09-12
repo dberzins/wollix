@@ -363,6 +363,97 @@ TEST(perf_steady_state_zero_allocations) {
     wlx_context_destroy(&ctx);
 }
 
+
+// ============================================================================
+// Backend perf clock (the scaffold the adapter headers build on)
+// ============================================================================
+
+static uint64_t _pc_now;
+static int _pc_calls;
+static uint64_t _pc_fake_timestamp(void *user) {
+    (void)user;
+    _pc_calls++;
+    return _pc_now;
+}
+
+TEST(perf_clock_inc_gated_on_capturing) {
+    WLX_Perf_Backend_Clock c = {0};
+    uint64_t counter = 0;
+    wlx_perf_backend_inc(&c, &counter);           // not capturing: no count
+    ASSERT_EQ_INT(0, (long)counter);
+    wlx_perf_backend_frame_begin(&c);
+    wlx_perf_backend_inc(&c, &counter);
+    wlx_perf_backend_inc(&c, &counter);
+    ASSERT_EQ_INT(2, (long)counter);
+    wlx_perf_backend_frame_end(&c);
+    wlx_perf_backend_inc(&c, &counter);           // capture closed again
+    ASSERT_EQ_INT(2, (long)counter);
+}
+
+TEST(perf_clock_timer_unavailable_accumulates_nothing) {
+    WLX_Perf_Backend_Clock c = {0};
+    wlx_perf_backend_frame_begin(&c);             // capturing, but no timer
+    uint64_t total = 0;
+    uint64_t start = wlx_perf_backend_time_begin(&c);
+    ASSERT_EQ_INT(0, (long)start);
+    wlx_perf_backend_time_end(&c, start, &total);
+    ASSERT_EQ_INT(0, (long)total);
+
+    c.timer_available = true;                      // available but NULL fn:
+    _pc_now = 77; _pc_calls = 0;                   // now() falls back to 0
+    start = wlx_perf_backend_time_begin(&c);
+    wlx_perf_backend_time_end(&c, start, &total);
+    ASSERT_EQ_INT(0, (long)total);
+    ASSERT_EQ_INT(0, (long)_pc_calls);
+}
+
+TEST(perf_clock_accumulates_across_scopes) {
+    WLX_Perf_Backend_Clock c = {0};
+    c.timer_available = true;
+    c.timestamp = _pc_fake_timestamp;
+    wlx_perf_backend_frame_begin(&c);
+    uint64_t total = 0;
+
+    _pc_now = 100;
+    uint64_t s1 = wlx_perf_backend_time_begin(&c);
+    _pc_now = 130;
+    wlx_perf_backend_time_end(&c, s1, &total);    // +30
+    _pc_now = 200;
+    uint64_t s2 = wlx_perf_backend_time_begin(&c);
+    _pc_now = 205;
+    wlx_perf_backend_time_end(&c, s2, &total);    // +5
+    ASSERT_EQ_INT(35, (long)total);
+
+    _pc_now = 300;
+    uint64_t s3 = wlx_perf_backend_time_begin(&c);
+    _pc_now = 299;                                 // clock went backwards
+    wlx_perf_backend_time_end(&c, s3, &total);    // ignored, no underflow
+    ASSERT_EQ_INT(35, (long)total);
+}
+
+TEST(perf_clock_present_pair) {
+    WLX_Perf_Backend_Clock c = {0};
+    c.timer_available = true;
+    c.timestamp = _pc_fake_timestamp;
+    wlx_perf_backend_frame_begin(&c);
+    uint64_t total = 0;
+
+    _pc_now = 1000;
+    wlx_perf_backend_present_begin(&c);
+    ASSERT_EQ_INT(1000, (long)c.present_start_ns);
+    _pc_now = 1040;
+    wlx_perf_backend_present_end(&c, &total);
+    ASSERT_EQ_INT(40, (long)total);
+    ASSERT_EQ_INT(0, (long)c.present_start_ns);   // pair leaves no residue
+
+    wlx_perf_backend_frame_end(&c);
+    ASSERT_FALSE(c.capturing);
+    _pc_now = 2000;
+    wlx_perf_backend_present_begin(&c);           // closed capture: inert
+    wlx_perf_backend_present_end(&c, &total);
+    ASSERT_EQ_INT(40, (long)total);
+}
+
 #endif // WLX_PERF
 
 // ============================================================================
@@ -388,5 +479,9 @@ SUITE(perf) {
     RUN_TEST(perf_timer_available_when_set);
     RUN_TEST(perf_immediate_mode_zero_commands);
     RUN_TEST(perf_steady_state_zero_allocations);
+    RUN_TEST(perf_clock_inc_gated_on_capturing);
+    RUN_TEST(perf_clock_timer_unavailable_accumulates_nothing);
+    RUN_TEST(perf_clock_accumulates_across_scopes);
+    RUN_TEST(perf_clock_present_pair);
 #endif
 }

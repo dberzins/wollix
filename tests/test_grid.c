@@ -57,6 +57,7 @@ TEST(grid_equal_2x2) {
     ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[2], 400.0f, GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_equal_3x4) {
@@ -76,6 +77,7 @@ TEST(grid_equal_3x4) {
     }
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -103,6 +105,7 @@ TEST(grid_explicit_sizes) {
     ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[3], 400.0f, GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_mixed_pct_flex) {
@@ -125,6 +128,7 @@ TEST(grid_mixed_pct_flex) {
     ASSERT_EQ_F(wlx_grid_col_offsets(&ctx, &l)[2], 600.0f, GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -155,6 +159,7 @@ TEST(grid_cell_rect_basic) {
     ASSERT_EQ_RECT(r11, ((WLX_Rect){210, 120, 200, 100}), GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_cell_rect_span) {
@@ -178,6 +183,7 @@ TEST(grid_cell_rect_span) {
     ASSERT_EQ_RECT(r, ((WLX_Rect){100, 100, 200, 200}), GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -214,6 +220,7 @@ TEST(grid_auto_advance) {
     ASSERT_EQ_F(r3.x, 0.0f, GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -240,6 +247,7 @@ TEST(grid_explicit_cell) {
     ASSERT_EQ_RECT(r, ((WLX_Rect){200, 0, 100, 100}), GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_cell_with_span) {
@@ -257,6 +265,7 @@ TEST(grid_cell_with_span) {
     ASSERT_EQ_RECT(r, ((WLX_Rect){100, 100, 200, 200}), GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -290,6 +299,7 @@ TEST(grid_auto_grow_rows) {
     ASSERT_EQ_F(r3.h, 50.0f, GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_auto_row_count_grows) {
@@ -308,6 +318,7 @@ TEST(grid_auto_row_count_grows) {
     ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, l)[4], 160.0f, GRID_EPS); // 4 * 40
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -338,6 +349,7 @@ TEST(grid_auto_row_px_override) {
     ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, l)[3], 160.0f, GRID_EPS); // 120 + 40
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -364,6 +376,7 @@ TEST(grid_auto_with_col_sizes) {
     ASSERT_EQ_F(r1.x, 100.0f, GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -387,6 +400,7 @@ TEST(grid_with_padding) {
     ASSERT_EQ_F(l->rect.h, 280.0f, GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -420,6 +434,7 @@ TEST(grid_content_row_basic) {
     // After convergence: row 0 = max(30,40) = 40, row 1 = PX(50)
     ASSERT_EQ_F(row0_h, 40.0f, GRID_EPS);
     ASSERT_EQ_F(row1_h, 50.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_content_row_all) {
@@ -451,6 +466,7 @@ TEST(grid_content_row_all) {
     ASSERT_EQ_F(r0, 35.0f, GRID_EPS);
     ASSERT_EQ_F(r1, 50.0f, GRID_EPS);
     ASSERT_EQ_F(r2, 25.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_content_row_min) {
@@ -474,6 +490,7 @@ TEST(grid_content_row_min) {
         test_frame_end(&ctx);
     }
     ASSERT_EQ_F(row0_h, 60.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_content_row_max) {
@@ -497,6 +514,7 @@ TEST(grid_content_row_max) {
         test_frame_end(&ctx);
     }
     ASSERT_EQ_F(row0_h, 25.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_content_row_minmax) {
@@ -539,6 +557,8 @@ TEST(grid_content_row_minmax) {
         test_frame_end(&ctx2);
     }
     ASSERT_EQ_F(row0_h2, 50.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
+    wlx_context_destroy(&ctx2);
 }
 
 TEST(grid_content_row_mixed) {
@@ -571,6 +591,7 @@ TEST(grid_content_row_mixed) {
     ASSERT_EQ_F(row1_h, 45.0f, GRID_EPS);
     // FLEX gets remaining: 300 - 20 - 45 = 235
     ASSERT_EQ_F(row2_h, 235.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_content_row_empty) {
@@ -601,6 +622,7 @@ TEST(grid_content_row_empty) {
     // measurement gives height = font_size (default 10). So this converges
     // to the cell.h of the measured row which is font_size=10.
     ASSERT_TRUE(row1_h >= 0.0f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_content_row_multiframe) {
@@ -631,6 +653,7 @@ TEST(grid_content_row_multiframe) {
     ASSERT_EQ_F(row0_f2, 80.0f, GRID_EPS);
     // Frame 3: stable
     ASSERT_EQ_F(row0_f3, 80.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
 }
 
 #ifdef WLX_DEBUG
@@ -651,6 +674,7 @@ TEST(grid_content_row_seed_does_not_warn_clip) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_INT(0, _grid_debug_warn_count);
+    wlx_context_destroy(&ctx);
 }
 #endif
 
@@ -674,6 +698,7 @@ TEST(grid_perside_padding_top_zero) {
     ASSERT_EQ_F(l->rect.h, 290.0f, GRID_EPS);  // 300 - 0 - 10
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -703,6 +728,7 @@ TEST(grid_gap_basic) {
     ASSERT_EQ_F(wlx_grid_row_offsets(&ctx, &l)[2], 300.0f, GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_gap_auto) {
@@ -732,6 +758,7 @@ TEST(grid_gap_auto) {
     wlx_grid_end(&ctx);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_gap_slot_rect) {
@@ -767,6 +794,7 @@ TEST(grid_gap_slot_rect) {
     ASSERT_EQ_F(r10.y - (r00.y + r00.h), 8.0f, GRID_EPS);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================

@@ -357,6 +357,48 @@ TEST(disabled_back_compat) {
 }
 
 // ============================================================================
+// 10. Disabled hover is viewport-clipped like enabled hover: a disabled
+//     widget scrolled out of its panel does not hover under the chrome that
+//     covers it, and the pointer inside the viewport but off the rect does
+//     not hover either.
+// ============================================================================
+
+static bool _ds_scrolled_hover(WLX_Context *ctx, int mx, int my, float wheel) {
+    test_frame_begin_ex(ctx, mx, my, false, false, false, wheel, NULL, NULL, NULL);
+    WLX_Interaction s;
+    wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(100), WLX_SLOT_FLEX(1)),
+                       .padding = 0, .gap = 0);
+        wlx_button(ctx, "top bar", .height = 100);
+        wlx_scroll_panel_begin(ctx, 600, .wheel_scroll_speed = 20.0f);
+            wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40), WLX_SLOT_PX(560)),
+                               .padding = 0, .gap = 0);
+                wlx_button(ctx, "anchor", .height = 40);
+                s = _ds_interact_disabled(ctx, wlx_last_rect(ctx));
+                wlx_button(ctx, "filler", .height = 560);
+            wlx_layout_end(ctx);
+        wlx_scroll_panel_end(ctx);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+    return s.hover;
+}
+
+TEST(disabled_hover_clipped_by_panel_viewport) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    _ds_scrolled_hover(&ctx, 300, 250, 0.0f);               // warm frame, pointer off
+    ASSERT_TRUE(_ds_scrolled_hover(&ctx, 50, 120, 0.0f));   // rect y 100..140 visible: hovers
+    ASSERT_FALSE(_ds_scrolled_hover(&ctx, 50, 60, 0.0f));   // on the bar, above the rect
+
+    // Scroll the panel 60px: the rect now spans y 40..80 under the top bar.
+    _ds_scrolled_hover(&ctx, 300, 250, -3.0f);
+    ASSERT_FALSE(_ds_scrolled_hover(&ctx, 50, 60, 0.0f));   // inside the rect, outside the viewport
+    ASSERT_FALSE(_ds_scrolled_hover(&ctx, 50, 120, 0.0f));  // inside the viewport, off the rect
+
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
@@ -370,4 +412,5 @@ SUITE(disabled_state) {
     RUN_TEST(disabled_theme_defaults);
     RUN_TEST(disabled_sentinel_inheritance);
     RUN_TEST(disabled_back_compat);
+    RUN_TEST(disabled_hover_clipped_by_panel_viewport);
 }

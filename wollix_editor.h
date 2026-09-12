@@ -71,6 +71,23 @@ typedef struct {
     // (its x is row-relative under wrap, line-relative otherwise).
     size_t first_row;
     bool last_wrap;
+    // Wrapped bottom anchor: the (line, row, y_frac) that bottom-aligns
+    // the document's last row against the band, cached across frames.
+    // It ends the vertical thumb's range (its pseudo scroll) and lands
+    // the window build's structural bottom clamp. Stored end-relative so
+    // edits and line-count changes before the anchor line keep it valid
+    // (the start byte shifts with them); an edit reaching the anchor
+    // line, a measurement-environment change (band width, font, line
+    // height), or a change in the band's row need invalidates it, and
+    // the next use walks at most a band of hard lines backward from the
+    // document end.
+    bool bottom_valid;
+    size_t bottom_need;           // band rows the anchor fills: ceil(band.h / line_h)
+    size_t bottom_lines_from_end; // line_count - 1 - anchor line
+    size_t bottom_row;            // anchor row within that line
+    size_t bottom_rows;           // that line's row count
+    float bottom_y_frac;
+    size_t bottom_start_off;      // anchor line's start byte, edit-shifted
 } WLX_Editor_State;
 
 // Editor widget: a windowed text editor over a caller-owned flat buffer
@@ -230,7 +247,8 @@ typedef struct {
 // and the wrap inputs need the final band width - so the frame cannot
 // exist earlier; the prologue keeps its explicit staged dataflow).
 // Field writers after construction: content_h is finalized by the
-// scroll-limits phase (the wrapped short-document bump); state and
+// scroll-limits phase (wrapped: the bottom anchor's pseudo scroll plus
+// the band); state and
 // wrap_inputs are pointees the phases mutate under their own rules -
 // draw phases must treat both as read-only. Everything else is frozen.
 typedef struct WLX_Editor_Frame {
@@ -1183,18 +1201,26 @@ static float wlx_editor_h_extent(const WLX_Editor_State *state) {
     return state->max_line_w + WLX_TEXT_CARET_WIDTH + WLX_TEXT_CARET_PADDING;
 }
 
-// Wrapped pseudo scroll from the scroll anchor: hard-line pseudo
-// pixels (the anchor line plus its row component as a fraction of
-// that line's rows, times the line height). The single derivation
-// shared by the scroll limits, the wheel, and the wrapped build's
-// final scrollbar value; its inverse is wlx_editor_anchor_set_scroll_y
-// below, and the pair is the whole scroll-to-anchor conversion
-// surface (the scroll dataflow diagram in docs/TEXT_PIPELINE_MAP.md).
+// Wrapped pseudo scroll of an anchor: hard-line pseudo pixels (the
+// anchor line plus its row component as a fraction of that line's rows,
+// times the line height). The single derivation shared by the scroll
+// limits, the wheel, the thumb's range end (the bottom anchor), and the
+// wrapped build's final scrollbar value; its inverse is
+// wlx_editor_anchor_set_scroll_y below, and the pair is the whole
+// scroll-to-anchor conversion surface (the scroll dataflow diagram in
+// docs/TEXT_PIPELINE_MAP.md).
+static float wlx_editor_pseudo_scroll(size_t line, size_t row, float y_frac,
+    size_t rows, float line_h)
+{
+    return ((float)line + ((float)row + y_frac) / (float)rows) * line_h;
+}
+
+// The pseudo scroll of the state's scroll anchor.
 static float wlx_editor_pseudo_scroll_y(const WLX_Editor_State *state,
     size_t anchor_rows, float line_h)
 {
-    return ((float)state->first_line
-        + ((float)state->first_row + state->y_frac) / (float)anchor_rows) * line_h;
+    return wlx_editor_pseudo_scroll(state->first_line, state->first_row,
+        state->y_frac, anchor_rows, line_h);
 }
 
 // Decompose a pixel (wrapped: pseudo) scroll into the anchor - the
@@ -1228,6 +1254,57 @@ static void wlx_editor_anchor_set_scroll_y(const WLX_Editor_Frame *f, float scro
         state->first_row = 0;
         state->y_frac = line_frac;
     }
+}
+
+// The wrapped bottom anchor: the (line, row, y_frac) that bottom-aligns
+// the document's last row against the band's bottom edge - where a
+// wheel, drag, or caret-follow lands at the document end, and the end of
+// the vertical thumb's range. Answered from the state's cache while it
+// holds (see WLX_Editor_State); a miss fills a band of rows backward from
+// the last row, touching at most a band of hard lines, each row count
+// budget-bounded. A document shorter than the band anchors at the top
+// with y_frac 0. Every output pointer is optional.
+static void wlx_editor_wrap_bottom_anchor(const WLX_Editor_Frame *f,
+    size_t *out_line, size_t *out_row, float *out_y_frac, size_t *out_rows)
+{
+    WLX_Editor_State *state = f->state;
+    const WLX_Editor_Line_Index *idx = f->idx;
+    float band_h = f->eb.band.h;
+    float line_h = f->line_h;
+    size_t need = (size_t)ceilf(band_h / line_h);
+    if (need == 0) need = 1;
+    if (!state->bottom_valid || state->bottom_need != need
+        || state->bottom_lines_from_end >= f->line_count) {
+        size_t last_line = f->line_count - 1;
+        size_t last_rows = wlx_editor_wrap_line_rows(f->wrap_inputs, idx, last_line);
+        size_t a_line = 0, a_row = 0;
+        size_t got = wlx_editor_wrap_fill_backward(f->wrap_inputs, idx, last_line,
+            last_rows - 1, need, &a_line, &a_row);
+        float y_frac = got >= need ? ((float)need * line_h - band_h) / line_h : 0.0f;
+        if (y_frac < 0.0f) y_frac = 0.0f;
+        state->bottom_valid = true;
+        state->bottom_need = need;
+        state->bottom_lines_from_end = last_line - a_line;
+        state->bottom_row = a_row;
+        state->bottom_rows = a_line == last_line ? last_rows
+            : wlx_editor_wrap_line_rows(f->wrap_inputs, idx, a_line);
+        state->bottom_y_frac = y_frac;
+        state->bottom_start_off = idx->offsets[a_line];
+    }
+    if (out_line != NULL) *out_line = f->line_count - 1 - state->bottom_lines_from_end;
+    if (out_row != NULL) *out_row = state->bottom_row;
+    if (out_y_frac != NULL) *out_y_frac = state->bottom_y_frac;
+    if (out_rows != NULL) *out_rows = state->bottom_rows;
+}
+
+// Pseudo scroll of the wrapped bottom anchor: the vertical thumb's range
+// end. Exact at wrap factor one, where it is line_count * line_h - band.h.
+static float wlx_editor_wrap_bottom_pseudo(const WLX_Editor_Frame *f)
+{
+    size_t line = 0, row = 0, rows = 1;
+    float y_frac = 0.0f;
+    wlx_editor_wrap_bottom_anchor(f, &line, &row, &y_frac, &rows);
+    return wlx_editor_pseudo_scroll(line, row, y_frac, rows, f->line_h);
 }
 
 // Derive the frame's scroll state from the scroll anchor and the
@@ -1264,13 +1341,24 @@ static void wlx_editor_scroll_limits(WLX_Editor_Frame *f, WLX_Editor_Scroll *scr
     float *h_content_w = &scr->h_content_w;
     WLX_Rect band = eb->band;
 
-    // Wrapped mode scrolls in hard-line pseudo pixels (line_count *
-    // line_h, as if nothing wrapped): thumb geometry and drag mapping
-    // stay exact at wrap factor one and continuous elsewhere, while
-    // real row motion (wheel, caret-follow, clamps) works on the
-    // anchor and re-derives this value. A scrolled-but-short document
-    // still needs a nonzero range for the thumb to move in.
-    if (opt->wrap && eb->wrap_overflow && *content_h <= band.h) *content_h = band.h + line_h;
+    // Wrapped mode scrolls in hard-line pseudo pixels (as if nothing
+    // wrapped): thumb geometry and drag mapping stay exact at wrap
+    // factor one and continuous elsewhere, while real row motion
+    // (wheel, caret-follow, clamps) works on the anchor and re-derives
+    // this value. The range ends at the bottom anchor's pseudo scroll,
+    // not at line_count * line_h - band.h: a band of wrapped rows holds
+    // fewer hard lines than a band of unwrapped ones, so that arithmetic
+    // end sits lines above the real one - the thumb reached the track
+    // end early and stuck there while the view scrolled back up through
+    // those lines. Ending at the anchor, the thumb hits the track end
+    // exactly at the document end and leaves it on the first row back
+    // up; the thumb's content height follows as range plus band.
+    if (wrap_geom) {
+        *max_scroll_y = wlx_editor_wrap_bottom_pseudo(f);
+        *content_h = *max_scroll_y + band.h;
+    } else {
+        *max_scroll_y = *content_h > band.h ? *content_h - band.h : 0.0f;
+    }
 
     // Pixel scroll from the anchor, clamped to the exact content height
     // (wrapped: the pseudo scroll is a view of the anchor and clamps at
@@ -1278,7 +1366,6 @@ static void wlx_editor_scroll_limits(WLX_Editor_Frame *f, WLX_Editor_Scroll *scr
     *scroll_y = wrap_geom
         ? wlx_editor_pseudo_scroll_y(state, anchor_rows, line_h)
         : ((float)state->first_line + state->y_frac) * line_h;
-    *max_scroll_y = *content_h > band.h ? *content_h - band.h : 0.0f;
     if (!opt->wrap) {
         float clamped = wlx_clampf(*scroll_y, 0.0f, *max_scroll_y);
         if (clamped != *scroll_y) {
@@ -1339,7 +1426,8 @@ static void wlx_editor_scroll_resolve(const WLX_Editor_Frame *f, WLX_Editor_Scro
     // delta and consumes it (innermost scrollable wins); without overflow
     // the delta is left to the enclosing panel. Shift redirects the wheel
     // to the horizontal axis.
-    if (inter.hover && !inter.disabled && ctx->input.wheel_delta != 0.0f) {
+    if (inter.hover && !inter.disabled && ctx->input.wheel_delta != 0.0f
+            && wlx_pointer_on_current_layer(ctx)) {
         if (wlx_mod_down(ctx, WLX_MOD_SHIFT)) {
             wlx_wheel_consume(ctx, &state->scroll_x, max_scroll_x,
                 WLX_SCROLL_PANEL_DEFAULT_WHEEL_SCROLL_SPEED);
@@ -1368,6 +1456,14 @@ static void wlx_editor_scroll_resolve(const WLX_Editor_Frame *f, WLX_Editor_Scro
             if (*scroll_y != before)
                 wlx_editor_anchor_set_scroll_y(f, *scroll_y);
         }
+    }
+
+    // Horizontal wheel (trackpad tilt/swipe): same ownership rule on the
+    // horizontal axis; without horizontal overflow the delta is left to
+    // the enclosing panel.
+    if (inter.hover && !inter.disabled && ctx->input.wheel_delta_x != 0.0f) {
+        wlx_wheel_consume_x(ctx, &state->scroll_x, max_scroll_x,
+            WLX_SCROLL_PANEL_DEFAULT_WHEEL_SCROLL_SPEED);
     }
 
     // Scrollbar thumb drags on raw mouse primitives, resolved before
@@ -1403,7 +1499,7 @@ static void wlx_editor_scroll_resolve(const WLX_Editor_Frame *f, WLX_Editor_Scro
         // A live drag maps through the range frozen at the press (the
         // live range follows the drag's own output: a held thumb
         // re-mapped through it makes the view creep or oscillate near a
-        // long line's end); the thumb width follows the mapping range.
+        // long line's end); the thumb rect follows the mapping range.
         // While not dragging both ranges agree, so the press always
         // hits the live thumb.
         float map_w = h_content_w;
@@ -1411,9 +1507,7 @@ static void wlx_editor_scroll_resolve(const WLX_Editor_Frame *f, WLX_Editor_Scro
             map_w = state->hb_drag_content_w;
             if (map_w < eb->band.w) map_w = eb->band.w;
         }
-        float hb_thumb_w = map_w > 0.0f ? (eb->band.w / map_w) * eb->hb_track.w : eb->hb_track.w;
-        float hb_thumb_x = eb->hb_track.x + (state->scroll_x / h_content_w) * eb->hb_track.w;
-        WLX_Rect hb_rect = { hb_thumb_x, eb->hb_track.y, hb_thumb_w, eb->sb_w };
+        WLX_Rect hb_rect = wlx_scrollbar_rect_h(eb->hb_track, eb->band.w, map_w, state->scroll_x);
         bool was_dragging = state->dragging_hbar;
         state->scroll_x = wlx_thumb_drag_update(ctx, eb->hb_track, hb_rect, false,
             map_w - eb->band.w, state->scroll_x,
@@ -1527,9 +1621,10 @@ static void wlx_editor_caret_follow_linear(const WLX_Editor_Frame *f,
 // Wrapped window build: stream rows from the anchor line's start, discard
 // the rows above first_row, and fill the band plus overscan. A second pass
 // runs only when the first shows the document tail ending above the band's
-// bottom edge - the anchor then backfills so the last row lands exactly on
-// it (the bottom clamp is structural, there being no exact wrapped content
-// height to clamp against). That second pass is the one place the anchor
+// bottom edge - the anchor then moves to the bottom anchor so the last row
+// lands exactly on it (the bottom clamp is structural, there being no
+// exact wrapped content height to clamp against). That second pass is the
+// one place the anchor
 // is rewritten mid-build: everything before the build consumed the old
 // anchor already, and everything after (records, gutter, caret, scrollbar)
 // reads the corrected one, so the correction must happen here and nowhere
@@ -1587,18 +1682,8 @@ static size_t wlx_editor_window_build_wrapped(const WLX_Editor_Frame *f,
         if (pass == 0 && over_end
             && !(state->first_line == 0 && state->first_row == 0
                  && state->y_frac <= 0.0f)) {
-            size_t need = (size_t)ceilf(band.h / line_h);
-            size_t last_line = line_count - 1;
-            size_t last_rows = wlx_editor_wrap_line_rows(wrap_inputs, idx,
-                last_line);
-            size_t a_line = 0, a_row = 0;
-            size_t got = wlx_editor_wrap_fill_backward(wrap_inputs, idx, last_line,
-                last_rows - 1, need, &a_line, &a_row);
-            state->first_line = a_line;
-            state->first_row = a_row;
-            state->y_frac = (got >= need && need > 0)
-                ? ((float)need * line_h - band.h) / line_h : 0.0f;
-            if (state->y_frac < 0.0f) state->y_frac = 0.0f;
+            wlx_editor_wrap_bottom_anchor(f, &state->first_line,
+                &state->first_row, &state->y_frac, NULL);
             wrap_at_bottom = true;
             continue;
         }
@@ -1861,8 +1946,7 @@ static void wlx_editor_draw_carets_and_bars(const WLX_Editor_Frame *f,
         h_content_w = state->hb_drag_content_w;
     if (eb->hb_visible && h_content_w > 0.0f) {
         wlx_scrollbar_thumb_draw(ctx,
-            (WLX_Rect){ eb->hb_track.x + (state->scroll_x / h_content_w) * eb->hb_track.w,
-                        eb->hb_track.y, (band.w / h_content_w) * eb->hb_track.w, eb->sb_w },
+            wlx_scrollbar_rect_h(eb->hb_track, band.w, h_content_w, state->scroll_x),
             state->dragging_hbar);
     }
 }
@@ -2069,16 +2153,20 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
         inter_rect.x += cut;
         inter_rect.w -= cut;
     }
+    bool ring_seen_before = ctx->interaction.focus_id_seen;
     WLX_Interaction inter = wlx_get_interaction_for(
         ctx, inter_rect,
-        WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS | WLX_INTERACT_FOCUS_HOLD_ENTER,
+        WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS | WLX_INTERACT_FOCUS_HOLD_ENTER
+            | WLX_INTERACT_FOCUS_HOLD_TAB | WLX_INTERACT_TEXT_CURSOR,
         opt.disabled, file, line);
+    // This query holds the keyboard focus ring: recorded off the gutter-
+    // excluded hit zone above, the ring would cut through the widget at the
+    // gutter edge, so re-record it over the full editor rect.
+    if (ctx->interaction.focus_id_seen && !ring_seen_before) {
+        wlx_focus_ring_rect(ctx, wr);
+    }
 
-    // Multi-click detection clock, capped so the accumulator cannot lose
-    // float precision over long sessions.
-    state->caret.last_click_time += wlx_get_frame_time(ctx);
-    if (state->caret.last_click_time > WLX_TEXT_MULTI_CLICK_CLOCK_CAP)
-        state->caret.last_click_time = WLX_TEXT_MULTI_CLICK_CLOCK_CAP;
+    wlx_text_edit_tick_click_clock(ctx, &state->caret);
 
     bool changed = false;
     if (opt.out_focused != NULL) *opt.out_focused = inter.focused;
@@ -2115,9 +2203,8 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
         const char *doc = buffer;
         size_t doc_len = *length;
 
-        float ref_w = 0.0f, line_h = 0.0f;
-        wlx_measure_text_slice(ctx, " ", 1, ts, &ref_w, &line_h);
-        if (line_h <= 0.0f) line_h = (float)opt.font_size;
+        float ref_w = 0.0f;
+        float line_h = wlx_text_line_height(ctx, ts, &ref_w);
 
         // Next-tab-stop advance: tab_columns times the space advance.
         float tab_advance = ref_w > 0.0f
@@ -2155,8 +2242,20 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
                 if (edit_only) {
                     wlx_text_geom_edit_shift(geom, edit_span.start,
                         edit_span.old_end, edit_span.new_end);
+                    // The wrapped bottom anchor survives an edit ending
+                    // before its line starts: the bytes from that line
+                    // to the document end are untouched and its
+                    // end-relative line distance still holds, so only
+                    // its start byte shifts by the edit's delta.
+                    if (state->bottom_valid && edit_span.old_end < state->bottom_start_off) {
+                        state->bottom_start_off = state->bottom_start_off
+                            - edit_span.old_end + edit_span.new_end;
+                    } else {
+                        state->bottom_valid = false;
+                    }
                 } else {
                     wlx_text_geom_clear(geom);
+                    state->bottom_valid = false;
                 }
 #ifdef WLX_DEBUG
                 assert(wlx_editor_index_probe_ok(idx, doc, doc_len));
@@ -2190,6 +2289,12 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
             size_t want = vp_lines * WLX_TEXT_GEOM_STORE_SLACK < WLX_TEXT_GEOM_STORE_MIN
                 ? (size_t)WLX_TEXT_GEOM_STORE_MIN
                 : vp_lines * WLX_TEXT_GEOM_STORE_SLACK;
+            // An environment change also drops the wrapped bottom
+            // anchor: its row counts were taken under the old one. (The
+            // wrapped mode implies a store - it is embedded in the index
+            // the mode requires - so this is the one invalidation site.)
+            if (!geom->env_seen || !wlx_text_geom_env_equal(&geom->env, &genv))
+                state->bottom_valid = false;
             wlx_text_geom_env_check(geom, &genv, want);
         }
 

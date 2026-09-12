@@ -268,7 +268,7 @@ wlx_layout_begin(ctx, 4, WLX_HORZ, .sizes = sizes);
 | `WLX_SLOT_FLEX(w)` | `WLX_SIZE_FLEX` | Weighted share of remaining space |
 | `WLX_SLOT_FILL` | `WLX_SIZE_FILL` | Fill entire viewport (scroll panel or layout rect) |
 | `WLX_SLOT_FILL_PCT(pct)` | `WLX_SIZE_FILL` | Fill percentage of viewport |
-| `WLX_SLOT_CONTENT` | `WLX_SIZE_CONTENT` | Measured from child content (frame-delayed) |
+| `WLX_SLOT_CONTENT` | `WLX_SIZE_CONTENT` | Measured from child content (frame-delayed): main-axis extent in linear layouts (heights in VERT, intrinsic/explicit widths in HORZ), row heights in grids |
 
 **Resolution order:** pixels and percents are subtracted from the total first.
 The remaining space is distributed among flex and auto slots proportionally to
@@ -448,7 +448,7 @@ the value.
 
 | Layout | Restrictions |
 |---|---|
-| `wlx_layout_begin` | Slot count must be known at begin time. Max 32 slots when using CONTENT (`WLX_CONTENT_SLOTS_MAX`). |
+| `wlx_layout_begin` | Slot count must be known at begin time. Max 32 slots when using CONTENT (`WLX_CONTENT_SLOTS_MAX`). CONTENT measures the main axis: child heights in VERT layouts, children's intrinsic or explicit widths in HORZ layouts (see WIDGETS.md § Intrinsic widths). Measured extents settle one frame after content changes; on the measuring frame the deferred replay shifts recorded commands to the corrected offsets on both axes (dy in VERT, dx in HORZ), scissors included, so drawn positions land correct within the frame. Nested layouts contribute no intrinsic width — give the slot an explicit size or MIN clamp, or place the width-defining widget directly in the slot. |
 | `wlx_layout_begin_s` | Same as `wlx_layout_begin`; count derived from `WLX_SIZES()` macro. |
 | `wlx_layout_begin_auto` | Sequential access only (no `pos`). No nested `wlx_layout_begin` inside body (scratch buffer corruption). When `slot_px=0`, every child must call `wlx_layout_auto_slot` before use. CONTENT via `auto_slot` is not auto-measured (caller-supplied value, or 1px after the floor). |
 | `wlx_grid_begin` | Row and column count fixed at begin time. CONTENT supported in `row_sizes` (per-row max height, one-frame delay). CONTENT not supported in `col_sizes` (resolves to 0px). Max 32 CONTENT rows (`WLX_CONTENT_SLOTS_MAX`). Max `WLX_MAX_SLOT_COUNT` rows/cols. |
@@ -640,12 +640,13 @@ if (it.clicked) navigate();
   supported on containers, and the auto-counted begins (`wlx_layout_begin_auto`,
   `wlx_grid_begin_auto`, `wlx_grid_begin_auto_tile`) lack a stable call-site id
   and do not support `interact`.
-- **Non-interactive children only.** A `CLICK` container is queried before its
-  children and captures the press first (click capture is first-writer), so a
-  nested interactive child can never fire its own click. Keep interactive
-  containers to composite regions of non-interactive content. For a clickable
-  region that owns a button, give the *child* the click and use `HOVER` only on
-  the container.
+- **Interactive children win the press.** Ownership is topmost-wins (ADR_039):
+  the innermost candidate under the pointer - the latest query at that point,
+  so a nested `wlx_button` beats the container that wraps it - owns a press,
+  and the container reports `clicked` only when the press lands on its own
+  non-interactive area. Hover is resolved the same way. Keep a container's
+  own `CLICK` for the composite region (the card, the row); a child button
+  inside it fires its own click without stealing the container's.
 
 ### Absolute corner radius (`corner_radius`)
 
@@ -780,6 +781,48 @@ wlx_panel_end(ctx);
 The panel counts children between `wlx_panel_begin` and `wlx_panel_end`
 automatically, so no slot count is needed.
 
+**`wlx_overlay`** — absolutely positioned subtree on the next layer
+(begin/end pair). It consumes no parent slot, draws over everything on
+lower layers, and its widgets win input over whatever they cover:
+```c
+wlx_overlay_begin(ctx, 1, ((WLX_Rect){ 200, 100, 300, 180 }),
+    .back_color = panel_color, .border_width = 1);
+    wlx_label(ctx, "Floating content");
+wlx_overlay_end(ctx);
+```
+
+**`wlx_dropdown`** — closed face showing the selected option; clicking
+toggles an overlay list below it. Returns `true` when the selection
+changes. Escape or a press outside the dropdown closes the list:
+```c
+static int size = 1;
+const char *sizes[] = { "Small", "Medium", "Large" };
+if (wlx_dropdown(ctx, "size", &size, sizes, 3))
+    apply_size(size);
+```
+
+**`wlx_tooltip_for`** — pointer-anchored tip for an anchor rect after a
+hover delay (default 0.5 s). Draw-only: it never takes part in input:
+```c
+wlx_button(ctx, "Save");
+wlx_tooltip_for(ctx, wlx_last_rect(ctx), "Write the file to disk");
+```
+
+**`wlx_menu`** — point-anchored menu with a caller-owned open flag; item
+click, Escape, or an outside press closes it. `wlx_menu_button_begin` is
+the button-anchored variant (its face toggles the menu like a dropdown),
+and `wlx_submenu_begin` nests one submenu level, anchored beside its
+trigger item automatically:
+```c
+static bool open = false;
+if (wlx_button(ctx, "Menu")) open = true;
+if (wlx_menu_begin(ctx, &open, x, y)) {
+    if (wlx_menu_item(ctx, "Copy"))  do_copy();
+    if (wlx_menu_item(ctx, "Paste")) do_paste();
+    wlx_menu_end(ctx);
+}
+```
+
 ---
 
 ## 9. Interaction
@@ -817,16 +860,95 @@ FOCUS, or DRAG) optionally combined with HOVER and KEYBOARD:
 | `just_unfocused` | Lost focus this frame |
 | `disabled` | Interaction was queried through the disabled gate; active/click/focus results are forced false |
 
-### Hot / Active Model
+### Layers
 
-The library tracks two global widget slots per frame:
+Every draw command and every interactive widget carries the **layer** that
+was active when it was recorded. The base UI lives on layer 0;
+`wlx_overlay_begin` raises the layer by one for its subtree (nesting
+stacks further, up to `WLX_OVERLAY_MAX_LAYERS`). At frame end the command
+buffer replays layer by layer in ascending order, so higher layers draw
+over everything below them. A frame that never leaves layer 0 takes a flat
+fast path identical to the pre-overlay pipeline.
 
-- **`hot_id`** — the widget the mouse is hovering over (reset each frame).
-- **`active_id`** — the widget currently being pressed, dragged, or focused
-  (persists across frames until released).
+Each layer also has its own **clip context**. On the base layer every open
+scroll panel viewport, `.clip` layout and scissor scope applies; an overlay
+starts a fresh context whose only clip is the overlay's own rect, and
+`wlx_overlay_end` restores the enclosing one. Drawing (the recorded
+scissors and offscreen culling) and hit-testing (`hover`, press candidates,
+a nested scroll panel's scissor) all walk the current layer's context, so a
+popup declared inside a scroll panel is never cut, culled or gated by the
+panel it floats over.
 
-Only one widget can be hot and one can be active at a time. This prevents
-overlapping interactions.
+### Ownership Arbitration
+
+Input follows the same layering. Each interactive query appends a **hit
+candidate** (id, viewport-clipped rect, layer) to a per-frame list. At the
+next `wlx_begin`, the previous frame's candidates arbitrate ownership:
+
+- The **topmost candidate under the pointer** — highest layer first, then
+  the latest query — becomes the **hover owner**. Exactly one widget
+  reports `hover` per frame (one-hot), no matter how many rects overlap.
+- A fresh press latches the hover owner as the **press owner** until the
+  button releases. Only the press owner can activate, so a widget covered
+  by an overlay can never steal a click aimed at the overlay.
+- A press owned by anything other than the focused widget releases focus
+  at frame begin, before any widget is queried — the same press can then
+  activate its real target regardless of declaration order.
+
+Because arbitration uses the previous frame's candidates, ownership for
+static geometry resolves with no visible latency, and a widget appearing
+for the first time cannot own a press until it has been seen for one
+frame. The very first frame of a context has no candidate list and falls
+back to query-time capture.
+
+The scroll wheel belongs to the pointer's layer: a scroll panel (or the
+editor) consumes wheel input only while it is being built on the same
+layer as the pointer's topmost candidate, so an open popup keeps the base
+UI still underneath it.
+
+### Hot / Active / Focus Model
+
+The library tracks three global widget identities:
+
+- **`hot_id`** — the hover owner (reset each frame by arbitration).
+- **`active_id`** — the widget currently being pressed, dragged, or
+  typing-focused (persists across frames until released).
+- **`focus_id`** — the keyboard focus ring (see below); persists until a
+  pointer press, Escape with nothing active, or the widget disappears.
+
+Only one widget can be hot and one can be active at a time. While a widget
+is active, only it may become hot. A Tab-focused inputbox is both focused
+and active (it receives typing); a Tab-focused button is focused only.
+
+### Keyboard Focus Traversal
+
+Tab and Shift-Tab move the keyboard focus through the previous frame's
+**Tab stops** — the candidates recorded with `WLX_INTERACT_FOCUS`, or with
+`WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD`, minus any flagged
+`WLX_INTERACT_TAB_SKIP` (decoration widgets) and minus disabled widgets
+(which record no candidate). Order is declaration order; both ends wrap;
+only the **highest layer that has a Tab stop** participates, so an open
+menu or dropdown owns the ring. A held Tab auto-repeats through the ring.
+
+Traversal runs in `wlx_begin`, on the same previous-frame candidate list
+as hover and press arbitration, so a newly declared widget joins the ring
+one frame later. Tab continues from a mouse-focused field; a field that
+loses the ring is released at frame begin and reports `just_unfocused`,
+and a `FOCUS`-class widget the ring lands on acquires typing focus on its
+own query that frame (`just_focused`), exactly as a click would.
+
+Keyboard activation (`WLX_INTERACT_KEYBOARD`) fires on Space/Enter when
+the widget is hovered **or** holds the keyboard focus. A widget queried
+with `WLX_INTERACT_FOCUS_HOLD_TAB` (the editor) keeps Tab for itself while
+it is typing-focused - Tab inserts, traversal is skipped - and the user
+leaves it with Escape, then Tab; the Tab that *enters* such a widget never
+also inserts. The ring is keyboard-modal: any pointer press drops it, so
+mouse-driven sessions never see the focus ring.
+
+At `wlx_end`, while `focus_id` is non-zero, the core draws one accent
+outline around the focused widget's recorded rect, on top of every layer
+(`WLX_FOCUS_RING_THICKNESS` / `WLX_FOCUS_RING_GAP`; `theme->accent`).
+Query the ring with `wlx_focused_id()`.
 
 ---
 
@@ -986,9 +1108,10 @@ for specific graphics environments and provide input handlers separately.
 
 ### WLX_Backend Function Pointers
 
-`WLX_Backend` currently exposes 15 function pointers: 11 required callbacks
-checked by `wlx_backend_is_ready()`, plus 2 optional native circle helpers and
-2 optional slice-aware text helpers.
+`WLX_Backend` currently exposes 22 function pointers: 11 required callbacks
+checked by `wlx_backend_is_ready()`, plus 11 optional ones, each with a
+documented fallback when left `NULL`. Optional callbacks are appended at the
+end of the struct so existing designated initializers keep compiling.
 
 | Function | Signature | Required | Purpose |
 |----------|-----------|----------|---------|
@@ -1004,9 +1127,16 @@ checked by `wlx_backend_is_ready()`, plus 2 optional native circle helpers and
 | `draw_texture` | `(WLX_Texture, WLX_Rect src, dst, WLX_Color tint)` | Yes | Draw a texture region |
 | `begin_scissor` | `(WLX_Rect)` | Yes | Begin a clip rectangle |
 | `end_scissor` | `(void)` | Yes | End clipping |
-| `get_frame_time` | `(void) -> float` | Yes | Return frame delta time in seconds |
+| `get_frame_time` | `(void) -> float` | Yes | Return frame delta time in seconds (called once per frame by `wlx_begin`) |
 | `draw_text_slice` | `(const char *text, size_t len, float x, y, WLX_Text_Style)` | No | Render an explicit byte span; `NULL` falls back to `draw_text` |
 | `measure_text_slice` | `(const char *text, size_t len, WLX_Text_Style, float *w, *h)` | No | Measure an explicit byte span; `NULL` falls back to `measure_text` |
+| `measure_text_advances` | `(const char *text, size_t len, WLX_Text_Style, const size_t *unit_ends, size_t unit_count, float *out) -> size_t` | No | Batched prefix-advance measure for one run; `NULL` keeps the per-unit fallback |
+| `draw_shadow` | `(WLX_Rect, WLX_Color, float ox, oy, blur, int layers, float roundness, int segs)` | No | Native drop shadow; `NULL` falls back to layered offset rounded rects |
+| `draw_glow` | `(WLX_Rect, WLX_Color, float spread, int rings, float roundness, int segs)` | No | Native outer glow; `NULL` falls back to concentric rounded outlines |
+| `draw_gradient_v` | `(WLX_Rect, WLX_Color top, bottom, float roundness, int segs)` | No | Native vertical two-stop gradient; `NULL` falls back to stacked solid bands |
+| `clipboard_get` | `(void) -> const char *` | No | Borrowed NUL-terminated system clipboard text; `NULL` makes paste a safe no-op |
+| `clipboard_set` | `(const char *text, size_t len)` | No | Copy a byte span to the system clipboard; `NULL` makes copy/cut safe no-ops |
+| `set_cursor` | `(WLX_Cursor_Shape)` | No | Apply the mouse-cursor shape the core resolved for the pointer's topmost widget (arrow or I-beam); called only on change; `NULL` leaves the platform cursor untouched |
 
 All 11 required function pointers must be set before calling `wlx_begin`. The
 library checks this with `wlx_backend_is_ready` and asserts on missing required
@@ -1022,11 +1152,20 @@ and style on each backend while preserving native whole-run text rendering.
 Embedded NUL bytes are not supported by the public text model and are
 truncated before dispatch.
 
+`set_cursor` is the one callback the core *pushes* to rather than draws
+through: `wlx_begin` resolves the shape from the previous frame's topmost
+interaction candidate under the pointer (the active widget's shape wins while
+a press is held), caches it on the context, and calls the backend only when
+the shape changes. Text-editing surfaces (inputbox, textarea, the editor's
+text region) request the I-beam; everything else is the arrow.
+
 ### Writing a New Backend
 
 1. Implement all 11 required functions wrapping your graphics API.
-    Optionally implement `draw_circle`, `draw_ring`, `draw_text_slice`, and
-    `measure_text_slice` for native shape quality and byte-span text handling.
+    Optionally implement `draw_circle`, `draw_ring`, `draw_text_slice`,
+    `measure_text_slice`, and `measure_text_advances` for native shape quality
+    and byte-span text handling; `clipboard_get/set` for copy/paste; and
+    `set_cursor` for I-beam feedback over text.
 2. Write an init function that populates `ctx->backend`.
 3. Write an input handler that reads platform input into `ctx->input`.
 
@@ -1039,14 +1178,27 @@ The input handler callback writes to `ctx->input` (`WLX_Input_State`):
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `mouse_x`, `mouse_y` | `int` | Mouse position |
-| `mouse_down` | `bool` | Button currently held |
-| `mouse_clicked` | `bool` | Button pressed this frame (one-shot) |
-| `mouse_held` | `bool` | Button held down |
-| `wheel_delta` | `float` | Scroll wheel (positive = up) |
+| `mouse_x`, `mouse_y` | `int` | Pointer position |
+| `mouse_down` | `bool` | Left button currently held |
+| `mouse_clicked` | `bool` | Left button pressed this frame (one-shot) |
+| `mouse_held` | `bool` | Left button held down |
+| `wheel_delta` | `float` | Vertical wheel in unquantized detents (positive = up; 1.0 = one notch, fractions from trackpads) |
 | `keys_down[WLX_KEY_COUNT]` | `bool[]` | Current key states |
 | `keys_pressed[WLX_KEY_COUNT]` | `bool[]` | Key pressed this frame (one-shot) |
 | `text_input[32]` | `char[]` | Text typed this frame (for input boxes) |
+| `keys_repeated[WLX_KEY_COUNT]` | `bool[]` | OS auto-repeat tick this frame (in addition to `keys_pressed` on the first press) |
+| `modifiers` | `uint32_t` | Active `WLX_Key_Mod` bits |
+| `wheel_delta_x` | `float` | Horizontal wheel in detents; positive moves a horizontal offset back toward 0 |
+| `mouse_right_down`, `mouse_right_clicked` | `bool` | Right button held / pressed this frame |
+| `mouse_middle_down`, `mouse_middle_clicked` | `bool` | Middle button held / pressed this frame |
+
+Backends must not quantize, debounce, or clamp wheel values - the core owns
+scroll speed and consumption (innermost scrollable wins, per axis). A host
+that writes the struct by byte offset (the WASM host) relies on the fields
+being append-only; `wollix_wasm.h` static-asserts the layout so a mismatch
+fails the build. The Raylib and SDL3 adapters and the web host all populate
+every field; the web host delivers touch as a pointer and captures the
+pointer on press so a drag released outside the canvas still ends.
 
 ---
 

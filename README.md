@@ -21,11 +21,17 @@ The dashboard is the primary Wollix showcase. Try the live demo:
     toggles, radios, input boxes and multiline textareas, sliders, progress
     bars, images, separators, scroll panels, panels, split layouts, list
     clipper for virtualized rows, and fixed/auto-growing grid helpers
+- Popups on overlay layers: dropdowns, tooltips, menus with submenus and
+    button-anchored menus, plus `wlx_overlay` for custom layered subtrees;
+    the topmost widget under the pointer owns the press and the hover
+- Input contract with left/right/middle buttons, float wheel on both axes,
+    F-keys, keyboard focus traversal (Tab ring, Enter/Space activation,
+    focus ring), and an optional backend cursor-shape callback
 - Windowed text editor extension ([wollix_editor.h](wollix_editor.h)):
     document-scale editing at O(viewport) frame cost up to 10 MB / 1M lines
 - Container decoration: per-side borders, per-corner rounding, vertical
     gradient fills, and glow/shadow effects
-- Current version: `WOLLIX_VERSION` = `"0.7.0"`
+- Current version: `WOLLIX_VERSION` = `"0.8.0"`
 
 ## Quick Start
 
@@ -78,9 +84,14 @@ int main(void) {
 
 Compile with:
 ```bash
-clang -I. -I ~/opt/raylib/include -o hello hello.c \
+clang -I. -Wno-initializer-overrides -I ~/opt/raylib/include -o hello hello.c \
       -L ~/opt/raylib/lib -lraylib -lm -lpthread -ldl -lrt -lX11
 ```
+
+The wollix call style deliberately overrides default initializers (that is
+how `.height = 40`-style named options work), so silence the corresponding
+warning: `-Wno-initializer-overrides` on clang (it warns even without
+`-Wextra`), `-Wno-override-init` on gcc (needed with `-Wextra`).
 
 ## Optional short aliases
 
@@ -141,6 +152,10 @@ model, explicit `\n`, `\r\n`, and `\r` create visual line breaks, and Wollix
 does not provide grapheme-aware cursoring, complex-script shaping, or
 bidirectional text.
 
+**Text entry** targets ASCII and European keyboard layouts: there is no
+input-method (IME) or composition support, so no inline preedit is drawn,
+and on the web host IME and dead-key input produce no text at all.
+
 ## Available Widgets
 
 The library includes the following widgets and layout/container primitives:
@@ -148,7 +163,7 @@ The library includes the following widgets and layout/container primitives:
 - **Button** - Clickable button widget with hover effects
 - **Label** - Static text display with wrapping and alignment
 - **Checkbox** - Toggle checkbox with text label and optional checked/unchecked textures
-- **Toggle** - On/off switch widget with animated thumb/track styling
+- **Toggle** - On/off switch widget with themed thumb/track styling
 - **Radio** - Single-choice radio control with label alignment options
 - **Input Box** - Text input field with full editing: caret, selection,
   clipboard, word motion, and password / read-only modes
@@ -161,6 +176,10 @@ The library includes the following widgets and layout/container primitives:
 - **Progress Bar** - Read-only progress indicator with continuous or segmented track/fill styling
 - **Image** - Draw a `WLX_Texture` in a slot with scale modes (stretch/fit/fill/none) and alignment
 - **Separator** - Horizontal or vertical divider for grouping related controls
+- **Dropdown** - Closed face that opens a below-anchored, scrollable option list on the next layer
+- **Tooltip** - Hover-delayed, pointer-anchored, draw-only tip (`wlx_tooltip_for` + `wlx_last_rect`)
+- **Menu** - Point-anchored or button-anchored (`wlx_menu_button_begin`) item list with nested submenus
+- **Overlay** - Absolutely positioned layered subtree that escapes base clipping and wins input
 - **Scrollable Panel** - Vertical scrolling container for long content
 - **List Clipper** - Row virtualization helper that builds only visible rows inside a scroll panel
 - **Split** - Two-pane compound layout with independent scroll panels
@@ -236,4 +255,11 @@ make editor         # → demos/editor (100 KB / 10 MB generated docs, W toggles
 ```
 
 All executables are written to `./demos/`.
+
+## Contributing
+
+Wollix is experimental and the API is not yet stable — **code contributions
+(PRs) are not being accepted before v1.0.0.** Bug reports, API feedback, and
+platform reports (Windows/macOS build attempts especially) are very welcome
+as issues. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 

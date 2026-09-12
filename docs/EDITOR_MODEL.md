@@ -82,7 +82,8 @@ offsets of every hard line start (offset 0 plus one entry after each
 separator). The index makes document geometry pure arithmetic:
 
 - `content_h = line_count * line_h` — the vertical scrollbar is exact
-  from counting alone, with zero measuring.
+  from counting alone, with zero measuring (wrapped mode ends its range
+  at the bottom anchor instead — Section 7).
 - The caret's line is a binary search of the index by byte offset.
 - The scroll anchor is `(first_line, y_frac)` — a line number plus a
   fractional line — never a document-height pixel float, so precision
@@ -358,14 +359,24 @@ The anchor, the rows, and the band:
   least one row.
 - The bottom clamp is structural, not arithmetic: when the window shows
   the document tail ending above the band's bottom edge, the anchor
-  backfills from the last row and the window rebuilds once — there is no
-  exact wrapped content height to clamp against.
-- The vertical thumb maps hard-line pseudo pixels (`line_count *
-  line_h`, as if nothing wrapped): continuous in the anchor, exact at
-  wrap factor one, a documented approximation elsewhere — the wrapped
-  sibling of the horizontal bar's max-seen-width approximation. The
-  track end always means the document end, landing on the backfilled
-  bottom anchor.
+  moves to the **bottom anchor** — the `(line, row, y_frac)` that
+  bottom-aligns the last row, filled backward from it over at most a
+  band of lines — and the window rebuilds once; there is no exact
+  wrapped content height to clamp against. The bottom anchor is cached
+  in the editor state end-relative (its distance from the last line),
+  so an edit before its line only shifts its start byte; an edit
+  reaching it, a measurement-environment change, or a new band row
+  count drops it, and the next use refills.
+- The vertical thumb maps hard-line pseudo pixels (the anchor line plus
+  its row fraction, times `line_h`, as if nothing wrapped) over a range
+  that ends at the bottom anchor's pseudo scroll: continuous in the
+  anchor, exact at both track ends (document start and document end)
+  and throughout at wrap factor one (where the range is `line_count *
+  line_h - band.h`), a documented approximation in between — the
+  wrapped sibling of the horizontal bar's max-seen-width approximation.
+  A range ending at `line_count * line_h - band.h` under wrap would sit
+  lines above the real end, parking the thumb at the track end while
+  the view scrolled back up through them.
 - Vertical caret motion and hit-tests resolve through on-demand wrapped
   row records of the specific lines involved. A caret offset exactly at
   a wrap break belongs to the row it **starts** (rows that end their
@@ -411,8 +422,10 @@ documented in
   (Section 4) means a steady frame — idle, held scroll, parked caret,
   at any horizontal depth — issues zero line measures; a typing frame
   re-measures the edited line, a vertical scroll frame the entering
-  lines, a horizontal scroll frame only the extension units. These are
-  asserted bounds in `make perf-editor`, not tendencies.
+  lines, a horizontal scroll frame only the extension units; a wrapped
+  cold frame also counts the band of lines at the document end once, for
+  the thumb's range end (the bottom anchor), and keeps the result. These
+  are asserted bounds in `make perf-editor`, not tendencies.
 - **The editor is O(viewport).** Window build, caret follow, and
   scrollbars are independent of document size, scroll depth, and caret
   offset; only edits pay a document-length byte scan (index rebuild +

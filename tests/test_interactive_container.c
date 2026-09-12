@@ -244,25 +244,31 @@ static void tic_wrap_child(WLX_Context *ctx, WLX_Interaction *out, bool *child_c
     wlx_layout_end(ctx);
 }
 
-TEST(interactive_container_shadows_interactive_child) {
+TEST(interactive_container_child_wins_the_press) {
     WLX_Context ctx;
     tic_ctx_init(&ctx, 200, 50);
     WLX_Interaction it = {0};
     bool child_clicked = false;
 
-    // Press, then release, over a CLICK container that wraps a CLICK button.
+    // Warm frame: container and child both enter the candidate list.
+    test_frame_begin(&ctx, 20, 20, false, false);
+    tic_wrap_child(&ctx, &it, &child_clicked);
+    test_frame_end(&ctx);
+
+    // Press, then release, over a CLICK container wrapping a CLICK button:
+    // the child is the later (innermost) query at the point, so it owns the
+    // press - the container no longer swallows child clicks.
     test_frame_begin(&ctx, 20, 20, true, true);
     tic_wrap_child(&ctx, &it, &child_clicked);
     test_frame_end(&ctx);
-    ASSERT_TRUE(!child_clicked);
+    ASSERT_TRUE(!child_clicked);   // clicks fire on release
 
     test_frame_begin(&ctx, 20, 20, false, false);
     tic_wrap_child(&ctx, &it, &child_clicked);
     test_frame_end(&ctx);
 
-    // Container captured the press; the child's click was swallowed.
-    ASSERT_TRUE(it.clicked);
-    ASSERT_TRUE(!child_clicked);
+    ASSERT_TRUE(child_clicked);
+    ASSERT_TRUE(!it.clicked);
     wlx_context_destroy(&ctx);
 }
 
@@ -360,7 +366,7 @@ SUITE(interactive_container) {
     RUN_TEST(container_interact_zero_is_noop);
     RUN_TEST(container_hover_border_appears_only_on_hover);
     RUN_TEST(container_click_fires_on_release);
-    RUN_TEST(interactive_container_shadows_interactive_child);
+    RUN_TEST(interactive_container_child_wins_the_press);
     RUN_TEST(button_hover_brightness_negative_darkens);
     RUN_TEST(button_hover_back_color_replaces_fill);
     RUN_TEST(button_hover_brightness_unset_matches_theme);

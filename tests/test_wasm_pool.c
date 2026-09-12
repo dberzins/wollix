@@ -13,6 +13,23 @@
 #endif
 #include "wollix_wasm.h"
 
+// Return every block the pool holds on its free lists to the C heap. Off wasm
+// the pool takes blocks from malloc and never releases them (a page never
+// comes back on the bare target either), so tests release them to keep the
+// runner leak-clean. Blocks still handed out must be freed into the pool
+// first; the tests assert bytes_in_use == 0 before calling this.
+static void pool_release(WLX_Wasm_Pool *pool) {
+    for (int cls = 0; cls < WLX_WASM_POOL_CLASSES; cls++) {
+        WLX_Wasm_Block *blk = pool->free_list[cls];
+        while (blk != NULL) {
+            WLX_Wasm_Block *next = blk->next;
+            free(blk);
+            blk = next;
+        }
+        pool->free_list[cls] = NULL;
+    }
+}
+
 TEST(wasm_pool_class_clamps_to_min_and_max) {
     ASSERT_EQ_INT(wlx_wasm_pool_class(0), 0);
     ASSERT_EQ_INT(wlx_wasm_pool_class(1), 0);
@@ -52,6 +69,8 @@ TEST(wasm_pool_alloc_then_free_reuses_block) {
     ASSERT_EQ_INT(pool.bytes_in_use, 256);
 
     wlx_wasm_pool_free(b, 180, &pool);
+    ASSERT_EQ_INT((int)pool.bytes_in_use, 0);
+    pool_release(&pool);
 }
 
 TEST(wasm_pool_realloc_same_class_returns_same_pointer) {
@@ -71,6 +90,8 @@ TEST(wasm_pool_realloc_same_class_returns_same_pointer) {
     ASSERT_EQ_INT(pool.free_count, 0);
 
     wlx_wasm_pool_free(b, 250, &pool);
+    ASSERT_EQ_INT((int)pool.bytes_in_use, 0);
+    pool_release(&pool);
 }
 
 TEST(wasm_pool_realloc_grows_to_next_class_and_recycles_old) {
@@ -99,6 +120,8 @@ TEST(wasm_pool_realloc_grows_to_next_class_and_recycles_old) {
 
     wlx_wasm_pool_free(b, 600, &pool);
     wlx_wasm_pool_free(c, 200, &pool);
+    ASSERT_EQ_INT((int)pool.bytes_in_use, 0);
+    pool_release(&pool);
 }
 
 TEST(wasm_pool_realloc_zero_frees_block) {
@@ -114,6 +137,8 @@ TEST(wasm_pool_realloc_zero_frees_block) {
     ASSERT_TRUE(r == NULL);
     ASSERT_EQ_INT(pool.free_count, 1);
     ASSERT_EQ_INT(pool.bytes_in_use, 0);
+    ASSERT_EQ_INT((int)pool.bytes_in_use, 0);
+    pool_release(&pool);
 }
 
 TEST(wasm_pool_steady_state_drives_reuse_only) {
@@ -144,6 +169,8 @@ TEST(wasm_pool_steady_state_drives_reuse_only) {
 
     ASSERT_EQ_INT(pool.alloc_count, baseline_alloc);
     ASSERT_EQ_INT(pool.reuse_count, 8 * 16);
+    ASSERT_EQ_INT((int)pool.bytes_in_use, 0);
+    pool_release(&pool);
 }
 
 TEST(wasm_pool_via_sub_arena_recycles_on_growth) {
@@ -177,6 +204,8 @@ TEST(wasm_pool_via_sub_arena_recycles_on_growth) {
     ASSERT_TRUE(pool.reuse_count > reuse_after_destroy);
 
     wlx_sub_arena_destroy(&sa);
+    ASSERT_EQ_INT((int)pool.bytes_in_use, 0);
+    pool_release(&pool);
 }
 
 SUITE(wasm_pool) {

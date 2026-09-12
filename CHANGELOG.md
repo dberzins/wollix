@@ -7,6 +7,493 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-12
+
+The overlay release: draw commands and interactive widgets now carry a
+layer, the topmost widget under the pointer owns the press and the
+hover, and the popup family — dropdowns, tooltips, and nestable
+menus — rests on that primitive. Alongside it, the input contract
+grows right and middle buttons and a float wheel on both axes, Tab
+traversal and a focus ring make the widget set keyboard-operable,
+an I-beam appears over text, and CONTENT slots size horizontally
+as well as vertically.
+
+### Added
+- **Input contract v2: mouse buttons, float wheel axes, F-keys, touch on
+  the web.** `WLX_Input_State` gains right/middle button state with
+  one-frame press edges (`mouse_right_down/clicked`,
+  `mouse_middle_down/clicked`) and a horizontal wheel axis
+  (`wheel_delta_x`); `WLX_Key_Code` gains `WLX_KEY_F1..F12` and
+  `WLX_KEY_INSERT` (`WLX_KEY_COUNT` 51 -> 64). New `wlx_is_mouse_right_*` /
+  `wlx_is_mouse_middle_*` helpers, and `WLX_Interaction.right_clicked`: a
+  right press is owned by the previous frame's topmost candidate under the
+  pointer (popup content beats the base widget it covers), fires on the
+  press frame, and never blurs focus or disturbs a left press or drag. The
+  editor consumes the horizontal wheel into its horizontal scroll. All
+  three backends land together: Raylib reports `GetMouseWheelMoveV` raw on
+  both axes and maps the new keys; SDL3 accumulates raw wheel values on
+  both axes (natural-scroll direction normalized) and reads right/middle
+  from the mouse-state mask; the web host moves to pointer events with
+  pointer capture - a drag released outside the canvas ends cleanly
+  instead of sticking, right/middle arrive via `e.button`, and
+  single-finger **touch drives the published demo** (`touch-action: none`
+  on the canvas; `pointercancel` releases every button). F-keys are
+  recorded but left to the browser (F5/F11/F12 keep their meaning). See
+  API_REFERENCE.md "WLX_Input_State" and LAYOUT_MODEL.md "Input State".
+- **Keyboard focus traversal and focus ring.** Tab / Shift-Tab move a
+  keyboard focus ring through the operable widgets in declaration order
+  (wrapping at both ends; only the topmost open layer participates, so an
+  open menu or dropdown owns the ring); Enter / Space activate the focused
+  button-like widget exactly like a click; tabbing onto an inputbox or
+  textarea focuses it for typing and the field never swallows Tab; the
+  editor keeps Tab as indent while focused and is left with Escape, then
+  Tab. While a widget holds the ring, `wlx_end` draws one accent outline
+  around it (`theme->accent`; `WLX_FOCUS_RING_THICKNESS` /
+  `WLX_FOCUS_RING_GAP` overridable); any pointer press drops the ring, so
+  mouse-driven sessions never see it. Keyboard focus is a third identity
+  beside hot and active (`wlx_focused_id()` reads it); the interaction
+  flags gain `WLX_INTERACT_FOCUS_HOLD_TAB` (keep Tab while focused) and
+  `WLX_INTERACT_TAB_SKIP` (never a Tab stop) for custom widgets. Closes the
+  documented "Tab reserved for focus traversal" promise. See WIDGETS.md
+  "Keyboard operation" and LAYOUT_MODEL.md "Keyboard Focus Traversal".
+- **Mouse cursor shapes: I-beam over text.** `WLX_Backend` gains an
+  optional `set_cursor(WLX_Cursor_Shape)` callback (the 22nd; `NULL`
+  leaves the platform cursor alone). The core resolves the shape from the
+  widget under the pointer - the same topmost-wins candidate that owns
+  hover - and pushes it only on change, so adapters stay stateless. The
+  inputbox, textarea, and the editor's text region (line-number gutter
+  excluded) show the I-beam; everything else keeps the arrow, and a text
+  selection drag keeps the I-beam after leaving the field. Wired on
+  Raylib, SDL3, and the web host. New `WLX_INTERACT_TEXT_CURSOR` flag for
+  custom text-like widgets. See API_REFERENCE.md "WLX_Backend" and
+  LAYOUT_MODEL.md "Backend Contract".
+- **Overlay layers, topmost-wins input, and the popup family.** Draw
+  commands and interactive widgets now carry a layer;
+  `wlx_overlay_begin/end` roots an absolutely positioned subtree on the
+  next layer (nesting up to `WLX_OVERLAY_MAX_LAYERS`), replayed above
+  everything below it. Input follows: the previous frame's topmost hit
+  candidate under the pointer owns hover (exactly one widget reports
+  `hover` per frame now) and latches the press, so popup content wins
+  clicks over whatever it covers, and the wheel scrolls only the
+  pointer's layer — an open popup keeps the base UI still. On top of the
+  primitive: `wlx_dropdown` (closed face + below-anchored scrollable
+  list), `wlx_tooltip_for` (hover-delay, pointer-anchored, draw-only —
+  it can never steal input), and `wlx_menu_begin/item/end`
+  (caller-triggered point-anchored menu, nestable to `WLX_MENU_STACK_MAX`; a
+  `.keep_open` item — the submenu trigger, or a checkable entry — clicks
+  without closing the menu; `wlx_menu_button_begin` is the button-anchored
+  variant whose face toggles the menu like a dropdown and anchors the list
+  below itself; `wlx_submenu_begin` opens the submenu level with no
+  coordinates, anchored beside its trigger item and inheriting the
+  parent's styling). All
+  three close on Escape or an outside press without eating that press.
+  `wlx_last_rect` returns the rect of the widget just placed - the natural
+  tooltip anchor with no manual geometry.
+  Frames that never leave layer 0 keep the previous flat replay path.
+  See LAYOUT_MODEL.md sections 8-9, WIDGETS.md, `demos/popup.c`, and the
+  dashboard's Components > Popups module.
+- **CONTENT slots size horizontally: intrinsic widths.** A
+  `WLX_SLOT_CONTENT` slot in a HORZ linear layout now resolves from its
+  children's widths — fit-to-label buttons and auto-width columns work.
+  Each widget offers its natural width (always the single-line, unwrapped
+  measure): label/button measure their text plus padding and the image
+  band; checkbox/toggle/radio use their glyph row; image its
+  sub-rect/texture width; separator its thickness. Explicit `.width` always
+  wins; sliders, inputs, the editor, scroll panels, and nested layouts
+  contribute explicit widths only. The width settles one frame after
+  content changes (`WLX_SLOT_CONTENT_MIN` hides the pop, as with vertical
+  CONTENT), and the deferred replay corrects drawn positions on the
+  measuring frame itself: command ranges carry a dx offset beside dy, so
+  HORZ CONTENT has full parity with the VERT correction, scissors
+  included. Intrinsic measurement runs only inside width-consuming slots,
+  so existing layouts measure nothing extra. Internally the per-layout
+  CONTENT state now stores the main-axis extent (heights for VERT layouts,
+  widths for HORZ — previously HORZ misread heights as widths and warned
+  under `WLX_DEBUG`; that diagnostic is gone). See LAYOUT_MODEL.md § Layout
+  Capabilities and WIDGETS.md § Intrinsic widths.
+
+### Fixed
+- **The wrapped editor's vertical thumb no longer sticks at the track end
+  while scrolling back up.** The wrapped thumb maps hard-line pseudo
+  pixels, and its range ended at `line_count * line_h - band.h` - the
+  bottom of an unwrapped document. A band of wrapped rows holds fewer
+  hard lines than that, so in prose the range end sat many lines above
+  the real bottom anchor: the thumb hit the track end early and stayed
+  there while the view scrolled up through those lines (the dashboard's
+  prose doc parked it for a long stretch), and a drag over the last part
+  of the track jumped the same distance. The range now ends at the bottom
+  anchor's pseudo scroll - the anchor that bottom-aligns the last row,
+  filled backward from the document end over at most a band of lines and
+  cached in the editor state (end-relative, so edits before it only shift
+  it) - so the thumb reaches the track end exactly at the document end,
+  leaves it on the first row back up, and a drag is continuous over the
+  whole track. Unwrapped documents are unchanged: both ends coincide at
+  wrap factor one. The wrapped cold frame now also counts the rows of the
+  band of lines at the document end, retained thereafter; steady frames
+  are unaffected (`make perf-editor` cold bounds updated).
+- **Raylib dashboard and gallery text no longer renders smaller than the
+  SDL3/WASM builds.** Both demos scale raylib's font size up (1.31x and
+  1.15x) to match the other backends, wrapping the adapter's text
+  callbacks. When the raylib adapter gained `draw_text_slice` (the core
+  prefers it over `draw_text`), the shims kept wrapping only `draw_text`,
+  so every text command drew at nominal size against a layout measured at
+  the scaled size. Both shims now wrap the slice draw as well, and the
+  `WLX_Backend` comment states that a decorating app must wrap every text
+  callback the adapter installs.
+- **Scrollbar thumbs no longer vanish over long content.** The thumb was
+  strictly proportional to the visible share of the content, so a 30k-line
+  editor document in a 20-row band drew a sub-pixel thumb - invisible and
+  undraggable. Every thumb (scroll panel, multiline inputbox, editor on both
+  axes) now floors at 20px, or the track when shorter, and its travel maps
+  the scroll range onto the remaining track: the track end still means the
+  content end, and a held thumb stays under the pointer. The dashboard's
+  editor page also highlights the document picker that is actually loaded
+  instead of always the sample one.
+- **A clamped fixed slot could land two pixels past its max in an
+  overconstrained frame.** Redistribution re-read each slot's size from the
+  already snapped boundaries and snapped the rebuilt offsets again, so a
+  `PIXELS` / `PERCENT` / `FILL` / `CONTENT` slot clamped to a fractional max
+  entered the freeze loop a pixel over and a float sum landing on .5 added
+  the second. Redistribution now starts from the exact clamped sizes and
+  snaps once, so every slot lands within one pixel of its clamped size; in a
+  frame whose requested sizes already exceed it, one boundary may move by a
+  pixel. The fuzz suite that flaked on this (about 2.4% of seeds) now gates
+  on the captured seeds first and adds one time-seeded round that prints
+  its seed and slots on failure.
+- **A scroll panel contributes its explicit `.width` to a `CONTENT`-sized
+  parent slot.** WIDGETS.md has listed the panel as contributing "explicit
+  `.width` ... only" since the two-axis CONTENT wave, but the contribution
+  helper sent height alone, so a scroll panel in a horizontal CONTENT slot
+  collapsed to the unmeasured floor. It now contributes `opt.width` when
+  set (and nothing otherwise - the viewport rect would be circular).
+- **Popups declared inside a scroll panel receive input outside the panel
+  viewport.** An overlay escaped the base layer's clip for drawing, but the
+  walkers that intersect "all active clips" - hover and press hit-testing,
+  the candidate clip, a nested scroll panel's scissor and its restore, the
+  enclosing-scissor query - iterated every base scroll panel regardless of
+  layer, so a dropdown, menu or raw `wlx_overlay` declared inside a scroll
+  panel could not select rows past the viewport and the dropdown's inner
+  list scissor was cut at it. Each layer now has its own clip context
+  (`WLX_Clip_Base`): an overlay starts a fresh one at its own rect and
+  `wlx_overlay_end` restores the enclosing one; one walker
+  (`wlx_enclosing_clip`) serves the five sites with unchanged base-layer
+  rules. Follow-ons: popup rects are culled against the overlay's own rect
+  instead of being exempt from culling, and `wlx_overlay_end` re-arms the
+  enclosing clip only in immediate mode (the deferred base pass never lost
+  it). Seven in-panel tests plus two stream pins.
+- **Drags hold on `mouse_down`.** `WLX_INTERACT_DRAG` acquired on
+  `mouse_down` but kept the drag alive only while `mouse_held` was set, so a
+  host that fills `mouse_down` alone (the documented contract; `mouse_held`
+  is its legacy twin per ADR_040) lost every drag on the frame after the
+  press. The core now reads `mouse_down` for both; `mouse_held` stays in the
+  struct as the documented legacy-equal field.
+- **`wlx_last_rect` after a `wlx_menu_button_begin` block is the face.**
+  It reported the last item row while the menu was open, so a tooltip
+  anchored right after the block jumped onto an item; the menu button now
+  follows the dropdown's one-widget rule and re-publishes its face at
+  `wlx_menu_end` (point-anchored `wlx_menu_begin` menus are unchanged).
+- **A submenu's `*open` flag no longer outlives its parent.** Chain
+  dismissal marked only the menu frames on the stack at click time, so a
+  parent leaf declared *before* the submenu closed the parent but left the
+  submenu's caller-owned flag set - the next open showed a stale submenu,
+  and both in-tree consumers carried `if (!menu_open) submenu_open =
+  false;` to hide it. `wlx_submenu_begin` now clears the flag when an
+  ancestor leaf was activated earlier in the frame or when the parent is
+  re-opening; the workarounds are gone from `demos/popup.c` and the
+  dashboard.
+- **Frame-scratch pointers no longer go stale across scratch growth
+  (use-after-free under ASan).** Two classes, both in the per-frame byte
+  scratch arena, which is realloc-grown: (1) a layout's retained slot-size
+  array was read through a pointer captured at `layout_begin` by the
+  intrinsic-width gate, the VERT fixed-slot contribution override, and the
+  debug layout shadow, so a sibling recording enough text (or a nested
+  CONTENT layout) between begin and the read left it dangling; the array is
+  now re-derived from its offset on every read (`wlx_layout_content_sizes`)
+  and the pointer field is gone. (2) `wlx_end` took its per-command dy, dx
+  and layer tables as three successive scratch allocations and kept the
+  earlier pointers across the later allocations - on growth frames the dy
+  zero-fill and the layered-dispatch reads hit freed memory; the three
+  tables now share one block. Plain runs passed by allocator luck (the old
+  block usually survives); an ASan build of the suite reported six
+  heap-use-after-free sites on existing tests, now zero. New
+  `content_sizes_survive_scratch_growth` test pins the gate on a growth
+  frame.
+- **Clicking outside a focused field no longer swallows the press.** A
+  focused inputbox/editor holds the interaction lock (`active_id`) across
+  frames and released it only when itself queried, so a press on a button
+  declared earlier in the frame silently did nothing — the user had to click
+  twice, and whether the first click worked depended on declaration order of
+  unrelated widgets. `wlx_begin` now releases a focus-class holder when a
+  fresh press lands outside the widget's recorded rect, before any widget is
+  queried, so the same press activates its real target. Drag interactions
+  (sliders, scrollbars) are never touched, Escape blur is unchanged, and the
+  released widget still observes its `just_unfocused` edge.
+- **Clipboard transports grow instead of silently truncating at 1 KB.** All
+  three adapters funneled clipboard traffic through fixed 1024-byte static
+  buffers, so copying or pasting more than ~15 lines silently lost data.
+  The transports are now grow-and-reuse heap buffers bounded by a 16 MB soft
+  cap (`WLX_RAYLIB_CLIPBOARD_MAX` / `WLX_SDL3_CLIPBOARD_MAX` /
+  `WLX_WASM_CLIPBOARD_MAX`, overridable); truncation happens only at the cap
+  and never splits a UTF-8 sequence. The WASM receive path grows and
+  re-fetches from the host until the text provably fits. Pinned by a
+  5,000-byte round-trip test through the core clipboard helpers.
+- **Backend adapters no longer read one byte past text slices.** The Raylib
+  slice measure, the Raylib advances walk, and the SDL3 debug-font draw
+  probed `text[len]` for an existing NUL terminator to skip a copy — an
+  out-of-bounds read for a slice ending exactly at the end of an allocation
+  (the slice contract explicitly forbids the probe). All three paths now
+  always copy through their existing stack-or-heap temp buffers; Raylib
+  measure-cache hits still skip the copy entirely.
+- **SDL3 caret blink and multi-click timing: frame time is now sampled once
+  per frame.** `wlx_get_frame_time` returned the backend callback's value on
+  every read, but the SDL3 adapter measures time since its own previous call
+  — so with several reads per frame only the first saw real time: the
+  inputbox caret never blinked on SDL3, and a later widget's multi-click
+  clock barely advanced (slow single clicks could register as double/triple
+  clicks). `wlx_begin` now takes the frame's single backend sample into
+  `WLX_Context.frame_dt` and every read serves that cache; the
+  `WLX_Backend.get_frame_time` contract documents the exactly-once-per-frame
+  call. Behavior is now identical across Raylib, SDL3, and WASM.
+- **The documented limit macros are actually overridable.**
+  `WLX_MAX_SLOT_COUNT`, `WLX_CONTENT_SLOTS_MAX`, `WLX_OFFSET_STACK_LIMIT`,
+  and `WLX_DA_INIT_CAP` were `#define`d unconditionally, so a user's
+  pre-include definition was silently clobbered back to the default (with a
+  redefinition warning); all four now sit behind `#ifndef`, matching the
+  text-pipeline macros. Pinned by a new override test binary
+  (`tests/test_config_override.c`) wired into `make test`.
+- **size_t-overflow guards survive release builds.** The overflow checks in
+  the frame sub-arena reserve/alloc paths and the layout slot-count sanity
+  check were plain `assert()`s that compiled out under NDEBUG; they are now
+  `WLX_HARD_ASSERT`, so a wrapped size aborts with a `wollix fatal:` message
+  instead of silently writing out of bounds. Pinned by two new NDEBUG death
+  tests. The unused `wlx_da_reserve` / `wlx_da_append` macros were removed
+  (`WLX_DA_INIT_CAP` stays).
+
+### Changed
+- **Intrinsic widths of image buttons without an explicit `.image_size`
+  follow the face.** In a `CONTENT`-sized slot, a label/button with a
+  texture and no `.image_size` used to contribute the raw texture width;
+  the face, however, reserves the auto band (`font_size * 1.5`) when text
+  is present - so a small icon under-reserved and a large texture
+  over-widened the slot. The intrinsic now reports the same band the face
+  draws; image-only faces still contribute the texture (sub-rect) width,
+  and explicit `.image_size` callers are unchanged.
+- **Keyboard activation now admits the keyboard-focused widget.**
+  `WLX_INTERACT_KEYBOARD` previously fired on Space/Enter only while the
+  widget was hovered; it now fires when the widget is hovered **or** holds
+  the Tab focus ring. The hover path is unchanged, so existing code keeps
+  working; a widget that was never Tab-focused behaves exactly as before.
+- **Wheel values are unquantized float detents on every backend.**
+  `wheel_delta` (and the new `wheel_delta_x`) carry `1.0` per notch with
+  trackpad fractions preserved. Raylib previously routed the wheel through
+  an encoder-bounce debounce that suppressed single-frame direction
+  reversals - it also ate legitimate fast reversals and is gone; SDL3 and
+  the web host previously quantized every event to +-1 and now pass raw
+  values (the web host converts `deltaMode` pixels/lines to detents at
+  100 px and 3 lines per detent). Scroll speed is unchanged per detent, so
+  clicky wheels feel the same; trackpads scroll smoothly instead of in
+  notches, and rapid reversals are no longer dropped.
+- **`WLX_Input_State` grew (208 -> 252 bytes; `WLX_KEY_COUNT` 51 -> 64).**
+  Append-only, so every pre-existing field keeps its meaning and the
+  offsets before `keys_pressed` are unchanged; but the key arrays are
+  larger, so anything after `keys_down` moves. Hosts that write the struct
+  by byte offset must use the new layout - in-tree that is the WASM host,
+  whose `wollix_wasm.h` static-asserts fail the build on a mismatch.
+  Recompiled C callers need no changes.
+- **Overlapping widgets: topmost now wins the press and the hover.**
+  Previously the first widget to query an overlapping rect captured the
+  press and every overlapping widget reported `hover` at once
+  (first-writer capture). With ownership arbitration the visually topmost
+  candidate — highest layer, then latest query — is the single owner.
+  Non-overlapping layouts behave identically; code that relied on an
+  underneath widget receiving the press must move that widget to a higher
+  layer (or reorder it). Activation timing is unchanged for static
+  geometry; a widget appearing for the first time can activate one frame
+  after it appears. Interactive containers (`.interact` on a layout) are
+  covered by the same rule: a `CLICK` container no longer swallows the
+  press of a button declared inside it - the child (the innermost query)
+  owns the press and the container reports `clicked` only on its own
+  non-interactive area (the 0.7.0 "non-interactive children only" scoping
+  is lifted; LAYOUT_MODEL.md / API_REFERENCE.md updated).
+
+### Internal
+- The test runner is leak-clean and the sanitizer gate runs: every test
+  that initializes a context destroys it, the WASM pool tests release
+  their blocks, and `make test-asan` builds the runner under ASan + UBSan
+  and runs it with leak detection on. CI's sanitizer job calls that target
+  and the warnings-as-errors job overrides `BASE_CFLAGS`; both jobs had
+  passed `CFLAGS=`, which the test binaries never read, so neither had run
+  with the flags it named.
+- The WASM clipboard transport is unit-tested: `tests/test_wasm_clipboard.c`
+  defines the two clipboard imports as a host stand-in (the JS back-off
+  rule) and pins the first fetch, the 3-byte back-off window, the geometric
+  grow, the soft cap on a UTF-8 boundary, buffer reuse, the empty host and
+  `clipboard_set`'s slice; `WLX_WASM_CLIPBOARD_MAX` is overridden to 12,000
+  bytes in the runner so every path is reachable with kilobyte texts.
+- Consistency batch, core header and docs: the five headers' comments and
+  string literals are ASCII again (theme section rules, three em dashes,
+  the wasm banner); the heights -> measures rename leftovers are gone
+  (`slot_measures_off`, the debug validator's measure source, the parent
+  contribution comment); the `WLX_INTERACT_KEYBOARD` comment (header and
+  API_REFERENCE.md) states the actual rule (Space/Enter while hot or
+  keyboard-focused); the `right_press_owner` comment says when it is read;
+  WIDGETS.md names the gradient call the Raylib adapter makes
+  (`DrawRectangleGradientEx`). The tooltip's default delay / padding and
+  flip gaps are named constants, the two doubling growers share
+  `WLX_GROW_INIT_CAP`, the candidate grower carries the same overflow
+  hard-assert as its siblings, a static assert pins
+  `WLX_OVERLAY_MAX_LAYERS` to the byte-wide replay layer tag (an override
+  above 255 is now a build error instead of a silent wrap), the tooltip
+  reads frame time through `wlx_get_frame_time`, and the unused
+  `WLX_TODO` macro is removed.
+- Consistency batch, adapters: every file-scope global in the three
+  adapters carries the `g_` prefix (`g_wlx_sdl3_text_cache`,
+  `g_wlx_sdl3_font_variants`, `g_wlx_wasm_clipboard_buf` / `_cap`; all
+  file-local), `wollix_sdl3.h` is free of trailing whitespace and its
+  eviction note is four lines, `wollix_raylib.h`'s cache comments state
+  the 2048-default slot arithmetic and its font shim follows the backend
+  factory like SDL3's, `WLX_WASM_POOL_MIN_ORDER` / `_MAX_ORDER` are
+  `#ifndef`-guarded knobs (API_REFERENCE.md says so), and the SDL3
+  override examples in API_REFERENCE.md show the defaults.
+- Idiom sweep, draw / input / text: the sub-pixel outline rule
+  (`wlx_outline_subpixel`, shared by the rect outlines and the focus ring),
+  the wheel consume body (`wlx_wheel_consume_axis`; the scroll panel's
+  hand-rolled consume now calls `wlx_wheel_consume`), the pointer-on-layer
+  gate (`wlx_pointer_on_current_layer`, formerly `wlx_wheel_on_current_layer`;
+  the tooltip's inline copy calls it), the reference line-height probe
+  (`wlx_text_line_height`, four sites including the editor), the viewport
+  clip of the interaction query (`wlx_interaction_clip_rect`: one clip walk
+  per query instead of two, and the focus-ring rect uses it), the glyph-row
+  block width (`wlx_glyph_row_block_w`, intrinsic and draw paths) and the
+  multi-click clock tick (`wlx_text_edit_tick_click_clock`, inputbox and
+  editor) each exist once. Pure moves; `test_core_utils.c` gains direct
+  tests for the pure helpers and `test_disabled_state.c` pins that disabled
+  hover stays viewport-clipped. Layout axis and slot: `wlx_layout_is_horz`
+  / `wlx_layout_is_vert` / `wlx_layout_main_extent` replace the repeated
+  "linear and HORZ / VERT" tests and main-extent selects in the layout core
+  and the debug shadow, and `wlx_layout_slot_is_content` answers the
+  CONTENT-slot question for both the intrinsic-width gate and the debug
+  validator (same bounds, one definition).
+- Intrinsic-width prologues share one padding macro and measure through
+  the perf hook. `WLX_INTRINSIC_PAD_LR(ctx, opt)` replaces the five-field
+  `wlx_intrinsic_pad_lr` spread at the seven widget sites;
+  `wlx_intrinsic_text_width` now routes through `wlx_measure_text_slice`
+  (so intrinsic traffic shows up in the text-measure perf counter) and the
+  image / glyph-row intrinsics take an explicit length, so each widget in
+  a CONTENT slot runs one `strlen` instead of two. The tooltip measures
+  its text with `wlx_measure_text_slice` directly instead of borrowing the
+  intrinsic helper (also one `strlen`), and the toggle's track-ratio
+  fallback is the named `WLX_TOGGLE_TRACK_RATIO_FALLBACK`. No behavior
+  change; intrinsic values and measure traffic are unchanged (the
+  per-widget measure style stays measure-only).
+- One backend perf scaffold. The three adapters' byte-equivalent perf
+  machinery (an identical 22-field frame prefix, the begin/end/inc/timing
+  helper set, and the per-callback `#ifdef WLX_PERF` timing sandwich at
+  45+ sites) now builds on core-defined pieces:
+  `WLX_PERF_BACKEND_COMMON_FIELDS`, `WLX_Perf_Backend_Clock` with
+  `wlx_perf_backend_*` helpers (pinned by clock unit tests under
+  `make perf-test`), and `WLX_PERF_SCOPE_BEGIN/END` macros that are no-ops
+  without `WLX_PERF` - and that turn a timing scope opened but never
+  closed (the dropped-`time_end` bug class) into a compile-time warning.
+  Adapters keep their frame extras, their timestamp source and thin typed
+  wrappers; every frame field name is unchanged, so
+  `demos/gallery_perf.h` compiles without edits. ~290 lines lighter
+  across the three adapters; the bare-WASM perf state gains the `g_`
+  prefix its siblings use. No behavior change.
+- Key and cursor maps carry compile-time completeness tripwires. The Raylib
+  key map flips to WLX -> platform (`wlx_raylib_key_for`, reading side by
+  side with SDL3's table) as a switch with no `default`, and the build now
+  runs with `-Werror=switch`, so a `WLX_Key_Code` added without a mapping
+  fails the build; the per-frame scan drops from 350 platform codes to
+  `WLX_KEY_COUNT`. Each adapter's `set_cursor` carries a
+  `_Static_assert(WLX_CURSOR_COUNT == 2, ...)` (the WASM one points at the
+  JS host's map). SDL3 and the web host no longer split a UTF-8 sequence
+  at the 31-byte `text_input` cap (a codepoint that does not fit is
+  dropped whole; Raylib already appended per codepoint). API_REFERENCE
+  gains the per-adapter optional-callback capability table.
+- Three shared utilities hoisted into the core: `wlx_buf_reserve` (the
+  grow-and-reuse flat buffer the Raylib and SDL3 clipboard transports and
+  the test mock each re-rolled verbatim, now with the house overflow
+  guard), `wlx_utf8_floor` (the continuation-byte back-off loop, five
+  sites across the core and adapters; bounded back-offs keep their own
+  loops), and `wlx_hash_fnv1a64` (the FNV-1a 64 both measurement caches
+  defined locally). The bare-WASM clipboard's first fetch now honors a
+  `WLX_WASM_CLIPBOARD_MAX` override smaller than its 4096-byte seed. New
+  `tests/test_core_utils.c` pins all three helpers directly. No behavior
+  change.
+- Adapters copy slices through the core's `WLX_CStr_Tmp`. The Raylib slice
+  measure, the Raylib advances walk and the SDL3 debug-font slice draw each
+  hand-rolled the stack-or-heap NUL-copy discipline (three different stack
+  caps); all three now use the core helper, and Raylib wires a
+  `draw_text_slice` built on it - the `WLX_Backend` "all in-tree backends
+  implement the slice pair" note is now true (the copy simply moved from
+  the core fallback into the adapter). No behavior change.
+- Typing-focus release and blur each exist once.
+  `wlx_interaction_release_focus_holder` serves both frame-begin release
+  sites (press outside the holder, Tab away) and now clears the holder's
+  Tab claim in both - previously the press-outside path left
+  `active_consumes_tab` stale-true until some widget re-acquired
+  `active_id`, harmless only because the Tab gate also checks the holder;
+  a new test pins that the claim never outlives the holder.
+  `wlx_interaction_blur` serves the three blur edges (bootstrap outside
+  press, Enter, Escape) in `wlx_interaction_handle_focus`.
+- `wlx_begin` is a sequencer again. The frame-begin arbitration that had
+  grown inside it (owner / cursor walk, cursor push, hover rule, left and
+  right press latches, ring clears, Tab traversal) moved to
+  `wlx_frame_arbitrate` as a pure move, and the Tab ring's next stop is one
+  function, `wlx_focus_next_stop` (two linear passes, `size_t` indices -
+  the old three-pass modular walk with `long` indices is gone), pinned by
+  six direct unit tests on hand-built candidate lists. No behavior change.
+- Menu frames embed their resolved `WLX_Menu_Opt`. `WLX_Menu_Frame` (one open
+  menu body) now holds `style`, `rect` and `row_cursor` instead of mirroring
+  thirteen styling fields by hand; `wlx_menu_frame_push` takes the anchor
+  point and the style, computes the panel rect itself and copies the opt by
+  assignment, the submenu inherits from `parent->style`, and the three
+  closed-menu early-outs share `wlx_menu_closed`. The context's menu stack
+  is heap-backed (`WLX_MENU_STACK_MAX` entries, allocated on the first menu
+  open, never reallocated, freed in `wlx_context_destroy`) so the frame can
+  be defined with the menu implementation; `sizeof(WLX_Context)` shrinks by
+  the former inline stack. No behavior change.
+- One button face. `wlx_button`, the dropdown face and the menu-button face
+  draw through a single `wlx_button_face` (frame, query, hover tint,
+  per-side border, box, content) over an already-resolved `WLX_Button_Opt`;
+  the popups build that opt with new per-field-group copy initializers
+  (`WLX_*_COPY(src)`, kept beside each group's `_FIELDS` / `_DEFAULTS`).
+  Popup rows, overlay chrome and the outside-press test share helpers
+  (`wlx_popup_row_opt`, `wlx_overlay_chrome_opt`,
+  `wlx_popup_outside_press`), the dropdown's list styling is a
+  `WLX_Menu_Opt` view like the menu button's, and the three popup magic
+  numbers are named (`WLX_POPUP_ROW_HEIGHT_PAD`, `WLX_MENU_DEFAULT_WIDTH`,
+  `WLX_MENU_ITEM_PADDING`). Two stream-equality tests pin "dropdown /
+  menu-button face == button face". No behavior change.
+- Docs aligned with the landed contracts: LAYOUT_MODEL.md / API_REFERENCE.md
+  describe interactive containers under topmost-wins (a child button wins
+  the press; ADR_029 carries a superseded-by note), the Raylib input section
+  no longer claims wheel debouncing, README and the header preamble list the
+  popup family / input v2 / focus traversal / cursor callback, the preamble
+  LIMITS block lists every overridable cap, WIDGETS.md tables gain the
+  dropdown and menu-button intrinsic-width rows and `id` fields,
+  API_REFERENCE gains a "Backend - WASM" section and documents the three
+  `WLX_*_CLIPBOARD_MAX` caps, and ADR_038-042 carry their implemented
+  status. `demos/gallery_wasm.c` (orphan: the WASM gallery builds from
+  `gallery.c`) is removed.
+- SDL3 adapter: `wlx_sdl3_measure_text`'s debug-font `len == 0` path ends
+  its `WLX_PERF` timer before returning (the started sample was dropped).
+- `wlx_menu_item`, `wlx_menu_end` and `wlx_submenu_begin` guard an empty
+  menu stack with `WLX_HARD_ASSERT` (release-surviving) instead of a plain
+  `assert`; `menu_stack[-1]` overlays the candidate buffers, so the old
+  guard let an unmatched `wlx_menu_end` corrupt memory in `NDEBUG` builds.
+  `test_hard_assert` gains the death case.
+- CI now runs on the `dev` working branch (push and pull_request), and a new
+  `perf-gate` job runs the editor measure-traffic gate (`make perf-editor`)
+  and the `WLX_PERF` test build (`make perf-test`) on every push.
+- Docs: the README compile line and a new "Compiler flags" preamble section
+  in `wollix.h` document the required initializer-override warning
+  suppressions (`-Wno-initializer-overrides` on clang, `-Wno-override-init`
+  on gcc with `-Wextra`); the README toggle description no longer claims
+  "animated" styling (no motion system exists); `CONTRIBUTING.md` states the
+  pre-1.0 contribution policy (issues welcome, PRs after 1.0).
+
 ## [0.7.0] - 2026-08-10
 
 The editor release: a new windowed text-editor widget shipping as the

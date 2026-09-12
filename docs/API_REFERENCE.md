@@ -54,11 +54,16 @@ layout library.
 30. [List Clipper — `wlx_list_clipper`](#list-clipper--wlx_list_clipper)
 31. [Compound Widget — `wlx_split`](#compound-widget--wlx_split)
 32. [Compound Widget — `wlx_panel`](#compound-widget--wlx_panel)
-33. [Shared Option Field Macros](#shared-option-field-macros)
-34. [Theme Presets](#theme-presets)
-35. [Backend — Raylib](#backend--raylib)
-36. [Backend — SDL3](#backend--sdl3)
-37. [Performance Diagnostics](#performance-diagnostics)
+33. [Overlay — `wlx_overlay`](#overlay--wlx_overlay)
+34. [Widget — `wlx_dropdown`](#widget--wlx_dropdown)
+35. [Widget — `wlx_tooltip_for`](#widget--wlx_tooltip_for)
+36. [Compound Widget — `wlx_menu`](#compound-widget--wlx_menu)
+37. [Shared Option Field Macros](#shared-option-field-macros)
+38. [Theme Presets](#theme-presets)
+39. [Backend — Raylib](#backend--raylib)
+40. [Backend — SDL3](#backend--sdl3)
+41. [Backend — WASM](#backend--wasm)
+42. [Performance Diagnostics](#performance-diagnostics)
 
 ---
 
@@ -98,6 +103,15 @@ off by default. All public `wlx_*` functions remain available regardless.
 | `radio(ctx, label, active, index, ...)` | `wlx_radio(ctx, label, active, index, ...)` |
 | `scroll_panel_begin(...)` | `wlx_scroll_panel_begin(...)` |
 | `scroll_panel_end(ctx)` | `wlx_scroll_panel_end(ctx)` |
+| `overlay_begin(...)` | `wlx_overlay_begin(...)` |
+| `overlay_end(ctx)` | `wlx_overlay_end(ctx)` |
+| `dropdown(...)` | `wlx_dropdown(...)` |
+| `tooltip_for(...)` | `wlx_tooltip_for(...)` |
+| `menu_begin(...)` | `wlx_menu_begin(...)` |
+| `menu_button_begin(...)` | `wlx_menu_button_begin(...)` |
+| `submenu_begin(...)` | `wlx_submenu_begin(...)` |
+| `menu_item(...)` | `wlx_menu_item(...)` |
+| `menu_end(ctx)` | `wlx_menu_end(ctx)` |
 | `split_begin(...)` | `wlx_split_begin(...)` |
 | `split_next(...)` | `wlx_split_next(...)` |
 | `split_end(ctx)` | `wlx_split_end(ctx)` |
@@ -107,6 +121,7 @@ off by default. All public `wlx_*` functions remain available regardless.
 | `image(...)` | `wlx_image(...)` |
 | `slot_style(...)` | `wlx_slot_style(...)` |
 | `grid_cell_style(...)` | `wlx_grid_cell_style(...)` |
+| `last_rect(ctx)` | `wlx_last_rect(ctx)` |
 | `push_id(ctx, id)` | `wlx_push_id(ctx, id)` |
 | `pop_id(ctx)` | `wlx_pop_id(ctx)` |
 | `push_opacity(ctx, opacity)` | `wlx_push_opacity(ctx, opacity)` |
@@ -127,9 +142,11 @@ fires.
 
 **Default (undefined):** iterative freeze-and-redistribute — surplus/deficit
 from clamped slots is redistributed among unfrozen siblings so that
-`offsets[count] == total` (no gaps or overflow). Note this cannot remove a
-physical overflow when fixed + min sizes already exceed the container; contain
-that with an opt-in layout `.clip`.
+`offsets[count] == total` (no gaps or overflow). Redistribution works on the
+exact clamped sizes and snaps the boundaries once, so a clamped slot lands
+within one pixel of its bound. Note this cannot remove a physical overflow
+when fixed + min sizes already exceed the container; contain that with an
+opt-in layout `.clip`.
 
 > `WLX_SLOT_MINMAX_REDISTRIBUTE` (the former opt-in symbol) is now a deprecated
 > no-op, accepted but ignored, retained for source compatibility.
@@ -320,6 +337,7 @@ typedef struct {
                             float roundness, int rounded_segs); // optional
     const char *(*clipboard_get)(void);                         // optional
     void (*clipboard_set)(const char *text, size_t len);        // optional
+    void (*set_cursor)(WLX_Cursor_Shape shape);                 // optional
 } WLX_Backend;
 ```
 
@@ -342,7 +360,7 @@ left as `NULL`.
 | `draw_texture` | Draw a texture from `src` rect to `dst` rect with a tint |
 | `begin_scissor` | Begin a rectangular clip region |
 | `end_scissor` | End the current clip region |
-| `get_frame_time` | Return elapsed time since last frame in seconds |
+| `get_frame_time` | Return frame delta in seconds. Called by the core exactly once per frame (in `wlx_begin`), which caches the value for every `wlx_get_frame_time` read — an adapter may measure elapsed time since its own previous call |
 | `draw_text_slice` | Preferred text-rendering callback: render an explicit byte span; `NULL` falls back to `draw_text` with a temporary null-terminated copy |
 | `measure_text_slice` | Preferred text-measure callback: measure an explicit byte span; `NULL` falls back to `measure_text` with a temporary null-terminated copy |
 | `measure_text_advances` | Optional batched measure: fill the cumulative advance width of one run's prefixes at each core-supplied unit-end offset; `NULL` keeps the per-unit prefix-measure fallback (see below) |
@@ -351,12 +369,17 @@ left as `NULL`.
 | `draw_gradient_v` | Optional native vertical two-stop gradient fill; `NULL` falls back to stacked solid bands. `top`/`bottom` already have effective opacity applied; `roundness = 0` means sharp |
 | `clipboard_get` | Optional synchronous clipboard read: returns a borrowed NUL-terminated UTF-8 string valid until the next backend call; `NULL` hook makes paste a safe no-op |
 | `clipboard_set` | Optional synchronous clipboard write: copies the byte slice out before returning; `NULL` hook makes copy/cut safe no-ops |
+| `set_cursor` | Optional mouse-cursor shape: apply a `WLX_Cursor_Shape` (`WLX_CURSOR_ARROW`, `WLX_CURSOR_IBEAM`) to the platform cursor. The core resolves the shape from the widget under the pointer once per frame in `wlx_begin` and calls this **only when it changes**, so implementations are stateless one-liners; `NULL` leaves the platform cursor untouched |
 
-The C-string callbacks remain the compatibility floor and are the only text
-callbacks checked by `wlx_backend_is_ready()`. Slice callbacks are the
-preferred contract for new backends, are appended to the struct for
+The C-string callbacks remain the compatibility floor;
+`wlx_backend_is_ready()` accepts either form per direction (`draw_text_slice`
+*or* `draw_text`, `measure_text_slice` *or* `measure_text`). Slice callbacks
+are the preferred contract for new backends, are appended to the struct for
 designated-initializer compatibility, and are used whenever both the core path
-and the backend provide them. Recorded text commands store only `(bytes, len)`;
+and the backend provide them. Of the in-tree adapters, SDL3 and WASM wire
+both slice callbacks; Raylib wires `measure_text_slice` (+
+`measure_text_advances`) and leaves `draw_text_slice` on the core's
+NUL-copy fallback (`DrawTextEx` needs a C string either way). Recorded text commands store only `(bytes, len)`;
 Wollix materializes a temporary null-terminated copy only when dispatching
 through the legacy `draw_text` / `measure_text` fallback. For text without
 embedded NUL bytes, slice and C-string callbacks should produce equivalent
@@ -392,6 +415,22 @@ through the decorated draw path. All three in-tree adapters implement
 the callback (SDL3 requires SDL_ttf >= 3.3.0; older builds simply stay
 on the fallback). See `docs/LINE_RUN_MODEL.md` §5 and §14 for where it
 sits in the pipeline.
+
+### In-tree adapter capabilities
+
+Which optional callbacks each shipped adapter wires (required callbacks
+are implemented by all three; a blank cell falls back to the core's
+software or copy path):
+
+| Optional callback | Raylib | SDL3 | WASM |
+|---|---|---|---|
+| `draw_circle` / `draw_ring` | yes | yes | yes |
+| `draw_text_slice` / `measure_text_slice` | yes | yes | yes |
+| `measure_text_advances` | yes | debug font, or SDL3_ttf built with font variants | yes |
+| `draw_gradient_v` | yes | - (banded fallback) | - (banded fallback) |
+| `draw_shadow` / `draw_glow` | - (layered fallback) | - (layered fallback) | - (layered fallback) |
+| `clipboard_get` / `clipboard_set` | yes | yes | yes |
+| `set_cursor` | yes | yes | yes (host CSS cursor) |
 
 ### `wlx_backend_is_ready`
 
@@ -477,12 +516,17 @@ typedef enum {
     WLX_KEY_LEFT, WLX_KEY_RIGHT, WLX_KEY_UP, WLX_KEY_DOWN,
     WLX_KEY_A .. WLX_KEY_Z,
     WLX_KEY_0 .. WLX_KEY_9,
-    WLX_KEY_DELETE, WLX_KEY_HOME, WLX_KEY_END,
+    WLX_KEY_DELETE, WLX_KEY_HOME, WLX_KEY_END, WLX_KEY_PAGE_UP, WLX_KEY_PAGE_DOWN,
+    WLX_KEY_F1 .. WLX_KEY_F12,
+    WLX_KEY_INSERT,
     WLX_KEY_COUNT
 } WLX_Key_Code;
 ```
 
 Backend-neutral key codes. Backend adapters map platform keys to these values.
+New codes are only ever appended before `WLX_KEY_COUNT` (existing values never
+change); `WLX_KEY_COUNT` sizes the `keys_*` arrays in `WLX_Input_State`.
+Printable glyphs arrive through `text_input`, not as key codes.
 
 ### `WLX_Key_Mod`
 
@@ -550,15 +594,20 @@ image+text `wlx_button` and image+text `wlx_label`.
 ```c
 typedef struct {
     int   mouse_x, mouse_y;
-    bool  mouse_down;        // Mouse button is down this frame
-    bool  mouse_clicked;     // True for one frame on press
-    bool  mouse_held;        // True while mouse button is held
-    float wheel_delta;       // Positive = up, negative = down
+    bool  mouse_down;        // Left button is down this frame
+    bool  mouse_clicked;     // True for one frame on left press
+    bool  mouse_held;        // Legacy: equal to mouse_down (the core reads mouse_down)
+    float wheel_delta;       // Vertical wheel detents (positive = up)
     bool  keys_down[WLX_KEY_COUNT];     // Current held-down states
     bool  keys_pressed[WLX_KEY_COUNT];  // True for one frame on press
     char  text_input[32];              // Text typed this frame (for inputbox)
     bool  keys_repeated[WLX_KEY_COUNT]; // True on each OS auto-repeat tick
     uint32_t modifiers;                // Active WLX_Key_Mod bits this frame
+    float wheel_delta_x;     // Horizontal wheel detents (same polarity family)
+    bool  mouse_right_down;
+    bool  mouse_right_clicked;   // True for one frame on right press
+    bool  mouse_middle_down;
+    bool  mouse_middle_clicked;  // True for one frame on middle press
 } WLX_Input_State;
 ```
 
@@ -566,6 +615,24 @@ Populated by the backend's input handler each frame. Access via `ctx->input`.
 `keys_repeated` fires on the platform's auto-repeat ticks (in addition to the
 one-shot `keys_pressed` on the initial press); widgets that should react to a
 held key use `wlx_is_key_actuated()` (= pressed or repeated).
+
+**Wheel contract.** Both wheel fields carry *unquantized float detents*:
+`1.0` is one notch of a clicky mouse wheel, and precision trackpads report
+fractions. Backends pass the platform value through without quantizing,
+debouncing, or clamping. `wheel_delta` is positive when scrolling up;
+`wheel_delta_x` uses the same sign family (positive moves a horizontal offset
+back toward zero), so consumers apply `offset -= delta * speed` on either
+axis. Scroll panels consume the vertical axis; the editor consumes both.
+
+**Buttons.** The unprefixed `mouse_*` fields are the left button. Right and
+middle carry a down state and a one-frame press edge; they have no drag
+semantics and never affect focus or the left-press ownership. Query with
+`wlx_is_mouse_right_down()` and friends, or read `right_clicked` on a
+`WLX_Interaction` for the topmost-wins widget resolution.
+
+**Layout is append-only.** New fields are added at the end so earlier byte
+offsets stay put for hosts that write the struct directly (the WASM host);
+`wollix_wasm.h` static-asserts the layout.
 
 ### `WLX_Input_Handler`
 
@@ -587,14 +654,43 @@ typedef enum {
     WLX_INTERACT_CLICK    = 1 << 1,  // Button-like: press + release while hovering = clicked
     WLX_INTERACT_FOCUS    = 1 << 2,  // Input-like: stays focused until click elsewhere, Escape, or Enter (unless FOCUS_HOLD_ENTER)
     WLX_INTERACT_DRAG     = 1 << 3,  // Slider-like: active while mouse held after click
-    WLX_INTERACT_KEYBOARD = 1 << 4,  // Space/Enter when hovered triggers clicked
+    WLX_INTERACT_KEYBOARD = 1 << 4,  // Space/Enter while hot or keyboard-focused triggers clicked
     WLX_INTERACT_FOCUS_HOLD_ENTER = 1 << 5,  // Modifies FOCUS: Enter does not blur (multiline input); inert without FOCUS
+    WLX_INTERACT_TEXT_CURSOR = 1 << 6,  // Show the I-beam while this rect owns the pointer
+    WLX_INTERACT_FOCUS_HOLD_TAB = 1 << 7,  // Modifies FOCUS: while focused, Tab stays with the widget (editor indent)
+    WLX_INTERACT_TAB_SKIP = 1 << 8,  // Never a Tab stop (decoration widgets that query interaction)
 } WLX_Interact_Flags;
 ```
 
 Combine with bitwise OR. Use only **one** of `CLICK` / `FOCUS` / `DRAG` per
 call. The Enter press that blurs a `FOCUS` widget is consumed for the rest of
 that frame: it cannot also keyboard-activate a later `KEYBOARD` widget.
+`TEXT_CURSOR` is orthogonal to the rest: it only tags the recorded rect with
+the I-beam shape for the backend's `set_cursor` (the inputbox and editor set
+it; a custom text-like widget can too).
+
+**Keyboard focus (Tab) stops.** A query is a Tab stop when it is
+`FOCUS`-class, or `CLICK | KEYBOARD`, and not `TAB_SKIP`. `KEYBOARD`
+activation fires on Space/Enter when the widget is **hovered or holds the
+keyboard focus** — a Tab-focused button clicks without the pointer near it.
+`FOCUS_HOLD_TAB` makes a focused widget keep Tab for itself (the editor
+inserts `\t`); the user leaves it with Escape, then Tab. A Tab-focused
+`FOCUS` widget also acquires typing focus (`focused = true`), exactly as a
+click would.
+
+### `WLX_Cursor_Shape`
+
+```c
+typedef enum {
+    WLX_CURSOR_ARROW = 0,
+    WLX_CURSOR_IBEAM,
+    WLX_CURSOR_COUNT
+} WLX_Cursor_Shape;
+```
+
+Mouse cursor shape the core asks the backend to show through the optional
+`set_cursor` callback. `ARROW` is `0` so a zero-initialized context matches
+every platform's default cursor; the enum is append-only.
 
 ### `WLX_Interaction`
 
@@ -604,6 +700,7 @@ typedef struct {
     bool hover;           // Mouse is over widget
     bool pressed;         // Mouse is currently down on this widget
     bool clicked;         // Click completed (CLICK mode) or keyboard activated
+    bool right_clicked;   // Right press landed here this frame (press-frame edge)
     bool focused;         // Has focus (FOCUS mode)
     bool active;          // Being pressed, dragged, or focused
     bool just_focused;    // Became focused this frame
@@ -615,11 +712,17 @@ typedef struct {
 Returned by `wlx_get_interaction()` and `wlx_get_interaction_for()`. When
 queried through `wlx_get_interaction_for(..., true, ...)`, the widget is
 gated as disabled: `hover` may still be set (so disabled controls can
-anchor tooltips) but `pressed`, `clicked`, `focused`, `active`,
-`just_focused`, and `just_unfocused` are forced to `false`. `disabled`
-mirrors the resolved gate so widget bodies can branch on it without
-re-reading the option surface. See [WIDGETS.md § Disabled
+anchor tooltips) but `pressed`, `clicked`, `right_clicked`, `focused`,
+`active`, `just_focused`, and `just_unfocused` are forced to `false`.
+`disabled` mirrors the resolved gate so widget bodies can branch on it
+without re-reading the option surface. See [WIDGETS.md § Disabled
 state](WIDGETS.md#disabled-state) for the coverage matrix and effect.
+
+`right_clicked` is resolved for every enabled query regardless of the flag
+set: the previous frame's topmost candidate under the pointer owns a fresh
+right press (so popup content wins over the base widget it covers), and the
+edge fires on the press frame, not on release. A right press never blurs a
+focused widget and never disturbs a left press or drag in progress.
 
 ---
 
@@ -846,8 +949,10 @@ WLX_Allocator wlx_wasm_allocator(WLX_Wasm_Pool *pool);
 Power-of-two free-list allocator targeted at the bare-WASM backend, where
 the libc shim's `free` is a no-op and every `realloc` would otherwise leak
 the old block. Buckets cover sizes from 256 bytes
-(`WLX_WASM_POOL_MIN_ORDER = 8`) up to 1 MiB
-(`WLX_WASM_POOL_MAX_ORDER = 20`). Typical usage attaches the allocator to
+(`WLX_WASM_POOL_MIN_ORDER`, default 8) up to 1 MiB
+(`WLX_WASM_POOL_MAX_ORDER`, default 20); both orders are compile-time knobs,
+overridable before including `wollix_wasm.h`. Typical usage attaches the
+allocator to
 the `general` group of `WLX_Arena_Pool_Config`:
 
 ```c
@@ -982,9 +1087,26 @@ typedef struct {
     WLX_Input_State input;
 
     struct {
-        size_t hot_id;         // Currently hovered widget
-        size_t active_id;      // Currently pressed/focused/dragged widget
-        bool   active_id_seen; // True if any widget matched active_id this frame
+        // Three widget identities, each independent of the others:
+        size_t hot_id;          // hover owner this frame (pointer-derived, re-arbitrated every frame)
+        size_t active_id;       // pressed / dragged / typing-focused widget (persists until released)
+        size_t focus_id;        // keyboard (Tab) focus ring; 0 = none
+        bool   active_id_seen;  // active_id holder was queried this frame (else released at wlx_end)
+        bool   focus_id_seen;   // focus_id holder was queried this frame (else released at wlx_end)
+        bool   enter_consumed;  // an Enter already blurred a field this frame: no keyboard activation
+        // Frame-begin ownership arbitration over the previous frame's
+        // candidates (see LAYOUT_MODEL.md "Ownership Arbitration"):
+        bool   arbitrate;          // previous frame recorded candidates (false on a context's first frame)
+        size_t press_owner;        // topmost candidate under a fresh left press, latched until release
+        size_t right_press_owner;  // same for the right button; never touches focus or hot
+        int    pointer_layer;      // layer of the pointer's topmost candidate (wheel routing)
+        bool   active_is_focus;    // active_id holder is a typing-focus widget (inputbox/editor)
+        bool   active_consumes_tab;// ... and holds Tab for itself (editor): Tab inserts, no traversal
+        size_t focus_released_id;  // typing focus released at frame begin; it still reports just_unfocused
+        size_t focus_gained_id;    // one-shot: Tab traversal landed here; the widget acquires typing focus on its query
+        bool   tab_consumed;       // one-shot: traversal used this frame's Tab; text edit must not insert it
+        WLX_Rect focus_rect;       // clipped rect of the focus_id holder (focus ring geometry)
+        bool   press_claimed;      // the press owner's own query ran (popups detect outside presses)
     } interaction;
 
     WLX_Arena_Pool  arena;     // Per-frame buffer pool (layouts, commands, stacks, ...)
@@ -1002,6 +1124,15 @@ typedef struct {
 
 Central state for the entire UI. Zero-initialize and set the backend before
 use. Call `wlx_context_destroy()` when done to free internal buffers.
+
+The interaction block is internal state shown for orientation; read it
+through the public surface (`WLX_Interaction` results, `wlx_focused_id()`).
+The three identities are worth keeping apart: **hot** is where the pointer
+is, **active** is what the pointer (or typing focus) has hold of, **focus**
+is where the keyboard ring sits. A Tab-focused inputbox is both focused and
+active (it types); a Tab-focused button is focused only and activates on
+Enter/Space; a hovered button is hot only.
+
 Stack allocation is the standard pattern:
 
 ```c
@@ -1213,13 +1344,13 @@ Rules:
   not supported on containers. The auto-counted begins
   (`wlx_layout_begin_auto`, `wlx_grid_begin_auto`, `wlx_grid_begin_auto_tile`)
   have no stable call-site id and do not support `interact`.
-- **Non-interactive children only.** A `CLICK` container is queried before its
-  children and captures the press first (click capture is first-writer), so an
-  interactive child inside it can never fire its own click. Keep interactive
-  containers to composite regions of non-interactive content (labels, images,
-  separators, progress). For a clickable region that contains its own button,
-  give the *child* the click and use `HOVER` only on the container (hover is
-  last-writer, so the inner widget still wins its own hover).
+- **Interactive children win the press.** Press and hover ownership is
+  topmost-wins (ADR_039): the innermost candidate under the pointer - the
+  latest query at that point - owns them, so a `wlx_button` inside a `CLICK`
+  container fires its own click and the container reports `clicked` only for
+  presses on its own non-interactive area (labels, images, separators,
+  progress). Give the container `CLICK` for the composite region and let
+  child buttons keep theirs.
 
 ### `wlx_layout_begin_auto`
 
@@ -1781,6 +1912,36 @@ Returns `true` when the platform's editing command modifier is held:
 `WLX_MOD_SUPER` (Cmd) on Apple platforms, `WLX_MOD_CTRL` elsewhere. All
 inputbox clipboard shortcuts route through this helper.
 
+### `wlx_focused_id`
+
+```c
+size_t wlx_focused_id(WLX_Context *ctx);
+```
+
+Id of the widget holding the keyboard (Tab) focus ring, or `0`. Compare
+against `WLX_Interaction.id`. Tab / Shift-Tab move it through the previous
+frame's Tab stops in declaration order (topmost layer only, wrapping at both
+ends); any pointer press, or Escape with nothing active, clears it; a widget
+that stops being declared releases it at `wlx_end`. While non-zero, `wlx_end`
+draws an accent outline around the focused widget's rect
+(`WLX_FOCUS_RING_THICKNESS` / `WLX_FOCUS_RING_GAP`, `#ifndef`-overridable;
+color `theme->accent`). Independent of `WLX_Interaction.focused`, which keeps
+its typing-focus meaning.
+
+### `wlx_is_mouse_right_down` / `wlx_is_mouse_right_clicked` / `wlx_is_mouse_middle_down` / `wlx_is_mouse_middle_clicked`
+
+```c
+bool wlx_is_mouse_right_down(WLX_Context *ctx);
+bool wlx_is_mouse_right_clicked(WLX_Context *ctx);
+bool wlx_is_mouse_middle_down(WLX_Context *ctx);
+bool wlx_is_mouse_middle_clicked(WLX_Context *ctx);
+```
+
+Raw right/middle button state from `ctx->input`. The `_clicked` variants are
+one-frame press edges. For "did the right press land on *this* widget" use
+`WLX_Interaction.right_clicked`, which goes through the topmost-wins
+arbitration; these helpers are for context-free checks.
+
 ### `wlx_clipboard_set_text`
 
 ```c
@@ -1919,6 +2080,28 @@ Return the current vertical scroll offset (pixels) of the innermost scroll
 panel, or `0` when none is active. Pairs with `wlx_get_scroll_panel_viewport`
 to compute which rows of a long list are on screen; the list clipper uses both
 internally.
+
+### `wlx_last_rect`
+
+```c
+WLX_Rect wlx_last_rect(WLX_Context *ctx);
+```
+
+Return the rect of the most recent widget placed this frame (any widget on
+the standard prologue: button, label, checkbox, dropdown face, ...). The
+natural `wlx_tooltip_for` anchor right after a widget call:
+
+```c
+wlx_button(ctx, "Save");
+wlx_tooltip_for(ctx, wlx_last_rect(ctx), "Write the file to disk");
+```
+
+Returns `{0}` before the first widget of a frame. A dropdown reports its
+face even while its list is open (the rows are internal); inside an open
+menu body the query reports the latest item, and after the block's
+`wlx_menu_end` a `wlx_menu_button_begin` menu reports its face again (a
+point-anchored `wlx_menu_begin` has no face and leaves the last rect as
+the final item).
 
 ### `wlx_set_cull_offscreen`
 
@@ -2440,7 +2623,7 @@ caret by one viewport, Ctrl/Cmd+Home/End jump to the document ends, and the
 view scrolls on both axes (Shift+wheel scrolls horizontally; drag-select
 auto-scrolls on both axes; caret-follow keeps the caret visible after every
 caret change or edit). The vertical scrollbar thumb is exact from the line
-count; the horizontal range approximates from the widest line seen so far
+count (never drawn shorter than 20px); the horizontal range approximates from the widest line seen so far
 and stays open while a visible line remains width-truncated. Per-line
 geometry is budgeted by `WLX_EDITOR_MAX_LINE_UNITS` (default 1024,
 `#ifndef`-overridable): longer lines freeze their measured geometry at the
@@ -2862,6 +3045,191 @@ panels, wrap in `wlx_scroll_panel_begin` / `wlx_scroll_panel_end`.
 
 ---
 
+## Overlay — `wlx_overlay`
+
+```c
+#define wlx_overlay_begin(ctx, count, rect, ...options)
+void wlx_overlay_end(WLX_Context *ctx);
+```
+
+Absolutely positioned subtree on the next layer: a linear layout of
+`count` slots rooted at a window-space `rect`. Consumes no parent slot and
+contributes nothing to content measurement. Draws over everything on lower
+layers this frame, and its interactive widgets own hover and presses over
+whatever they cover (previous-frame topmost arbitration; see
+LAYOUT_MODEL.md section 9). Overlays nest one layer per level up to
+`WLX_OVERLAY_MAX_LAYERS` (8, overridable pre-include).
+
+Deferred mode only; in immediate mode the body draws in place at the call
+position (`WLX_DEBUG` warns once per site).
+
+**Option struct:** `WLX_Overlay_Opt`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | `const char *` | `NULL` | Scope id for the overlay body |
+| `sizes` | `const WLX_Slot_Size *` | `NULL` | Per-slot sizes (`NULL` = equal split); CONTENT unsupported |
+| `orient` | `WLX_Orient` | `WLX_VERT` | Body orientation |
+| `gap` | `float` | `0` | Gap between body slots |
+| `clip` | `bool` | `true` | Scissor body content to `rect` |
+| `back_color` | `WLX_Color` | `{0}` | Panel fill (`{0}` = none) |
+| `border_color` / `border_width` | | `{0}` / `0` | Panel border |
+| `roundness` / `rounded_segments` | | `0` / `0` | Corner rounding |
+| `content_padding` (+ per-side) | `float` | `-1` | Body inset |
+
+---
+
+## Widget — `wlx_dropdown`
+
+```c
+#define wlx_dropdown(ctx, label, selected, options, count, ...options)
+// bool wlx_dropdown_impl(WLX_Context *ctx, const char *label, int *selected,
+//                        const char **options, size_t count, ...)
+```
+
+Closed-face dropdown. The face styles like a button and shows
+`options[*selected]` (`label` while out of range); clicking toggles an
+overlay list anchored below at face width. Choosing writes `*selected`,
+closes, and returns `true`. Escape or an outside press closes. Lists
+taller than `max_list_height` scroll. Persistent state:
+`WLX_Dropdown_State` (open flag), keyed like the face.
+
+**Option struct:** `WLX_Dropdown_Opt` — shared placement, sizing, state,
+typography (no wrap), color, border, and content-padding fields for the
+face, plus:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `row_height` | `float` | `0` | List row height. `<= 0` = `font_size + 12` |
+| `max_list_height` | `float` | `0` | List height cap. `<= 0` = `WLX_DROPDOWN_MAX_LIST_HEIGHT` (240, overridable) |
+| `list_back_color` | `WLX_Color` | `{0}` | List panel + row fill. `{0}` = theme background |
+| `list_border_color` | `WLX_Color` | `{0}` | `{0}` = face border color |
+| `list_border_width` | `float` | `-1` | `-1` = face border width |
+| `hover_brightness` / `hover_back_color` | | unset / `{0}` | Face and row hover treatment |
+| `id` | `const char *` | `NULL` | Scope id (needed for loop-generated dropdowns) |
+
+---
+
+## Widget — `wlx_tooltip_for`
+
+```c
+#define wlx_tooltip_for(ctx, anchor, text, ...options)
+// bool wlx_tooltip_for_impl(WLX_Context *ctx, WLX_Rect anchor, const char *text, ...)
+```
+
+Pointer-anchored single-line tip for `anchor`, shown after a hover delay
+and clamped to the window. The timer runs only while the pointer is over
+the anchor with the button up and on the anchor's layer. **Draw-only**: it
+never appends interaction candidates, so it cannot steal hover or a
+press. Returns whether the tip is showing. Persistent state:
+`WLX_Tooltip_State` (hover timer).
+
+**Option struct:** `WLX_Tooltip_Opt`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `delay` | `float` | `-1` | Hover seconds before showing. `< 0` = 0.5 |
+| `offset_x` / `offset_y` | `float` | `12` / `18` | Tip origin relative to the pointer |
+| `padding` | `float` | `-1` | Inner text inset. `< 0` = 6 |
+| *typography* | | | `font`, `font_size`, `align`, `spacing` |
+| `front_color` / `back_color` | `WLX_Color` | `{0}` | `{0}` = theme foreground / background |
+| `border_color` / `border_width` | | `{0}` / `-1` | Unset = theme |
+| `roundness` / `rounded_segments` | | `-1` | Unset = theme |
+| `id` | `const char *` | `NULL` | State id override |
+
+---
+
+## Compound Widget — `wlx_menu`
+
+```c
+#define wlx_menu_begin(ctx, open, x, y, ...options)   // bool
+#define wlx_menu_item(ctx, text, ...options)          // bool
+void wlx_menu_end(WLX_Context *ctx);
+```
+
+Point-anchored overlay menu with a caller-owned open flag. Any caller
+event sets `*open`; `wlx_menu_begin` returns whether the menu is open —
+add items and call `wlx_menu_end` **only** on true. An item click,
+Escape, or an outside press clears `*open`; a click on a nested
+(sub)menu's item dismisses the whole chain. `wlx_submenu_begin` (or a
+nested `wlx_menu_begin` for manual placement)
+opens a submenu on the next layer. Nesting is capped at
+`WLX_MENU_STACK_MAX` (4, overridable). Persistent state: `WLX_Menu_State`
+(previous frame's item count sizes the chrome; one-frame adaptation).
+
+**Option structs:** `WLX_Menu_Opt` (begin), `WLX_Menu_Item_Opt` (item)
+
+`WLX_Menu_Opt`:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `width` | `float` | `0` | `<= 0` = 180 |
+| `row_height` | `float` | `0` | `<= 0` = `font_size + 12` |
+| `item_padding` | `float` | `-1` | Item text left/right inset. `< 0` = 8 |
+| *typography* | | | `font`, `font_size`, `align`, `spacing` |
+| `front_color` / `back_color` | `WLX_Color` | `{0}` | `{0}` = theme foreground / background |
+| `border_color` / `border_width` | | `{0}` / `-1` | Panel border. Unset = theme |
+| `roundness` / `rounded_segments` | | `-1` | Unset = theme |
+| `hover_brightness` / `hover_back_color` | | unset / `{0}` | Item hover treatment |
+| `id` | `const char *` | `NULL` | Scope id (needed for loop-generated menus) |
+
+`WLX_Menu_Item_Opt`:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `disabled` | `bool` | `false` | Disable the item |
+| `front_color` | `WLX_Color` | `{0}` | `{0}` = menu `front_color` |
+| `keep_open` | `bool` | `false` | Clicking does not close the menu. Required on submenu trigger items; also for checkable items |
+
+### `wlx_menu_button_begin`
+
+```c
+#define wlx_menu_button_begin(ctx, label, open, ...options)   // bool
+```
+
+Button-anchored variant: a face button (drawn every frame, consuming a
+layout slot) that toggles `*open` and anchors the list below itself — the
+first click opens, the second closes, like the dropdown face. The face
+belongs to the menu's press scope, so pressing it never counts as an
+outside press. Body contract, items, submenus, and every close path are
+shared with `wlx_menu_begin` / `wlx_menu_end`. Use it for menu-bar /
+toolbar menus; keep `wlx_menu_begin` for context menus and submenus,
+where reopening at the summoning press's position is intended.
+
+**Option struct:** `WLX_Menu_Button_Opt` — shared placement, sizing,
+state, typography (no wrap), color, border, content-padding, and hover
+fields for the face (`.width` sizes the face; intrinsic width follows the
+label in CONTENT columns), plus the list fields:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `menu_width` | `float` | `0` | List width. `<= 0` = the face's resolved width |
+| `row_height` | `float` | `0` | `<= 0` = `font_size + 12` |
+| `item_padding` | `float` | `-1` | Item text left/right inset. `< 0` = 8 |
+| `list_back_color` | `WLX_Color` | `{0}` | List panel + item fill. `{0}` = theme background |
+| `list_border_color` | `WLX_Color` | `{0}` | `{0}` = face border color |
+| `list_border_width` | `float` | `-1` | `-1` = face border width |
+| `id` | `const char *` | `NULL` | Scope id (needed for loop-generated menus) |
+
+### `wlx_submenu_begin`
+
+```c
+#define wlx_submenu_begin(ctx, open, ...options)   // bool
+```
+
+Submenu, valid only inside a menu body (asserts otherwise). No position
+parameters: the list anchors flush to the parent panel's right edge at the
+last emitted item's row (the trigger — make it a `.keep_open` item that
+toggles `*open`). Options are `WLX_Menu_Opt`; every unset field inherits
+the parent menu's resolved value, so a bare `wlx_submenu_begin(ctx, &open)`
+matches its parent's styling (`align` / `spacing` inherit whenever left at
+`WLX_LEFT` / `0` - those are their defaults and have no unset sentinel). Shares the parent's press scope (a press on
+the trigger is an inside press, so it toggles cleanly) and all close
+paths — a leaf click dismisses the submenu and every ancestor menu; body
+and `wlx_menu_end` only when it returned true.
+
+---
+
 ## Shared Option Field Macros
 
 These X-macros inject fields into widget option structs. You never use them
@@ -3006,8 +3374,9 @@ static inline void wlx_process_raylib_input(WLX_Context *ctx);
 ```
 
 `WLX_Input_Handler` callback. Reads mouse, keyboard, and mouse wheel from
-Raylib and populates `ctx->input`. Includes encoder-bounce debouncing for the
-mouse wheel.
+Raylib and populates `ctx->input`. The wheel is passed through raw on both
+axes (`GetMouseWheelMoveV`); the input contract forbids adapter-side
+quantizing or debouncing.
 
 ### `wlx_backend_raylib`
 
@@ -3219,7 +3588,7 @@ ctx->theme_copy.font = wlx_font_from_sdl3(font);
 ### `WLX_SDL3_FONT_VARIANT_CAP`
 
 ```c
-// #define WLX_SDL3_FONT_VARIANT_CAP 64
+// #define WLX_SDL3_FONT_VARIANT_CAP 32
 ```
 
 Set the fixed capacity of the SDL3 backend's effective-font variant table
@@ -3234,7 +3603,7 @@ past its variant's lifetime.
 ### `WLX_SDL3_TEXT_CACHE_CAP`
 
 ```c
-// #define WLX_SDL3_TEXT_CACHE_CAP 2048
+// #define WLX_SDL3_TEXT_CACHE_CAP 4096
 ```
 
 Set the fixed capacity of the SDL3 backend's retained `TTF_Text` cache before
@@ -3255,7 +3624,7 @@ also depends on backend-owned font variants — if `WLX_SDL3_FONT_VARIANT_CAP` i
 ### `WLX_SDL3_TEXT_INLINE_CAP`
 
 ```c
-// #define WLX_SDL3_TEXT_INLINE_CAP 96
+// #define WLX_SDL3_TEXT_INLINE_CAP 64
 ```
 
 Set the maximum text length, in bytes, that the SDL3 backend stores inline in a
@@ -3388,6 +3757,75 @@ int main(void) {
     SDL_Quit();
 }
 ```
+
+---
+
+## Backend — WASM
+
+Defined in `wollix_wasm.h` (bare wasm32, no libc; the JS host is
+`web/wollix_wasm.js`). Build with `clang --target=wasm32-unknown-unknown
+-nostdlib` plus `web/wlx_libc_shim.c`; `make wasm-site` packages the
+dashboard showcase. Every `WLX_Backend` callback is bridged to a wasm import
+in the `"wlx"` module (`draw_rect`, `draw_text_slice`, `measure_text_advances`,
+`draw_texture`, `begin_scissor`, `get_frame_time`, `clipboard_get_into`,
+`clipboard_set`, `set_cursor`, ...); structs are flattened to scalars and
+`WLX_Color` is packed as one `uint32_t` (`0xRRGGBBAA`).
+
+### `wlx_context_init_wasm`
+
+```c
+static inline void wlx_context_init_wasm(WLX_Context *ctx);
+```
+
+Set all `ctx->backend` function pointers to the wasm-import implementations
+(`wlx_backend_wasm()`): every required callback, both slice text callbacks,
+`measure_text_advances`, `draw_texture`, the clipboard pair and `set_cursor`.
+`draw_gradient_v`, `draw_shadow` and `draw_glow` stay `NULL` (software
+fallbacks). Under `WLX_PERF` it installs a timer only when
+`WLX_WASM_PERF_TIMESTAMP` is defined (the host then provides `perf_now_ns`).
+
+### `wlx_process_wasm_input`
+
+```c
+static inline void wlx_process_wasm_input(WLX_Context *ctx);
+static inline WLX_Input_State *wlx_wasm_get_input_ptr(void);
+```
+
+The host writes `WLX_Input_State` straight into wasm memory before each
+`wlx_wasm_frame` call (pointer events with pointer capture, touch, raw wheel
+on both axes, three buttons with one-frame press edges, key codes incl.
+F-keys, modifiers, UTF-8 text); `wlx_process_wasm_input` copies that block
+into `ctx->input`. The header `_Static_assert`s the field offsets the host's
+`INPUT_OFFSETS` table relies on (`keys_down` 16, `text_input` 144,
+`modifiers` 240, `wheel_delta_x` 244, `mouse_right_down` 248, size 252), so a
+layout change fails the build until the JS table is updated. The app exports
+`wlx_wasm_init` / `wlx_wasm_frame(width, height)` (see
+`demos/dashboard/dashboard.c`).
+
+### `wlx_wasm_texture_create` / `wlx_wasm_texture_destroy`
+
+```c
+static inline WLX_Texture wlx_wasm_texture_create(const uint8_t *rgba, int width, int height);
+static inline void        wlx_wasm_texture_destroy(WLX_Texture tex);
+```
+
+Host-owned RGBA8 textures (the pixels are copied during the call; the handle
+is opaque and nonzero). See ADR_014 / ADR_017 for the tint contract.
+
+### `WLX_WASM_CLIPBOARD_MAX`, `WLX_RAYLIB_CLIPBOARD_MAX`, `WLX_SDL3_CLIPBOARD_MAX`
+
+```c
+// #define WLX_WASM_CLIPBOARD_MAX   (16u * 1024u * 1024u)   // before including the adapter
+```
+
+Soft upper bound (bytes, default 16 MiB on all three adapters) for the
+adapter's clipboard transport buffer: the grow-and-reuse receive buffer on
+WASM (the host copies into it and reports the byte count; the adapter grows
+and re-fetches until the text provably fit), and the NUL-terminated send
+buffer on Raylib / SDL3 (longer spans are truncated at a UTF-8 boundary).
+Overridable before the adapter include. The page-pool allocator
+(`WLX_Wasm_Pool`, `wlx_wasm_allocator`) is documented under Memory
+Management above.
 
 ---
 

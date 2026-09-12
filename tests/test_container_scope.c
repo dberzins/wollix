@@ -68,6 +68,7 @@ TEST(layout_scope_id_isolates_descendants) {
     ASSERT_TRUE(id_from_a != 0);
     ASSERT_TRUE(id_from_b != 0);
     ASSERT_TRUE(id_from_a != id_from_b);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(grid_scope_id_isolates_descendants) {
@@ -96,6 +97,7 @@ TEST(grid_scope_id_isolates_descendants) {
     ASSERT_TRUE(id_from_a != 0);
     ASSERT_TRUE(id_from_b != 0);
     ASSERT_TRUE(id_from_a != id_from_b);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(panel_scope_id_isolates_descendants) {
@@ -124,6 +126,7 @@ TEST(panel_scope_id_isolates_descendants) {
     ASSERT_TRUE(id_from_a != 0);
     ASSERT_TRUE(id_from_b != 0);
     ASSERT_TRUE(id_from_a != id_from_b);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(scope_id_id_stack_balanced_after_layout) {
@@ -144,6 +147,7 @@ TEST(scope_id_id_stack_balanced_after_layout) {
 
     // The scope id must be popped at layout_end so the stack depth is restored.
     ASSERT_EQ_INT((int)stack_depth_before, (int)stack_depth_after);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -179,6 +183,7 @@ TEST(no_scope_id_collides_descendants) {
     ASSERT_TRUE(id_from_a != 0);
     ASSERT_TRUE(id_from_b != 0);
     ASSERT_EQ_INT((int)id_from_a, (int)id_from_b);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================

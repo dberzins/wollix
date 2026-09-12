@@ -33,6 +33,7 @@ TEST(panel_stack_balance) {
     ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(panel_no_title) {
@@ -52,6 +53,7 @@ TEST(panel_no_title) {
     ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -83,6 +85,7 @@ TEST(panel_in_split) {
     ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(panel_nested) {
@@ -105,6 +108,7 @@ TEST(panel_nested) {
     ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -133,6 +137,7 @@ TEST(panel_custom_options) {
     ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(panel_defaults_resolve) {
@@ -171,6 +176,7 @@ TEST(panel_full_capacity) {
     ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(panel_no_title_full_capacity) {
@@ -195,6 +201,7 @@ TEST(panel_no_title_full_capacity) {
     ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(panel_empty_no_children) {
@@ -214,6 +221,7 @@ TEST(panel_empty_no_children) {
     ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(panel_empty_no_title_no_children) {
@@ -233,6 +241,7 @@ TEST(panel_empty_no_title_no_children) {
     ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -261,6 +270,7 @@ TEST(panel_content_measurement) {
 
         test_frame_end(&ctx);
     }
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -288,6 +298,7 @@ TEST(panel_in_loop_with_push_id) {
     ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
 
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -326,6 +337,7 @@ TEST(panel_perside_top_zero) {
 
         test_frame_end(&ctx);
     }
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -360,6 +372,7 @@ TEST(widget_intrinsic_height_contributes_min_h) {
     }
     ASSERT_TRUE(content_h_f1 >= 20.0f);
     ASSERT_TRUE(slot_h_f2 >= 20.0f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(widget_intrinsic_height_label_default) {
@@ -394,6 +407,7 @@ TEST(widget_intrinsic_height_label_default) {
     // Theme font_size = 16.
     ASSERT_TRUE(content_h_f1 >= 16.0f);
     ASSERT_TRUE(slot_h_f2 >= 16.0f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(widget_intrinsic_height_explicit_height_dominates) {
@@ -426,6 +440,7 @@ TEST(widget_intrinsic_height_explicit_height_dominates) {
 
     ASSERT_EQ_F(content_h_f1, 50.0f, 1.0f);
     ASSERT_EQ_F(slot_h_f2, 50.0f, 1.0f);
+    wlx_context_destroy(&ctx);
 }
 
 TEST(widget_intrinsic_height_received_dominates) {
@@ -444,6 +459,7 @@ TEST(widget_intrinsic_height_received_dominates) {
         ASSERT_EQ_F(contrib, 100.0f, 1.0f);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -479,6 +495,7 @@ TEST(content_padded_child_layout_contributes_padding) {
     // Child content: 30 + 40 = 70.  Child padding: 10 top + 10 bottom = 20.
     // CONTENT slot should resolve to 70 + 20 = 90.
     ASSERT_EQ_F(slot_h, 90.0f, 2.0f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
@@ -543,6 +560,7 @@ TEST(panel_nested_horz_no_false_clip_warning) {
     test_frame_end(&ctx);
 
     ASSERT_EQ_INT(0, _panel_debug_warn_count);
+    wlx_context_destroy(&ctx);
 }
 #endif
 
@@ -599,6 +617,7 @@ TEST(parent_contribution_three_sibling_kinds_share_per_slot_bucket) {
     ASSERT_EQ_F(widget_slot_h, 30.0f, 2.0f);
     ASSERT_EQ_F(nested_slot_h, 40.0f, 2.0f);
     ASSERT_EQ_F(scroll_slot_h, 50.0f, 2.0f);
+    wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
