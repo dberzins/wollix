@@ -1,7 +1,7 @@
 // test_config_override.c - the documented limit macros are overridable.
 //
 // Compiled as its own translation unit (it is NOT part of the single-TU
-// test_runner) with all four limit macros predefined to non-default values
+// test_runner) with the documented limit macros predefined to non-default values
 // before including wollix.h. The header must honor a prior definition
 // instead of clobbering it back to the default, and the library must stay
 // functional under the overridden limits.
@@ -11,6 +11,8 @@
 #define WLX_OFFSET_STACK_LIMIT 16
 #define WLX_DA_INIT_CAP 32
 #define WLX_OVERLAY_MAX_LAYERS 4
+#define WLX_TEXT_UNDO_ENTRIES 64
+#define WLX_TEXT_UNDO_BYTES 4096
 
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
@@ -35,6 +37,12 @@
 #endif
 #if WLX_OVERLAY_MAX_LAYERS != 4
 #error "WLX_OVERLAY_MAX_LAYERS override was clobbered by wollix.h"
+#endif
+#if WLX_TEXT_UNDO_ENTRIES != 64
+#error "WLX_TEXT_UNDO_ENTRIES override was clobbered by wollix.h"
+#endif
+#if WLX_TEXT_UNDO_BYTES != 4096
+#error "WLX_TEXT_UNDO_BYTES override was clobbered by wollix.h"
 #endif
 
 static int approx(float a, float b) { return fabsf(a - b) < 0.01f; }

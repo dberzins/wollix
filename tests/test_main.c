@@ -218,6 +218,11 @@
 // revision interplay, read-only rejection, next-tab-stop geometry.
 #include "test_editor_edit.c"
 
+// Text undo journal: per-widget recording through the shared edit
+// primitives (entries, removed bytes, caret pairs), staleness guard,
+// password/unfocused exclusions, entry and byte caps with eviction.
+#include "test_text_undo.c"
+
 // wlx_editor wrapped mode: band-wide rows, row-space scrolling, overflow
 // probe, top/bottom clamps, thumb drag to end, mode toggles, gutter rows.
 // Included after test_editor_view.c to reuse its ev_* fixture.
@@ -304,6 +309,7 @@ int main(void) {
     RUN_SUITE(editor_view);
     RUN_SUITE(editor_caret);
     RUN_SUITE(editor_edit);
+    RUN_SUITE(text_undo);
     RUN_SUITE(editor_wrap);
     RUN_SUITE(editor_geom_cache);
     RUN_SUITE(advances_parity);

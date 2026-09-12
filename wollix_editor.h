@@ -2185,7 +2185,7 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
         changed = wlx_text_edit_handle_keys(ctx, &state->caret, buffer, buffer_cap, length,
             (WLX_Text_Edit_Caps){ .read_only = opt.read_only,
                                   .allow_newline = true, .allow_tab = true,
-                                  .word_delete = true }, &edit_span);
+                                  .word_delete = true }, &edit_span, NULL);
         if (changed && *length < buffer_cap) buffer[*length] = '\0';
         kb_caret_changed = pre_cursor != state->caret.cursor_pos
             || pre_anchor != state->caret.selection_anchor;
