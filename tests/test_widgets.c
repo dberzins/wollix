@@ -122,6 +122,74 @@ TEST(slider_explicit_zero_roundness_stays_sharp) {
     wlx_context_destroy(&ctx);
 }
 
+// The enabled slider's value mapping on the mock backend: a press anywhere
+// on the track jumps to that position, holding drags, release ends the
+// drag, and the return value reports the frames where the value moved. One
+// call site keeps the widget id stable across frames; label NULL, no value
+// readout and the theme's symmetric padding put the track centre at 0.5.
+static bool _wgt_slider_frame(WLX_Context *ctx, float *v, int mx,
+                              bool down, bool clicked, float lo, float hi) {
+    test_frame_begin(ctx, mx, 150, down, clicked);
+    wlx_layout_begin(ctx, 1, WLX_VERT);
+    bool changed = wlx_slider(ctx, NULL, v, .height = 40, .show_value = false,
+                              .min_value = lo, .max_value = hi);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+    return changed;
+}
+
+TEST(slider_enabled_press_drag_release_updates_value) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.theme = &wlx_theme_dark;
+    float v = 0.25f;
+
+    // Warm frame with the button up: nothing moves.
+    ASSERT_FALSE(_wgt_slider_frame(&ctx, &v, 200, false, false, 0.0f, 1.0f));
+    ASSERT_EQ_F(v, 0.25f, 1e-4f);
+
+    // Press at the track centre: jump to 0.5 and acquire the drag.
+    ASSERT_TRUE(_wgt_slider_frame(&ctx, &v, 200, true, true, 0.0f, 1.0f));
+    ASSERT_EQ_F(v, 0.5f, 1e-4f);
+    ASSERT_TRUE(ctx.interaction.active_id != 0);
+
+    // Hold and drag right: the value follows the pointer.
+    ASSERT_TRUE(_wgt_slider_frame(&ctx, &v, 350, true, false, 0.0f, 1.0f));
+    ASSERT_TRUE(v > 0.5f);
+    float held = v;
+
+    // Release: the drag ends and the value stays put.
+    ASSERT_FALSE(_wgt_slider_frame(&ctx, &v, 350, false, false, 0.0f, 1.0f));
+    ASSERT_EQ_F(v, held, 1e-6f);
+    ASSERT_EQ_INT((int)ctx.interaction.active_id, 0);
+
+    // Moving with the button up is inert.
+    ASSERT_FALSE(_wgt_slider_frame(&ctx, &v, 100, false, false, 0.0f, 1.0f));
+    ASSERT_EQ_F(v, held, 1e-6f);
+
+    // A fresh press elsewhere jumps again.
+    ASSERT_TRUE(_wgt_slider_frame(&ctx, &v, 100, true, true, 0.0f, 1.0f));
+    ASSERT_TRUE(v < 0.5f);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(slider_custom_range_centre_press_and_initial_clamp) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.theme = &wlx_theme_dark;
+    float v = 50.0f;   // above max_value
+
+    // The first frame clamps an out-of-range value into [min, max]. The
+    // clamp is not reported as a change, so only the value is asserted.
+    (void)_wgt_slider_frame(&ctx, &v, 200, false, false, -10.0f, 10.0f);
+    ASSERT_EQ_F(v, 10.0f, 1e-4f);
+
+    // The track centre maps to the middle of the range.
+    ASSERT_TRUE(_wgt_slider_frame(&ctx, &v, 200, true, true, -10.0f, 10.0f));
+    ASSERT_EQ_F(v, 0.0f, 1e-3f);
+    wlx_context_destroy(&ctx);
+}
+
 // ============================================================================
 // Progress tests
 // ============================================================================
@@ -934,6 +1002,8 @@ TEST(checkbox_border_color_widget_specific_first) {
 SUITE(widgets) {
     RUN_TEST(slider_default_thumb_is_compact);
     RUN_TEST(slider_explicit_zero_roundness_stays_sharp);
+    RUN_TEST(slider_enabled_press_drag_release_updates_value);
+    RUN_TEST(slider_custom_range_centre_press_and_initial_clamp);
     RUN_TEST(progress_clamps_value);
     RUN_TEST(progress_zero_draws_no_fill);
     RUN_TEST(progress_full_draws_fill);

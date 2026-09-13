@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   clip is re-armed after the panel ends (siblings declared after a nested
   panel were drawn unclipped). Four tests in `tests/test_layout_clip.c`.
 
+### Changed
+- Tests: the enabled slider's press-to-jump, drag, release and custom-range
+  mapping are pinned in `tests/test_widgets.c`; the disabled case was the
+  only drag-cycle test before.
+
 ## [0.8.0] - 2026-09-12
 
 The overlay release: draw commands and interactive widgets now carry a
