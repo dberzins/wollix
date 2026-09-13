@@ -27,6 +27,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   anchor and caret-follow carry over unchanged. See WIDGETS.md "Undo and
   redo".
 
+### Fixed
+- **Layout `.clip` gates the pointer.** A `.clip` layout cropped its
+  children's drawing but not their hit zones: the cropped part of a widget
+  could still be hovered, pressed and dragged, and under topmost-wins
+  arbitration a clipped-away widget declared later took the click from a
+  visible one declared earlier. The clip walk that hit-testing and
+  scroll-panel nesting share (`wlx_enclosing_clip`) now counts open `.clip`
+  layouts alongside scroll panel viewports and overlay roots, so hover,
+  press, drag, the focus ring and tooltip anchors stop at the clip rect; a
+  scroll panel inside a clip layout is scissored to the intersection and the
+  clip is re-armed after the panel ends (siblings declared after a nested
+  panel were drawn unclipped). Four tests in `tests/test_layout_clip.c`.
+
 ## [0.8.0] - 2026-09-12
 
 The overlay release: draw commands and interactive widgets now carry a

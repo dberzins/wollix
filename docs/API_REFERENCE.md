@@ -1270,6 +1270,13 @@ Contract and boundary rules:
   before installing, so a clip layout inside a scroll panel (or another clip
   layout) never widens the visible region; children are constrained to the
   intersection of all active clips.
+- **Input.** The clip rect bounds the pointer as well. A child's hit zone is
+  its rect intersected with every enclosing clip of its layer (clip layouts,
+  scroll panel viewports, an overlay's own rect), so the cropped part of a
+  widget cannot be hovered, pressed, dragged, focus-ringed or anchor a
+  tooltip, the same rule scroll panel viewports already follow. A scroll
+  panel inside a clip layout is scissored to the intersection, and the clip
+  is re-armed after the panel ends.
 - **Backend no-op.** Clipping records `SCISSOR_BEGIN`/`SCISSOR_END` into the
   deferred command buffer. A backend without `begin_scissor`/`end_scissor`
   no-ops these at replay; the layout still lays out and draws, just unclipped.

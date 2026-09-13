@@ -2444,7 +2444,9 @@ typedef struct {
     // Clip: when true, children draw clipped to this layout's content rect.
     // A scissor is begun at layout begin (after the chrome is recorded) and
     // released at layout end. Container chrome is outside the clip; a child's
-    // own glow/shadow is inside it. Defaults false.
+    // own glow/shadow is inside it. The clip rect also bounds the pointer: a
+    // child's hit zone is intersected with it, as with a scroll panel
+    // viewport. Defaults false.
     bool clip;
 } WLX_Layout_Opt;
 
@@ -3917,7 +3919,7 @@ typedef struct {
     // with a non-zero border width.
     WLX_CONTAINER_DECOR_FIELDS;
     WLX_SLOT_DECOR_FIELDS;
-    bool clip;                       // clip body content to panel bounds. false = no clip
+    bool clip;                       // clip body content and pointer hit zones to panel bounds. false = no clip
 
     // Layout options
     WLX_CONTENT_PADDING_FIELDS;      // inner padding around panel body (default: 2)
@@ -5199,18 +5201,19 @@ typedef struct {
 
 // The one walker over the current layer's clip context (wollix.h keeps two
 // flavors of "all active clips", both bounded by ctx->clip_base):
-//   WLX_CLIP_DRAW   - what the backend scissor is: an explicit scissor scope
-//                     when one is open (already intersected with its parent at
-//                     push), else every scroll panel viewport, clip layout and
-//                     overlay-root clip rect of this layer intersected.
-//   WLX_CLIP_PANELS - what hit-testing and scroll-panel nesting use: every
-//                     scroll panel viewport and overlay-root clip rect of this
-//                     layer intersected (clip layouts and scopes do not gate
-//                     the pointer; unchanged base-layer rule).
+//   WLX_CLIP_DRAW       - what the backend scissor is: an explicit scissor
+//                         scope when one is open (already intersected with
+//                         its parent at push), else every container clip of
+//                         this layer intersected.
+//   WLX_CLIP_CONTAINERS - every scroll panel viewport, clip layout and
+//                         overlay-root clip rect of this layer intersected:
+//                         what hit-testing and scroll-panel nesting use, so
+//                         the pointer stops where the drawing stops. Explicit
+//                         scissor scopes affect drawing only.
 // An overlay root with opt.clip contributes its own rect on both flavors, so
 // popup content is clipped, culled and hit-tested against the popup itself
 // and never against the base panels it floats over.
-typedef enum { WLX_CLIP_DRAW, WLX_CLIP_PANELS } WLX_Clip_Query;
+typedef enum { WLX_CLIP_DRAW, WLX_CLIP_CONTAINERS } WLX_Clip_Query;
 
 static inline bool wlx_enclosing_clip(const WLX_Context *ctx, WLX_Clip_Query query, WLX_Rect *out_rect) {
     bool active = false;
@@ -5231,7 +5234,7 @@ static inline bool wlx_enclosing_clip(const WLX_Context *ctx, WLX_Clip_Query que
     for (size_t i = ctx->clip_base.layouts_from; i < ctx->arena.layouts.count; i++) {
         const WLX_Layout *layout = &wlx_pool_layouts(ctx)[i];
         bool clips = (layout->is_overlay_root && layout->overlay_clip)
-                  || (query == WLX_CLIP_DRAW && layout->clip_active);
+                  || layout->clip_active;
         if (!clips) continue;
         clip = active ? wlx_rect_intersect(clip, layout->clip_rect) : layout->clip_rect;
         active = true;
@@ -7919,14 +7922,15 @@ static inline size_t wlx_interaction_make_id(WLX_Context *ctx, const char *file,
     return (base == 0) ? 1 : base;  // reserve 0 for "no widget"
 }
 
-// A widget rect clipped to the current layer's scroll panel viewports (and
-// the overlay root's own rect on a popup layer): the zone the pointer must
-// be inside for the widget to claim it, and the candidate rect recorded for
-// arbitration. Widgets scrolled out of view thus cannot claim the pointer,
-// and popup content is never gated by the base panels it floats over.
+// A widget rect clipped to the current layer's container clips - scroll
+// panel viewports, .clip layouts, and the overlay root's own rect on a popup
+// layer: the zone the pointer must be inside for the widget to claim it, and
+// the candidate rect recorded for arbitration. Widgets scrolled or clipped
+// out of view thus cannot claim the pointer, and popup content is never
+// gated by the base panels it floats over.
 static inline WLX_Rect wlx_interaction_clip_rect(WLX_Context *ctx, WLX_Rect rect) {
     WLX_Rect clip;
-    if (wlx_enclosing_clip(ctx, WLX_CLIP_PANELS, &clip)) rect = wlx_rect_intersect(rect, clip);
+    if (wlx_enclosing_clip(ctx, WLX_CLIP_CONTAINERS, &clip)) rect = wlx_rect_intersect(rect, clip);
     return rect;
 }
 
@@ -8095,7 +8099,8 @@ static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect
     size_t id = wlx_interaction_make_id(ctx, file, line);
     WLX_Interaction result = { .id = id };
 
-    // The hit zone: the rect clipped to the layer's viewports. Containment
+    // The hit zone: the rect clipped to the layer's container clips (scroll
+    // panel viewports, .clip layouts, a popup's own rect). Containment
     // against it is the mouse-over test, and it is the candidate rect
     // recorded below.
     WLX_Rect crect = wlx_interaction_clip_rect(ctx, rect);
@@ -8110,8 +8115,8 @@ static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect
     }
 
     // Record the hit candidate for next frame's ownership arbitration: the
-    // same clipped zone the mouse-over test used, so scrolled-away widgets
-    // cannot own the pointer.
+    // same clipped zone the mouse-over test used, so scrolled-away or
+    // clipped-away widgets cannot own the pointer.
     {
         bool focusable = !(flags & WLX_INTERACT_TAB_SKIP)
             && ((flags & WLX_INTERACT_FOCUS)
@@ -14559,10 +14564,11 @@ static inline void wlx_scrollbar_handle_drag(
 // Helper: end scissor mode and restore the parent scroll panel's scissor region if any.
 static inline void wlx_scroll_panel_restore_scissor(WLX_Context *ctx) {
     wlx_end_scissor(ctx);
-    // Re-arm the enclosing panel clip of this layer (the parent panel, or a
-    // popup's own rect); never a base-layer panel from inside an overlay.
+    // Re-arm the enclosing container clip of this layer (a parent panel, a
+    // .clip layout, or a popup's own rect); never a base-layer clip from
+    // inside an overlay.
     WLX_Rect enclosing;
-    if (wlx_enclosing_clip(ctx, WLX_CLIP_PANELS, &enclosing)) {
+    if (wlx_enclosing_clip(ctx, WLX_CLIP_CONTAINERS, &enclosing)) {
         wlx_begin_scissor(ctx, enclosing);
     }
 }
@@ -14572,11 +14578,12 @@ static inline void wlx_scroll_panel_begin_content_layout(
     WLX_Context *ctx, WLX_Scroll_Panel_State *state, const WLX_Scroll_Panel_Opt *opt,
     WLX_Rect wr, float content_height, bool sb_visible, WLX_Rect sb_rect)
 {
-    // Intersect the scissor rect with the enclosing panel clip of this layer
-    // (parent panels, or a popup's own rect) to contain nested content.
+    // Intersect the scissor rect with the enclosing container clip of this
+    // layer (parent panels, .clip layouts, or a popup's own rect) to contain
+    // nested content.
     WLX_Rect scissor = wr;
     WLX_Rect enclosing;
-    if (wlx_enclosing_clip(ctx, WLX_CLIP_PANELS, &enclosing)) {
+    if (wlx_enclosing_clip(ctx, WLX_CLIP_CONTAINERS, &enclosing)) {
         scissor = wlx_rect_intersect(scissor, enclosing);
     }
     wlx_begin_scissor(ctx, scissor);

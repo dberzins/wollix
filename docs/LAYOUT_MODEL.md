@@ -875,9 +875,11 @@ scroll panel viewport, `.clip` layout and scissor scope applies; an overlay
 starts a fresh context whose only clip is the overlay's own rect, and
 `wlx_overlay_end` restores the enclosing one. Drawing (the recorded
 scissors and offscreen culling) and hit-testing (`hover`, press candidates,
-a nested scroll panel's scissor) all walk the current layer's context, so a
-popup declared inside a scroll panel is never cut, culled or gated by the
-panel it floats over.
+a nested scroll panel's scissor) all walk the current layer's context
+(explicit scissor scopes affect drawing only), so a popup declared inside a
+scroll panel is never cut, culled or gated by the panel it floats over, and
+a widget cropped by a `.clip` layout cannot be hovered or pressed through
+the cropped part.
 
 ### Ownership Arbitration
 
