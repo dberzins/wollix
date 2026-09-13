@@ -98,7 +98,8 @@ The undo journal (shared with the inputbox through the same key handler)
 rides the same guard: a rebuild the widget's own edit did not cause drops
 the history with the geometry, and an undo or redo is an ordinary edit to
 the index, its span shifting the retained geometry exactly like a
-keystroke.
+keystroke. The journal itself is documented in
+[UNDO_MODEL.md](UNDO_MODEL.md).
 
 ---
 

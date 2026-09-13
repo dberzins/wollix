@@ -1102,6 +1102,8 @@ dropped whenever the buffer changes outside the widget: a length change is
 detected automatically, and after a same-length rewrite the caller bumps
 `.revision` (any change of value), exactly as for the editor. The textarea
 shares all of this; the editor adds Tab and Enter as steps of their own.
+The machinery (entries, stacks, transactions, replay, eviction, the guard)
+is described in [UNDO_MODEL.md](UNDO_MODEL.md).
 
 ### Password and read-only modes
 

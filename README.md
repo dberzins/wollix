@@ -119,7 +119,7 @@ layout_end(&ctx);
 | `wollix_wasm.h` | Bare WASM32 backend adapter (no libc) |
 | `wollix_editor.h` | `wlx_editor` extension header (windowed text editor; include after `wollix.h`) |
 | `web/` | WASM host runtime, HTML shell, and libc shim |
-| `docs/` | Performance diagnostics guide, design system guide (canonical: core theme contract + dashboard "Mechanical Glass"), gallery design system guide (secondary), API reference, layout model, line run model (text handling), editor model (windowed text editor), widget guide, opacity guide, core patterns guide, sentinel rules |
+| `docs/` | Performance diagnostics guide, design system guide (canonical: core theme contract + dashboard "Mechanical Glass"), gallery design system guide (secondary), API reference, layout model, line run model (text handling), editor model (windowed text editor), undo model (the text undo journal), widget guide, opacity guide, core patterns guide, sentinel rules |
 | `demos/` | Standalone demo translation units (one per feature); `gallery.c` also includes the local `gallery_perf.h` benchmark companion header |
 | `tests/` | Unit test suite |
 
