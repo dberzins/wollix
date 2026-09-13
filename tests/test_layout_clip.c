@@ -195,14 +195,17 @@ TEST(layout_clip_stack_balanced) {
 // rule scroll panel viewports and overlay roots already follow.
 
 // One frame: a clip layout filling slot 0 (0..40) of a 40/200 parent, holding
-// a 0..100 interaction rect queried with `flags`; `down` presses the button.
-// (A root clip layout would clip to the whole context rect, so the clip
-// layout must sit in a bounded parent slot.)
-static WLX_Interaction _lc_probe(WLX_Context *ctx, int mx, int my, bool down, uint32_t flags) {
+// a 0..100 interaction rect queried with `flags`; `down` presses the button;
+// `auto_begin` selects the auto-counted begin. (A root clip layout would clip
+// to the whole context rect, so the clip layout must sit in a bounded parent
+// slot.)
+static WLX_Interaction _lc_probe(WLX_Context *ctx, int mx, int my, bool down, uint32_t flags,
+                                 bool auto_begin) {
     test_frame_begin(ctx, mx, my, down, down);
     wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40), WLX_SLOT_PX(200)),
                        .padding = 0, .gap = 0);
-    wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .clip = true);      // clip 0..40
+    if (auto_begin) wlx_layout_begin_auto(ctx, WLX_VERT, 30, .padding = 0, .clip = true); // clip 0..40
+    else            wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .clip = true);       // clip 0..40
     WLX_Interaction s = wlx_get_interaction(ctx, wlx_rect(0, 0, 100, 100), flags, "lc_probe", 1);
     wlx_layout_end(ctx);
     wlx_layout_end(ctx);
@@ -216,13 +219,13 @@ TEST(layout_clip_gates_hover) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
 
-    WLX_Interaction s = _lc_probe(&ctx, 50, 80, false, WLX_INTERACT_HOVER); // bootstrap: containment
+    WLX_Interaction s = _lc_probe(&ctx, 50, 80, false, WLX_INTERACT_HOVER, false); // bootstrap: containment
     ASSERT_FALSE(s.hover);
-    s = _lc_probe(&ctx, 50, 80, false, WLX_INTERACT_HOVER);                 // arbitrated: last frame's candidates
+    s = _lc_probe(&ctx, 50, 80, false, WLX_INTERACT_HOVER, false);                 // arbitrated: last frame's candidates
     ASSERT_FALSE(s.hover);
 
-    (void)_lc_probe(&ctx, 50, 20, false, WLX_INTERACT_HOVER);               // control: inside the clip
-    s = _lc_probe(&ctx, 50, 20, false, WLX_INTERACT_HOVER);
+    (void)_lc_probe(&ctx, 50, 20, false, WLX_INTERACT_HOVER, false);               // control: inside the clip
+    s = _lc_probe(&ctx, 50, 20, false, WLX_INTERACT_HOVER, false);
     ASSERT_TRUE(s.hover);
     wlx_context_destroy(&ctx);
 }
@@ -234,19 +237,19 @@ TEST(layout_clip_drag_not_acquired_outside) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
     const uint32_t drag = WLX_INTERACT_HOVER | WLX_INTERACT_DRAG;
-    (void)_lc_probe(&ctx, 50, 80, false, drag);              // warm
-    WLX_Interaction s = _lc_probe(&ctx, 50, 80, true, drag); // press outside the clip
+    (void)_lc_probe(&ctx, 50, 80, false, drag, false);              // warm
+    WLX_Interaction s = _lc_probe(&ctx, 50, 80, true, drag, false); // press outside the clip
     ASSERT_FALSE(s.active);
     ASSERT_EQ_INT((int)ctx.interaction.active_id, 0);
     wlx_context_destroy(&ctx);
 
     test_ctx_init(&ctx, 400, 300);
-    s = _lc_probe(&ctx, 50, 80, true, drag);                 // bootstrap press outside
+    s = _lc_probe(&ctx, 50, 80, true, drag, false);                 // bootstrap press outside
     ASSERT_FALSE(s.active);
     wlx_context_destroy(&ctx);
 
     test_ctx_init(&ctx, 400, 300);
-    s = _lc_probe(&ctx, 50, 20, true, drag);                 // control: inside the clip
+    s = _lc_probe(&ctx, 50, 20, true, drag, false);                 // control: inside the clip
     ASSERT_TRUE(s.active);
     wlx_context_destroy(&ctx);
 }
@@ -390,6 +393,44 @@ TEST(layout_clip_gates_wheel) {
     wlx_context_destroy(&ctx);
 }
 
+// The auto-counted begin honours .clip the same way: one SCISSOR_BEGIN on the
+// post-padding content rect and one SCISSOR_END.
+TEST(layout_auto_clip_emits_scissor_on_content_rect) {
+    WLX_Context ctx;
+    crec_ctx_init(&ctx, 400, 300);
+
+    crec_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_auto(&ctx, WLX_VERT, 40, .clip = true, .padding = 10);
+        WLX_Rect content = wlx_get_parent_rect(&ctx);
+        crec_marker(&ctx, MARK_A, 40);
+    wlx_layout_end(&ctx);
+    wlx_end(&ctx);
+
+    ASSERT_EQ_INT(1, clip_count_cmd(WLX_CMD_SCISSOR_BEGIN));
+    ASSERT_EQ_INT(1, clip_count_cmd(WLX_CMD_SCISSOR_END));
+    int sb = crec_find(WLX_CMD_SCISSOR_BEGIN, 0);
+    ASSERT_TRUE(sb >= 0);
+    ASSERT_EQ_F(_crec_log[sb].rect.x, content.x, 0.01f);
+    ASSERT_EQ_F(_crec_log[sb].rect.y, content.y, 0.01f);
+    ASSERT_EQ_F(_crec_log[sb].rect.w, content.w, 0.01f);
+    ASSERT_EQ_F(_crec_log[sb].rect.h, content.h, 0.01f);
+    wlx_context_destroy(&ctx);
+}
+
+// And it gates the pointer like the counted begin.
+TEST(layout_auto_clip_gates_hover) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Interaction s = _lc_probe(&ctx, 50, 80, false, WLX_INTERACT_HOVER, true);
+    ASSERT_FALSE(s.hover);
+    s = _lc_probe(&ctx, 50, 80, false, WLX_INTERACT_HOVER, true);
+    ASSERT_FALSE(s.hover);
+    (void)_lc_probe(&ctx, 50, 20, false, WLX_INTERACT_HOVER, true);
+    s = _lc_probe(&ctx, 50, 20, false, WLX_INTERACT_HOVER, true);
+    ASSERT_TRUE(s.hover);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(layout_clip) {
     RUN_TEST(layout_clip_emits_scissor_on_content_rect);
     RUN_TEST(layout_no_clip_emits_no_scissor);
@@ -402,6 +443,8 @@ SUITE(layout_clip) {
     RUN_TEST(layout_clip_gates_click_visible_sibling_wins);
     RUN_TEST(layout_clip_scroll_panel_scissor_intersects_and_rearms);
     RUN_TEST(layout_clip_gates_wheel);
+    RUN_TEST(layout_auto_clip_emits_scissor_on_content_rect);
+    RUN_TEST(layout_auto_clip_gates_hover);
 }
 
 // ============================================================================

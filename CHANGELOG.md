@@ -46,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   scroll panel bar and the text-widget scrollbar thumb also lit their hover
   tint there. All three now go through the same container clip as hover and
   press.
+- **Auto-counted layouts honour `.clip`.** `wlx_layout_begin_auto` accepted
+  the option but never installed the scissor or joined the clip walk, so its
+  overflowing children were drawn and stayed interactive; both begins now
+  share one clip path. Two tests.
 
 ### Changed
 - Tests: the enabled slider's press-to-jump, drag, release and custom-range

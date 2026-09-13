@@ -5252,6 +5252,25 @@ static inline bool wlx_active_scissor_rect(const WLX_Context *ctx, WLX_Rect *out
     return wlx_enclosing_clip(ctx, WLX_CLIP_DRAW, out_rect);
 }
 
+// Opt-in clip for the layout just pushed by a begin call: flag it and begin
+// a scissor on its content rect, intersected with the active clip so nested
+// clips never widen the visible region (e.g. inside a scroll panel). The
+// chrome (background or border) was already recorded by
+// wlx_layout_frame_begin, so it is never cropped. wlx_layout_end owns the
+// matching release via clip_active. Shared by the counted and the
+// auto-counted begin.
+static inline void wlx_layout_clip_begin(WLX_Context *ctx) {
+    WLX_Layout *top = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    WLX_Rect clip_rect = top->rect;
+    WLX_Rect active;
+    if (wlx_active_scissor_rect(ctx, &active)) {
+        clip_rect = wlx_rect_intersect(clip_rect, active);
+    }
+    top->clip_active = true;
+    top->clip_rect = top->rect;   // the walkers intersect with it themselves
+    wlx_begin_scissor(ctx, clip_rect);
+}
+
 static inline WLX_Scissor_Scope wlx_scissor_scope_begin(WLX_Context *ctx, WLX_Rect rect) {
     WLX_Scissor_Scope scope = {0};
     WLX_Rect clip = rect;
@@ -7234,22 +7253,8 @@ WLXDEF void wlx_layout_begin_impl(WLX_Context *ctx, size_t count, WLX_Orient ori
     //   file/line: caller location for warning deduplication
     WLX_DBG(layout_begin, ctx, -1, opt.sizes, count, (int)orient, opt.pos, opt.span, file, line);
 
-    // Opt-in clip: flag the pushed layout and begin a scissor on its content
-    // rect, intersected with the active clip so nested clips never widen the
-    // visible region (e.g. inside a scroll panel). The chrome (background or
-    // border) was already recorded by wlx_layout_frame_begin above, so it is
-    // never cropped. wlx_layout_end owns the matching release via clip_active.
-    if (opt.clip) {
-        WLX_Layout *top = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-        WLX_Rect clip_rect = top->rect;
-        WLX_Rect active;
-        if (wlx_active_scissor_rect(ctx, &active)) {
-            clip_rect = wlx_rect_intersect(clip_rect, active);
-        }
-        top->clip_active = true;
-        top->clip_rect = top->rect;   // the walkers intersect with it themselves
-        wlx_begin_scissor(ctx, clip_rect);
-    }
+    // Opt-in clip on the pushed layout (see wlx_layout_clip_begin).
+    if (opt.clip) wlx_layout_clip_begin(ctx);
 
     // Diagnose slot over-allocation (debug builds only): when fixed/min slot
     // sizes resolve to a boundary past the layout extent, children overflow
@@ -7388,6 +7393,9 @@ WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, floa
     wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
     // layout_begin: auto layouts have no sizes array - inherit parent vert_bounded only
     WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, NULL, 0);
+
+    // Opt-in clip on the pushed layout, same path as the counted begin.
+    if (opt.clip) wlx_layout_clip_begin(ctx);
 }
 
 WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_Grid_Opt opt,
