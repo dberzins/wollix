@@ -2182,10 +2182,16 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
     if (inter.focused) {
         size_t pre_cursor = state->caret.cursor_pos;
         size_t pre_anchor = state->caret.selection_anchor;
+        // The undo journal is found by widget id under the caller's
+        // revision, so history the buffer outgrew is dropped before the
+        // chords could replay it. Undo and redo replay through the same
+        // primitives as a keystroke, so the edit span below covers them.
+        WLX_Text_Undo_Journal *undo = wlx_text_undo_get(ctx, persistent.id, *length,
+            opt.revision, false);
         changed = wlx_text_edit_handle_keys(ctx, &state->caret, buffer, buffer_cap, length,
             (WLX_Text_Edit_Caps){ .read_only = opt.read_only,
                                   .allow_newline = true, .allow_tab = true,
-                                  .word_delete = true }, &edit_span, NULL);
+                                  .word_delete = true }, &edit_span, undo);
         if (changed && *length < buffer_cap) buffer[*length] = '\0';
         kb_caret_changed = pre_cursor != state->caret.cursor_pos
             || pre_anchor != state->caret.selection_anchor;
@@ -2256,6 +2262,11 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
                 } else {
                     wlx_text_geom_clear(geom);
                     state->bottom_valid = false;
+                    // A rebuild the widget's own edit did not cause means
+                    // the document changed under the journal (the probe
+                    // catches in-place rewrites the length guard cannot
+                    // see): its history goes with the geometry.
+                    wlx_text_undo_clear_if_present(ctx, persistent.id, doc_len);
                 }
 #ifdef WLX_DEBUG
                 assert(wlx_editor_index_probe_ok(idx, doc, doc_len));
