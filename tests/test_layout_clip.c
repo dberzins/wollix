@@ -27,6 +27,15 @@ static inline int clip_count_cmd(WLX_Cmd_Type type) {
     return n;
 }
 
+// Index of the last recorded command of a given type, -1 when none.
+static inline int clip_last_cmd(WLX_Cmd_Type type) {
+    int last = -1;
+    for (size_t i = 0; i < _crec_count; i++) {
+        if (_crec_log[i].type == type) last = (int)i;
+    }
+    return last;
+}
+
 // ============================================================================
 // Layout clip: scissor recording
 // ============================================================================
@@ -174,12 +183,7 @@ TEST(layout_clip_stack_balanced) {
 
     // No leak: the final scissor command in the buffer is a SCISSOR_END, so
     // replay finishes with clipping disabled.
-    int last_begin = -1, last_end = -1;
-    for (size_t i = 0; i < _crec_count; i++) {
-        if (_crec_log[i].type == WLX_CMD_SCISSOR_BEGIN) last_begin = (int)i;
-        if (_crec_log[i].type == WLX_CMD_SCISSOR_END)   last_end   = (int)i;
-    }
-    ASSERT_TRUE(last_end > last_begin);
+    ASSERT_TRUE(clip_last_cmd(WLX_CMD_SCISSOR_END) > clip_last_cmd(WLX_CMD_SCISSOR_BEGIN));
     wlx_context_destroy(&ctx);
 }
 
@@ -191,15 +195,15 @@ TEST(layout_clip_stack_balanced) {
 // rule scroll panel viewports and overlay roots already follow.
 
 // One frame: a clip layout filling slot 0 (0..40) of a 40/200 parent, holding
-// a 0..100 hover rect. (A root clip layout would clip to the whole context
-// rect, so the clip layout must sit in a bounded parent slot.)
-static WLX_Interaction _lc_hover_probe(WLX_Context *ctx, int mx, int my) {
-    test_frame_begin(ctx, mx, my, false, false);
+// a 0..100 interaction rect queried with `flags`; `down` presses the button.
+// (A root clip layout would clip to the whole context rect, so the clip
+// layout must sit in a bounded parent slot.)
+static WLX_Interaction _lc_probe(WLX_Context *ctx, int mx, int my, bool down, uint32_t flags) {
+    test_frame_begin(ctx, mx, my, down, down);
     wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40), WLX_SLOT_PX(200)),
                        .padding = 0, .gap = 0);
     wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .clip = true);      // clip 0..40
-    WLX_Interaction s = wlx_get_interaction(ctx, wlx_rect(0, 0, 100, 100),
-                                            WLX_INTERACT_HOVER, "lc_hover", 1);
+    WLX_Interaction s = wlx_get_interaction(ctx, wlx_rect(0, 0, 100, 100), flags, "lc_probe", 1);
     wlx_layout_end(ctx);
     wlx_layout_end(ctx);
     test_frame_end(ctx);
@@ -212,29 +216,15 @@ TEST(layout_clip_gates_hover) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
 
-    WLX_Interaction s = _lc_hover_probe(&ctx, 50, 80);   // bootstrap: containment
+    WLX_Interaction s = _lc_probe(&ctx, 50, 80, false, WLX_INTERACT_HOVER); // bootstrap: containment
     ASSERT_FALSE(s.hover);
-    s = _lc_hover_probe(&ctx, 50, 80);                   // arbitrated: last frame's candidates
+    s = _lc_probe(&ctx, 50, 80, false, WLX_INTERACT_HOVER);                 // arbitrated: last frame's candidates
     ASSERT_FALSE(s.hover);
 
-    (void)_lc_hover_probe(&ctx, 50, 20);                 // control: inside the clip
-    s = _lc_hover_probe(&ctx, 50, 20);
+    (void)_lc_probe(&ctx, 50, 20, false, WLX_INTERACT_HOVER);               // control: inside the clip
+    s = _lc_probe(&ctx, 50, 20, false, WLX_INTERACT_HOVER);
     ASSERT_TRUE(s.hover);
     wlx_context_destroy(&ctx);
-}
-
-// One frame: the same nested clip layout holding a 0..100 drag rect.
-static WLX_Interaction _lc_drag_probe(WLX_Context *ctx, int mx, int my, bool down) {
-    test_frame_begin(ctx, mx, my, down, down);
-    wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40), WLX_SLOT_PX(200)),
-                       .padding = 0, .gap = 0);
-    wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .clip = true);      // clip 0..40
-    WLX_Interaction s = wlx_get_interaction(ctx, wlx_rect(0, 0, 100, 100),
-                                            WLX_INTERACT_HOVER | WLX_INTERACT_DRAG, "lc_drag", 1);
-    wlx_layout_end(ctx);
-    wlx_layout_end(ctx);
-    test_frame_end(ctx);
-    return s;
 }
 
 // A press on the cropped part of a widget does not acquire the drag, after
@@ -243,19 +233,20 @@ static WLX_Interaction _lc_drag_probe(WLX_Context *ctx, int mx, int my, bool dow
 TEST(layout_clip_drag_not_acquired_outside) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
-    (void)_lc_drag_probe(&ctx, 50, 80, false);              // warm
-    WLX_Interaction s = _lc_drag_probe(&ctx, 50, 80, true); // press outside the clip
+    const uint32_t drag = WLX_INTERACT_HOVER | WLX_INTERACT_DRAG;
+    (void)_lc_probe(&ctx, 50, 80, false, drag);              // warm
+    WLX_Interaction s = _lc_probe(&ctx, 50, 80, true, drag); // press outside the clip
     ASSERT_FALSE(s.active);
     ASSERT_EQ_INT((int)ctx.interaction.active_id, 0);
     wlx_context_destroy(&ctx);
 
     test_ctx_init(&ctx, 400, 300);
-    s = _lc_drag_probe(&ctx, 50, 80, true);                 // bootstrap press outside
+    s = _lc_probe(&ctx, 50, 80, true, drag);                 // bootstrap press outside
     ASSERT_FALSE(s.active);
     wlx_context_destroy(&ctx);
 
     test_ctx_init(&ctx, 400, 300);
-    s = _lc_drag_probe(&ctx, 50, 20, true);                 // control: inside the clip
+    s = _lc_probe(&ctx, 50, 20, true, drag);                 // control: inside the clip
     ASSERT_TRUE(s.active);
     wlx_context_destroy(&ctx);
 }
@@ -346,12 +337,7 @@ TEST(layout_clip_scroll_panel_scissor_intersects_and_rearms) {
     ASSERT_EQ_INT(3, clip_count_cmd(WLX_CMD_SCISSOR_BEGIN));
     ASSERT_EQ_INT(2, clip_count_cmd(WLX_CMD_SCISSOR_END));
     ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
-    int last_begin = -1, last_end = -1;
-    for (size_t i = 0; i < _crec_count; i++) {
-        if (_crec_log[i].type == WLX_CMD_SCISSOR_BEGIN) last_begin = (int)i;
-        if (_crec_log[i].type == WLX_CMD_SCISSOR_END)   last_end   = (int)i;
-    }
-    ASSERT_TRUE(last_end > last_begin);
+    ASSERT_TRUE(clip_last_cmd(WLX_CMD_SCISSOR_END) > clip_last_cmd(WLX_CMD_SCISSOR_BEGIN));
     wlx_context_destroy(&ctx);
 }
 

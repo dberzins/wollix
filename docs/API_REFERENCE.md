@@ -1276,10 +1276,13 @@ Contract and boundary rules:
   widget cannot be hovered, pressed, dragged, focus-ringed or anchor a
   tooltip, the same rule scroll panel viewports already follow. A scroll
   panel inside a clip layout is scissored to the intersection, and the clip
-  is re-armed after the panel ends.
-- **Backend no-op.** Clipping records `SCISSOR_BEGIN`/`SCISSOR_END` into the
-  deferred command buffer. A backend without `begin_scissor`/`end_scissor`
-  no-ops these at replay; the layout still lays out and draws, just unclipped.
+  is re-armed after the panel ends. Wheel scrolling is the one exception: a
+  scroll panel takes the wheel over its whole viewport rect, cropped or not.
+- **Backend contract.** Clipping records `SCISSOR_BEGIN`/`SCISSOR_END` into the
+  deferred command buffer and the replay calls the backend's `begin_scissor` /
+  `end_scissor`, which are required callbacks (the frame-start readiness check
+  rejects a backend without them). Hit zones are bounded by the clip rect in
+  the core, independently of what the backend draws.
 - **Cost.** Each clip adds one scissor begin/end pair and can break draw
   batching, so it is opt-in. Grids do not currently expose `clip`; wrap a grid
   in a `clip` layout if you need grid-cell containment.

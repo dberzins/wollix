@@ -49,9 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   core already had.
 
 ### Removed
-- `build.sh`, the pre-Makefile demo build script: it built 20 of the 31
-  demos, lacked the SDL3_ttf flags and was referenced by nothing; `make` is
-  the build.
+- `build.sh`, the pre-Makefile demo build script: it built 21 of the 31
+  demos (20 Raylib demos plus the SDL3 demo), lacked the SDL3_ttf flags its
+  own SDL3 step needed and was referenced by nothing; `make` is the build.
 
 ## [0.8.0] - 2026-09-12
 
