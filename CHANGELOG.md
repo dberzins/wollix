@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Tests: the enabled slider's press-to-jump, drag, release and custom-range
   mapping are pinned in `tests/test_widgets.c`; the disabled case was the
   only drag-cycle test before.
+- The four companion headers (`wollix_raylib.h`, `wollix_sdl3.h`,
+  `wollix_wasm.h`, `wollix_editor.h`) carry the MIT copyright notice the
+  core already had.
+
+### Removed
+- `build.sh`, the pre-Makefile demo build script: it built 20 of the 31
+  demos, lacked the SDL3_ttf flags and was referenced by nothing; `make` is
+  the build.
 
 ## [0.8.0] - 2026-09-12
 

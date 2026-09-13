@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Dainis Berzins
+ * Licensed under the MIT License. See LICENSE file for full text.
+ */
+
 #ifndef WOLLIX_WASM_H_
 #define WOLLIX_WASM_H_
 

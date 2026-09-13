@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Dainis Berzins
+// Licensed under the MIT License. See LICENSE file for full text.
+//
 // wollix_editor.h - wlx_editor: a windowed text editor widget over a
 // caller-owned flat buffer with an explicit length in/out. Companion
 // header to wollix.h: it is not part of the core and the core never

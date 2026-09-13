@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Dainis Berzins
+ * Licensed under the MIT License. See LICENSE file for full text.
+ */
+
 #ifndef WOLLIX_SDL3_H_
 #define WOLLIX_SDL3_H_
 
