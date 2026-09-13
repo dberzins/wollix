@@ -1526,6 +1526,14 @@ typedef struct {
     uint32_t txn_group;
     size_t txn_caret0;      // caret pair at transaction start
     size_t txn_anchor0;
+    bool alloc_failed;      // a record could not be kept; the step is void
+    // Replay: the direction being applied and the caret pairs its mirror
+    // entries carry (the step's own, not the replay's working carets).
+    bool replay_redo;
+    size_t rep_caret_before;
+    size_t rep_anchor_before;
+    size_t rep_caret_after;
+    size_t rep_anchor_after;
 } WLX_Text_Undo_Journal;
 
 typedef struct {
@@ -12284,6 +12292,7 @@ static void wlx_text_undo_clear(WLX_Text_Undo_Journal *j, size_t length) {
     wlx_text_undo_stack_reset(&j->redo);
     j->expected_len = length;
     j->last_was_replay = false;
+    j->alloc_failed = false;
 }
 
 static WLX_Text_Undo_Journal *wlx_text_undo_find(WLX_Context *ctx, size_t id) {
@@ -12414,32 +12423,133 @@ static bool wlx_text_undo_make_room(WLX_Text_Undo_Stack *s, size_t need_bytes,
     return true;
 }
 
+// Stack a recording lands on: the replay of an undo records onto the redo
+// stack and the replay of a redo onto the undo stack.
+static inline WLX_Text_Undo_Stack *wlx_text_undo_target(WLX_Text_Undo_Journal *j) {
+    if (!j->replaying) return &j->undo;
+    return j->replay_redo ? &j->undo : &j->redo;
+}
+
+// Open the transaction one key-handler invocation forms. The caret pair it
+// starts from is the before-state its first record keeps and the
+// continuity test for coalescing into the newest step.
+static inline void wlx_text_undo_txn_begin(WLX_Text_Undo_Journal *j, size_t caret,
+    size_t anchor)
+{
+    if (j == NULL) return;
+    j->in_txn = true;
+    j->txn_first = true;
+    j->cls = WLX_TEXT_UNDO_CLS_NONE;
+    j->txn_caret0 = caret;
+    j->txn_anchor0 = anchor;
+}
+
+// Close the transaction at the document length any later history must
+// find unchanged. A record that could not be kept has already dropped the
+// history; the flag is spent here.
+static inline void wlx_text_undo_txn_end(WLX_Text_Undo_Journal *j, size_t length) {
+    if (j == NULL) return;
+    j->in_txn = false;
+    j->expected_len = length;
+    j->alloc_failed = false;
+}
+
+// Name the handler path about to mutate: the class decides which steps
+// may coalesce and which always stand alone.
+static inline void wlx_text_undo_set_class(WLX_Text_Undo_Journal *j, uint8_t cls) {
+    if (j != NULL) j->cls = cls;
+}
+
+// Coalescing: the first record of a transaction may extend the newest
+// undo entry instead of opening a new step, so a typed run, a Backspace
+// run or a Delete run undoes as one. Conditions: nothing was replayed
+// since that entry; the same class, and one of the three run classes; the
+// caret pair this transaction started from is the pair the entry left
+// behind (a click or arrow key in between breaks it without any hook); the
+// new range touches the entry's range on its growing side (a typing insert
+// at its inserted end, a Backspace delete ending at its start or a Delete
+// at its start, the latter two on an entry that inserted nothing); and the
+// entry is still below the run bound. Returns the entry to extend or NULL.
+static WLX_Text_Undo_Entry *wlx_text_undo_coalesce_target(WLX_Text_Undo_Journal *j,
+    size_t start, size_t removed_len, size_t inserted_len)
+{
+    WLX_Text_Undo_Stack *s = &j->undo;
+    if (j->last_was_replay || s->count == 0) return NULL;
+    WLX_Text_Undo_Entry *e = &s->entries[s->count - 1];
+    if (e->cls != j->cls) return NULL;
+    if (j->txn_caret0 != e->caret_after || j->txn_anchor0 != e->anchor_after) return NULL;
+    if (e->removed_len + e->inserted_len >= (size_t)WLX_TEXT_UNDO_GROUP_BYTES) return NULL;
+    if (j->cls == WLX_TEXT_UNDO_CLS_TYPING) {
+        return (removed_len == 0 && inserted_len > 0
+            && start == e->start + e->inserted_len) ? e : NULL;
+    }
+    if (j->cls == WLX_TEXT_UNDO_CLS_BACKSPACE) {
+        return (inserted_len == 0 && removed_len > 0 && e->inserted_len == 0
+            && start + removed_len == e->start) ? e : NULL;
+    }
+    if (j->cls == WLX_TEXT_UNDO_CLS_DELETE) {
+        return (inserted_len == 0 && removed_len > 0 && e->inserted_len == 0
+            && start == e->start) ? e : NULL;
+    }
+    return NULL;
+}
+
 // Record one primitive mutation before it moves bytes: the removed_len
 // original bytes at start (copied into the arena) are about to be replaced
-// by inserted_len bytes. Outside a key-handler transaction the record
-// forms an undo step of its own. On allocation failure the history is
-// dropped rather than left with a gap.
+// by inserted_len bytes. The first record of a transaction either extends
+// the newest step (coalescing) or opens a new one and drops the redo
+// history; a replay records the mirror entry on the opposite stack under
+// the replayed step's id. Outside a transaction the record forms a step of
+// its own. On allocation failure the history is dropped rather than left
+// with a gap.
 static void wlx_text_undo_record(WLX_Text_Undo_Journal *j, size_t start,
     const char *removed, size_t removed_len, size_t inserted_len,
     size_t caret, size_t anchor)
 {
     if (j == NULL || (removed_len == 0 && inserted_len == 0)) return;
     bool implicit = !j->in_txn;
-    if (implicit) {
-        j->in_txn = true;
-        j->txn_first = true;
-        j->txn_caret0 = caret;
-        j->txn_anchor0 = anchor;
-    }
-    WLX_Text_Undo_Stack *s = j->replaying ? &j->redo : &j->undo;
-    if (j->txn_first) {
-        j->txn_first = false;
-        if (!j->replaying) wlx_text_undo_stack_reset(&j->redo);
+    if (implicit) wlx_text_undo_txn_begin(j, caret, anchor);
+    WLX_Text_Undo_Stack *s = wlx_text_undo_target(j);
+    bool first = j->txn_first;
+    j->txn_first = false;
+    if (first && !j->replaying) {
+        wlx_text_undo_stack_reset(&j->redo);
+        WLX_Text_Undo_Entry *e = wlx_text_undo_coalesce_target(j, start, removed_len, inserted_len);
+        j->last_was_replay = false;
+        if (e != NULL) {
+            j->txn_group = e->group;
+            if (!wlx_text_undo_make_room(s, removed_len, e->group)) {
+                wlx_text_undo_stack_reset(&j->undo);
+                j->alloc_failed = true;
+            } else {
+                e = &s->entries[s->count - 1];
+                if (inserted_len > 0) {
+                    e->inserted_len += inserted_len;
+                } else if (start + removed_len == e->start) {
+                    // Backspace run: the new bytes precede the entry's run,
+                    // which ends the arena.
+                    memmove(s->arena + e->arena_off + removed_len,
+                        s->arena + e->arena_off, e->removed_len);
+                    memcpy(s->arena + e->arena_off, removed, removed_len);
+                    s->arena_used += removed_len;
+                    e->removed_len += removed_len;
+                    e->start = start;
+                } else {
+                    // Delete run: the new bytes follow the entry's run.
+                    memcpy(s->arena + s->arena_used, removed, removed_len);
+                    s->arena_used += removed_len;
+                    e->removed_len += removed_len;
+                }
+            }
+            if (implicit) j->in_txn = false;
+            return;
+        }
         j->txn_group = ++j->next_group;
     }
     if (!wlx_text_undo_make_room(s, removed_len, j->txn_group)) {
         wlx_text_undo_stack_reset(&j->undo);
         wlx_text_undo_stack_reset(&j->redo);
+        j->alloc_failed = true;
     } else {
         WLX_Text_Undo_Entry *e = &s->entries[s->count++];
         e->group = j->txn_group;
@@ -12448,10 +12558,17 @@ static void wlx_text_undo_record(WLX_Text_Undo_Journal *j, size_t start,
         e->removed_len = removed_len;
         e->inserted_len = inserted_len;
         e->arena_off = s->arena_used;
-        e->caret_before = caret;
-        e->anchor_before = anchor;
-        e->caret_after = caret;
-        e->anchor_after = anchor;
+        if (j->replaying) {
+            e->caret_before = j->rep_caret_before;
+            e->anchor_before = j->rep_anchor_before;
+            e->caret_after = j->rep_caret_after;
+            e->anchor_after = j->rep_anchor_after;
+        } else {
+            e->caret_before = first ? j->txn_caret0 : caret;
+            e->anchor_before = first ? j->txn_anchor0 : anchor;
+            e->caret_after = caret;
+            e->anchor_after = anchor;
+        }
         if (removed_len > 0) {
             memcpy(s->arena + s->arena_used, removed, removed_len);
             s->arena_used += removed_len;
@@ -12460,15 +12577,15 @@ static void wlx_text_undo_record(WLX_Text_Undo_Journal *j, size_t start,
     if (implicit) j->in_txn = false;
 }
 
-// Close a primitive's record: the caret pair it left behind and the
-// document length any later history must find unchanged.
+// Close a primitive's record: the caret pair it left behind (a replay's
+// mirror entries keep the step's own pairs instead) and the document
+// length any later history must find unchanged.
 static void wlx_text_undo_note_caret_after(WLX_Text_Undo_Journal *j,
     size_t caret, size_t anchor, size_t length)
 {
     if (j == NULL) return;
-    WLX_Text_Undo_Stack *s = j->replaying ? &j->redo : &j->undo;
-    if (s->count > 0) {
-        WLX_Text_Undo_Entry *e = &s->entries[s->count - 1];
+    if (!j->replaying && j->undo.count > 0) {
+        WLX_Text_Undo_Entry *e = &j->undo.entries[j->undo.count - 1];
         e->caret_after = caret;
         e->anchor_after = anchor;
     }
@@ -12504,6 +12621,17 @@ static inline void wlx_text_undo_note_caret_after(WLX_Text_Undo_Journal *j,
     size_t caret, size_t anchor, size_t length)
 {
     WLX_UNUSED(j); WLX_UNUSED(caret); WLX_UNUSED(anchor); WLX_UNUSED(length);
+}
+static inline void wlx_text_undo_txn_begin(WLX_Text_Undo_Journal *j, size_t caret,
+    size_t anchor)
+{
+    WLX_UNUSED(j); WLX_UNUSED(caret); WLX_UNUSED(anchor);
+}
+static inline void wlx_text_undo_txn_end(WLX_Text_Undo_Journal *j, size_t length) {
+    WLX_UNUSED(j); WLX_UNUSED(length);
+}
+static inline void wlx_text_undo_set_class(WLX_Text_Undo_Journal *j, uint8_t cls) {
+    WLX_UNUSED(j); WLX_UNUSED(cls);
 }
 
 #endif  // WLX_TEXT_UNDO_ENTRIES
@@ -12596,6 +12724,96 @@ static size_t wlx_text_edit_insert(char *buffer, size_t buffer_cap, size_t *leng
     return ins;
 }
 
+#if WLX_TEXT_UNDO_ENTRIES != 0
+// Undo (redo = false) or redo (redo = true) the newest step of that
+// direction by replaying its entries through the edit primitives, newest
+// first: delete what the entry inserted, insert what it removed. The
+// replay records the mirror entries onto the opposite stack under the same
+// step id, so the reverse chord is the mirror image and the frame span
+// reports the bytes exactly as a keystroke would. A step applies
+// all-or-nothing: every entry is validated against the live length and the
+// capacity before any byte moves, and a step that cannot apply (the buffer
+// changed under the journal) drops the history instead. The caret pair is
+// restored to the step's before-state (undo) or after-state (redo). Returns
+// true when the buffer changed.
+static bool wlx_text_undo_apply(WLX_Text_Undo_Journal *j, bool redo,
+    WLX_Text_Edit_State *st, char *buffer, size_t buffer_cap, size_t *length,
+    WLX_Text_Edit_Span *span)
+{
+    WLX_Text_Undo_Stack *src = redo ? &j->redo : &j->undo;
+    if (src->count == 0) return false;
+    uint32_t group = src->entries[src->count - 1].group;
+    size_t first = src->count;
+    while (first > 0 && src->entries[first - 1].group == group) first--;
+
+    size_t len = *length;
+    for (size_t i = src->count; i-- > first;) {
+        const WLX_Text_Undo_Entry *e = &src->entries[i];
+        if (e->start > len || e->inserted_len > len - e->start
+            || len - e->inserted_len + e->removed_len > buffer_cap) {
+            wlx_text_undo_clear(j, *length);
+            return false;
+        }
+        len = len - e->inserted_len + e->removed_len;
+    }
+
+    j->rep_caret_before = src->entries[first].caret_before;
+    j->rep_anchor_before = src->entries[first].anchor_before;
+    j->rep_caret_after = src->entries[src->count - 1].caret_after;
+    j->rep_anchor_after = src->entries[src->count - 1].anchor_after;
+    j->replaying = true;
+    j->replay_redo = redo;
+    j->txn_first = false;
+    j->txn_group = group;
+    j->cls = WLX_TEXT_UNDO_CLS_REPLAY;
+    bool changed = false;
+    bool intact = true;
+    while (src->count > first && intact) {
+        // Pop first: the entry's bytes end the source arena and stay in
+        // place until this replay has read them (nothing writes the source
+        // stack while its mirror records on the other one).
+        WLX_Text_Undo_Entry e = src->entries[src->count - 1];
+        src->count--;
+        src->arena_used -= e.removed_len;
+        size_t cur = e.start;
+        size_t anc = e.start + e.inserted_len;
+        if (e.inserted_len > 0
+            && wlx_text_edit_delete_selection(buffer, length, &cur, &anc, span, j)) {
+            changed = true;
+        }
+        if (e.removed_len > 0) {
+            cur = e.start;
+            anc = e.start;
+            size_t ins = wlx_text_edit_insert(buffer, buffer_cap, length, &cur, &anc,
+                src->arena + e.arena_off, e.removed_len, span, j);
+            if (ins > 0) changed = true;
+            if (ins != e.removed_len) intact = false;
+        }
+        if (j->alloc_failed) intact = false;
+    }
+    j->replaying = false;
+    // A later record in this same transaction opens a step of its own.
+    j->txn_first = true;
+    if (!intact) {
+        wlx_text_undo_clear(j, *length);
+        return changed;
+    }
+    st->cursor_pos = redo ? j->rep_caret_after : j->rep_caret_before;
+    st->selection_anchor = redo ? j->rep_anchor_after : j->rep_anchor_before;
+    j->last_was_replay = true;
+    return changed;
+}
+#else
+static inline bool wlx_text_undo_apply(WLX_Text_Undo_Journal *j, bool redo,
+    WLX_Text_Edit_State *st, char *buffer, size_t buffer_cap, size_t *length,
+    WLX_Text_Edit_Span *span)
+{
+    WLX_UNUSED(j); WLX_UNUSED(redo); WLX_UNUSED(st); WLX_UNUSED(buffer);
+    WLX_UNUSED(buffer_cap); WLX_UNUSED(length); WLX_UNUSED(span);
+    return false;
+}
+#endif
+
 // Capability gates for the shared text-edit key vocabulary. The zero value
 // is the most permissive single-line editable field: mutations allowed,
 // plain-codepoint deletes, no newline or tab inserts, clipboard open.
@@ -12627,6 +12845,10 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     if (st->cursor_pos > *length) st->cursor_pos = *length;
     if (st->selection_anchor > *length) st->selection_anchor = *length;
 
+    // One handler invocation is one undo transaction: every mutation below
+    // records under one step, so typing over a selection undoes as a unit.
+    wlx_text_undo_txn_begin(undo, st->cursor_pos, st->selection_anchor);
+
     // SHIFT keeps the anchor in place so caret motion extends the selection;
     // Ctrl or Alt stretches motion and deletes to word granularity (Alt
     // covers Apple platforms, Ctrl the rest; accepting both keeps one path).
@@ -12637,6 +12859,22 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     // select-all. Handled before the motion keys so a shortcut frame cannot
     // also move the caret.
     if (wlx_mod_command_down(ctx)) {
+        // Undo and redo come first, so a chord frame never also copies or
+        // pastes in an ambiguous order: command+Z steps back, command+Shift+Z
+        // and command+Y step forward, and a held chord keeps stepping. Both
+        // are mutations, so a read-only field rejects them like any other.
+        if (undo != NULL && !caps.read_only) {
+            bool stepped = false;
+            if (wlx_is_key_actuated(ctx, WLX_KEY_Z)) {
+                stepped = wlx_text_undo_apply(undo, shift, st, buffer, buffer_cap,
+                    length, span);
+            } else if (wlx_is_key_actuated(ctx, WLX_KEY_Y)) {
+                stepped = wlx_text_undo_apply(undo, true, st, buffer, buffer_cap,
+                    length, span);
+            }
+            if (stepped) text_changed = true;
+        }
+
         size_t sel_min = wlx_text_edit_selection_min(st);
         size_t sel_max = wlx_text_edit_selection_max(st);
 
@@ -12651,6 +12889,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
         if (wlx_is_key_pressed(ctx, WLX_KEY_X) && sel_max > sel_min
             && !caps.mask_clipboard && !caps.read_only) {
             wlx_clipboard_set_text(ctx, buffer + sel_min, sel_max - sel_min);
+            wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_CUT);
             if (wlx_text_edit_delete_selection(buffer, length,
                     &st->cursor_pos, &st->selection_anchor, span, undo)) {
                 text_changed = true;
@@ -12666,6 +12905,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
             const char *clip = ctx->backend.clipboard_get();
             size_t clip_len = clip ? strlen(clip) : 0;
             if (clip_len > 0) {
+                wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_PASTE);
                 if (wlx_text_edit_delete_selection(buffer, length,
                         &st->cursor_pos, &st->selection_anchor, span, undo)) {
                     text_changed = true;
@@ -12692,6 +12932,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
             type_len++;
         }
         if (type_len > 0 && !caps.read_only) {
+            wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_TYPING);
             if (wlx_text_edit_delete_selection(buffer, length,
                     &st->cursor_pos, &st->selection_anchor, span, undo)) {
                 text_changed = true;
@@ -12708,6 +12949,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     // press and OS auto-repeat. The widget owns the press: it must not
     // double as a keyboard activation elsewhere this frame.
     if (caps.allow_newline && !caps.read_only && wlx_is_key_actuated(ctx, WLX_KEY_ENTER)) {
+        wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_NEWLINE);
         if (wlx_text_edit_delete_selection(buffer, length,
                 &st->cursor_pos, &st->selection_anchor, span, undo)) {
             text_changed = true;
@@ -12723,6 +12965,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     // already spent this frame's Tab landing focus here.
     if (caps.allow_tab && !caps.read_only && !ctx->interaction.tab_consumed
             && wlx_is_key_actuated(ctx, WLX_KEY_TAB)) {
+        wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_TAB);
         if (wlx_text_edit_delete_selection(buffer, length,
                 &st->cursor_pos, &st->selection_anchor, span, undo)) {
             text_changed = true;
@@ -12737,14 +12980,18 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     // (word deletes reuse the range delete by parking the anchor). Actuated
     // on press and OS auto-repeat so holding the key keeps deleting.
     if (!caps.read_only && wlx_is_key_actuated(ctx, WLX_KEY_BACKSPACE)) {
+        wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_SELECTION);
         if (wlx_text_edit_delete_selection(buffer, length,
                 &st->cursor_pos, &st->selection_anchor, span, undo)) {
             text_changed = true;
         } else if (st->cursor_pos > 0) {
-            size_t prev_pos = (caps.word_delete && word_motion)
+            bool word = caps.word_delete && word_motion;
+            size_t prev_pos = word
                 ? wlx_utf8_word_prev(buffer, st->cursor_pos)
                 : wlx_utf8_prev(buffer, st->cursor_pos);
             if (prev_pos < st->cursor_pos) {
+                wlx_text_undo_set_class(undo, word
+                    ? WLX_TEXT_UNDO_CLS_WORD_DELETE : WLX_TEXT_UNDO_CLS_BACKSPACE);
                 st->selection_anchor = prev_pos;
                 if (wlx_text_edit_delete_selection(buffer, length,
                         &st->cursor_pos, &st->selection_anchor, span, undo)) {
@@ -12757,14 +13004,18 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     // Delete: the selection, else the word or codepoint at the caret
     // (forward delete: the caret stays put, following bytes shift left).
     if (!caps.read_only && wlx_is_key_actuated(ctx, WLX_KEY_DELETE)) {
+        wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_SELECTION);
         if (wlx_text_edit_delete_selection(buffer, length,
                 &st->cursor_pos, &st->selection_anchor, span, undo)) {
             text_changed = true;
         } else if (st->cursor_pos < *length) {
-            size_t next_pos = (caps.word_delete && word_motion)
+            bool word = caps.word_delete && word_motion;
+            size_t next_pos = word
                 ? wlx_utf8_word_next(buffer, st->cursor_pos, *length)
                 : wlx_utf8_next(buffer, st->cursor_pos, *length);
             if (next_pos > st->cursor_pos) {
+                wlx_text_undo_set_class(undo, word
+                    ? WLX_TEXT_UNDO_CLS_WORD_DELETE : WLX_TEXT_UNDO_CLS_DELETE);
                 st->selection_anchor = next_pos;
                 if (wlx_text_edit_delete_selection(buffer, length,
                         &st->cursor_pos, &st->selection_anchor, span, undo)) {
@@ -12822,6 +13073,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
         // so it invalidates the sticky UP/DOWN column.
         st->preferred_x_valid = false;
     }
+    wlx_text_undo_txn_end(undo, *length);
     return text_changed;
 }
 

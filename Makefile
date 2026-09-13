@@ -171,12 +171,14 @@ TEST_BIN = $(TEST_DIR)/test_runner
 SINGLE_PASS_BIN = $(TEST_DIR)/test_single_pass
 HARD_ASSERT_BIN = $(TEST_DIR)/test_hard_assert
 CONFIG_OVERRIDE_BIN = $(TEST_DIR)/test_config_override
+UNDO_DISABLED_BIN = $(TEST_DIR)/test_undo_disabled
 
-test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN)
+test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(UNDO_DISABLED_BIN)
 	./$(TEST_BIN)
 	./$(SINGLE_PASS_BIN)
 	./$(HARD_ASSERT_BIN)
 	./$(CONFIG_OVERRIDE_BIN)
+	./$(UNDO_DISABLED_BIN)
 
 $(TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
@@ -198,6 +200,12 @@ $(HARD_ASSERT_BIN): $(TEST_DIR)/test_hard_assert.c $(TEST_DIR)/tests.h $(TEST_DI
 # as its own translation unit; the overrides live in the test source itself.
 $(CONFIG_OVERRIDE_BIN): $(TEST_DIR)/test_config_override.c wollix.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_config_override.c -lm
+
+# The undo journal compiles out at WLX_TEXT_UNDO_ENTRIES 0: the text widgets
+# build and edit without history and the undo chords are inert. Built as its
+# own translation unit with the override in the test source itself.
+$(UNDO_DISABLED_BIN): $(TEST_DIR)/test_undo_disabled.c $(TEST_DIR)/test_mock_backend.h wollix.h
+	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_undo_disabled.c -lm
 
 PERF_TEST_BIN = $(TEST_DIR)/test_runner_perf
 
@@ -234,7 +242,7 @@ test-demos: $(DEFAULT_TARGETS) $(DASHBOARD_BIN)
 	@echo "All demos built successfully."
 
 clean:
-	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
+	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
 	rm -rf $(WASM_SITE_DIR) $(GALLERY_WASM_SITE_DIR)
 
 # Help target
