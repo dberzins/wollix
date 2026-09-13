@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   scroll panel inside a clip layout is scissored to the intersection and the
   clip is re-armed after the panel ends (siblings declared after a nested
   panel were drawn unclipped). Four tests in `tests/test_layout_clip.c`.
+- **Scroll panels take the wheel only where they are visible.** A panel's
+  wheel ownership was raw containment on its viewport, so a panel cropped by
+  a `.clip` layout or scrolled out of an outer panel scrolled through its
+  invisible part and starved the visible sibling under the pointer; the
+  scroll panel bar and the text-widget scrollbar thumb also lit their hover
+  tint there. All three now go through the same container clip as hover and
+  press.
 
 ### Changed
 - Tests: the enabled slider's press-to-jump, drag, release and custom-range

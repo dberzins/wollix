@@ -11078,7 +11078,7 @@ static void wlx_text_caret_draw(WLX_Context *ctx, WLX_Rect clip,
 // Thumb fill with hover/drag brightness, shared by every text-widget
 // scrollbar.
 static void wlx_scrollbar_thumb_draw(WLX_Context *ctx, WLX_Rect thumb, bool dragging) {
-    bool hover = wlx_rect_contains(thumb, (float)ctx->input.mouse_x, (float)ctx->input.mouse_y);
+    bool hover = wlx_interaction_mouse_over(ctx, thumb);
     WLX_Color c = (dragging || hover)
         ? wlx_color_brightness(ctx->theme->scrollbar.bar, ctx->theme->hover_brightness)
         : ctx->theme->scrollbar.bar;
@@ -14594,8 +14594,7 @@ static inline void wlx_scroll_panel_begin_content_layout(
 
     // Draw scrollbar bar (interaction was already handled before this call).
     if (sb_visible) {
-        bool sb_hover = wlx_rect_contains(sb_rect,
-            (float)ctx->input.mouse_x, (float)ctx->input.mouse_y);
+        bool sb_hover = wlx_interaction_mouse_over(ctx, sb_rect);
         WLX_Color sb_draw_color = (state->dragging_scrollbar || sb_hover) ?
             wlx_color_brightness(opt->scrollbar_color, opt->scrollbar_hover_brightness) :
             opt->scrollbar_color;
@@ -14682,8 +14681,13 @@ static inline WLX_Scroll_Panel_Frame wlx_scroll_panel_frame_begin(
     float max_scroll = ch - wr.h;
     if (max_scroll < 0) max_scroll = 0;
 
-    // Panel-level hover detection (wheel scrolling is deferred to wlx_scroll_panel_end).
-    state->hovered = wlx_rect_contains(wr, (float)ctx->input.mouse_x, (float)ctx->input.mouse_y);
+    // Panel-level hover for the wheel (consumed in wlx_scroll_panel_end): the
+    // viewport clipped to the enclosing containers, so a panel cropped by a
+    // .clip layout or scrolled out of an outer panel does not take the wheel
+    // through its invisible part. Computed before this panel is pushed, so
+    // its own viewport is not in the walk.
+    state->hovered = wlx_rect_contains(wlx_interaction_clip_rect(ctx, wr),
+        (float)ctx->input.mouse_x, (float)ctx->input.mouse_y);
 
     // Record whether an id was pushed so wlx_scroll_panel_end can pop it.
     state->pushed_scope = pushed;

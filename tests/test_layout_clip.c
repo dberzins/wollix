@@ -341,6 +341,55 @@ TEST(layout_clip_scroll_panel_scissor_intersects_and_rearms) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Layout clip: wheel gating
+// ============================================================================
+
+static float _lc_inner_y = 0.0f, _lc_sibling_y = 0.0f;
+
+// Slot 0 (0..60) holds a clip layout with a scroll panel overflowing to
+// 0..100; slot 1 (60..300) holds a sibling scroll panel. Both have room to
+// scroll. Records each panel's content rect y right after its begin.
+static void _lc_wheel_frame(WLX_Context *ctx, int mx, int my, float wheel) {
+    test_frame_begin_ex(ctx, mx, my, false, false, false, wheel, NULL, NULL, NULL);
+    wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(60), WLX_SLOT_PX(240)),
+                       .padding = 0, .gap = 0);
+        wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .clip = true);            // clip 0..60
+            wlx_scroll_panel_begin(ctx, 500.0f, .height = 100.0f, .padding = 0);   // 0..100
+                _lc_inner_y = wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].rect.y;
+                wlx_widget(ctx, .height = 500);
+            wlx_scroll_panel_end(ctx);
+        wlx_layout_end(ctx);
+        wlx_scroll_panel_begin(ctx, 800.0f, .padding = 0);                         // 60..300
+            _lc_sibling_y = wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].rect.y;
+            wlx_widget(ctx, .height = 800);
+        wlx_scroll_panel_end(ctx);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
+// A wheel notch over the cropped part of the inner panel scrolls the visible
+// sibling under the pointer, not the cropped panel; over the visible part of
+// the inner panel it scrolls that panel alone.
+TEST(layout_clip_gates_wheel) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    _lc_wheel_frame(&ctx, 50, 80, 0.0f);       // warm
+    _lc_wheel_frame(&ctx, 50, 80, -1.0f);      // wheel over the cropped part (60..100)
+    _lc_wheel_frame(&ctx, 50, 80, 0.0f);       // read back
+    ASSERT_EQ_F(_lc_inner_y, 0.0f, 0.01f);     // cropped panel did not scroll
+    ASSERT_TRUE(_lc_sibling_y < 60.0f);         // the visible sibling did
+    wlx_context_destroy(&ctx);
+
+    test_ctx_init(&ctx, 400, 300);             // control: wheel over the visible part
+    _lc_wheel_frame(&ctx, 50, 30, 0.0f);
+    _lc_wheel_frame(&ctx, 50, 30, -1.0f);
+    _lc_wheel_frame(&ctx, 50, 30, 0.0f);
+    ASSERT_TRUE(_lc_inner_y < 0.0f);
+    ASSERT_EQ_F(_lc_sibling_y, 60.0f, 0.01f);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(layout_clip) {
     RUN_TEST(layout_clip_emits_scissor_on_content_rect);
     RUN_TEST(layout_no_clip_emits_no_scissor);
@@ -352,6 +401,7 @@ SUITE(layout_clip) {
     RUN_TEST(layout_clip_drag_not_acquired_outside);
     RUN_TEST(layout_clip_gates_click_visible_sibling_wins);
     RUN_TEST(layout_clip_scroll_panel_scissor_intersects_and_rearms);
+    RUN_TEST(layout_clip_gates_wheel);
 }
 
 // ============================================================================
