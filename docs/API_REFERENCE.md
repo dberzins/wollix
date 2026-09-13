@@ -2527,6 +2527,16 @@ Editing model (all mutations and offsets are UTF-8 codepoint safe):
   On the bare-WASM backend the clipboard is a best-effort cached string:
   copy/cut update the browser clipboard asynchronously, and cross-app content
   arrives only after a browser paste gesture refreshes the cache.
+- **Undo/redo** — command+Z undoes and command+Shift+Z or command+Y redoes,
+  repeating while held. Typed, BACKSPACE and DELETE runs coalesce into one
+  step; arrows, caret-moving clicks, Enter, paste, cut, word and selection
+  deletes and an undo itself start a new one. Each step restores the bytes
+  and the caret pair (selection included); a new edit clears redo;
+  `read_only` rejects the chords and `password` fields keep no journal. The
+  journal is bounded per widget by `WLX_TEXT_UNDO_ENTRIES` (512) and
+  `WLX_TEXT_UNDO_BYTES` (256 KB), overridable pre-include (`0` entries
+  compiles it out); history is dropped on an external length change or a
+  `.revision` bump. See WIDGETS.md "Undo and redo".
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -2555,6 +2565,7 @@ Editing model (all mutations and offsets are UTF-8 codepoint safe):
 | `read_only` | `bool` | `false` | Rejects every mutation (typing, delete, cut, paste) while focus, selection, caret, and copy keep working. Distinct from `disabled`: no interaction lockout, no dimming |
 | `multiline` | `bool` | `false` | Enter inserts a newline and keeps focus (Escape/click-away blurs); UP/DOWN move by visual line with a sticky column; overflow scrolls internally with caret-follow and wheel. Forced off by `password`; composes with `read_only` (insert rejected, focus kept) |
 | `show_scrollbar` | `bool` | `true` | Draggable vertical scrollbar while multiline content overflows; `false` keeps wheel/caret-follow scrolling without the affordance. Inert outside multiline overflow |
+| `revision` | `uint32_t` | `0` | External-mutation guard for the undo history; bump after out-of-widget buffer edits (a length change is detected on its own) |
 | `texture` | `WLX_Texture` | zero handle | Optional icon drawn inside the field. `width <= 0` or `height <= 0` = no icon |
 | `texture_src` | `WLX_Rect` | `{0}` | Icon source sub-rect. `w <= 0` or `h <= 0` = full texture |
 | `texture_tint` | `WLX_Color` | `{0}` | Icon tint. `{0}` resolves to `WLX_WHITE` |
@@ -2597,7 +2608,8 @@ after `wollix.h` (and any backend adapter) in every translation unit
 that uses it; exactly one TU defines `WOLLIX_IMPLEMENTATION` and
 includes both, as with the core alone. The compile-time knobs
 (`WLX_EDITOR_MAX_LINE_UNITS`, `WLX_EDITOR_ORIGIN_BACKSCAN`) remain
-defined by the core. The editor's windowed-text model — line index,
+defined by the core, as do the undo journal caps (`WLX_TEXT_UNDO_ENTRIES`,
+`WLX_TEXT_UNDO_BYTES`). The editor's windowed-text model — line index,
 retained geometry, windowed origin, wrapped rows — is documented in
 [EDITOR_MODEL.md](EDITOR_MODEL.md).
 
@@ -2614,7 +2626,9 @@ scan on the first frame, after every widget edit, and when the guard fires
 Bump `.revision` after mutating the buffer outside the widget.
 
 Editing and navigation follow the `wlx_inputbox` vocabulary (typing, Enter,
-Backspace/Delete with Ctrl/Alt word variants, command+C/X/V/A, arrows with
+Backspace/Delete with Ctrl/Alt word variants, command+C/X/V/A, command+Z
+undo and command+Shift+Z / command+Y redo (the inputbox's journal
+semantics, with Tab and Enter as steps of their own), arrows with
 word motion, HOME/END, sticky-column UP/DOWN, SHIFT-extended selection,
 click/double/triple/drag mouse model), plus editor-specific behavior: Tab
 inserts a literal `\t` rendered with next-tab-stop expansion
@@ -2661,7 +2675,7 @@ mode toggles.
 | `show_scrollbar` | `bool` | `true` | Draggable scrollbars while overflowing (vertical exact unwrapped / approximate wrapped, horizontal approximate) |
 | `line_numbers` | `bool` | `false` | Leading line-number gutter; gutter presses never touch caret, selection, or focus |
 | `tab_columns` | `int` | `4` | Tab-stop width in space-advance columns |
-| `revision` | `uint32_t` | `0` | External-mutation guard; bump after out-of-widget buffer edits |
+| `revision` | `uint32_t` | `0` | External-mutation guard; bump after out-of-widget buffer edits (rebuilds the line index and drops the undo history) |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---

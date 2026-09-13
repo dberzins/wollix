@@ -666,6 +666,8 @@ All caps are compile-time macros, overridable before including
 #define WLX_EDITOR_MAX_LINE_UNITS       1024  // units per editor window record (safety cap)
 #define WLX_EDITOR_ORIGIN_BACKSCAN      64    // bytes scanned back for a space-edge origin
 #define WLX_TEXT_ADVANCES_CHUNK         256   // units per measure_text_advances call
+#define WLX_TEXT_UNDO_ENTRIES           512   // undo journal entries per text widget and direction
+#define WLX_TEXT_UNDO_BYTES             262144 // undo journal bytes of removed text (same scope)
 #include "wollix.h"
 #include "wollix_editor.h"   // when using wlx_editor; all knobs above are core-defined
 ```
@@ -673,4 +675,8 @@ All caps are compile-time macros, overridable before including
 The editor's own header defines one further knob
 (`WLX_EDITOR_OVERSCAN_LINES`) and the retained geometry store is sized
 from the viewport, not a knob — both documented in
-[EDITOR_MODEL.md §10](EDITOR_MODEL.md#10-configuration).
+[EDITOR_MODEL.md §10](EDITOR_MODEL.md#10-configuration). The two undo
+caps bound the per-widget undo journal shared by the inputbox, textarea
+and editor (whole oldest steps evicted first, a single oversize step
+still kept); `WLX_TEXT_UNDO_ENTRIES 0` compiles the journal out. See
+[WIDGETS.md "Undo and redo"](WIDGETS.md#undo-and-redo).

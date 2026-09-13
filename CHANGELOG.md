@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Undo and redo in the inputbox, textarea and editor.** Every edit made
+  through a text widget lands in a per-widget undo journal in the core;
+  command+Z steps back and command+Shift+Z or command+Y steps forward
+  (repeating while held), restoring the bytes and the caret pair exactly,
+  selection included. Typed, Backspace and Delete runs coalesce into one
+  step; arrows, caret-moving clicks, Enter, Tab, paste, cut, word and
+  selection deletes and an undo itself start a new one; a new edit clears
+  redo; `read_only` rejects the chords and `password` fields keep no
+  journal. The journal is bounded per widget by the new `#ifndef`-guarded
+  `WLX_TEXT_UNDO_ENTRIES` (512) and `WLX_TEXT_UNDO_BYTES` (256 KB), whole
+  oldest steps evicted first and a single oversize step still kept;
+  `WLX_TEXT_UNDO_ENTRIES 0` compiles the journal out. History is dropped
+  when the buffer changes outside the widget: length changes are detected,
+  and `WLX_Inputbox_Opt` gains `.revision` for same-length rewrites, as the
+  editor already had. The editor's undo replays through the same edit
+  primitives as a keystroke, so its retained geometry, wrapped bottom
+  anchor and caret-follow carry over unchanged. See WIDGETS.md "Undo and
+  redo".
+
 ## [0.8.0] - 2026-09-12
 
 The overlay release: draw commands and interactive widgets now carry a

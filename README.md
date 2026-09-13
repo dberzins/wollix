@@ -29,6 +29,8 @@ The dashboard is the primary Wollix showcase. Try the live demo:
     focus ring), and an optional backend cursor-shape callback
 - Windowed text editor extension ([wollix_editor.h](wollix_editor.h)):
     document-scale editing at O(viewport) frame cost up to 10 MB / 1M lines
+- Undo/redo in every text widget (inputbox, textarea, editor): a bounded
+    per-widget journal with typing-run coalescing and exact caret restore
 - Container decoration: per-side borders, per-corner rounding, vertical
     gradient fills, and glow/shadow effects
 - Current version: `WOLLIX_VERSION` = `"0.8.0"`
@@ -166,12 +168,13 @@ The library includes the following widgets and layout/container primitives:
 - **Toggle** - On/off switch widget with themed thumb/track styling
 - **Radio** - Single-choice radio control with label alignment options
 - **Input Box** - Text input field with full editing: caret, selection,
-  clipboard, word motion, and password / read-only modes
+  clipboard, word motion, undo/redo, and password / read-only modes
 - **Textarea** - Multiline input (`wlx_textarea` / `.multiline`) with Enter
   handling, sticky-column caret motion, and internal scrolling
 - **Editor** - Windowed text editor (`wlx_editor`, via the `wollix_editor.h`
   extension header) over a caller-owned buffer: wrapped and no-wrap modes,
-  line-number gutter, O(viewport) frames up to the 10 MB / 1M-line envelope
+  line-number gutter, undo/redo, O(viewport) frames up to the 10 MB /
+  1M-line envelope
 - **Slider** - Value slider with label and drag interaction
 - **Progress Bar** - Read-only progress indicator with continuous or segmented track/fill styling
 - **Image** - Draw a `WLX_Texture` in a slot with scale modes (stretch/fit/fill/none) and alignment

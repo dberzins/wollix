@@ -94,6 +94,11 @@ applies (no incremental patching), and external buffer mutation between
 frames is caught by a cheap guard (length change or boundary-byte probe)
 plus the explicit `.revision` opt as the escape hatch. Idle frames pay no
 scan: no O(document) work of any kind happens on a frame without an edit.
+The undo journal (shared with the inputbox through the same key handler)
+rides the same guard: a rebuild the widget's own edit did not cause drops
+the history with the geometry, and an undo or redo is an ordinary edit to
+the index, its span shifting the retained geometry exactly like a
+keystroke.
 
 ---
 
@@ -457,6 +462,10 @@ The other editor-relevant caps — `WLX_EDITOR_MAX_LINE_UNITS`,
 by the core (the geometry machinery consuming them lives there) and are
 documented with the shared budgets in
 [LINE_RUN_MODEL.md §17](LINE_RUN_MODEL.md#17-configuration-reference).
+The undo journal's bounds, `WLX_TEXT_UNDO_ENTRIES` and
+`WLX_TEXT_UNDO_BYTES`, are core caps as well, since one journal serves
+the inputbox, textarea and editor alike; the semantics are in
+[WIDGETS.md "Undo and redo"](WIDGETS.md#undo-and-redo).
 
 The retained geometry store (Section 4) is sized from the viewport —
 about twice the window's line count, minimum 16 entries — and is not an

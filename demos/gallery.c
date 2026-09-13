@@ -1471,7 +1471,7 @@ static const char gallery_editor_sample[] =
     "// lines are measured and drawn, so frame cost is O(viewport) at\n"
     "// any document size. Try: wheel and Shift+wheel, PageUp/PageDown,\n"
     "// Ctrl+Home/End, double/triple click, drag-select past the edges,\n"
-    "// Tab, and Ctrl+C/X/V.\n"
+    "// Tab, Ctrl+C/X/V, and Ctrl+Z / Ctrl+Y for undo and redo.\n"
     "\n"
     "typedef struct {\n"
     "\tchar    *bytes;   // caller-owned document\n"

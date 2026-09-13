@@ -1017,6 +1017,7 @@ if (wlx_inputbox(ctx, "Name:", name, sizeof(name), .height = 40)) {
 | `read_only` | `bool` | `false` | Rejects all edits while focus, selection, caret, and copy keep working. Distinct from `disabled` (no interaction lockout, no dimming). |
 | `multiline` | `bool` | `false` | Enter inserts a newline and keeps focus; UP/DOWN move the caret by visual line with a sticky column; overflowing content scrolls internally. Excluded by `password`. See [Multiline mode](#multiline-mode). |
 | `show_scrollbar` | `bool` | `true` | Draw a draggable vertical scrollbar while multiline content overflows the field. `false` keeps wheel and caret-follow scrolling without the affordance. Inert outside multiline overflow. |
+| `revision` | `uint32_t` | `0` | External-mutation guard for the undo history: bump (any change of value) after editing the buffer outside the widget, same length included. A length change is detected on its own. See [Undo and redo](#undo-and-redo). |
 | `texture` | `WLX_Texture` | zero handle | Optional icon drawn **inside** the field. `width <= 0` or `height <= 0` means no icon. |
 | `texture_src` | `WLX_Rect` | `{0}` | Source sub-rect (e.g. an atlas cell). `w <= 0` or `h <= 0` means full texture. |
 | `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the icon. `{0}` resolves to `WLX_WHITE`. |
@@ -1058,6 +1059,8 @@ boundaries, and paste truncation never split a multibyte sequence). The
 | Double-click / triple-click | Select word / select all |
 | SHIFT + click | Extend the selection to the click point |
 | command + A / C / X / V | Select all / copy / cut / paste |
+| command + Z | Undo the newest step; repeats while held |
+| command + SHIFT + Z, command + Y | Redo the newest undone step; repeats while held |
 
 Typing, paste, BACKSPACE, and DELETE replace a live selection. Copying an
 empty selection is a no-op. Paste bypasses the 32-byte per-frame text ring, so
@@ -1072,6 +1075,33 @@ the clipboard is a **best-effort cached string**: copy/cut update the browser
 clipboard asynchronously via the async Clipboard API, and content copied in
 *other* applications only becomes pasteable after a browser paste gesture
 (e.g. Ctrl+V) refreshes the cache.
+
+### Undo and redo
+
+Every edit made through the widget (typing, Enter, BACKSPACE/DELETE and
+their word variants, cut, paste, typing over a selection) lands in a
+per-widget undo journal. command+Z steps back through it and
+command+SHIFT+Z or command+Y steps forward; both repeat while held. Each
+step restores the bytes and the caret pair exactly, selection included:
+undoing a keystroke typed over a selection brings the selection back. A
+run of typed characters, a run of BACKSPACE presses or a run of DELETE
+presses coalesces into one step; an arrow key, a click that moves the
+caret, Enter, paste, cut, a word delete, a selection delete or an undo
+itself starts a new one. Any new edit clears the redo history. A
+`.read_only` field rejects the chords like any other mutation, and a
+`.password` field keeps no journal at all, so plaintext is never retained.
+
+The journal follows the widget id and is bounded per widget by
+`WLX_TEXT_UNDO_ENTRIES` (default 512 entries) and `WLX_TEXT_UNDO_BYTES`
+(default 256 KB of removed text), whole oldest steps evicted first. A
+single step larger than either cap, such as select-all followed by DELETE
+on a large document, is still kept and evicts everything older. Both caps
+are overridable before including `wollix.h`; `WLX_TEXT_UNDO_ENTRIES 0`
+compiles the journal out and turns the chords into no-ops. History is
+dropped whenever the buffer changes outside the widget: a length change is
+detected automatically, and after a same-length rewrite the caller bumps
+`.revision` (any change of value), exactly as for the editor. The textarea
+shares all of this; the editor adds Tab and Enter as steps of their own.
 
 ### Password and read-only modes
 
@@ -1283,9 +1313,11 @@ bool wlx_editor(WLX_Context *ctx, const char *label, char *buffer,
   `*length < buffer_cap`; the NUL is a convenience, not part of the
   contract.
 - After mutating the buffer **outside** the widget, bump `.revision` (any
-  change of value) so the internal line index rebuilds. Length changes are
-  detected automatically, and a sampled hard-line-start probe catches most
-  same-length mutations, but `.revision` is the reliable signal.
+  change of value) so the internal line index rebuilds and the undo history
+  is dropped. Length changes are detected automatically, and a sampled
+  hard-line-start probe catches most same-length mutations (one that keeps
+  every hard-line start in place, such as any rewrite inside a one-line
+  document, is invisible to it), but `.revision` is the reliable signal.
 
 ### Minimal example
 
@@ -1320,7 +1352,10 @@ is always top-left anchored; `align` places only the label.
 ### Editing and navigation vocabulary
 
 Typing, Enter (newline), Tab (literal `\t`), Backspace/Delete (word variants
-on Ctrl/Alt), Ctrl/Cmd+C/X/V clipboard, Ctrl/Cmd+A select-all. Arrows with
+on Ctrl/Alt), Ctrl/Cmd+C/X/V clipboard, Ctrl/Cmd+A select-all, Ctrl/Cmd+Z
+undo and Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redo (the inputbox's
+[undo journal](#undo-and-redo): the same steps, caps and `.revision`
+guard, with Tab and Enter as steps of their own). Arrows with
 word motion, HOME/END on the caret's line, Ctrl/Cmd+Home/End to the document
 ends, UP/DOWN with a sticky column, PageUp/PageDown move the caret by one
 viewport. Mouse: click places the caret, double-click selects the word,
