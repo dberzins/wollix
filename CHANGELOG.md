@@ -50,6 +50,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the option but never installed the scissor or joined the clip walk, so its
   overflowing children were drawn and stayed interactive; both begins now
   share one clip path. Two tests.
+- **Keyboard focus skips widgets that are clipped away, and the ring stays
+  inside the clip.** A widget scrolled out of its panel or cropped away by a
+  `.clip` layout remained a Tab stop with no ring, so keystrokes reached an
+  invisible widget; it is no longer a stop. The ring is clamped to the
+  container clip around the focused widget (a scroll panel viewport, a
+  `.clip` layout, or a popup's own rect), so a partially cropped widget's
+  ring wraps its visible part instead of stroking over the neighbouring
+  content, and a widget filling its popup gets a ring that hugs the popup
+  edge. Two tests in `tests/test_tab_traversal.c`.
 
 ### Changed
 - Tests: the enabled slider's press-to-jump, drag, release and custom-range

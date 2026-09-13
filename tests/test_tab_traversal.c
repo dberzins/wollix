@@ -414,21 +414,31 @@ static float _tt_ring_thick(void) {
     return WLX_FOCUS_RING_THICKNESS < 1.0f ? 1.0f : WLX_FOCUS_RING_THICKNESS;
 }
 
-// Count the outlines drawn in the ring color at exactly the ring geometry
-// for rect r (grown by gap + configured thickness on every side).
-static int _tt_rings_around(const WLX_Context *ctx, WLX_Rect r) {
-    float grow = WLX_FOCUS_RING_GAP + WLX_FOCUS_RING_THICKNESS;
+// Count the outlines drawn in the ring color and thickness at exactly r.
+static int _tt_lines_at(const WLX_Context *ctx, WLX_Rect r) {
     int n = 0;
     for (int i = 0; i < _tt_line_count; i++) {
         if (!_tt_color_eq(_tt_lines[i].color, _tt_ring_color(ctx))) continue;
         if (fabsf(_tt_lines[i].thick - _tt_ring_thick()) > 0.001f) continue;
-        if (fabsf(_tt_lines[i].rect.x - (r.x - grow)) > 0.01f) continue;
-        if (fabsf(_tt_lines[i].rect.y - (r.y - grow)) > 0.01f) continue;
-        if (fabsf(_tt_lines[i].rect.w - (r.w + 2.0f * grow)) > 0.01f) continue;
-        if (fabsf(_tt_lines[i].rect.h - (r.h + 2.0f * grow)) > 0.01f) continue;
+        if (fabsf(_tt_lines[i].rect.x - r.x) > 0.01f) continue;
+        if (fabsf(_tt_lines[i].rect.y - r.y) > 0.01f) continue;
+        if (fabsf(_tt_lines[i].rect.w - r.w) > 0.01f) continue;
+        if (fabsf(_tt_lines[i].rect.h - r.h) > 0.01f) continue;
         n++;
     }
     return n;
+}
+
+// The ring geometry for rect r: grown by gap + configured thickness on
+// every side.
+static WLX_Rect _tt_ring_of(WLX_Rect r) {
+    float grow = WLX_FOCUS_RING_GAP + WLX_FOCUS_RING_THICKNESS;
+    return (WLX_Rect){ r.x - grow, r.y - grow, r.w + 2.0f * grow, r.h + 2.0f * grow };
+}
+
+// Count the outlines drawn at exactly the (unclamped) ring geometry of r.
+static int _tt_rings_around(const WLX_Context *ctx, WLX_Rect r) {
+    return _tt_lines_at(ctx, _tt_ring_of(r));
 }
 
 static int _tt_accent_lines(const WLX_Context *ctx) {
@@ -484,7 +494,9 @@ TEST(focus_ring_follows_top_layer_in_retained_mode) {
 
     // Retained mode with an overlay: real widgets record draw commands, the
     // ring must still land once, around the overlay button the ring
-    // cycles to, after every layer replayed.
+    // cycles to, after every layer replayed. The popup's own rect is its
+    // layer's clip, so the ring is clamped to it: the button fills the
+    // popup and the ring hugs the popup edge.
     WLX_Rect over_rect = { 150, 0, 100, 40 };
     for (int frame = 0; frame < 2; frame++) {
         bool keys_pressed[WLX_KEY_COUNT] = {0};
@@ -502,7 +514,8 @@ TEST(focus_ring_follows_top_layer_in_retained_mode) {
         test_frame_end(&ctx);
     }
     ASSERT_TRUE(wlx_focused_id(&ctx) != 0);
-    ASSERT_EQ_INT(1, _tt_rings_around(&ctx, over_rect));
+    ASSERT_EQ_INT(1, _tt_lines_at(&ctx, wlx_rect_intersect(_tt_ring_of(over_rect), over_rect)));
+    ASSERT_EQ_INT(1, _tt_accent_lines(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -656,6 +669,86 @@ TEST(focus_ring_wraps_editor_including_gutter) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Clipped-away stops and the ring at a clip edge
+// ============================================================================
+
+// Slot 0 (0..40) is a clip layout holding b1 (0..30) and a field at
+// field_rect; slot 1 (40..240) holds b2. The pointer rests outside every
+// rect; `key` and `mods` drive traversal.
+typedef struct { WLX_Interaction b1, field, b2; } TC_Result;
+
+static TC_Result tc_frame(WLX_Context *ctx, WLX_Key_Code key, uint32_t mods, WLX_Rect field_rect) {
+    bool keys_pressed[WLX_KEY_COUNT] = {0};
+    if (key != WLX_KEY_NONE) keys_pressed[key] = true;
+    test_frame_begin_full(ctx, 300, 290, false, false, false, 0.0f, NULL,
+        key != WLX_KEY_NONE ? keys_pressed : NULL, NULL, mods, NULL);
+    TC_Result r;
+    wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40), WLX_SLOT_PX(200)),
+                       .padding = 0, .gap = 0);
+        wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .clip = true);         // clip 0..40
+            r.b1 = wlx_get_interaction(ctx, ((WLX_Rect){ 0, 0, 100, 30 }),
+                WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD, "tc_b1", 1);
+            r.field = wlx_get_interaction(ctx, field_rect,
+                WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS, "tc_field", 1);
+        wlx_layout_end(ctx);
+        r.b2 = wlx_get_interaction(ctx, ((WLX_Rect){ 0, 100, 100, 40 }),
+            WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD, "tc_b2", 1);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+    return r;
+}
+
+static const WLX_Rect tc_hidden_field  = { 0, 60, 100, 40 };   // wholly outside the clip
+static const WLX_Rect tc_visible_field = { 0, 20, 100, 40 };   // 20..40 visible, 40..60 cropped
+static const WLX_Rect tc_clip_rect     = { 0, 0, 400, 40 };
+
+// A field cropped away entirely is not a Tab stop in either direction; a
+// partly visible one still is.
+TEST(tab_skips_fully_clipped_stop) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    tc_frame(&ctx, WLX_KEY_NONE, 0, tc_hidden_field);                    // warm
+    TC_Result r = tc_frame(&ctx, WLX_KEY_TAB, 0, tc_hidden_field);       // none -> b1
+    ASSERT_EQ_INT((long)r.b1.id, (long)wlx_focused_id(&ctx));
+    r = tc_frame(&ctx, WLX_KEY_TAB, 0, tc_hidden_field);                 // b1 -> b2, hidden field skipped
+    ASSERT_EQ_INT((long)r.b2.id, (long)wlx_focused_id(&ctx));
+    ASSERT_FALSE(r.field.focused);
+    r = tc_frame(&ctx, WLX_KEY_TAB, WLX_MOD_SHIFT, tc_hidden_field);     // b2 -> b1, skipped backward too
+    ASSERT_EQ_INT((long)r.b1.id, (long)wlx_focused_id(&ctx));
+    wlx_context_destroy(&ctx);
+
+    test_ctx_init(&ctx, 400, 300);                                       // control: partly visible field
+    tc_frame(&ctx, WLX_KEY_NONE, 0, tc_visible_field);
+    r = tc_frame(&ctx, WLX_KEY_TAB, 0, tc_visible_field);                // none -> b1
+    r = tc_frame(&ctx, WLX_KEY_TAB, 0, tc_visible_field);                // b1 -> field
+    ASSERT_EQ_INT((long)r.field.id, (long)wlx_focused_id(&ctx));
+    ASSERT_TRUE(r.field.focused);
+    wlx_context_destroy(&ctx);
+}
+
+// The ring around a widget cut by the clip stays inside the clip: the
+// visible part of the field (20..40) gets a ring whose bottom edge is the
+// clip edge instead of a stroke over the sibling below.
+TEST(focus_ring_clamped_to_clip) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend.draw_rect_lines = _tt_record_rect_lines;
+
+    tc_frame(&ctx, WLX_KEY_NONE, 0, tc_visible_field);
+    tc_frame(&ctx, WLX_KEY_TAB, 0, tc_visible_field);                    // b1
+    _tt_line_count = 0;
+    TC_Result r = tc_frame(&ctx, WLX_KEY_TAB, 0, tc_visible_field);      // field
+    ASSERT_EQ_INT((long)r.field.id, (long)wlx_focused_id(&ctx));
+
+    WLX_Rect visible = wlx_rect_intersect(tc_visible_field, tc_clip_rect);
+    WLX_Rect expect  = wlx_rect_intersect(_tt_ring_of(visible), tc_clip_rect);
+    ASSERT_EQ_INT(1, _tt_lines_at(&ctx, expect));
+    ASSERT_EQ_INT(1, _tt_accent_lines(&ctx));
+    ASSERT_EQ_INT(0, _tt_rings_around(&ctx, visible));                   // not the unclamped ring
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(tab_traversal) {
     RUN_TEST(tab_walks_declaration_order_and_wraps);
     RUN_TEST(shift_tab_walks_backward_and_wraps);
@@ -681,4 +774,6 @@ SUITE(tab_traversal) {
     RUN_TEST(focus_next_stop_none_focusable_returns_zero);
     RUN_TEST(press_outside_field_clears_tab_claim);
     RUN_TEST(focus_ring_wraps_editor_including_gutter);
+    RUN_TEST(tab_skips_fully_clipped_stop);
+    RUN_TEST(focus_ring_clamped_to_clip);
 }

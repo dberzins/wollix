@@ -365,11 +365,14 @@ Every operable widget can be reached and driven without a pointer.
 **Tab / Shift-Tab** move the keyboard focus ring through the widgets in
 declaration order (wrapping at both ends): buttons, checkboxes, toggles,
 radios, dropdowns, menu buttons, inputboxes, textareas, and the editor are
-Tab stops; sliders, separators, labels, progress bars, and disabled widgets
-are skipped. When a popup (menu, dropdown list) is open, Tab cycles only
-inside it. While a widget holds the ring, an accent outline is drawn around
-it (`theme->accent`; thickness and gap are `WLX_FOCUS_RING_THICKNESS` /
-`WLX_FOCUS_RING_GAP`, overridable before include).
+Tab stops; sliders, separators, labels, progress bars, disabled widgets, and
+widgets whose hit zone is clipped away entirely (scrolled out of a panel or
+cropped by a `.clip` layout) are skipped. When a popup (menu, dropdown list)
+is open, Tab cycles only inside it. While a widget holds the ring, an accent
+outline is drawn around its visible part, kept inside the viewport or `.clip`
+layout that crops it (`theme->accent`; thickness and gap are
+`WLX_FOCUS_RING_THICKNESS` / `WLX_FOCUS_RING_GAP`, overridable before
+include).
 
 **Enter / Space** activate the focused button-like widget exactly like a
 click (`wlx_button` returns `true`, a checkbox flips, a dropdown opens).

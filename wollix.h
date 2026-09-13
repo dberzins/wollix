@@ -1856,6 +1856,8 @@ typedef struct WLX_Context {
         bool     active_consumes_tab; // active_id holder was queried with FOCUS_HOLD_TAB (editor): Tab inserts, no traversal
         bool     tab_consumed;        // one-shot: traversal ate this frame's Tab; text edit must not also insert
         WLX_Rect focus_rect;          // clipped rect recorded at the focused widget's query (focus ring geometry)
+        WLX_Rect focus_clip;          // container clip at that query; the ring is clamped to it
+        bool     focus_clip_active;   // focus_clip holds a clip (false when no container clips the widget)
     } interaction;
 
     // Double-buffered interaction candidates: cands[cand_frame & 1] collects
@@ -6435,6 +6437,13 @@ static void wlx_focus_ring_draw(WLX_Context *ctx) {
     float thick = WLX_FOCUS_RING_THICKNESS;
     float grow = WLX_FOCUS_RING_GAP + thick;
     WLX_Rect ring = { r.x - grow, r.y - grow, r.w + 2.0f * grow, r.h + 2.0f * grow };
+    // Stay inside the container clip recorded with the rect: a widget cut by
+    // a scroll panel viewport or a .clip layout gets its ring around the
+    // visible part, never stroked over the neighbouring content.
+    if (ctx->interaction.focus_clip_active) {
+        ring = wlx_rect_intersect(ring, ctx->interaction.focus_clip);
+        if (ring.w <= 0.0f || ring.h <= 0.0f) return;
+    }
     const WLX_Theme *theme = ctx->theme ? ctx->theme : &wlx_theme_dark;
     WLX_Color color = theme->accent;
     wlx_outline_subpixel(&thick, &color);
@@ -7952,6 +7961,17 @@ static inline bool wlx_interaction_mouse_over(WLX_Context *ctx, WLX_Rect rect) {
     return wlx_rect_contains(wlx_interaction_clip_rect(ctx, rect), mx, my);
 }
 
+// Record the focus ring geometry at the focused widget's query: the rect
+// clipped to the layer's containers, and the container clip itself so the
+// ring drawn at frame end stays inside it.
+static inline void wlx_focus_rect_record(WLX_Context *ctx, WLX_Rect rect) {
+    WLX_Rect clip;
+    bool clipped = wlx_enclosing_clip(ctx, WLX_CLIP_CONTAINERS, &clip);
+    ctx->interaction.focus_rect = clipped ? wlx_rect_intersect(rect, clip) : rect;
+    ctx->interaction.focus_clip = clip;
+    ctx->interaction.focus_clip_active = clipped;
+}
+
 static inline void wlx_interaction_compute_hover(WLX_Context *ctx, size_t id, bool mouse_over, WLX_Interaction *result) {
     // Arbitrated frames resolve hover once at frame begin (hot_id holds the
     // owner); the query-time capture below is the bootstrap fallback.
@@ -8130,9 +8150,13 @@ static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect
     // same clipped zone the mouse-over test used, so scrolled-away or
     // clipped-away widgets cannot own the pointer.
     {
+        // A Tab stop must also be visible somewhere: a widget scrolled out of
+        // its panel or cropped away by a .clip layout has an empty hit zone
+        // and is skipped, or keystrokes would reach an invisible widget.
         bool focusable = !(flags & WLX_INTERACT_TAB_SKIP)
             && ((flags & WLX_INTERACT_FOCUS)
-                || ((flags & WLX_INTERACT_CLICK) && (flags & WLX_INTERACT_KEYBOARD)));
+                || ((flags & WLX_INTERACT_CLICK) && (flags & WLX_INTERACT_KEYBOARD)))
+            && crect.w > 0.0f && crect.h > 0.0f;
         wlx_candidates_push(ctx, id, crect, ctx->current_layer,
             (flags & WLX_INTERACT_TEXT_CURSOR) ? WLX_CURSOR_IBEAM : WLX_CURSOR_ARROW,
             focusable);
@@ -8140,7 +8164,7 @@ static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect
         // and proves it is still declared (GC otherwise drops the focus).
         if (ctx->interaction.focus_id != 0 && ctx->interaction.focus_id == id) {
             ctx->interaction.focus_id_seen = true;
-            ctx->interaction.focus_rect = crect;
+            wlx_focus_rect_record(ctx, rect);
         }
     }
 
@@ -8209,7 +8233,7 @@ WLXDEF size_t wlx_focused_id(WLX_Context *ctx) {
 // (focus_id_seen flipped false -> true across it); applies the same
 // container clip as the candidate record.
 static inline void wlx_focus_ring_rect(WLX_Context *ctx, WLX_Rect rect) {
-    ctx->interaction.focus_rect = wlx_interaction_clip_rect(ctx, rect);
+    wlx_focus_rect_record(ctx, rect);
 }
 
 WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, const char *file, int line) {

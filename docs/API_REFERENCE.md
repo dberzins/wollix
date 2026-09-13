@@ -1277,7 +1277,8 @@ Contract and boundary rules:
   tooltip, the same rule scroll panel viewports already follow. A scroll
   panel inside a clip layout is scissored to the intersection, and the clip
   is re-armed after the panel ends. A scroll panel takes the wheel only over
-  the visible part of its viewport by the same rule.
+  the visible part of its viewport by the same rule, and a widget whose hit
+  zone is clipped away entirely is not a Tab stop.
 - **Backend contract.** Clipping records `SCISSOR_BEGIN`/`SCISSOR_END` into the
   deferred command buffer and the replay calls the backend's `begin_scissor` /
   `end_scissor`, which are required callbacks (the frame-start readiness check
