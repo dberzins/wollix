@@ -917,7 +917,7 @@ TEST(widget_opacity_applied_to_fill) {
 // Phase 4a fallback-precedence tests
 // ============================================================================
 
-// toggle: hover_brightness resolves from theme when opt value is the float-unset sentinel
+// toggle: hover_brightness resolves from theme when opt value is the unset sentinel
 TEST(toggle_hover_brightness_resolves_from_theme) {
     WLX_Theme theme = wlx_theme_dark;
     theme.hover_brightness = 0.6f;
@@ -928,13 +928,13 @@ TEST(toggle_hover_brightness_resolves_from_theme) {
     ctx.theme = &theme;
 
     // Default opt has hover_brightness at sentinel; should resolve to theme value
-    ASSERT_TRUE(opt.hover_brightness <= WLX_FLOAT_UNSET);
+    ASSERT_TRUE(wlx_is_float_unset(opt.hover_brightness));
     wlx_resolve_opt_toggle(&ctx, &opt);
-    ASSERT_TRUE(opt.hover_brightness > WLX_FLOAT_UNSET);
+    ASSERT_TRUE(!wlx_is_float_unset(opt.hover_brightness));
     ASSERT_EQ_INT((int)(opt.hover_brightness * 100), 60);
 }
 
-// radio: hover_brightness resolves from theme when opt value is the float-unset sentinel
+// radio: hover_brightness resolves from theme when opt value is the unset sentinel
 TEST(radio_hover_brightness_resolves_from_theme) {
     WLX_Theme theme = wlx_theme_dark;
     theme.hover_brightness = 0.7f;
@@ -944,9 +944,9 @@ TEST(radio_hover_brightness_resolves_from_theme) {
     ctx.backend = mock_backend();
     ctx.theme = &theme;
 
-    ASSERT_TRUE(opt.hover_brightness <= WLX_FLOAT_UNSET);
+    ASSERT_TRUE(wlx_is_float_unset(opt.hover_brightness));
     wlx_resolve_opt_radio(&ctx, &opt);
-    ASSERT_TRUE(opt.hover_brightness > WLX_FLOAT_UNSET);
+    ASSERT_TRUE(!wlx_is_float_unset(opt.hover_brightness));
     ASSERT_EQ_INT((int)(opt.hover_brightness * 100), 70);
 }
 

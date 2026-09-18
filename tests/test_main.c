@@ -78,6 +78,11 @@
 // no-regression for sharp and rounded borders).
 #include "test_per_side_border.c"
 
+// Option default and sentinel contract: explicit zero, unset inheritance,
+// the signed-domain brightness sentinel, request tokens, and the v0.9
+// enumerated default changes.
+#include "test_sentinel.c"
+
 // Interaction-aware containers (.interact / .interact_out / hover-variant
 // chrome) and the per-call wlx_button hover override.
 #include "test_interactive_container.c"
@@ -275,6 +280,7 @@ int main(void) {
     RUN_SUITE(progress_bounds);
     RUN_SUITE(slot_style);
     RUN_SUITE(per_side_border);
+    RUN_SUITE(sentinel);
     RUN_SUITE(interactive_container);
     RUN_SUITE(wasm_clipboard);
     RUN_SUITE(wasm_pool);

@@ -1632,29 +1632,35 @@ static inline void wlx_arena_pool_destroy(WLX_Arena_Pool *pool) {
 #define WLX_STYLE_CONTENT_PADDING   8
 #endif
 
-// Sentinel for optional float fields where negative values are legitimate
-// (e.g. hover_brightness).  Use -1 sentinel for fields where negative is
-// never valid (border_width, roundness).  Resolve checks: <= WLX_FLOAT_UNSET.
-//
-// Unset-sentinel rule for option fields:
-//   - A field where 0 is a meaningful value needs a negative sentinel:
-//     -1 when negatives are never valid (per-side border widths,
-//     scrollbar_width, content padding), WLX_FLOAT_UNSET when any plain
-//     negative is also meaningful (brightness shifts).
-//   - A field where 0 is impossible or already means "off" may use 0 as its
-//     unset value (font_size, track_height, segment_gap <= 0, opacity < 0).
-// New fields must follow this rule. Existing 0-as-unset fields keep their
-// convention for source compatibility; changing one (e.g. panel border_width
-// to -1 + theme inheritance) is a breaking change reserved for a major/minor
-// version group.
+// Option-field unset rules (the full taxonomy is docs/SENTINEL.md):
+//   - Rule Z: zero is unset. Only for fields where zero can never be a
+//     meaningful explicit value: colors ({0}), fonts, pointers and ids,
+//     flags that default to false, and numbers whose domain excludes zero
+//     (font_size, track_height, shadow_blur, min/max sizes, ...).
+//   - Rule U: WLX_UNSET is unset. For every numeric field where zero is a
+//     meaningful explicit value (border widths, roundness, opacity, width
+//     and height, content padding, brightness shifts, ...). The option
+//     macro installs WLX_UNSET; the resolver replaces it with the field's
+//     documented fallback and passes every value >= 0 through unchanged.
+//     Brightness shifts are the one signed-domain Rule U family: their
+//     domain is -1 < b <= 1 and -1 is the sentinel.
+//   - Everything else is a literal default installed by the macro and used
+//     as written (span, wrap, the align fields, container chrome, knobs).
+// A designator follows the same rule in every option struct. New fields
+// must follow these rules; the request tokens below are explicit values,
+// not unset markers.
+#define WLX_UNSET (-1)
+
+// Deprecated alias of WLX_UNSET for the brightness fields (their sentinel
+// was a large negative float before v0.9); still resolved as unset. Removed
+// in the first minor release after 0.9.
 #define WLX_FLOAT_UNSET (-1e30f)
 
-// Sentinel for WLX_CONTENT_PADDING_FIELDS uniform `content_padding`. Pass
-// `.content_padding = WLX_PADDING_USE_THEME` to opt a widget into the
+// Request token for WLX_CONTENT_PADDING_FIELDS uniform `content_padding`.
+// Pass `.content_padding = WLX_PADDING_USE_THEME` to opt a widget into the
 // project-wide inner padding knob (WLX_Theme.padding, defaulting to
-// WLX_STYLE_CONTENT_PADDING). Numerically distinct from the -1 "unset"
-// sentinel so the resolver can tell "unset" apart from "explicit theme
-// request".
+// WLX_STYLE_CONTENT_PADDING). Numerically distinct from WLX_UNSET so the
+// resolver can tell "unset" apart from "explicit theme request".
 #define WLX_PADDING_USE_THEME (-2.0f)
 
 // Sentinel for WLX_Parent_Contribution slot_index / grid_row: skips the
@@ -1683,7 +1689,7 @@ typedef struct {
 
     // --- Interaction feedback ---
     float hover_brightness;     // brightness shift on hover
-    float disabled_brightness;  // brightness shift applied when a widget is disabled (WLX_FLOAT_UNSET = no shift)
+    float disabled_brightness;  // brightness shift applied when a widget is disabled (WLX_UNSET = no shift)
 
     // --- Opacity ---
     float opacity;              // global opacity multiplier (<0 = unset sentinel, 0.0-1.0 = explicit)
@@ -1766,16 +1772,19 @@ static inline bool wlx_color_eq(WLX_Color a, WLX_Color b) {
     return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
 }
 
-// Returns true when x uses the -1 sentinel (negative-is-never-valid fields:
-// border_width, roundness, scrollbar_width, opacity, padding, etc.).
+// Returns true when x carries WLX_UNSET on a Rule U field whose domain is
+// non-negative (border_width, roundness, scrollbar_width, opacity, padding,
+// etc.): any negative value is unset.
 static inline bool wlx_is_negative_unset(float x) {
     return x < 0;
 }
 
-// Returns true when x uses WLX_FLOAT_UNSET (fields where negative values are
-// legitimate: hover_brightness, thumb_hover_brightness, scrollbar_hover_brightness).
+// Returns true when x carries WLX_UNSET on a signed-domain Rule U field
+// (hover_brightness, thumb_hover_brightness, scrollbar_hover_brightness,
+// disabled_brightness): -1 and anything below it, which keeps the deprecated
+// WLX_FLOAT_UNSET value resolving as unset.
 static inline bool wlx_is_float_unset(float x) {
-    return x <= WLX_FLOAT_UNSET;
+    return x <= -1.0f;
 }
 
 static inline WLX_Color wlx_color_or(WLX_Color a, WLX_Color b) {
@@ -2256,9 +2265,9 @@ WLXDEF void wlx_perf_reset(WLX_Context *ctx);
     float padding_left
 
 #define WLX_LAYOUT_SLOT_DEFAULTS \
-    .pos = -1, .span = 1, .overflow = false, .padding = 0, \
-    .padding_top = -1.0f, .padding_right = -1.0f, \
-    .padding_bottom = -1.0f, .padding_left = -1.0f
+    .pos = WLX_UNSET, .span = 1, .overflow = false, .padding = 0, \
+    .padding_top = WLX_UNSET, .padding_right = WLX_UNSET, \
+    .padding_bottom = WLX_UNSET, .padding_left = WLX_UNSET
 
 // Field-group copy initializers: `WLX_*_COPY(src)` expands to the designated
 // initializers that copy one field group from `src` (any option struct that
@@ -2376,8 +2385,8 @@ typedef enum {
     .gap = 0, \
     .border_color_top = {0}, .border_color_right = {0}, \
     .border_color_bottom = {0}, .border_color_left = {0}, \
-    .border_width_top = -1.0f, .border_width_right = -1.0f, \
-    .border_width_bottom = -1.0f, .border_width_left = -1.0f, \
+    .border_width_top = WLX_UNSET, .border_width_right = WLX_UNSET, \
+    .border_width_bottom = WLX_UNSET, .border_width_left = WLX_UNSET, \
     WLX_SHADOW_DEFAULTS, \
     WLX_GLOW_DEFAULTS, \
     WLX_GRADIENT_DEFAULTS, \
@@ -2413,11 +2422,11 @@ typedef enum {
     float content_padding_left
 
 #define WLX_CONTENT_PADDING_DEFAULTS \
-    .content_padding = -1.0f, \
-    .content_padding_top = -1.0f, \
-    .content_padding_right = -1.0f, \
-    .content_padding_bottom = -1.0f, \
-    .content_padding_left = -1.0f
+    .content_padding = WLX_UNSET, \
+    .content_padding_top = WLX_UNSET, \
+    .content_padding_right = WLX_UNSET, \
+    .content_padding_bottom = WLX_UNSET, \
+    .content_padding_left = WLX_UNSET
 #define WLX_CONTENT_PADDING_COPY(src) \
     .content_padding = (src).content_padding, \
     .content_padding_top = (src).content_padding_top, \
@@ -2646,9 +2655,9 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
     float opacity       /* <0 = unset (sentinel), 0.0-1.0 = explicit */
 
 #define WLX_WIDGET_SIZING_DEFAULTS \
-    .widget_align = WLX_LEFT, .width = -1, .height = -1, \
+    .widget_align = WLX_LEFT, .width = WLX_UNSET, .height = WLX_UNSET, \
     .min_width = 0, .min_height = 0, .max_width = 0, .max_height = 0, \
-    .opacity = -1
+    .opacity = WLX_UNSET
 #define WLX_WIDGET_SIZING_COPY(src) \
     .widget_align = (src).widget_align, .width = (src).width, .height = (src).height, \
     .min_width = (src).min_width, .min_height = (src).min_height, \
@@ -2713,13 +2722,13 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
     WLX_GRADIENT_FIELDS
 
 #define WLX_BORDER_DEFAULTS \
-    .border_color = {0}, .border_width = -1, \
-    .roundness = -1, .corner_radius = 0, .rounded_segments = -1, \
+    .border_color = {0}, .border_width = WLX_UNSET, \
+    .roundness = WLX_UNSET, .corner_radius = 0, .rounded_segments = WLX_UNSET, \
     .rounded_corners = 0, \
     .border_color_top = {0}, .border_color_right = {0}, \
     .border_color_bottom = {0}, .border_color_left = {0}, \
-    .border_width_top = -1.0f, .border_width_right = -1.0f, \
-    .border_width_bottom = -1.0f, .border_width_left = -1.0f, \
+    .border_width_top = WLX_UNSET, .border_width_right = WLX_UNSET, \
+    .border_width_bottom = WLX_UNSET, .border_width_left = WLX_UNSET, \
     WLX_SHADOW_DEFAULTS, \
     WLX_GLOW_DEFAULTS, \
     WLX_GRADIENT_DEFAULTS
@@ -2869,7 +2878,7 @@ typedef struct {
         .texture_tint = {0}, \
         .image_placement = WLX_IMAGE_PLACEMENT_LEFT, \
         .image_size = 0, \
-        .image_text_gap = -1, \
+        .image_text_gap = WLX_UNSET, \
         __VA_ARGS__ \
     }
 
@@ -2913,7 +2922,7 @@ typedef struct {
     float               image_text_gap;  // < 0 -> font-derived
 
     // Per-call hover override for the fill, mirroring wlx_toggle/wlx_radio/
-    // wlx_slider. hover_brightness defaults to WLX_FLOAT_UNSET (use
+    // wlx_slider. hover_brightness defaults to WLX_UNSET (use
     // theme->hover_brightness); a negative value darkens. hover_back_color
     // defaults to {0} (use the brightness path); when set it replaces the
     // fill while hovered.
@@ -2941,7 +2950,7 @@ typedef struct {
         /* Border */ \
         WLX_BORDER_DEFAULTS, \
         /* Hover override (inert by default) */ \
-        .hover_brightness = WLX_FLOAT_UNSET, \
+        .hover_brightness = WLX_UNSET, \
         .hover_back_color = {0}, \
         /* Content padding */ \
         WLX_CONTENT_PADDING_DEFAULTS, \
@@ -2952,7 +2961,7 @@ typedef struct {
         .texture_tint = {0}, \
         .image_placement = WLX_IMAGE_PLACEMENT_LEFT, \
         .image_size = 0, \
-        .image_text_gap = -1, \
+        .image_text_gap = WLX_UNSET, \
         __VA_ARGS__ \
     }
 
@@ -3023,7 +3032,7 @@ typedef struct {
         /* Border */ \
         WLX_BORDER_DEFAULTS, \
         /* Hover override (inert by default) */ \
-        .hover_brightness = WLX_FLOAT_UNSET, \
+        .hover_brightness = WLX_UNSET, \
         .hover_back_color = {0}, \
         /* Content padding */ \
         WLX_CONTENT_PADDING_DEFAULTS, \
@@ -3032,7 +3041,7 @@ typedef struct {
         .max_list_height = 0, \
         .list_back_color = {0}, \
         .list_border_color = {0}, \
-        .list_border_width = -1, \
+        .list_border_width = WLX_UNSET, \
         __VA_ARGS__ \
     }
 
@@ -3078,17 +3087,17 @@ typedef struct {
 
 #define wlx_default_tooltip_opt(...) \
     (WLX_Tooltip_Opt) { \
-        .delay = -1, \
+        .delay = WLX_UNSET, \
         .offset_x = 12, \
         .offset_y = 18, \
-        .padding = -1, \
+        .padding = WLX_UNSET, \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
         .front_color = {0}, \
         .back_color = {0}, \
         .border_color = {0}, \
-        .border_width = -1, \
-        .roundness = -1, \
-        .rounded_segments = -1, \
+        .border_width = WLX_UNSET, \
+        .roundness = WLX_UNSET, \
+        .rounded_segments = WLX_UNSET, \
         __VA_ARGS__ \
     }
 
@@ -3134,15 +3143,15 @@ typedef struct {
     (WLX_Menu_Opt) { \
         .width = 0, \
         .row_height = 0, \
-        .item_padding = -1, \
+        .item_padding = WLX_UNSET, \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
         .front_color = {0}, \
         .back_color = {0}, \
         .border_color = {0}, \
-        .border_width = -1, \
-        .roundness = -1, \
-        .rounded_segments = -1, \
-        .hover_brightness = WLX_FLOAT_UNSET, \
+        .border_width = WLX_UNSET, \
+        .roundness = WLX_UNSET, \
+        .rounded_segments = WLX_UNSET, \
+        .hover_brightness = WLX_UNSET, \
         .hover_back_color = {0}, \
         __VA_ARGS__ \
     }
@@ -3251,17 +3260,17 @@ typedef struct {
         /* Border */ \
         WLX_BORDER_DEFAULTS, \
         /* Hover override (inert by default) */ \
-        .hover_brightness = WLX_FLOAT_UNSET, \
+        .hover_brightness = WLX_UNSET, \
         .hover_back_color = {0}, \
         /* Content padding */ \
         WLX_CONTENT_PADDING_DEFAULTS, \
         /* List */ \
         .menu_width = 0, \
         .row_height = 0, \
-        .item_padding = -1, \
+        .item_padding = WLX_UNSET, \
         .list_back_color = {0}, \
         .list_border_color = {0}, \
-        .list_border_width = -1, \
+        .list_border_width = WLX_UNSET, \
         __VA_ARGS__ \
     }
 
@@ -3475,7 +3484,7 @@ typedef struct {
         .texture_tint = {0}, \
         .image_placement = WLX_IMAGE_PLACEMENT_LEFT, \
         .image_size = 0, \
-        .image_text_gap = -1, \
+        .image_text_gap = WLX_UNSET, \
         .out_focused = NULL, \
         .password = false, \
         .read_only = false, \
@@ -3556,8 +3565,8 @@ typedef struct {
         .label_color = {0}, \
         .track_height = 0, \
         .thumb_width = 0, \
-        .hover_brightness = WLX_FLOAT_UNSET, \
-        .thumb_hover_brightness = WLX_FLOAT_UNSET, \
+        .hover_brightness = WLX_UNSET, \
+        .thumb_hover_brightness = WLX_UNSET, \
         .fill_inactive_brightness = -0.3f, \
         .min_value = 0.0f, \
         .max_value = 1.0f, \
@@ -3691,7 +3700,7 @@ typedef struct {
         .track_color = {0}, \
         .track_active_color = {0}, \
         .thumb_color = {0}, \
-        .hover_brightness = WLX_FLOAT_UNSET, \
+        .hover_brightness = WLX_UNSET, \
         WLX_BORDER_DEFAULTS, \
         /* Content padding */ \
         WLX_CONTENT_PADDING_DEFAULTS, \
@@ -3733,8 +3742,8 @@ typedef struct {
         WLX_TEXT_COLOR_DEFAULTS, \
         .ring_color = {0}, \
         .fill_color = {0}, \
-        .ring_border_width = -1, \
-        .hover_brightness = WLX_FLOAT_UNSET, \
+        .ring_border_width = WLX_UNSET, \
+        .hover_brightness = WLX_UNSET, \
         /* Content padding */ \
         WLX_CONTENT_PADDING_DEFAULTS, \
         __VA_ARGS__ \
@@ -3776,8 +3785,8 @@ typedef struct {
         .back_color = {0}, \
         .transparent_background = false, \
         .scrollbar_color = {0}, \
-        .scrollbar_hover_brightness = WLX_FLOAT_UNSET, \
-        .scrollbar_width = -1, \
+        .scrollbar_hover_brightness = WLX_UNSET, \
+        .scrollbar_width = WLX_UNSET, \
         .wheel_scroll_speed = 20.0f, \
         .show_scrollbar = true, \
         /* Border */ \
@@ -3871,7 +3880,7 @@ typedef struct {
         .fill_size        = {0}, \
         WLX_CONTENT_PADDING_DEFAULTS, \
         .content_padding  = 4.0f, \
-        .gap              = -1.0f, \
+        .gap              = WLX_UNSET, \
         .first_back_color = {0}, \
         .second_back_color = {0}, \
         __VA_ARGS__ \
@@ -3940,7 +3949,7 @@ typedef struct {
         .title_align      = 0, \
         .title_back_color = {0}, \
         WLX_CONTAINER_DECOR_DEFAULTS, \
-        .border_width     = -1.0f, \
+        .border_width     = WLX_UNSET, \
         WLX_SLOT_DECOR_DEFAULTS, \
         .clip             = false, \
         WLX_CONTENT_PADDING_DEFAULTS, \
@@ -11295,7 +11304,7 @@ static inline float wlx_resolve_opacity_for(const WLX_Context *ctx, float opt_op
 
 // Apply disabled-state visual transforms in place when `disabled` is true.
 // Each color is shifted by `theme->disabled_brightness` (skipped when the
-// theme value is WLX_FLOAT_UNSET), and `*opacity_ptr` is multiplied by
+// theme value is WLX_UNSET), and `*opacity_ptr` is multiplied by
 // `theme->disabled_opacity` (skipped when the theme value is negative).
 // Intended to run after opacity resolution and before WLX_APPLY_OPACITY so
 // the adjusted opacity is premultiplied into color alphas downstream.

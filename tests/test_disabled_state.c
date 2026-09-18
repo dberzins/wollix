@@ -291,7 +291,7 @@ TEST(disabled_theme_defaults) {
 
 // ============================================================================
 // 8. Sentinel inheritance: a custom theme with disabled_brightness =
-//    WLX_FLOAT_UNSET and disabled_opacity < 0 results in no brightness
+//    WLX_UNSET and disabled_opacity < 0 results in no brightness
 //    shift and no extra alpha multiplier when a widget is disabled.
 // ============================================================================
 
@@ -303,7 +303,7 @@ TEST(disabled_sentinel_inheritance) {
     theme.roundness            = 0;
     theme.rounded_segments     = 0;
     theme.hover_brightness     = 0.0f;
-    theme.disabled_brightness  = WLX_FLOAT_UNSET;
+    theme.disabled_brightness  = WLX_UNSET;
     theme.disabled_opacity     = -1.0f;
     theme.opacity              = -1.0f;
     ctx.theme = &theme;
