@@ -30,19 +30,33 @@ TEST(padding_alignment_button_defaults_sentinel) {
     ASSERT_EQ_F(-1.0f, opt.content_padding_left, 0.001f);
 }
 
+// Compound widgets install the unset sentinel like everyone else; their
+// own default inset is applied by the resolver at begin/draw time.
 TEST(padding_alignment_split_default_uniform_4) {
     WLX_Split_Opt opt = wlx_default_split_opt();
-    ASSERT_EQ_F(4.0f, opt.content_padding, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding, 0.001f);
+    WLX_Resolved_Padding rp = wlx_resolve_content_padding_ex(&wlx_theme_dark,
+        WLX_SPLIT_CONTENT_PADDING, opt.content_padding, opt.content_padding_top,
+        opt.content_padding_right, opt.content_padding_bottom, opt.content_padding_left);
+    ASSERT_EQ_F(4.0f, rp.top, 0.001f);
 }
 
 TEST(padding_alignment_panel_default_uniform_2) {
     WLX_Panel_Opt opt = wlx_default_panel_opt();
-    ASSERT_EQ_F(2.0f, opt.content_padding, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding, 0.001f);
+    WLX_Resolved_Padding rp = wlx_resolve_content_padding_ex(&wlx_theme_dark,
+        WLX_PANEL_CONTENT_PADDING, opt.content_padding, opt.content_padding_top,
+        opt.content_padding_right, opt.content_padding_bottom, opt.content_padding_left);
+    ASSERT_EQ_F(2.0f, rp.left, 0.001f);
 }
 
 TEST(padding_alignment_inputbox_default_uniform_10) {
     WLX_Inputbox_Opt opt = wlx_default_inputbox_opt();
-    ASSERT_EQ_F(10.0f, opt.content_padding, 0.001f);
+    ASSERT_EQ_F(-1.0f, opt.content_padding, 0.001f);
+    WLX_Resolved_Padding rp = wlx_resolve_content_padding_ex(&wlx_theme_dark,
+        WLX_INPUTBOX_CONTENT_PADDING, opt.content_padding, opt.content_padding_top,
+        opt.content_padding_right, opt.content_padding_bottom, opt.content_padding_left);
+    ASSERT_EQ_F(10.0f, rp.bottom, 0.001f);
     ASSERT_EQ_F(-1.0f, opt.content_padding_top, 0.001f);
     ASSERT_EQ_F(-1.0f, opt.content_padding_right, 0.001f);
     ASSERT_EQ_F(-1.0f, opt.content_padding_bottom, 0.001f);

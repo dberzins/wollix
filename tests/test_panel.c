@@ -146,7 +146,7 @@ TEST(panel_defaults_resolve) {
     ASSERT_TRUE(opt.title == NULL);
     ASSERT_EQ_INT(0, opt.title_font_size);        // sentinel -> resolved to 18 in impl
     ASSERT_EQ_F(0.0f, opt.title_height, 0.001f);  // sentinel -> resolved to 32 in impl
-    ASSERT_EQ_F(2.0f, opt.content_padding, 0.001f); // baked-in Panel default
+    ASSERT_EQ_F((float)WLX_UNSET, opt.content_padding, 0.001f); // resolves to 2 in impl
     ASSERT_EQ_INT(0, opt.capacity);                 // sentinel -> resolved to 32 in impl
 }
 

@@ -681,11 +681,6 @@ typedef struct {
 #define WLX_SLOT_CONTENT_MAX(hi)        ((WLX_Slot_Size){ WLX_SIZE_CONTENT, 0, 0, (hi) })
 #define WLX_SLOT_CONTENT_MINMAX(lo, hi) ((WLX_Slot_Size){ WLX_SIZE_CONTENT, 0, (lo), (hi) })
 
-// Helper: check if a slot size is the all-zero sentinel (unset)
-static inline bool wlx_slot_size_is_zero(WLX_Slot_Size s) {
-    return s.kind == 0 && s.value == 0.0f && s.min == 0.0f && s.max == 0.0f;
-}
-
 // Auto-counting sizes helper. Expands to two comma-separated arguments:
 // the element count (size_t) and a WLX_Slot_Size[] compound literal pointer.
 // Use with wlx_layout_begin_s():
@@ -2378,9 +2373,15 @@ typedef enum {
     WLX_Color hover_border_color_top;    WLX_Color hover_border_color_right; \
     WLX_Color hover_border_color_bottom; WLX_Color hover_border_color_left
 
+// Container chrome defaults. Layouts, grids and slot styles have no theme
+// chrome, so their border width, roundness and segment count are literal
+// zeros; a panel is a widget with theme chrome and installs WLX_UNSET for
+// the same three fields through WLX_CONTAINER_DECOR_DEFAULTS_CHROME.
 #define WLX_CONTAINER_DECOR_DEFAULTS \
+    WLX_CONTAINER_DECOR_DEFAULTS_CHROME(0, 0, 0)
+#define WLX_CONTAINER_DECOR_DEFAULTS_CHROME(bw, rn, rs) \
     .back_color = {0}, .border_color = {0}, \
-    .border_width = 0, .roundness = 0, .corner_radius = 0, .rounded_segments = 0, \
+    .border_width = (bw), .roundness = (rn), .corner_radius = 0, .rounded_segments = (rs), \
     .rounded_corners = 0, \
     .gap = 0, \
     .border_color_top = {0}, .border_color_right = {0}, \
@@ -2409,11 +2410,18 @@ typedef enum {
 // embed WLX_LAYOUT_SLOT_FIELDS (where the slot's own `padding*` is the
 // outer-margin knob) can carry both without name collision. Embedded by
 // every widget with chrome: wlx_label, wlx_button, wlx_inputbox,
-// wlx_split (compound), wlx_panel (compound). Per-side fields >= 0 win
-// over the uniform; a uniform default of -1 resolves to 0; a uniform of
-// WLX_PADDING_USE_THEME opts in to the theme's `padding` knob (default
-// WLX_STYLE_CONTENT_PADDING). The resolver clamps the resolved inset
-// proportionally so the content rect never has negative dimensions.
+// wlx_tooltip_for, wlx_split (compound), wlx_panel (compound). Per-side
+// fields >= 0 win over the uniform; an unset uniform (WLX_UNSET) resolves
+// to the widget's own default inset - 0 for leaf widgets, the constants
+// below for the compound ones - so writing WLX_UNSET means the same as
+// omitting the field; a uniform of WLX_PADDING_USE_THEME opts in to the
+// theme's `padding` knob (default WLX_STYLE_CONTENT_PADDING). The resolver
+// clamps the resolved inset proportionally so the content rect never has
+// negative dimensions.
+#define WLX_INPUTBOX_CONTENT_PADDING 10.0f
+#define WLX_SPLIT_CONTENT_PADDING     4.0f
+#define WLX_PANEL_CONTENT_PADDING     2.0f
+#define WLX_TOOLTIP_CONTENT_PADDING   6.0f
 #define WLX_CONTENT_PADDING_FIELDS \
     float content_padding; \
     float content_padding_top; \
@@ -2436,6 +2444,12 @@ typedef enum {
 
 #define WLX_RESOLVE_CONTENT_PADDING(ctx, opt) \
     wlx_resolve_content_padding((ctx)->theme, \
+        (opt).content_padding, (opt).content_padding_top, (opt).content_padding_right, \
+        (opt).content_padding_bottom, (opt).content_padding_left)
+
+// Same, for a widget whose unset uniform means its own default inset.
+#define WLX_RESOLVE_CONTENT_PADDING_EX(ctx, opt, widget_default) \
+    wlx_resolve_content_padding_ex((ctx)->theme, (widget_default), \
         (opt).content_padding, (opt).content_padding_top, (opt).content_padding_right, \
         (opt).content_padding_bottom, (opt).content_padding_left)
 
@@ -3065,10 +3079,23 @@ typedef struct {
 // Options for wlx_tooltip_for. The tip is a single-line label on the next
 // layer; it draws only and never takes part in input.
 typedef struct {
-    float delay;      // seconds of hover before showing; < 0 -> 0.5
+    float delay;      // seconds of hover before showing; WLX_UNSET -> 0.5
     float offset_x;   // tip origin relative to the pointer
     float offset_y;
-    float padding;    // inner text inset; < 0 -> 6
+
+    // Content padding around the tip text (WLX_CONTENT_PADDING_FIELDS spelled
+    // out so the uniform member can carry its deprecated alias). Unset
+    // resolves to WLX_TOOLTIP_CONTENT_PADDING. `.padding` is the pre-v0.9
+    // name of the uniform field (renamed: everywhere else `padding` is the
+    // slot inset); same storage, removed in the first minor after 0.9.
+    union {
+        float content_padding;
+        float padding;   // deprecated: use content_padding
+    };
+    float content_padding_top;
+    float content_padding_right;
+    float content_padding_bottom;
+    float content_padding_left;
 
     // Typography
     WLX_TEXT_TYPOGRAPHY_FIELDS;
@@ -3090,7 +3117,7 @@ typedef struct {
         .delay = WLX_UNSET, \
         .offset_x = 12, \
         .offset_y = 18, \
-        .padding = WLX_UNSET, \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
         .front_color = {0}, \
         .back_color = {0}, \
@@ -3116,7 +3143,7 @@ WLXDEF bool wlx_tooltip_for_impl(WLX_Context *ctx, WLX_Rect anchor,
 // Options for wlx_menu_begin. Rows style like flat buttons on the menu's
 // back_color; the menu panel chrome takes the border fields.
 typedef struct {
-    float width;         // <= 0 -> 180
+    float width;         // WLX_UNSET -> 180
     float row_height;    // <= 0 -> font_size + 12
     float item_padding;  // left/right text inset on rows; < 0 -> 8
 
@@ -3141,7 +3168,7 @@ typedef struct {
 
 #define wlx_default_menu_opt(...) \
     (WLX_Menu_Opt) { \
-        .width = 0, \
+        .width = WLX_UNSET, \
         .row_height = 0, \
         .item_padding = WLX_UNSET, \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
@@ -3465,7 +3492,6 @@ typedef struct {
         /* Sizing */ \
         WLX_WIDGET_SIZING_DEFAULTS, \
         WLX_CONTENT_PADDING_DEFAULTS, \
-        .content_padding = 10.0f, \
         /* State */ \
         WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
@@ -3866,7 +3892,7 @@ typedef struct {
     WLX_Slot_Size second_size;      // default: WLX_SLOT_FLEX(1)
     WLX_Slot_Size fill_size;        // default: WLX_SLOT_FLEX(1) (fills parent slot)
     WLX_CONTENT_PADDING_FIELDS;     // inner padding around panes (default: 4)
-    float gap;                      // inter-pane spacing (default: -1 sentinel -> 0)
+    float gap;                      // inter-pane spacing (literal, default 0)
     WLX_Color first_back_color;     // first pane scroll panel bg (default: theme)
     WLX_Color second_back_color;    // second pane scroll panel bg (default: theme)
     // Scope ID: when non-NULL, scopes all descendants for the split body.
@@ -3875,12 +3901,11 @@ typedef struct {
 
 #define wlx_default_split_opt(...) \
     (WLX_Split_Opt){ \
-        .first_size       = {0}, \
-        .second_size      = {0}, \
-        .fill_size        = {0}, \
+        .first_size       = WLX_SLOT_PX(280), \
+        .second_size      = WLX_SLOT_FLEX(1), \
+        .fill_size        = WLX_SLOT_FLEX(1), \
         WLX_CONTENT_PADDING_DEFAULTS, \
-        .content_padding  = 4.0f, \
-        .gap              = WLX_UNSET, \
+        .gap              = 0, \
         .first_back_color = {0}, \
         .second_back_color = {0}, \
         __VA_ARGS__ \
@@ -3946,14 +3971,12 @@ typedef struct {
         .title            = NULL, \
         .title_font_size  = 0, \
         .title_height     = 0, \
-        .title_align      = 0, \
+        .title_align      = WLX_CENTER, \
         .title_back_color = {0}, \
-        WLX_CONTAINER_DECOR_DEFAULTS, \
-        .border_width     = WLX_UNSET, \
+        WLX_CONTAINER_DECOR_DEFAULTS_CHROME(WLX_UNSET, WLX_UNSET, WLX_UNSET), \
         WLX_SLOT_DECOR_DEFAULTS, \
         .clip             = false, \
         WLX_CONTENT_PADDING_DEFAULTS, \
-        .content_padding  = 2.0f, \
         .capacity         = 0, \
         __VA_ARGS__ \
     }
@@ -4777,17 +4800,17 @@ static inline WLX_Resolved_Padding wlx_resolve_padding(
     };
 }
 
-// Resolve content padding for widgets where the default is "zero" (label,
-// button). Per-side values >= 0 win; otherwise the side falls back to the
-// uniform. If the resolved value is still < 0, the resolved side is 0 unless
-// the uniform is WLX_PADDING_USE_THEME, in which case the side resolves to
+// Resolve content padding. Per-side values >= 0 win; otherwise the side
+// falls back to the uniform. An unset uniform resolves to `widget_default`
+// (0 for leaf widgets, the widget's documented inset for compound ones)
+// unless it is WLX_PADDING_USE_THEME, in which case the side resolves to
 // the theme's `padding` knob (WLX_STYLE_CONTENT_PADDING default).
-static inline WLX_Resolved_Padding wlx_resolve_content_padding(
-    const WLX_Theme *theme,
+static inline WLX_Resolved_Padding wlx_resolve_content_padding_ex(
+    const WLX_Theme *theme, float widget_default,
     float uniform, float pt, float pr, float pb, float pl) {
     bool theme_opt_in = (uniform == WLX_PADDING_USE_THEME);
     float theme_value = theme ? theme->padding : (float)WLX_STYLE_CONTENT_PADDING;
-    float fallback = theme_opt_in ? theme_value : 0.0f;
+    float fallback = theme_opt_in ? theme_value : widget_default;
     float u = (uniform >= 0.0f) ? uniform : fallback;
     return (WLX_Resolved_Padding){
         .top    = (pt >= 0.0f) ? pt : u,
@@ -4795,6 +4818,13 @@ static inline WLX_Resolved_Padding wlx_resolve_content_padding(
         .bottom = (pb >= 0.0f) ? pb : u,
         .left   = (pl >= 0.0f) ? pl : u,
     };
+}
+
+// Leaf-widget form (label, button, ...): an unset uniform is 0.
+static inline WLX_Resolved_Padding wlx_resolve_content_padding(
+    const WLX_Theme *theme,
+    float uniform, float pt, float pr, float pb, float pl) {
+    return wlx_resolve_content_padding_ex(theme, 0.0f, uniform, pt, pr, pb, pl);
 }
 
 // Clamp resolved padding so that left+right <= max_w and top+bottom <= max_h.
@@ -13790,7 +13820,7 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
     WLX_HARD_ASSERT(buffer_size >= 2, "buffer_size must hold at least 1 char + null terminator");
     wlx_resolve_opt_inputbox(ctx, &opt);
 
-    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING_EX(ctx, opt, WLX_INPUTBOX_CONTENT_PADDING);
 
     // Ensure height can fit the font plus content padding on both sides.
     float min_h = (float)opt.font_size + rp.top + rp.bottom + WLX_TEXT_FIELD_MIN_HEIGHT_SLACK;
@@ -15078,7 +15108,6 @@ WLXDEF bool wlx_dropdown_impl(WLX_Context *ctx, const char *label,
 // ============================================================================
 
 static const float WLX_TOOLTIP_DEFAULT_DELAY   = 0.5f;  // seconds hovered before the tip shows
-static const float WLX_TOOLTIP_DEFAULT_PADDING = 6.0f;
 static const float WLX_TOOLTIP_FLIP_GAP_X      = 4.0f;  // pointer-to-tip gap when flipped to the left
 static const float WLX_TOOLTIP_FLIP_GAP_Y      = 6.0f;  // ... and when flipped above
 
@@ -15093,7 +15122,6 @@ static void wlx_resolve_opt_tooltip(const WLX_Context *ctx, WLX_Tooltip_Opt *opt
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
 
     if (opt->delay < 0.0f)   opt->delay = WLX_TOOLTIP_DEFAULT_DELAY;
-    if (opt->padding < 0.0f) opt->padding = WLX_TOOLTIP_DEFAULT_PADDING;
 }
 
 WLXDEF bool wlx_tooltip_for_impl(WLX_Context *ctx, WLX_Rect anchor,
@@ -15137,11 +15165,12 @@ WLXDEF bool wlx_tooltip_for_impl(WLX_Context *ctx, WLX_Rect anchor,
     wlx_measure_text_slice(ctx, text, text_len, ts, &text_w, &text_h);
     float line_h = wlx_text_line_height(ctx, ts, NULL);
 
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING_EX(ctx, opt, WLX_TOOLTIP_CONTENT_PADDING);
     WLX_Rect tip = {
         (float)ctx->input.mouse_x + opt.offset_x,
         (float)ctx->input.mouse_y + opt.offset_y,
-        text_w + 2.0f * opt.padding,
-        line_h + 2.0f * opt.padding,
+        text_w + rp.left + rp.right,
+        line_h + rp.top + rp.bottom,
     };
     // Keep the tip on screen: flip to the other side of the pointer when it
     // would run past the right or bottom edge.
@@ -15159,8 +15188,8 @@ WLXDEF bool wlx_tooltip_for_impl(WLX_Context *ctx, WLX_Rect anchor,
     // interaction, so the tip never appends candidates and can never own
     // hover or a press.
     wlx_overlay_begin_impl(ctx, 1, tip, lopt, file, line);
-    WLX_Rect trect = { tip.x + opt.padding, tip.y + opt.padding,
-                       tip.w - 2.0f * opt.padding, tip.h - 2.0f * opt.padding };
+    WLX_Rect trect = { tip.x + rp.left, tip.y + rp.top,
+                       tip.w - rp.left - rp.right, tip.h - rp.top - rp.bottom };
     wlx_draw_widget_content(ctx, trect, text, text_len, ts, (WLX_Widget_Content){
         .font_size = opt.font_size,
         .align     = WLX_LEFT,
@@ -15214,7 +15243,7 @@ static void wlx_resolve_opt_menu(const WLX_Context *ctx, WLX_Menu_Opt *opt) {
     if (wlx_is_float_unset(opt->hover_brightness))
         opt->hover_brightness = theme->hover_brightness;
 
-    if (opt->width <= 0.0f)        opt->width = WLX_MENU_DEFAULT_WIDTH;
+    if (opt->width < 0.0f)         opt->width = WLX_MENU_DEFAULT_WIDTH;
     if (opt->row_height <= 0.0f)   opt->row_height = (float)opt->font_size + WLX_POPUP_ROW_HEIGHT_PAD;
     if (opt->item_padding < 0.0f)  opt->item_padding = WLX_MENU_ITEM_PADDING;
 }
@@ -15584,17 +15613,7 @@ WLXDEF float wlx_list_clipper_item_height(const WLX_List_Clipper *clip, int i) {
 
 WLXDEF void wlx_split_begin_impl(WLX_Context *ctx, WLX_Split_Opt opt,
                                   const char *file, int line) {
-    // Resolve sentinel defaults
-    if (wlx_slot_size_is_zero(opt.fill_size))
-        opt.fill_size = WLX_SLOT_FLEX(1);
-    if (wlx_slot_size_is_zero(opt.first_size))
-        opt.first_size = WLX_SLOT_PX(280);
-    if (wlx_slot_size_is_zero(opt.second_size))
-        opt.second_size = WLX_SLOT_FLEX(1);
-    if (opt.gap < 0.0f)
-        opt.gap = 0.0f;
-
-    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING_EX(ctx, opt, WLX_SPLIT_CONTENT_PADDING);
 
     WLX_DBG(split_begin, ctx);
 
@@ -15655,15 +15674,15 @@ WLXDEF void wlx_panel_begin_impl(WLX_Context *ctx, WLX_Panel_Opt opt,
     // Resolve sentinel defaults
     if (opt.title_font_size <= 0) opt.title_font_size = 18;
     if (opt.title_height <= 0)    opt.title_height = 32;
-    if (opt.title_align == WLX_ALIGN_NONE) opt.title_align = WLX_CENTER;
     if (opt.capacity <= 0)        opt.capacity = 32;
-    // Theme-inherited border, matching widget resolution: unset width (-1)
-    // takes theme->border_width, zero color takes theme->border. An explicit
-    // 0 width stays borderless.
-    if (opt.border_width < 0) opt.border_width = ctx->theme->border_width;
-    if (wlx_color_is_zero(opt.border_color)) opt.border_color = ctx->theme->border;
+    // Theme-inherited chrome, matching widget resolution: unset width,
+    // roundness and segments take the theme values, zero color takes
+    // theme->border. An explicit 0 width stays borderless, an explicit 0
+    // roundness stays sharp.
+    wlx_resolve_border(ctx->theme, &opt.border_color, &opt.border_width,
+                       &opt.roundness, &opt.rounded_segments);
 
-    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING_EX(ctx, opt, WLX_PANEL_CONTENT_PADDING);
 
     // Capacity includes the title slot (if present)
     int total = opt.capacity;

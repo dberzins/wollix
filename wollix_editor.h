@@ -164,7 +164,6 @@ typedef struct {
         /* Sizing */ \
         WLX_WIDGET_SIZING_DEFAULTS, \
         WLX_CONTENT_PADDING_DEFAULTS, \
-        .content_padding = 10.0f, \
         /* State */ \
         WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
@@ -2123,7 +2122,7 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
     WLX_HARD_ASSERT(*length <= buffer_cap, "editor length exceeds buffer capacity");
     wlx_resolve_opt_editor(ctx, &opt);
 
-    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(ctx, opt);
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING_EX(ctx, opt, WLX_INPUTBOX_CONTENT_PADDING);
 
     // Ensure height can fit the font plus content padding on both sides.
     float min_h = (float)opt.font_size + rp.top + rp.bottom + WLX_TEXT_FIELD_MIN_HEIGHT_SLACK;
