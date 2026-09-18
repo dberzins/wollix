@@ -5,8 +5,10 @@ BASE_CFLAGS = -Wall -Wextra -Werror=switch -std=c11 -ggdb
 
 ifeq ($(findstring gcc,$(notdir $(CC))),gcc)
 BASE_CFLAGS += -Wno-override-init
+DEFAULTS_ONCE_FLAGS = -Werror=override-init
 else
 BASE_CFLAGS += -Wno-initializer-overrides
+DEFAULTS_ONCE_FLAGS = -Werror=initializer-overrides
 endif
 
 CFLAGS = $(BASE_CFLAGS) -DWLX_DEBUG
@@ -172,13 +174,15 @@ SINGLE_PASS_BIN = $(TEST_DIR)/test_single_pass
 HARD_ASSERT_BIN = $(TEST_DIR)/test_hard_assert
 CONFIG_OVERRIDE_BIN = $(TEST_DIR)/test_config_override
 UNDO_DISABLED_BIN = $(TEST_DIR)/test_undo_disabled
+DEFAULTS_ONCE_BIN = $(TEST_DIR)/test_defaults_once
 
-test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(UNDO_DISABLED_BIN)
+test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN)
 	./$(TEST_BIN)
 	./$(SINGLE_PASS_BIN)
 	./$(HARD_ASSERT_BIN)
 	./$(CONFIG_OVERRIDE_BIN)
 	./$(UNDO_DISABLED_BIN)
+	./$(DEFAULTS_ONCE_BIN)
 
 $(TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
@@ -206,6 +210,16 @@ $(CONFIG_OVERRIDE_BIN): $(TEST_DIR)/test_config_override.c wollix.h
 # own translation unit with the override in the test source itself.
 $(UNDO_DISABLED_BIN): $(TEST_DIR)/test_undo_disabled.c $(TEST_DIR)/test_mock_backend.h wollix.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_undo_disabled.c -lm
+
+# Every option default macro sets each designator once, and every option
+# struct has a wlx_*_opt_defaults function: the declaration TU is built with
+# the initializer-override warning promoted to an error (the inverse of
+# BASE_CFLAGS); the implementation TU keeps the normal flags.
+$(DEFAULTS_ONCE_BIN): $(TEST_DIR)/test_defaults_once.c $(TEST_DIR)/test_defaults_once_impl.c wollix.h wollix_editor.h
+	$(CC) $(BASE_CFLAGS) $(DEFAULTS_ONCE_FLAGS) -I. -c -o $(TEST_DIR)/test_defaults_once.o $(TEST_DIR)/test_defaults_once.c
+	$(CC) $(BASE_CFLAGS) -I. -c -o $(TEST_DIR)/test_defaults_once_impl.o $(TEST_DIR)/test_defaults_once_impl.c
+	$(CC) -o $@ $(TEST_DIR)/test_defaults_once.o $(TEST_DIR)/test_defaults_once_impl.o -lm
+	rm -f $(TEST_DIR)/test_defaults_once.o $(TEST_DIR)/test_defaults_once_impl.o
 
 PERF_TEST_BIN = $(TEST_DIR)/test_runner_perf
 
@@ -242,7 +256,7 @@ test-demos: $(DEFAULT_TARGETS) $(DASHBOARD_BIN)
 	@echo "All demos built successfully."
 
 clean:
-	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
+	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
 	rm -rf $(WASM_SITE_DIR) $(GALLERY_WASM_SITE_DIR)
 
 # Help target

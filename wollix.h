@@ -2202,10 +2202,6 @@ WLXDEF float wlx_get_opacity(const WLX_Context *ctx);
 // when the same source line is reached multiple times (loops, reusable widget functions).
 WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, const char *file, int line);
 
-// Internal interaction resolver with an explicit disabled gate. Forward-declared
-// here so interaction-aware container begins can resolve before its definition.
-static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, bool disabled, const char *file, int line);
-
 // Generic persistent state - returns a handle with the state's ID and a pointer
 // to zero-initialized persistent data. The data survives across frames.
 // State IDs are hash(file, line) ^ id_stack_hash - the same formula as Widget IDs.
@@ -2874,7 +2870,6 @@ typedef struct {
         WLX_WIDGET_SIZING_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
-        WLX_TEXT_WRAP_DEFAULTS, \
         .wrap = true, \
         .style = WLX_TEXT_STYLE_DEFAULT, \
         .vertical_metric = WLX_VMETRIC_LINE_HEIGHT, \
@@ -2957,7 +2952,6 @@ typedef struct {
         WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
-        WLX_TEXT_WRAP_DEFAULTS, \
         .wrap = true, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
@@ -3496,7 +3490,6 @@ typedef struct {
         WLX_WIDGET_STATE_DEFAULTS, \
         /* Typography */ \
         WLX_TEXT_TYPOGRAPHY_DEFAULTS, \
-        WLX_TEXT_WRAP_DEFAULTS, \
         .wrap = true, \
         /* Styles */ \
         WLX_TEXT_COLOR_DEFAULTS, \
@@ -3987,6 +3980,43 @@ WLXDEF void wlx_panel_end(WLX_Context *ctx);
 #define wlx_panel_begin(ctx, ...) \
     wlx_panel_begin_impl((ctx), wlx_default_panel_opt(__VA_ARGS__), __FILE__, __LINE__)
 
+// ============================================================================
+// Option defaults as values
+// ============================================================================
+// Every option struct's defaults, exactly as its wlx_default_*_opt macro
+// installs them, returned by value. The macros are the C11 call surface
+// (defaults first, the caller's designators override); these functions are
+// the surface for callers that cannot repeat designators - a C++ caller
+// takes the defaults, assigns, and calls the _impl function. A macro and its
+// function can never disagree: each function returns the macro's expansion.
+
+WLXDEF WLX_Slot_Style_Opt   wlx_slot_style_opt_defaults(void);
+WLXDEF WLX_Grid_Opt         wlx_grid_opt_defaults(void);
+WLXDEF WLX_Grid_Auto_Opt    wlx_grid_auto_opt_defaults(void);
+WLXDEF WLX_Layout_Opt       wlx_layout_opt_defaults(void);
+WLXDEF WLX_Overlay_Opt      wlx_overlay_opt_defaults(void);
+WLXDEF WLX_Widget_Opt       wlx_widget_opt_defaults(void);
+WLXDEF WLX_Label_Opt        wlx_label_opt_defaults(void);
+WLXDEF WLX_Button_Opt       wlx_button_opt_defaults(void);
+WLXDEF WLX_Dropdown_Opt     wlx_dropdown_opt_defaults(void);
+WLXDEF WLX_Tooltip_Opt      wlx_tooltip_opt_defaults(void);
+WLXDEF WLX_Menu_Opt         wlx_menu_opt_defaults(void);
+WLXDEF WLX_Menu_Item_Opt    wlx_menu_item_opt_defaults(void);
+WLXDEF WLX_Menu_Button_Opt  wlx_menu_button_opt_defaults(void);
+WLXDEF WLX_Checkbox_Opt     wlx_checkbox_opt_defaults(void);
+WLXDEF WLX_Inputbox_Opt     wlx_inputbox_opt_defaults(void);
+WLXDEF WLX_Slider_Opt       wlx_slider_opt_defaults(void);
+WLXDEF WLX_Separator_Opt    wlx_separator_opt_defaults(void);
+WLXDEF WLX_Progress_Opt     wlx_progress_opt_defaults(void);
+WLXDEF WLX_Image_Opt        wlx_image_opt_defaults(void);
+WLXDEF WLX_Toggle_Opt       wlx_toggle_opt_defaults(void);
+WLXDEF WLX_Radio_Opt        wlx_radio_opt_defaults(void);
+WLXDEF WLX_Scroll_Panel_Opt wlx_scroll_panel_opt_defaults(void);
+WLXDEF WLX_List_Clipper_Opt wlx_list_clipper_opt_defaults(void);
+WLXDEF WLX_Split_Opt        wlx_split_opt_defaults(void);
+WLXDEF WLX_Split_Next_Opt   wlx_split_next_opt_defaults(void);
+WLXDEF WLX_Panel_Opt        wlx_panel_opt_defaults(void);
+
 #ifdef WLX_SHORT_NAMES
 #define layout_begin(ctx, count, orient, ...) wlx_layout_begin((ctx), (count), (orient), __VA_ARGS__)
 #define layout_begin_s(ctx, orient, ...) wlx_layout_begin_s((ctx), (orient), __VA_ARGS__)
@@ -4044,6 +4074,10 @@ WLXDEF void wlx_panel_end(WLX_Context *ctx);
 // IMPLEMENTATION
 #ifdef WOLLIX_IMPLEMENTATION
 #include <math.h>
+
+// Internal interaction resolver with an explicit disabled gate. Forward-declared
+// here so interaction-aware container begins can resolve before its definition.
+static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, bool disabled, const char *file, int line);
 
 // Forward declarations for debug hook functions (defined at end of file).
 #ifdef WLX_DEBUG
@@ -16611,5 +16645,36 @@ static inline void wlx_dbg_split_end(WLX_Context *ctx) {
 }
 
 #endif // WLX_DEBUG
+
+// ============================================================================
+// Implementation: option defaults as values
+// ============================================================================
+
+WLXDEF WLX_Slot_Style_Opt wlx_slot_style_opt_defaults(void) { return wlx_default_slot_style_opt(); }
+WLXDEF WLX_Grid_Opt wlx_grid_opt_defaults(void) { return wlx_default_grid_opt(); }
+WLXDEF WLX_Grid_Auto_Opt wlx_grid_auto_opt_defaults(void) { return wlx_default_grid_auto_opt(); }
+WLXDEF WLX_Layout_Opt wlx_layout_opt_defaults(void) { return wlx_default_layout_opt(); }
+WLXDEF WLX_Overlay_Opt wlx_overlay_opt_defaults(void) { return wlx_default_overlay_opt(); }
+WLXDEF WLX_Widget_Opt wlx_widget_opt_defaults(void) { return wlx_default_widget_opt(); }
+WLXDEF WLX_Label_Opt wlx_label_opt_defaults(void) { return wlx_default_label_opt(); }
+WLXDEF WLX_Button_Opt wlx_button_opt_defaults(void) { return wlx_default_button_opt(); }
+WLXDEF WLX_Dropdown_Opt wlx_dropdown_opt_defaults(void) { return wlx_default_dropdown_opt(); }
+WLXDEF WLX_Tooltip_Opt wlx_tooltip_opt_defaults(void) { return wlx_default_tooltip_opt(); }
+WLXDEF WLX_Menu_Opt wlx_menu_opt_defaults(void) { return wlx_default_menu_opt(); }
+WLXDEF WLX_Menu_Item_Opt wlx_menu_item_opt_defaults(void) { return wlx_default_menu_item_opt(); }
+WLXDEF WLX_Menu_Button_Opt wlx_menu_button_opt_defaults(void) { return wlx_default_menu_button_opt(); }
+WLXDEF WLX_Checkbox_Opt wlx_checkbox_opt_defaults(void) { return wlx_default_checkbox_opt(); }
+WLXDEF WLX_Inputbox_Opt wlx_inputbox_opt_defaults(void) { return wlx_default_inputbox_opt(); }
+WLXDEF WLX_Slider_Opt wlx_slider_opt_defaults(void) { return wlx_default_slider_opt(); }
+WLXDEF WLX_Separator_Opt wlx_separator_opt_defaults(void) { return wlx_default_separator_opt(); }
+WLXDEF WLX_Progress_Opt wlx_progress_opt_defaults(void) { return wlx_default_progress_opt(); }
+WLXDEF WLX_Image_Opt wlx_image_opt_defaults(void) { return wlx_default_image_opt(); }
+WLXDEF WLX_Toggle_Opt wlx_toggle_opt_defaults(void) { return wlx_default_toggle_opt(); }
+WLXDEF WLX_Radio_Opt wlx_radio_opt_defaults(void) { return wlx_default_radio_opt(); }
+WLXDEF WLX_Scroll_Panel_Opt wlx_scroll_panel_opt_defaults(void) { return wlx_default_scroll_panel_opt(); }
+WLXDEF WLX_List_Clipper_Opt wlx_list_clipper_opt_defaults(void) { return wlx_default_list_clipper_opt(); }
+WLXDEF WLX_Split_Opt wlx_split_opt_defaults(void) { return wlx_default_split_opt(); }
+WLXDEF WLX_Split_Next_Opt wlx_split_next_opt_defaults(void) { return wlx_default_split_next_opt(); }
+WLXDEF WLX_Panel_Opt wlx_panel_opt_defaults(void) { return wlx_default_panel_opt(); }
 
 #endif // WOLLIX_IMPLEMENTATION

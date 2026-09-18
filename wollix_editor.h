@@ -190,6 +190,10 @@ typedef struct {
 // capacity allows. Returns true when the text changed this frame.
 WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_cap,
     size_t *length, WLX_Editor_Opt opt, const char *file, int line);
+
+// The editor's defaults by value, exactly as wlx_default_editor_opt installs
+// them (the core's wlx_*_opt_defaults family).
+WLXDEF WLX_Editor_Opt wlx_editor_opt_defaults(void);
 #define wlx_editor(ctx, label, buffer, buffer_cap, length, ...) \
     wlx_editor_impl((ctx), (label), (buffer), (buffer_cap), (length), \
         wlx_default_editor_opt(__VA_ARGS__), __FILE__, __LINE__)
@@ -2433,6 +2437,8 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
     wlx_widget_frame_end(ctx, frame);
     return changed;
 }
+
+WLXDEF WLX_Editor_Opt wlx_editor_opt_defaults(void) { return wlx_default_editor_opt(); }
 
 #endif // WOLLIX_IMPLEMENTATION
 

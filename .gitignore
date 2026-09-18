@@ -72,4 +72,5 @@ demos/dashboard/dashboard_perf
 dist/
 session
 tests/test_config_override
+tests/test_defaults_once
 tests/test_undo_disabled
