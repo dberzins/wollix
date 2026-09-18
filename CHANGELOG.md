@@ -9,9 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed (Breaking) - v0.9 coordinated API group
 
-One release, one group. Renamed fields and constants keep a deprecated
-alias of the same storage or value for **one minor version after 0.9**,
-so existing code compiles unchanged; migrate before the next minor. Default
+One release, one group, and the last one. **v0.9 is the final release
+that changes the meaning of an existing option field or the shape of the
+backend contract**; from the next minor on, existing names, defaults and
+signatures keep working. Renamed fields, constants and types keep a
+deprecated alias of the same storage or value for **one minor version
+after 0.9**, so existing code compiles unchanged; the aliases themselves
+(`.align`, `.widget_align`, tooltip `.padding`, `WLX_FLOAT_UNSET`,
+`WLX_Backend_V1`, `wlx_backend_from_v1`) are removed in the first minor
+release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
 *meanings* cannot be aliased: each one below names its migration.
 
 - **Backend contract v2: every callback carries an instance pointer.** All
@@ -84,6 +90,36 @@ so existing code compiles unchanged; migrate before the next minor. Default
   unchanged. Migration: write `0` for no inset.
 - **Split `.gap` is a literal `0`** like every other container gap (its `-1`
   resolved to `0` and inherited nothing). Omission is unchanged.
+
+#### Migrating from 0.8
+
+In call-site order; everything compiles before you start, so migrate at
+your own pace before the next minor.
+
+1. **Align names.** `sed -E 's/\.widget_align\b/.slot_align/g; s/\.align\b/.content_align/g'`
+   over your sources (`title_align` is untouched). Both old names still
+   compile until the next minor.
+2. **Unset spelling.** Write `WLX_UNSET` where you wrote `-1` or
+   `WLX_FLOAT_UNSET` to mean "unset"; `-1` keeps working on every numeric
+   field, `WLX_FLOAT_UNSET` until the next minor.
+3. **Brightness `-1.0f`.** If a hover or disabled shift was exactly `-1.0f`
+   (a full black shift), write `-0.999f`; `-1.0f` now means unset.
+4. **Panel roundness under a custom theme.** A panel that relied on the
+   literal sharp default while the theme has non-zero `roundness` passes
+   `.roundness = 0`.
+5. **Tooltip inset.** `.padding` on `wlx_tooltip_for` becomes
+   `.content_padding` (old name compiles until the next minor).
+6. **Menu `.width = 0`**, **panel `.title_align = WLX_ALIGN_NONE`**, **split
+   sizes written as `WLX_SLOT_AUTO`**, **compound `.content_padding = -1`**:
+   only if you wrote these to mean "the default" - drop the field instead.
+7. **Backend tables.** Append `void *user` to every callback and set
+   `.contract_version = WLX_BACKEND_CONTRACT_VERSION`; or, for now, type the
+   table `WLX_Backend_V1` and install `wlx_backend_from_v1(&table)`. An
+   application that wrapped an adapter's text callbacks to scale styles
+   installs one `wlx_set_style_transform` instead.
+8. **Callers without designated initializers** (C++ translation units,
+   table-driven builders) take `wlx_<widget>_opt_defaults()`, assign, and
+   call the `_impl` function.
 
 ### Added
 - **`wlx_set_style_transform`.** A context-level transform (function plus

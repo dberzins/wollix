@@ -227,11 +227,11 @@ arguments:
 
 | Field     | Default | Description |
 |-----------|---------|-------------|
-| `pos`     | `-1`    | Target slot index (`-1` = next sequential) |
+| `pos`     | `WLX_UNSET`    | Target slot index (unset = next sequential) |
 | `span`    | `1`     | Number of consecutive slots to occupy |
 | `overflow`| `false` | Allow widget to exceed slot bounds |
 | `padding` | `0`     | Uniform inset applied to the slot rect |
-| `padding_top/right/bottom/left` | `-1` | Per-side slot inset; values `>= 0` override `padding` |
+| `padding_top/right/bottom/left` | `WLX_UNSET` | Per-side slot inset; values `>= 0` override `padding` |
 
 ```c
 wlx_layout_begin(ctx, 4, WLX_VERT, .padding = 10);
@@ -522,24 +522,24 @@ Widget option structs share these field groups, depending on widget type:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `pos` | `-1` | Slot index |
+| `pos` | `WLX_UNSET` | Slot index |
 | `span` | `1` | Slot span |
 | `overflow` | `false` | Allow exceeding slot bounds |
 | `padding` | `0` | Slot inset |
-| `padding_top/right/bottom/left` | `-1` | Per-side slot inset; values `>= 0` override `padding` |
+| `padding_top/right/bottom/left` | `WLX_UNSET` | Per-side slot inset; values `>= 0` override `padding` |
 
 **Sizing** (from `WLX_WIDGET_SIZING_FIELDS`):
 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `slot_align` | `WLX_LEFT` | Position within slot |
-| `width` | `-1` | Widget width (`-1` = fill slot) |
-| `height` | `-1` | Widget height (`-1` = fill slot) |
+| `width` | `WLX_UNSET` | Widget width (unset = fill slot) |
+| `height` | `WLX_UNSET` | Widget height (unset = fill slot) |
 | `min_width` | `0` | Minimum width (`0` = none) |
 | `min_height` | `0` | Minimum height (`0` = none) |
 | `max_width` | `0` | Maximum width (`0` = none) |
 | `max_height` | `0` | Maximum height (`0` = none) |
-| `opacity` | `-1` | Opacity (`-1` = fully opaque sentinel) |
+| `opacity` | `WLX_UNSET` | Opacity (unset = fully opaque) |
 
 **State** (interactive widgets only, from `WLX_WIDGET_STATE_FIELDS`):
 
@@ -568,19 +568,19 @@ Widget option structs share these field groups, depending on widget type:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `content_padding` | `-1` | Uniform inset around widget content; `WLX_PADDING_USE_THEME` opts into `theme.padding` |
-| `content_padding_top/right/bottom/left` | `-1` | Per-side content inset; values `>= 0` override the uniform value |
+| `content_padding` | `WLX_UNSET` | Uniform inset around widget content; `WLX_PADDING_USE_THEME` opts into `theme.padding` |
+| `content_padding_top/right/bottom/left` | `WLX_UNSET` | Per-side content inset; values `>= 0` override the uniform value |
 
 **Border** (bordered widgets, from `WLX_BORDER_FIELDS`):
 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `border_color` | `{0}` | Uniform border color (`{0}` = theme/widget fallback) |
-| `border_width` | `-1` | Uniform border width (`-1` = theme default, `0` = none) |
-| `roundness` / `rounded_segments` | `-1` | Corner roundness (fraction of shorter side) and segment count |
+| `border_width` | `WLX_UNSET` | Uniform border width (unset = theme default, `0` = none) |
+| `roundness` / `rounded_segments` | `WLX_UNSET` | Corner roundness (fraction of shorter side) and segment count |
 | `corner_radius` | `0` | Absolute corner radius in **pixels**; `> 0` overrides `roundness`, `0` = unset |
 | `border_color_top/right/bottom/left` | `{0}` | Per-side border color; `{0}` inherits `border_color` |
-| `border_width_top/right/bottom/left` | `-1` | Per-side border width; `< 0` inherits `border_width`, `0` switches that edge off |
+| `border_width_top/right/bottom/left` | `WLX_UNSET` | Per-side border width; `< 0` inherits `border_width`, `0` switches that edge off |
 
 ### Per-side container decor
 
@@ -1077,7 +1077,7 @@ ctx.theme = &my_theme;
 | `rounded_segments` | Segment count for rounded drawing |
 | `min_rounded_segments` | Minimum segment floor for fully-round widgets |
 | `hover_brightness` | Brightness shift on hover |
-| `disabled_brightness` | Brightness shift when disabled (`WLX_FLOAT_UNSET` = no shift) |
+| `disabled_brightness` | Brightness shift when disabled (`WLX_UNSET` = no shift) |
 | `opacity` | Global opacity multiplier |
 | `disabled_opacity` | Alpha multiplier when disabled (`< 0` = unset) |
 
