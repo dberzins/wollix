@@ -70,10 +70,6 @@
 // reuse the crec_* recording backend.
 #include "test_layout_clip.c"
 
-// WLX_Backend v2 contract: instance pointer, v1 shim, style transform at
-// the backend boundary. Reuses the crec_* recording backend.
-#include "test_backend_contract.c"
-
 // Slot and grid cell decoration / style overrides
 #include "test_slot_style.c"
 
@@ -241,6 +237,11 @@
 // build, edit/external/environment invalidation, key shifting, LRU bounds,
 // zero-measure idle frames.
 #include "test_editor_geom_cache.c"
+
+// WLX_Backend v2 contract: instance pointer, v1 shim, style transform at
+// the backend boundary. Reuses the mock backend and the geometry-cache
+// editor fixture (gc_*), so it follows test_editor_geom_cache.c.
+#include "test_backend_contract.c"
 
 // measure_text_advances backend callback: records, caret x, hit tests,
 // selection spans, and whole-frame draw commands identical with the

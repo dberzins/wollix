@@ -2301,6 +2301,7 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
             genv.band_w = band.w;
             genv.line_h = line_h;
             genv.wrap = opt.wrap;
+            genv.transform_generation = ctx->style_transform_generation;
             size_t vp_lines = line_h > 0.0f
                 ? (size_t)(win_band_h / line_h) + 2 + WLX_EDITOR_OVERSCAN_LINES : 8;
             size_t want = vp_lines * WLX_TEXT_GEOM_STORE_SLACK < WLX_TEXT_GEOM_STORE_MIN

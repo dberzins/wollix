@@ -2876,54 +2876,16 @@ static void dashboard_raylib_load_fonts(void) {
 // that drive layout -- consistent across backends. SDL3/WASM are left at nominal.
 #define DASHBOARD_RAYLIB_FONT_SCALE 1.31f
 
-static WLX_Text_Style dashboard_raylib_scale_style(WLX_Text_Style style) {
+// Installed as the context's style transform: the core applies it before
+// every text callback (draw, measure and advances alike), so the scaled
+// size drives layout, retained caret geometry and rendering together.
+static WLX_Text_Style dashboard_raylib_scale_style(WLX_Text_Style style, void *user) {
+    (void)user;
     if (style.font_size > 0) {
         int px = (int)((float)style.font_size * DASHBOARD_RAYLIB_FONT_SCALE + 0.5f);
         style.font_size = px > 0 ? px : 1;
     }
     return style;
-}
-
-static void dashboard_raylib_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
-    (void)user;
-    wlx_raylib_draw_text(text, x, y, dashboard_raylib_scale_style(style), user);
-}
-static void dashboard_raylib_draw_text_slice(const char *text, size_t len, float x, float y,
-                                             WLX_Text_Style style, void *user) {
-    (void)user;
-    wlx_raylib_draw_text_slice(text, len, x, y, dashboard_raylib_scale_style(style), user);
-}
-static void dashboard_raylib_measure_text(const char *text, WLX_Text_Style style,
-                                          float *out_w, float *out_h, void *user) {
-    (void)user;
-    wlx_raylib_measure_text(text, dashboard_raylib_scale_style(style), out_w, out_h, user);
-}
-static void dashboard_raylib_measure_text_slice(const char *text, size_t len, WLX_Text_Style style,
-                                                float *out_w, float *out_h, void *user) {
-    (void)user;
-    wlx_raylib_measure_text_slice(text, len, dashboard_raylib_scale_style(style), out_w, out_h, user);
-}
-static size_t dashboard_raylib_measure_text_advances(const char *text, size_t len,
-                                                     WLX_Text_Style style,
-                                                     const size_t *unit_ends, size_t unit_count,
-                                                     float *out_advances, void *user) {
-    (void)user;
-    return wlx_raylib_measure_text_advances(text, len, dashboard_raylib_scale_style(style),
-                                            unit_ends, unit_count, out_advances, user);
-}
-
-// Every text callback the raylib adapter installs is wrapped here. The core
-// prefers draw_text_slice over draw_text, so an unwrapped draw path renders at
-// nominal size while the scaled measure lays out for 1.31x -- text visibly
-// shrinks and the editor's retained caret/hit-test/fit geometry (built from
-// measure_text_advances) no longer matches what is drawn. Any new WLX_Backend
-// text callback must be added to this set.
-static void dashboard_raylib_install_text_scale(WLX_Context *ctx) {
-    ctx->backend.draw_text              = dashboard_raylib_draw_text;
-    ctx->backend.draw_text_slice        = dashboard_raylib_draw_text_slice;
-    ctx->backend.measure_text           = dashboard_raylib_measure_text;
-    ctx->backend.measure_text_slice     = dashboard_raylib_measure_text_slice;
-    ctx->backend.measure_text_advances  = dashboard_raylib_measure_text_advances;
 }
 
 static bool dashboard_platform_init(void) {
@@ -2938,7 +2900,7 @@ static bool dashboard_platform_init(void) {
     if (!g_dashboard_ctx) return false;
     memset(g_dashboard_ctx, 0, sizeof(*g_dashboard_ctx));
     wlx_context_init_raylib(g_dashboard_ctx);
-    dashboard_raylib_install_text_scale(g_dashboard_ctx);
+    wlx_set_style_transform(g_dashboard_ctx, dashboard_raylib_scale_style, NULL);
     dashboard_icon_atlas_create(g_dashboard_ctx);
     // Drop recording of bounded fills/borders that fall outside the active clip.
     wlx_set_cull_offscreen(g_dashboard_ctx, true);

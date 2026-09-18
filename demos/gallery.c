@@ -4047,57 +4047,17 @@ static WLX_Context *g_raylib_ctx = NULL;
 static bool         g_raylib_icon_atlas_ready;
 static WLX_Texture  g_raylib_icon_atlas;
 
-static WLX_Text_Style gallery_raylib_scaled_text_style(WLX_Text_Style style) {
+// Installed as the context's style transform: the core applies it before
+// every text callback (draw, measure and advances alike), so the scaled
+// size drives layout, retained caret geometry and rendering together.
+static WLX_Text_Style gallery_raylib_scaled_text_style(WLX_Text_Style style, void *user) {
+    (void)user;
     if (style.font_size > 0) {
         int scaled = (int)((float)style.font_size * GALLERY_RAYLIB_FONT_SCALE + 0.5f);
         if (scaled < 1) scaled = 1;
         style.font_size = scaled;
     }
     return style;
-}
-
-static void gallery_raylib_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
-    (void)user;
-    wlx_raylib_draw_text(text, x, y, gallery_raylib_scaled_text_style(style), user);
-}
-
-static void gallery_raylib_draw_text_slice(const char *text, size_t len, float x, float y,
-    WLX_Text_Style style, void *user) {
-    (void)user;
-    wlx_raylib_draw_text_slice(text, len, x, y, gallery_raylib_scaled_text_style(style), user);
-}
-
-static void gallery_raylib_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
-    (void)user;
-    wlx_raylib_measure_text(text, gallery_raylib_scaled_text_style(style), out_w, out_h, user);
-}
-
-static void gallery_raylib_measure_text_slice(const char *text, size_t slice_len,
-    WLX_Text_Style style, float *out_w, float *out_h, void *user) {
-    (void)user;
-    wlx_raylib_measure_text_slice(text, slice_len, gallery_raylib_scaled_text_style(style), out_w, out_h, user);
-}
-
-// The advances callback must scale identically to the slice measure: the
-// editor retains its results as caret/hit-test/fit geometry against text
-// drawn at the scaled size.
-static size_t gallery_raylib_measure_text_advances(const char *text, size_t len,
-    WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
-    float *out_advances, void *user) {
-    (void)user;
-    return wlx_raylib_measure_text_advances(text, len, gallery_raylib_scaled_text_style(style),
-        unit_ends, unit_count, out_advances, user);
-}
-
-// Every text callback the raylib adapter installs is wrapped here; the core
-// prefers draw_text_slice over draw_text, so an unwrapped draw path would render
-// at nominal size against a layout measured at the scaled size.
-static void gallery_raylib_install_text_scale(WLX_Context *ctx) {
-    ctx->backend.draw_text = gallery_raylib_draw_text;
-    ctx->backend.draw_text_slice = gallery_raylib_draw_text_slice;
-    ctx->backend.measure_text = gallery_raylib_measure_text;
-    ctx->backend.measure_text_slice = gallery_raylib_measure_text_slice;
-    ctx->backend.measure_text_advances = gallery_raylib_measure_text_advances;
 }
 
 static void gallery_icon_atlas_create(WLX_Context *ctx) {
@@ -4163,7 +4123,7 @@ static bool gallery_platform_init(Gallery_State *gs) {
     if (!g_raylib_ctx) return false;
     memset(g_raylib_ctx, 0, sizeof(*g_raylib_ctx));
     wlx_context_init_raylib(g_raylib_ctx);
-    gallery_raylib_install_text_scale(g_raylib_ctx);
+    wlx_set_style_transform(g_raylib_ctx, gallery_raylib_scaled_text_style, NULL);
 
     gallery_icon_atlas_create(g_raylib_ctx);
 

@@ -679,6 +679,15 @@ typedef struct {
 
 WLXDEF WLX_Backend wlx_backend_from_v1(const WLX_Backend_V1 *v1);
 
+// Context-level style transform: the one place an application reshapes
+// text styles (a font-size scale for one backend, a face substitution).
+// The core applies it to the WLX_Text_Style immediately before every text
+// callback - draw, measure and advances alike - and nowhere else, so
+// widget options, the command buffer and retained geometry hold nominal
+// styles while the backend sees only transformed ones. The function must
+// be pure in (style, user) and return a style the backend can render.
+typedef WLX_Text_Style (*WLX_Style_Transform_Fn)(WLX_Text_Style style, void *user);
+
 // ============================================================================
 // Public enums
 // ============================================================================
@@ -1457,6 +1466,7 @@ typedef struct {
     float band_w;
     float line_h;
     bool wrap;
+    uint32_t transform_generation;  // ctx->style_transform_generation the entries were measured under
 } WLX_Text_Geom_Env;
 
 // Per-editor retained geometry store: a bounded, LRU-evicted set of line
@@ -1878,6 +1888,12 @@ typedef struct WLX_Menu_Frame WLX_Menu_Frame;
 typedef struct WLX_Context {
     WLX_Rect rect;
     WLX_Backend backend;
+    // Style transform (wlx_set_style_transform); NULL = identity. The
+    // generation counts every set so retained text geometry measured
+    // under an earlier transform is dropped.
+    WLX_Style_Transform_Fn style_transform;
+    void    *style_transform_user;
+    uint32_t style_transform_generation;
     WLX_Input_State input;
 
     // Frame delta seconds, sampled from backend.get_frame_time exactly once
@@ -2276,6 +2292,13 @@ WLXDEF void wlx_context_destroy(WLX_Context *ctx);
 // because only provably-invisible commands are dropped. Immediate mode is
 // unaffected (it relies on the backend scissor).
 WLXDEF void wlx_set_cull_offscreen(WLX_Context *ctx, bool enabled);
+
+// Install (or clear, with NULL) the context's style transform. Every call
+// counts as a measurement-environment change: retained text geometry
+// measured under the previous transform is rebuilt. Change the transform's
+// behaviour only through this call; mutating `user` behind it leaves
+// retained geometry stale.
+WLXDEF void wlx_set_style_transform(WLX_Context *ctx, WLX_Style_Transform_Fn fn, void *user);
 
 #ifdef WLX_PERF
 WLXDEF void wlx_perf_set_timer(WLX_Context *ctx, WLX_Perf_Timestamp_Fn timestamp_fn, void *user);
@@ -4640,11 +4663,19 @@ static inline void wlx_cstr_tmp_end(WLX_CStr_Tmp *t) {
 // Private: measure a byte span (text, len).
 // Prefers measure_text_slice when available; falls back to the legacy
 // measure_text callback via a temporary null-terminated copy.
+// The style a text callback receives: the context's style transform
+// applied to the nominal style, at the backend boundary only.
+static inline WLX_Text_Style wlx_style_at_boundary(const WLX_Context *ctx, WLX_Text_Style style) {
+    return ctx->style_transform != NULL
+        ? ctx->style_transform(style, ctx->style_transform_user) : style;
+}
+
 // NULL text is normalized to an empty string.
 static inline void wlx_span_measure_text(WLX_Context *ctx,
         const char *text, size_t len,
         WLX_Text_Style style, float *out_w, float *out_h) {
     if (text == NULL) { text = ""; len = 0; }
+    style = wlx_style_at_boundary(ctx, style);
 
     if (ctx->backend.measure_text_slice != NULL) {
         ctx->backend.measure_text_slice(text, len, style, out_w, out_h, ctx->backend.user);
@@ -4668,6 +4699,7 @@ static inline void wlx_span_measure_text(WLX_Context *ctx,
 static inline void wlx_draw_text_span_immediate(WLX_Context *ctx,
         const char *text, size_t len, float x, float y, WLX_Text_Style style) {
     if (text == NULL) { text = ""; len = 0; }
+    style = wlx_style_at_boundary(ctx, style);
 
     if (ctx->backend.draw_text_slice != NULL) {
         ctx->backend.draw_text_slice(text, len, x, y, style, ctx->backend.user);
@@ -6479,14 +6511,17 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
-        case WLX_CMD_TEXT:
+        case WLX_CMD_TEXT: {
             WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
+            // The recorded style is nominal; the transform applies here, at
+            // the boundary, exactly as for the measure that placed it.
+            WLX_Text_Style style = wlx_style_at_boundary(ctx, c->data.text.style);
             if (ctx->backend.draw_text_slice != NULL) {
                 ctx->backend.draw_text_slice(
                     (const char *)&wlx_pool_scratch(ctx)[c->data.text.text_off],
                     c->data.text.text_len,
                     c->data.text.x + dx, c->data.text.y + dy,
-                    c->data.text.style, ctx->backend.user);
+                    style, ctx->backend.user);
             } else {
                 // Legacy draw_text expects NUL-terminated input; the recorded
                 // scratch span carries only `text_len` bytes so synthesise a
@@ -6501,11 +6536,12 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
                 }
                 ctx->backend.draw_text(cstr,
                     c->data.text.x + dx, c->data.text.y + dy,
-                    c->data.text.style, ctx->backend.user);
+                    style, ctx->backend.user);
                 wlx_cstr_tmp_end(&tmp);
             }
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
+        }
 
         case WLX_CMD_TEXTURE:
             WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
@@ -7864,6 +7900,13 @@ WLXDEF float wlx_get_scroll_panel_offset(WLX_Context *ctx) {
 WLXDEF WLX_Rect wlx_last_rect(WLX_Context *ctx)
 {
     return ctx->last_widget_rect;
+}
+
+WLXDEF void wlx_set_style_transform(WLX_Context *ctx, WLX_Style_Transform_Fn fn, void *user) {
+    assert(ctx != NULL);
+    ctx->style_transform = fn;
+    ctx->style_transform_user = user;
+    ctx->style_transform_generation++;
 }
 
 WLXDEF void wlx_set_cull_offscreen(WLX_Context *ctx, bool enabled) {
@@ -9247,7 +9290,7 @@ static size_t wlx_text_measure_advances_batch(const WLX_Text_Measure_Args *args,
     WLX_Context *ctx = args->ctx;
     const char *text = args->text;
     size_t length = args->length;
-    WLX_Text_Style style = args->style;
+    WLX_Text_Style style = wlx_style_at_boundary(ctx, args->style);
     float tab_advance = args->tab_advance;
     if (ctx->backend.measure_text_advances == NULL || text == NULL) return 0;
 
@@ -9420,7 +9463,8 @@ static bool wlx_text_geom_env_equal(const WLX_Text_Geom_Env *a,
     return a->font == b->font && a->font_size == b->font_size
         && a->spacing == b->spacing && a->tab_advance == b->tab_advance
         && a->band_w == b->band_w && a->line_h == b->line_h
-        && a->wrap == b->wrap;
+        && a->wrap == b->wrap
+        && a->transform_generation == b->transform_generation;
 }
 
 // Compare the measurement environment and clear the store when any part of
