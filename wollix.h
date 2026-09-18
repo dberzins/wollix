@@ -2654,10 +2654,19 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
 // ============================================================================
 
 // See https://x.com/vkrajacic/status/1749816169736073295 for more info on how to use such macros.
+//
+// Two alignment fields sit on most widgets and name what they align:
+//   - `slot_align` places the widget rect inside its layout slot (used when
+//     `width` / `height` make the rect smaller than the slot);
+//   - `content_align` (WLX_TEXT_TYPOGRAPHY_FIELDS) places the text or image
+//     content inside the widget rect.
+// They pair with `padding` (the slot inset) and `content_padding` (the
+// content inset). `widget_align` and `align` are the pre-0.9 names: same
+// storage, removed in the first minor release after 0.9.
 #define WLX_WIDGET_SIZING_FIELDS \
-    WLX_Align widget_align; \
-    float width;      /* -1 use parent width  */ \
-    float height;     /* -1 use parent height */ \
+    union { WLX_Align slot_align; WLX_Align widget_align; /* deprecated: use slot_align */ }; \
+    float width;      /* WLX_UNSET: use parent width  */ \
+    float height;     /* WLX_UNSET: use parent height */ \
     float min_width;  /* 0 = unconstrained */ \
     float min_height; /* 0 = unconstrained */ \
     float max_width;  /* 0 = unconstrained */ \
@@ -2665,11 +2674,11 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
     float opacity       /* <0 = unset (sentinel), 0.0-1.0 = explicit */
 
 #define WLX_WIDGET_SIZING_DEFAULTS \
-    .widget_align = WLX_LEFT, .width = WLX_UNSET, .height = WLX_UNSET, \
+    .slot_align = WLX_LEFT, .width = WLX_UNSET, .height = WLX_UNSET, \
     .min_width = 0, .min_height = 0, .max_width = 0, .max_height = 0, \
     .opacity = WLX_UNSET
 #define WLX_WIDGET_SIZING_COPY(src) \
-    .widget_align = (src).widget_align, .width = (src).width, .height = (src).height, \
+    .slot_align = (src).slot_align, .width = (src).width, .height = (src).height, \
     .min_width = (src).min_width, .min_height = (src).min_height, \
     .max_width = (src).max_width, .max_height = (src).max_height, \
     .opacity = (src).opacity
@@ -2689,14 +2698,14 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
 #define WLX_TEXT_TYPOGRAPHY_FIELDS \
     WLX_Font font; \
     int font_size; \
-    WLX_Align align; \
+    union { WLX_Align content_align; WLX_Align align; /* deprecated: use content_align */ }; \
     int spacing
 
 #define WLX_TEXT_TYPOGRAPHY_DEFAULTS \
-    .font = WLX_FONT_DEFAULT, .font_size = 0, .align = WLX_LEFT, .spacing = 0
+    .font = WLX_FONT_DEFAULT, .font_size = 0, .content_align = WLX_LEFT, .spacing = 0
 #define WLX_TEXT_TYPOGRAPHY_COPY(src) \
     .font = (src).font, .font_size = (src).font_size, \
-    .align = (src).align, .spacing = (src).spacing
+    .content_align = (src).content_align, .spacing = (src).spacing
 
 // Paragraph-wrap toggle: separated from WLX_TEXT_TYPOGRAPHY_FIELDS so widgets
 // can opt in independently. Embed alongside the typography macro when the
@@ -3521,7 +3530,7 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
 // before the caller's options so any of them can still be overridden.
 #define wlx_textarea(ctx, label, buffer, buffer_size, ...) \
     wlx_inputbox_impl((ctx), (label), (buffer), (buffer_size), \
-        wlx_default_inputbox_opt(.multiline = true, .align = WLX_TOP_LEFT, __VA_ARGS__), __FILE__, __LINE__)
+        wlx_default_inputbox_opt(.multiline = true, .content_align = WLX_TOP_LEFT, __VA_ARGS__), __FILE__, __LINE__)
 
 typedef struct {
     // Placement
@@ -3663,7 +3672,10 @@ typedef struct {
     WLX_WIDGET_SIZING_FIELDS;
 
     WLX_Image_Scale scale;   // default WLX_IMAGE_SCALE_STRETCH
-    WLX_Align       align;   // default WLX_CENTER (positions/crops the image inside the widget rect)
+    // Positions/crops the image inside the widget rect; default WLX_CENTER.
+    // `align` is the pre-0.9 name (same storage, removed in the first minor
+    // after 0.9).
+    union { WLX_Align content_align; WLX_Align align; /* deprecated: use content_align */ };
     WLX_Color       tint;    // {0} -> WLX_WHITE
     WLX_Rect        src;     // src.w <= 0 -> full texture
 
@@ -3675,7 +3687,7 @@ typedef struct {
         WLX_LAYOUT_SLOT_DEFAULTS, \
         WLX_WIDGET_SIZING_DEFAULTS, \
         .scale = WLX_IMAGE_SCALE_STRETCH, \
-        .align = WLX_CENTER, \
+        .content_align = WLX_CENTER, \
         .tint  = {0}, \
         .src   = {0}, \
         __VA_ARGS__ \
@@ -4999,7 +5011,7 @@ typedef struct {
         .width = (opt).width, .height = (opt).height, \
         .min_w = (opt).min_width, .min_h = (opt).min_height, \
         .max_w = (opt).max_width, .max_h = (opt).max_height, \
-        .align = (opt).widget_align, .overflow = (opt).overflow, \
+        .align = (opt).slot_align, .overflow = (opt).overflow, \
     }
 
 // Aggregated description of a child's contribution to its parent layout's
@@ -11591,7 +11603,7 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
         .image_size      = opt.image_size,
         .image_text_gap  = opt.image_text_gap,
         .font_size       = opt.font_size,
-        .align           = opt.align,
+        .align           = opt.content_align,
         .wrap            = opt.wrap,
         .vmetric         = opt.vertical_metric,
     });
@@ -11963,7 +11975,7 @@ static WLX_Interaction wlx_button_face(WLX_Context *ctx,
         .image_size      = opt->image_size,
         .image_text_gap  = opt->image_text_gap,
         .font_size       = opt->font_size,
-        .align           = opt->align,
+        .align           = opt->content_align,
         .wrap            = opt->wrap,
         .vmetric         = WLX_VMETRIC_LINE_HEIGHT,
     });
@@ -12086,7 +12098,7 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
     float checkbox_size = (content_rect.h > opt.font_size) ? opt.font_size : content_rect.h * WLX_CHECKBOX_SIZE_RATIO;
     WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing };
     WLX_Glyph_Row row = wlx_layout_glyph_row(ctx, content_rect, checkbox_size, checkbox_size,
-        text, text_len, ts, opt.align, true, false);
+        text, text_len, ts, opt.content_align, true, false);
     WLX_Rect hit_rect = (opt.full_slot_hit) ? wr : row.block;
 
     WLX_Interaction inter = wlx_get_interaction_for(
@@ -13386,7 +13398,7 @@ static void wlx_inputbox_mouse_auto_scroll(void *user, float over_x, float over_
 }
 
 // Per-frame band and display-text resolve: the text band placed by the
-// vertical component of opt.align (inset by the caller's icon band), and
+// vertical component of opt.content_align (inset by the caller's icon band), and
 // the password mask.
 typedef struct {
     WLX_Rect text_rect;     // text band inside the field interior
@@ -13407,7 +13419,7 @@ static WLX_Inputbox_Band wlx_inputbox_resolve_band(WLX_Context *ctx,
     // than the line gets clipped by the fitted-text scissor (cropped
     // descenders). The band is at least one line tall so a single line is
     // never clipped, and it is placed within the box interior by the
-    // vertical component of opt.align: WLX_LEFT (default) centers, the
+    // vertical component of opt.content_align: WLX_LEFT (default) centers, the
     // WLX_TOP_* family top-anchors (for tall multi-line note fields), and
     // the WLX_BOTTOM_* family bottom-anchors.
     float line_h = wlx_text_line_height(ctx, ts, NULL);
@@ -13418,7 +13430,7 @@ static WLX_Inputbox_Band wlx_inputbox_resolve_band(WLX_Context *ctx,
 
     float band_slack = interior_h - text_h;
     float band_off;
-    switch (opt->align) {
+    switch (opt->content_align) {
         case WLX_TOP: case WLX_TOP_LEFT: case WLX_TOP_CENTER: case WLX_TOP_RIGHT:
             band_off = 0.0f; break;
         case WLX_BOTTOM: case WLX_BOTTOM_LEFT: case WLX_BOTTOM_CENTER: case WLX_BOTTOM_RIGHT:
@@ -13528,7 +13540,7 @@ static WLX_Inputbox_Lines wlx_inputbox_build_lines(WLX_Context *ctx,
     }
     if (lines != NULL) {
         wlx_text_prepare_lines_slice(ctx, probe_rect, disp_text, disp_len, ts,
-            (WLX_Text_Prepare_Opt){ .align = opt->align, .wrap = opt->wrap,
+            (WLX_Text_Prepare_Opt){ .align = opt->content_align, .wrap = opt->wrap,
                                     .text_unit_cap = build_unit_cap },
             lines, build_line_cap, &line_array);
     }
@@ -13551,7 +13563,7 @@ static WLX_Inputbox_Lines wlx_inputbox_build_lines(WLX_Context *ctx,
     }
     if (sb_visible != predict_sb && lines != NULL) {
         wlx_text_prepare_lines_slice(ctx, text_rect, disp_text, disp_len, ts,
-            (WLX_Text_Prepare_Opt){ .align = opt->align, .wrap = opt->wrap,
+            (WLX_Text_Prepare_Opt){ .align = opt->content_align, .wrap = opt->wrap,
                                     .text_unit_cap = build_unit_cap },
             lines, build_line_cap, &line_array);
         line_count = line_array.line_count;
@@ -13585,7 +13597,7 @@ static WLX_Inputbox_Lines wlx_inputbox_build_lines(WLX_Context *ctx,
 
     if (max_scroll > 0.0f) {
         WLX_Rect virt_rect = { text_rect.x, text_rect.y - state->scroll_y, text_rect.w, content_h };
-        wlx_text_align_lines(virt_rect, opt->align, line_array.line_h,
+        wlx_text_align_lines(virt_rect, opt->content_align, line_array.line_h,
             WLX_VMETRIC_LINE_HEIGHT, ts.font_size, lines, line_count);
     }
 
@@ -13737,7 +13749,7 @@ static void wlx_inputbox_caret_resolve(WLX_Context *ctx, const WLX_Inputbox_Opt 
     // empty run would start under this alignment.
     if (inter.focused) {
         if (disp_len == 0) {
-            WLX_Rect aligned = wlx_get_align_rect(text_rect, 0.0f, il->line_array.line_h, opt->align);
+            WLX_Rect aligned = wlx_get_align_rect(text_rect, 0.0f, il->line_array.line_h, opt->content_align);
             cursor_x = aligned.x;
             cursor_y = aligned.y;
         } else {
@@ -13893,13 +13905,13 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
     WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing };
     WLX_Text_Field_Chrome chrome = WLX_TEXT_FIELD_CHROME(opt);
     WLX_Text_Field_Frame field = wlx_text_field_frame(ctx, wr, rp, label, ts,
-        opt.align, opt.wrap, inter.hover, inter.focused, inter.disabled, &chrome);
+        opt.content_align, opt.wrap, inter.hover, inter.focused, inter.disabled, &chrome);
     WLX_Rect input_rect = field.input_rect;
 
     // Reserve an interior band for an optional leading/trailing icon and draw
     // the glyph centered vertically within the field interior. The band insets
     // the text and caret below so they never overlap the icon. Centering is on
-    // the field interior, independent of opt.align - a glyph is not text and
+    // the field interior, independent of opt.content_align - a glyph is not text and
     // must not follow a multi-line text band. icon_band stays 0 when no texture
     // is set, so a text-only field keeps its original geometry exactly.
     float icon_band = 0.0f;
@@ -14370,7 +14382,7 @@ WLXDEF void wlx_image_impl(WLX_Context *ctx, WLX_Texture texture, WLX_Image_Opt 
     }
 
     WLX_Rect dst;
-    wlx_resolve_image_fit(wr, s, opt.scale, opt.align, &s, &dst);
+    wlx_resolve_image_fit(wr, s, opt.scale, opt.content_align, &s, &dst);
 
     assert(s.x >= 0.0f && s.y >= 0.0f
            && s.x + s.w <= (float)texture.width  + 0.5f
@@ -14431,7 +14443,7 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
     WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size,
                            .color = opt.front_color, .spacing = opt.spacing };
     WLX_Glyph_Row row = wlx_layout_glyph_row(ctx, content_rect, track_w, track_h,
-        label, label_len, ts, opt.align, false, true);
+        label, label_len, ts, opt.content_align, false, true);
     WLX_Rect track_rect = row.glyph;
 
     int segs = opt.rounded_segments;
@@ -14540,7 +14552,7 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
     WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size,
                            .color = opt.front_color, .spacing = opt.spacing };
     WLX_Glyph_Row row = wlx_layout_glyph_row(ctx, content_rect, circle_size, circle_size,
-        label, label_len, ts, opt.align, false, true);
+        label, label_len, ts, opt.content_align, false, true);
 
     WLX_Interaction inter = wlx_get_interaction_for(
         ctx, wr,
@@ -14622,7 +14634,7 @@ static inline void wlx_scroll_panel_resolve_rect(
         opt->padding_top, opt->padding_right, opt->padding_bottom, opt->padding_left);
     *out_widget = wlx_resolve_widget_rect(*out_cell, opt->width, opt->height,
         opt->min_width, opt->min_height, opt->max_width, opt->max_height,
-        opt->widget_align, opt->overflow);
+        opt->slot_align, opt->overflow);
 }
 
 // Helper: contribute the scroll panel's viewport height - and its explicit
@@ -15445,7 +15457,7 @@ static void wlx_resolve_opt_submenu(const WLX_Menu_Frame *parent, WLX_Menu_Opt *
     if (opt->font == WLX_FONT_DEFAULT) opt->font = ps->font;
     if (opt->font_size <= 0)           opt->font_size = ps->font_size;
     if (opt->spacing == 0)             opt->spacing = ps->spacing;
-    if (opt->align == WLX_LEFT)        opt->align = ps->align;
+    if (opt->content_align == WLX_LEFT) opt->content_align = ps->content_align;
 
     if (wlx_color_is_zero(opt->front_color))  opt->front_color = ps->front_color;
     if (wlx_color_is_zero(opt->back_color))   opt->back_color = ps->back_color;
@@ -15780,7 +15792,7 @@ WLXDEF void wlx_panel_begin_impl(WLX_Context *ctx, WLX_Panel_Opt opt,
             wlx_default_label_opt(
                 .font_size = opt.title_font_size,
                 .height = opt.title_height,
-                .align = opt.title_align,
+                .content_align = opt.title_align,
                 .show_background = true,
                 .back_color = opt.title_back_color),
             file, line);

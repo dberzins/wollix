@@ -363,6 +363,60 @@ TEST(tooltip_content_padding_alias) {
 }
 
 // ============================================================================
+// Align aliases: .content_align / .align, .slot_align / .widget_align
+// ============================================================================
+
+// The renamed fields share storage with their pre-0.9 names (anonymous
+// unions), so old and new spellings place identically.
+TEST(align_aliases_share_storage) {
+    ASSERT_TRUE(offsetof(WLX_Label_Opt, align) == offsetof(WLX_Label_Opt, content_align));
+    ASSERT_TRUE(offsetof(WLX_Label_Opt, widget_align) == offsetof(WLX_Label_Opt, slot_align));
+    ASSERT_TRUE(offsetof(WLX_Button_Opt, align) == offsetof(WLX_Button_Opt, content_align));
+    ASSERT_TRUE(offsetof(WLX_Image_Opt, align) == offsetof(WLX_Image_Opt, content_align));
+    ASSERT_TRUE(offsetof(WLX_Editor_Opt, align) == offsetof(WLX_Editor_Opt, content_align));
+    ASSERT_TRUE(offsetof(WLX_Editor_Opt, widget_align) == offsetof(WLX_Editor_Opt, slot_align));
+
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend.draw_text = sentinel_rec_text;
+    ctx.backend.draw_rect = sentinel_rec_rect;
+
+    float x_new, x_old;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
+    wlx_label(&ctx, "right", .content_align = WLX_RIGHT);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    x_new = _sentinel_last_text_x;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
+    wlx_label(&ctx, "right", .align = WLX_RIGHT);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    x_old = _sentinel_last_text_x;
+    ASSERT_EQ_F(x_new, x_old, 0.0001f);
+    ASSERT_TRUE(x_new > 200.0f);
+
+    WLX_Rect r_new, r_old;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
+    wlx_button(&ctx, "b", .slot_align = WLX_CENTER, .width = 50);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    r_new = _sentinel_last_rect;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
+    wlx_button(&ctx, "b", .widget_align = WLX_CENTER, .width = 50);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    r_old = _sentinel_last_rect;
+    ASSERT_EQ_F(r_new.x, r_old.x, 0.0001f);
+    ASSERT_EQ_F(r_new.w, 50.0f, 0.0001f);
+    ASSERT_EQ_F(r_new.x, 175.0f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
@@ -378,4 +432,5 @@ SUITE(sentinel) {
     RUN_TEST(split_explicit_auto_honoured);
     RUN_TEST(content_padding_unset_equals_omission);
     RUN_TEST(tooltip_content_padding_alias);
+    RUN_TEST(align_aliases_share_storage);
 }

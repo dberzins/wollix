@@ -2203,12 +2203,12 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
             || pre_anchor != state->caret.selection_anchor;
     }
 
-    // Optional leading label, placed by the vertical component of opt.align
+    // Optional leading label, placed by the vertical component of opt.content_align
     // exactly like the inputbox's (the label never wraps).
     WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing };
     WLX_Text_Field_Chrome chrome = WLX_TEXT_FIELD_CHROME(opt);
     WLX_Text_Field_Frame field = wlx_text_field_frame(ctx, wr, rp, label, ts,
-        opt.align, false, inter.hover, inter.focused, inter.disabled, &chrome);
+        opt.content_align, false, inter.hover, inter.focused, inter.disabled, &chrome);
     WLX_Rect input_rect = field.input_rect;
 
     if (opt.font_size > 0) {
