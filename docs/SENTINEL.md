@@ -1,212 +1,108 @@
 # Sentinel Resolution
 
-How wollix decides whether an option field was explicitly set by the caller
-or should fall back to the active theme or a library default.
+How wollix decides whether an option field was set by the caller or should
+fall back to the theme, the parent, or a widget default.
 
 ---
 
 ## Background
 
-Wollix widgets use C11 designated initializers for options. Omitted fields
-are zero-filled by the compiler:
+Widgets take C11 designated initializers. Each option macro installs the
+struct's defaults first and the caller's designators override them:
 
 ```c
 wlx_button(ctx, "OK", .font_size = 24);
-// border_width, roundness, hover_brightness, etc. are all 0
+// every other field carries the default the macro installed
 ```
 
-Many widget resolve functions detect unset fields and replace them with theme
-defaults. A few public option structs use local defaulting rules instead.
-The challenge is that `0` is a valid explicit value for many fields (e.g.
-"no border", "sharp corners", "no hover effect"). Wollix uses **sentinel
-default values** hidden inside the public macros to distinguish "not set"
-from "explicitly zero."
+The challenge is that `0` is a valid explicit value for many fields ("no
+border", "sharp corners", "no hover effect"). Two rules decide, per field,
+what omission means and what `0` means. A designator follows the same rule
+in every option struct that declares it.
 
 ---
 
-## Sentinel Conventions
+## Rule Z: zero is unset
 
-Wollix uses several unset/default patterns depending on the field type and API:
+Used only where zero can never be a meaningful explicit value. The macro
+installs `0` / `{0}`; the resolver replaces it.
 
-### 1. `-1` for fields where negative is never valid
+| Field family | Unset value | Resolves to |
+|---|---|---|
+| colors (`back_color`, `border_color`, `front_color`, ...) | `{0,0,0,0}` | theme color (`wlx_color_is_zero`); transparent black is not expressible |
+| `font` | `WLX_FONT_DEFAULT` (`0`) | theme font |
+| `font_size`, `track_height`, `thumb_width`, `row_height`, `menu_width`, `max_list_height`, `title_font_size`, `title_height`, `capacity` | `0` (checked `<= 0`) | theme value or widget constant |
+| `shadow_blur`, `shadow_layers`, `glow_spread`, `glow_rings` | `0` | theme defaults (a `{0}` shadow/glow color disables the effect) |
+| `corner_radius` | `0` | pixel-radius mode off; `roundness` drives rounding |
+| `rounded_corners` | `0` | all corners |
+| `min_width`, `min_height`, `max_width`, `max_height` | `0` | unconstrained |
+| pointers and ids (`id`, `out_focused`, `interact_out`, textures) | `NULL` / `{0}` | none |
 
-Used for: `border_width`, `roundness`, `scrollbar_width`, `rounded_segments`,
-`width`, `height`, `opacity`, `content_padding` (all widgets), `ring_border_width`
-(radio), `gap` (split).
-
-The widget macro sets the default to `-1`. The resolve function uses
-`wlx_is_negative_unset()` to detect the sentinel and replaces it with the
-theme value. `0` passes through as an explicit value.
-
-```c
-// Inside the macro (hidden from callers):
-.border_width = -1
-
-// In resolve:
-if (wlx_is_negative_unset(opt->border_width)) opt->border_width = theme->border_width;
-```
-
-`wlx_is_negative_unset(float x)` returns `true` when `x < 0`. Use it in
-resolve functions to signal intent.
-
-> **Note:** The previously documented `wlx_is_unset()` alias has been removed.
-> Use `wlx_is_negative_unset()` in all new and existing resolve code.
-
-**As a caller:**
-
-```c
-wlx_label(ctx, "Hello");                    // border_width = theme default
-wlx_label(ctx, "Hello", .border_width = 0); // no border
-wlx_label(ctx, "Hello", .border_width = 2); // 2px border
-```
-
-> **`content_padding` has a second sentinel: `WLX_PADDING_USE_THEME` (`-2.0f`).** The
-> uniform `content_padding` field also accepts `WLX_PADDING_USE_THEME` to opt into the
-> theme's `padding` knob instead of defaulting to `0`. Any per-side value `>= 0` wins
-> over the uniform, and any per-side value `< 0` falls back to the resolved uniform.
-> Standard `-1` on the uniform means "resolve to 0 (no inset)" for leaf widgets, or
-> the widget's own literal default for compound widgets (`4` for split, `2` for panel,
-> `10` for inputbox).
->
-> ```c
-> wlx_button(ctx, "OK");                                      // content_padding = 0
-> wlx_button(ctx, "OK", .content_padding = 8);               // 8px all sides
-> wlx_button(ctx, "OK", .content_padding = WLX_PADDING_USE_THEME); // theme->padding
-> ```
-
-### 2. `WLX_FLOAT_UNSET` for fields where negative values are valid
-
-Used for: `hover_brightness`, `thumb_hover_brightness`,
-`scrollbar_hover_brightness`.
-
-These fields accept negative values (the light theme uses `-0.08f` to darken
-on hover), so `-1` cannot serve as the sentinel. Instead, wollix defines:
-
-```c
-#define WLX_FLOAT_UNSET (-1e30f)
-```
-
-The widget macro sets the default to `WLX_FLOAT_UNSET`. The resolve function
-uses `wlx_is_float_unset()` and replaces with the theme value. Any real
-value — positive, negative, or zero — passes through.
-
-`0.0f` is an explicit value, not a sentinel. For hover-brightness fields it
-means "apply no hover brightening or darkening," which is distinct from both
-`WLX_FLOAT_UNSET` (inherit from theme) and negative values such as `-0.08f`
-that intentionally darken on hover.
-
-```c
-// In resolve:
-if (wlx_is_float_unset(opt->hover_brightness))
-    opt->hover_brightness = theme->hover_brightness;
-```
-
-**As a caller:**
-
-```c
-wlx_slider(ctx, "Vol", &vol);                          // hover = theme default
-wlx_slider(ctx, "Vol", &vol, .hover_brightness = 0.0f); // no hover effect
-wlx_slider(ctx, "Vol", &vol, .hover_brightness = 0.2f); // custom hover
-```
-
-### 3. `<= 0` for fields where zero is never valid
-
-Used for: `font_size`, `track_height`, `thumb_width`.
-
-Zero is never a meaningful value for these fields (zero-size font, zero-width
-thumb, etc.), so the original `<= 0` sentinel is correct and unchanged.
-
-```c
-if (opt->font_size <= 0) opt->font_size = theme->font_size;
-```
-
-### 4. `wlx_color_is_zero()` for colors
-
-All `WLX_Color` fields use the all-zero color `{0, 0, 0, 0}` as sentinel.
-The resolve function detects it with `wlx_color_is_zero()` and replaces with
-the theme color.
-
-```c
-wlx_button(ctx, "OK");                              // theme colors
-wlx_button(ctx, "OK", .back_color = WLX_RGBA(255, 0, 0, 255)); // red
-```
-
-For multi-level color fallbacks (e.g. toggle/radio colors that first check a
-widget-specific theme field, then fall back to a generic field), use
-`wlx_color_or(a, b)` which returns `a` if non-zero, otherwise `b`:
-
-```c
-opt->track_color = wlx_color_or(opt->track_color,
-                       wlx_color_or(theme->toggle.track, theme->slider.track));
-```
-
-### 5. `WLX_ALIGN_NONE` as a field-specific default trigger
-
-Used for: `WLX_Panel_Opt.title_align`.
-
-`WLX_ALIGN_NONE` is normally a real alignment value meaning "use the raw rect"
-or "do not apply alignment." In a few option paths, though, the zero-valued
-enum also acts as an omitted/default trigger.
-
-For `WLX_Panel_Opt.title_align`, the default macro leaves the field at `0`
-(`WLX_ALIGN_NONE`), and `wlx_panel_begin_impl()` resolves that to
-`WLX_CENTER`:
-
-```c
-if (opt.title_align == WLX_ALIGN_NONE) opt.title_align = WLX_CENTER;
-```
-
-This is a field-specific contract, not a generic align helper. It also means
-that for `title_align`, an omitted value is not distinguishable from an
-explicit `WLX_ALIGN_NONE`.
-
-### 6. All-zero `WLX_Slot_Size` as a structural default sentinel
-
-Used for: `WLX_Split_Opt.first_size`, `second_size`, `fill_size`.
-
-`WLX_Slot_Size` is a kind/value/min/max struct rather than a plain scalar.
-Some APIs use the all-zero struct `{0}` as an omitted/default sentinel and
-detect it with `wlx_slot_size_is_zero()`.
-
-For split panels, the default macro leaves all three size fields at `{0}` and
-`wlx_split_begin_impl()` resolves them to field-specific defaults:
-
-```c
-if (wlx_slot_size_is_zero(opt.fill_size))
-    opt.fill_size = WLX_SLOT_FLEX(1);
-if (wlx_slot_size_is_zero(opt.first_size))
-    opt.first_size = WLX_SLOT_PX(280);
-if (wlx_slot_size_is_zero(opt.second_size))
-    opt.second_size = WLX_SLOT_FLEX(1);
-```
-
-Because `WLX_SLOT_AUTO` has the same all-zero representation, these split
-fields cannot distinguish an omitted value from an explicit `WLX_SLOT_AUTO`.
-This is a structural default contract, not theme inheritance.
+For multi-level color fallbacks use `wlx_color_or(a, b)`: `a` if non-zero,
+otherwise `b`.
 
 ---
 
-## Choosing the right sentinel helper
+## Rule U: `WLX_UNSET` is unset
 
-| Situation | Helper to use |
-|-----------|--------------|
-| Field uses `-1` sentinel; negative values are never meaningful (border_width, roundness, opacity, disabled_opacity, content_padding, scrollbar_width, ...) | `wlx_is_negative_unset(x)` |
-| Field uses `WLX_FLOAT_UNSET` sentinel; negative values are legitimate (hover_brightness, thumb_hover_brightness, scrollbar_hover_brightness, disabled_brightness) | `wlx_is_float_unset(x)` |
-| Field uses all-zero `WLX_Slot_Size` as an omitted/default marker in a structural option path (currently split sizes) | `wlx_slot_size_is_zero(x)` |
+Used for every numeric field where zero is a meaningful explicit value.
+The macro installs `WLX_UNSET` (`-1`, which converts to `int` and `float`
+fields alike); the resolver replaces it with the field's documented
+fallback and passes every value `>= 0` through unchanged. Writing
+`WLX_UNSET` explicitly means the same as omitting the field.
 
-`WLX_ALIGN_NONE` does not have a generic helper-based unset contract. Treat it
-as a real align mode unless a specific field documents that `WLX_ALIGN_NONE`
-also triggers a local default.
+| Field | Resolves to | Zero means |
+|---|---|---|
+| `border_width` (widgets, panel) | theme `border_width` | no border |
+| `border_width_top/right/bottom/left` | the uniform `border_width` | no border on that side |
+| `roundness`, `rounded_segments` (widgets, panel) | theme values | sharp corners / no segments |
+| `ring_border_width` (radio), `list_border_width` (dropdown, menu button) | widget-specific theme cascade | no border |
+| `scrollbar_width` | theme `scrollbar.width` | no scrollbar |
+| `opacity` | `1.0` (opaque) | fully transparent |
+| `width`, `height` | the slot's size | zero-sized |
+| `menu` `width` | 180 px | zero-width list |
+| `pos` | the next sequential slot | slot 0 |
+| `padding_top/right/bottom/left` (slot inset) | the uniform slot `padding` | no inset on that side |
+| `content_padding` (uniform) | `0` on leaf widgets; the compound widget's own default (inputbox and editor 10, split 4, panel 2, tooltip 6) | no inset |
+| `content_padding_top/right/bottom/left` | the resolved uniform | no inset on that side |
+| `image_text_gap`, `item_padding`, `delay` | widget constants | zero gap / inset / delay |
+| `hover_brightness`, `thumb_hover_brightness`, `scrollbar_hover_brightness`, theme `disabled_brightness` | theme `hover_brightness` (thumb: half of it; disabled: no shift) | no hover / disabled shift |
+
+**Signed-domain note.** Brightness shifts are the one Rule U family whose
+values may be negative (the light theme darkens on hover with `-0.08f`).
+Their domain is `-1 < b <= 1`: `-1.0f` is the sentinel and everything above
+it, negative included, is explicit. `WLX_FLOAT_UNSET` (the pre-0.9 spelling,
+a large negative float) still resolves as unset and is removed in the first
+minor release after 0.9.
+
+```c
+wlx_label(ctx, "Hello");                     // border_width = theme value
+wlx_label(ctx, "Hello", .border_width = 0);  // no border
+wlx_label(ctx, "Hello", .border_width = 2);  // 2px border
+wlx_slider(ctx, "Vol", &v, .hover_brightness = 0.0f);   // no hover effect
+wlx_slider(ctx, "Vol", &v, .hover_brightness = -0.1f);  // darken on hover
+```
 
 ---
 
-## Layout opts are different
+## Literal defaults
 
-`WLX_Layout_Opt`, `WLX_Grid_Opt`, and `WLX_Grid_Auto_Opt` do **not** go
-through resolve functions. Their `border_width`, `roundness`, and
-`rounded_segments` fields default to `0` and are used as literal values.
-`0` means no border / sharp corners — there is no theme inheritance for
-layout containers.
+Every other field has no unset state: the macro installs its documented
+value and the widget uses it as written. This covers `span` (1), `wrap`,
+`show_value`, `show_scrollbar`, `wheel_scroll_speed`, `thickness`,
+`max_value`, tooltip `offset_x` / `offset_y`, `texture_scale`,
+`image_placement`, `orient`, `vertical_metric`, `clip`, the align fields,
+panel `title_align` (`WLX_CENTER`; an explicit `WLX_ALIGN_NONE` is honoured)
+and the split sizes (`first_size = WLX_SLOT_PX(280)`, `second_size` and
+`fill_size = WLX_SLOT_FLEX(1)`; an explicit `WLX_SLOT_AUTO` is honoured).
+
+**Containers are literal on purpose.** `WLX_Layout_Opt`, `WLX_Grid_Opt`,
+`WLX_Grid_Auto_Opt` and `WLX_Slot_Style_Opt` have no theme chrome: their
+`border_width`, `roundness`, `rounded_segments` and `gap` default to `0`
+and are used as literal values, because a layout is invisible unless the
+caller decorates it. `wlx_panel_begin` is a widget with theme chrome and
+follows Rule U for the same three chrome fields; its `gap`, like every
+container gap, is literal.
 
 ```c
 wlx_layout_begin(ctx, 3, WLX_VERT, .roundness = 0.3f, .back_color = bg);
@@ -215,30 +111,27 @@ wlx_layout_begin(ctx, 3, WLX_VERT, .roundness = 0.3f, .back_color = bg);
 
 ---
 
-## Summary table
+## Request tokens
 
-| Field | Sentinel | Unset default | Zero means |
-|-------|----------|---------------|------------|
-| `border_width` | `-1` | theme value | no border |
-| `roundness` | `-1` | theme value | sharp corners |
-| `rounded_segments` | `-1` | theme value | no rounded segments |
-| `scrollbar_width` | `-1` | theme value | no scrollbar |
-| `opacity` | `-1` | `1.0` (fully opaque) | fully transparent |
-| `hover_brightness` | `WLX_FLOAT_UNSET` | theme value | no hover effect |
-| `thumb_hover_brightness` | `WLX_FLOAT_UNSET` | theme value | no hover effect |
-| `scrollbar_hover_brightness` | `WLX_FLOAT_UNSET` | theme value | no hover effect |
-| `disabled_brightness` (theme) | `WLX_FLOAT_UNSET` | no brightness shift | no shift on disabled widgets |
-| `disabled_opacity` (theme) | `-1` | no alpha multiplier (factor `1.0`) | fully transparent disabled widgets |
-| `font_size` | `<= 0` | theme value | *(never valid)* |
-| `track_height` | `<= 0` | theme value | *(never valid)* |
-| `thumb_width` | `<= 0` | theme value | *(never valid)* |
-| colors | `{0,0,0,0}` | theme color | transparent black is not representable in these fields |
-| `title_align` (`WLX_Panel_Opt`) | `WLX_ALIGN_NONE` | `WLX_CENTER` | raw/no alignment in most other paths |
-| `first_size` (`WLX_Split_Opt`) | `{0}` `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | same representation as `WLX_SLOT_AUTO` |
-| `second_size` (`WLX_Split_Opt`) | `{0}` `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | same representation as `WLX_SLOT_AUTO` |
-| `fill_size` (`WLX_Split_Opt`) | `{0}` `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | same representation as `WLX_SLOT_AUTO` |
-| `ring_border_width` (`WLX_Radio_Opt`) | `-1` | theme value | no border |
-| `gap` (`WLX_Split_Opt`) | `-1` | `0` (no gap) | *(never valid as negative)* |
-| `content_padding` (uniform) | `-1` | `0` for leaf widgets; widget-specific default for compound | `0` (no inset) |
-| `content_padding` (uniform) | `WLX_PADDING_USE_THEME` (`-2.0f`) | theme's `padding` knob | *(only -1 and >= 0 are regular values)* |
-| `content_padding_top/right/bottom/left` | `-1` | falls back to uniform `content_padding` | `0` (no inset on that side) |
+Two negative constants are explicit values that request a behaviour. They
+are not unset markers and never appear in a default macro.
+
+| Token | Where | Meaning |
+|---|---|---|
+| `WLX_PADDING_USE_THEME` (`-2.0f`) | uniform `content_padding` | resolve all still-unset sides to the theme's `padding` knob (`WLX_STYLE_CONTENT_PADDING` by default) |
+| `WLX_SCROLL_AUTO_HEIGHT` (`-1.0f`) | the `content_height` argument of `wlx_scroll_panel_begin` | measure the content during the frame |
+
+---
+
+## Resolver helpers
+
+| Situation | Helper |
+|---|---|
+| Rule U field with a non-negative domain (`border_width`, `roundness`, `opacity`, `content_padding`, `scrollbar_width`, ...) | `wlx_is_negative_unset(x)` (`x < 0`) |
+| Rule U field with a signed domain (the four brightness fields) | `wlx_is_float_unset(x)` (`x <= -1.0f`) |
+| Rule Z color | `wlx_color_is_zero(c)`, `wlx_color_or(a, b)` |
+| Content padding with a widget default | `WLX_RESOLVE_CONTENT_PADDING_EX(ctx, opt, widget_default)`; leaf widgets use `WLX_RESOLVE_CONTENT_PADDING(ctx, opt)` |
+
+Callers who need a struct's defaults as a value (to assign fields instead
+of writing designators) take `wlx_<widget>_opt_defaults()`, which returns
+exactly what the macro installs.

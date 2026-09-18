@@ -23,7 +23,7 @@ are documented once here.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `pos` | `int` | `-1` | Target slot index in the parent layout. `-1` = next sequential slot |
+| `pos` | `int` | `WLX_UNSET` | Target slot index in the parent layout. unset = next sequential slot |
 | `span` | `size_t` | `1` | Number of consecutive slots to occupy |
 | `overflow` | `bool` | `false` | Allow the widget rect to exceed slot bounds using explicit width/height |
 | `padding` | `float` | `0` | Uniform inset applied to the slot before the widget uses it |
@@ -33,13 +33,13 @@ are documented once here.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `widget_align` | `WLX_Align` | `WLX_LEFT` | Where to place the widget inside its slot when it is smaller than the slot |
-| `width` | `float` | `-1` | Widget width in pixels. `-1` = fill parent width |
-| `height` | `float` | `-1` | Widget height in pixels. `-1` = fill parent height |
+| `width` | `float` | `WLX_UNSET` | Widget width in pixels. unset = fill parent width |
+| `height` | `float` | `WLX_UNSET` | Widget height in pixels. unset = fill parent height |
 | `min_width` | `float` | `0` | Minimum width constraint. `0` = unconstrained |
 | `min_height` | `float` | `0` | Minimum height constraint. `0` = unconstrained |
 | `max_width` | `float` | `0` | Maximum width constraint. `0` = unconstrained |
 | `max_height` | `float` | `0` | Maximum height constraint. `0` = unconstrained |
-| `opacity` | `float` | `-1` | Opacity multiplier. Negative = inherit theme and opacity stack; `0.0`–`1.0` = explicit alpha |
+| `opacity` | `float` | `WLX_UNSET` | Opacity multiplier. Negative = inherit theme and opacity stack; `0.0`–`1.0` = explicit alpha |
 
 ### State fields (`WLX_WIDGET_STATE_FIELDS`)
 
@@ -98,13 +98,13 @@ directly even though it does not use the macro.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `border_color` | `WLX_Color` | `{0}` | Border color. `{0}` = theme or widget-specific border fallback |
-| `border_width` | `float` | `-1` | Border width. `-1` = theme/widget default, `0` = no border |
-| `roundness` | `float` | `-1` | Corner roundness (fraction of the shorter side). `-1` = theme default |
+| `border_width` | `float` | `WLX_UNSET` | Border width. unset = theme/widget default, `0` = no border |
+| `roundness` | `float` | `WLX_UNSET` | Corner roundness (fraction of the shorter side). unset = theme default |
 | `corner_radius` | `float` | `0` | Absolute corner radius in **pixels**. `> 0` overrides `roundness`; `0` = unset |
-| `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
+| `rounded_segments` | `int` | `WLX_UNSET` | Segment count for rounded drawing. unset = theme default |
 | `rounded_corners` | `int` | `0` | `WLX_CORNERS_*` mask selecting which corners use the radius. `0` = all four |
 | `border_color_top` / `_right` / `_bottom` / `_left` | `WLX_Color` | `{0}` | Per-side border color. `{0}` inherits `border_color` |
-| `border_width_top` / `_right` / `_bottom` / `_left` | `float` | `-1` | Per-side border width. `< 0` inherits `border_width`; `0` switches that edge off |
+| `border_width_top` / `_right` / `_bottom` / `_left` | `float` | `WLX_UNSET` | Per-side border width. `< 0` inherits `border_width`; `0` switches that edge off |
 
 #### Absolute corner radius (`corner_radius`)
 
@@ -119,7 +119,7 @@ corner.
 Precedence and sentinel:
 
 - `corner_radius > 0` -> pixel mode: the resolved fraction replaces `roundness`
-  (and the widget `-1` theme-roundness fallback) for that element.
+  (and the widget `WLX_UNSET` theme-roundness fallback) for that element.
 - `corner_radius == 0` (default) -> unset: current behavior exactly; `roundness`
   (or its theme fallback) drives rounding. A literal sharp corner stays
   `roundness = 0`; `0` here only gates the pixel feature off.
@@ -269,44 +269,61 @@ wlx_layout_end(ctx);
 
 ### Content padding (`WLX_CONTENT_PADDING_FIELDS`)
 
-Used by `label`, `button`, `split`, `panel`, and `inputbox` to inset the
+Used by `label`, `button`, `tooltip`, `split`, `panel`, `inputbox` and `editor` to inset the
 widget's *inner content* independently from outer slot margin. Chrome
 (background, border) and the interaction hit rect always stay at the full
 widget rect.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `content_padding` | `float` | varies | Uniform inner inset. `-1` resolves to `0` for leaf widgets; compound widgets use their own literal default (see table below). Pass `WLX_PADDING_USE_THEME` to opt into the theme's `padding` knob. |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset. Unset resolves to `0` for leaf widgets and to the compound widget's own default (see table below). Pass `WLX_PADDING_USE_THEME` to opt into the theme's `padding` knob. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. `< 0` falls back to `content_padding`. |
 
 Per-widget uniform defaults:
 
 | Widget | `content_padding` default | Resolved to |
 |--------|--------------------------|-------------|
-| `wlx_label` | `-1` | `0` (no inset) |
-| `wlx_button` | `-1` | `0` (no inset) |
-| `wlx_checkbox` | `-1` | `0` (no inset) |
-| `wlx_radio` | `-1` | `0` (no inset) |
-| `wlx_toggle` | `-1` | `0` (no inset) |
-| `wlx_slider` | `-1` | `0` (no inset) |
-| `wlx_progress` | `-1` | `0` (no inset) |
-| `wlx_split_begin` | `4` | `4 px` all sides |
-| `wlx_panel_begin` | `2` | `2 px` all sides |
-| `wlx_inputbox` | `10` | `10 px` outer gutter (all sides) |
+| `wlx_label` | `WLX_UNSET` | `0` (no inset) |
+| `wlx_button` | `WLX_UNSET` | `0` (no inset) |
+| `wlx_checkbox` | `WLX_UNSET` | `0` (no inset) |
+| `wlx_radio` | `WLX_UNSET` | `0` (no inset) |
+| `wlx_toggle` | `WLX_UNSET` | `0` (no inset) |
+| `wlx_slider` | `WLX_UNSET` | `0` (no inset) |
+| `wlx_progress` | `WLX_UNSET` | `0` (no inset) |
+| `wlx_tooltip_for` | `WLX_UNSET` | `6 px` all sides (`WLX_TOOLTIP_CONTENT_PADDING`) |
+| `wlx_split_begin` | `WLX_UNSET` | `4 px` all sides (`WLX_SPLIT_CONTENT_PADDING`) |
+| `wlx_panel_begin` | `WLX_UNSET` | `2 px` all sides (`WLX_PANEL_CONTENT_PADDING`) |
+| `wlx_inputbox`, `wlx_editor` | `WLX_UNSET` | `10 px` outer gutter (all sides, `WLX_INPUTBOX_CONTENT_PADDING`) |
 
 Resolution rules (same for every consumer):
 - A per-side value `>= 0` wins unconditionally.
 - Otherwise the side falls back to the uniform `content_padding`.
-- A uniform of `-1` (the default sentinel) resolves to `0` for leaf
-  widgets; compound widgets start from their literal default.
+- An unset uniform (`WLX_UNSET`, the default) resolves to `0` for leaf
+  widgets and to the compound widget's own default; writing `WLX_UNSET`
+  explicitly means the same as omitting the field.
 - `WLX_PADDING_USE_THEME` on the uniform (`-2.0f`) resolves all
   still-unset sides to the theme's `padding` knob
   (`WLX_STYLE_CONTENT_PADDING` by default).
 - On tight rects the resolved padding is clamped proportionally so the
   content rect never has negative dimensions.
+
+#### Defaults without designated initializers
+
+Every option struct has a by-value defaults function,
+`wlx_<widget>_opt_defaults()`, returning exactly what the widget's macro
+installs. Callers that cannot use the defaults-then-overrides macro (a
+C++ translation unit, a table-driven builder) take the defaults, assign,
+and call the `_impl` function:
+
+```c
+WLX_Label_Opt o = wlx_label_opt_defaults();
+o.font_size = 18;
+o.border_width = 0;
+wlx_label_impl(ctx, "Title", o, __FILE__, __LINE__);
+```
 
 **Inputbox-specific note:** `wlx_inputbox` uses `WLX_CONTENT_PADDING_FIELDS`
 for the outer gutter (label area, input rect position, and vertical centering).
@@ -445,7 +462,7 @@ not.
 
 | Theme field | Sentinel | Built-in presets |
 |-------------|----------|------------------|
-| `disabled_brightness` | `WLX_FLOAT_UNSET` (skip) | dark `-0.35f`, light `+0.30f`, glass `-0.25f` |
+| `disabled_brightness` | `WLX_UNSET` (skip) | dark `-0.35f`, light `+0.30f`, glass `-0.25f` |
 | `disabled_opacity` | `< 0` (skip multiply) | all presets `0.55f` |
 
 Custom themes that leave both fields at their sentinel render disabled
@@ -519,12 +536,12 @@ Mode is selected purely by the inputs — there is no separate
 | `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`. The alpha is multiplied by the opacity stack. |
 | `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Where the image sits relative to text (`LEFT`, `RIGHT`, `TOP`, `BOTTOM`). |
 | `image_size` | `float` | `0` | Reserved square size for the image. `<= 0` is automatic: derived from `font_size` for text + image, or the full label rect for image-only. |
-| `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
-| `content_padding` | `float` | `-1` | See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
-| `content_padding_top` | `float` | `-1` | Top-side override. See [Content padding](#content-padding-wlx_content_padding_fields). |
-| `content_padding_right` | `float` | `-1` | Right-side override. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
-| `content_padding_left` | `float` | `-1` | Left-side override. |
+| `image_text_gap` | `float` | `WLX_UNSET` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
+| `content_padding` | `float` | `WLX_UNSET` | See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. See [Content padding](#content-padding-wlx_content_padding_fields). |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. |
 | `style` | `WLX_Text_Style` | `{0}` | Optional aggregate typography (`font`, `font_size`, `color`, `spacing`). When `style.font_size > 0` the aggregate overrides the individual `font`, `font_size`, `spacing`, and `front_color` fields. A `style.color` of all-zero falls back to the resolved `front_color`. Setting both `style.font_size > 0` and `font_size > 0` is a misuse: `style` wins and `WLX_DEBUG` builds emit a once-per-site warning. |
 | `vertical_metric` | `WLX_Vertical_Metric` | `WLX_VMETRIC_LINE_HEIGHT` | Vertical centering basis. `WLX_VMETRIC_LINE_HEIGHT` (default) centers using the backend's reported line height. `WLX_VMETRIC_FONT_SIZE` centers using the font size (em box), which produces consistent cap-height placement across backends whose line heights differ from the font size. |
 
@@ -688,7 +705,7 @@ function or option struct.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Per-call hover brightness shift for the fill. Unset uses `theme->hover_brightness`; a negative value darkens (useful when an already-bright accent fill would not visibly brighten). |
+| `hover_brightness` | `float` | `WLX_UNSET` | Per-call hover brightness shift for the fill. Unset uses `theme->hover_brightness`; a negative value darkens (useful when an already-bright accent fill would not visibly brighten). |
 | `hover_back_color` | `WLX_Color` | `{0}` | Per-call hover fill replacement. When set, replaces `back_color` while hovered instead of using the brightness path. `{0}` = unset. |
 | `texture` | `WLX_Texture` | zero handle | Optional image content. `width <= 0` or `height <= 0` means no image. |
 | `texture_src` | `WLX_Rect` | `{0}` | Source sub-rect. `w <= 0` or `h <= 0` means full texture. |
@@ -696,12 +713,12 @@ function or option struct.
 | `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`. The alpha is multiplied by the opacity stack. |
 | `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Where the image sits relative to text (`LEFT`, `RIGHT`, `TOP`, `BOTTOM`). |
 | `image_size` | `float` | `0` | Reserved square size for the image. `<= 0` is automatic: derived from `font_size` for image+text, or full button rect for image-only. |
-| `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
-| `content_padding` | `float` | `-1` | See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
-| `content_padding_top` | `float` | `-1` | Top-side override. See [Content padding](#content-padding-wlx_content_padding_fields). |
-| `content_padding_right` | `float` | `-1` | Right-side override. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
-| `content_padding_left` | `float` | `-1` | Left-side override. |
+| `image_text_gap` | `float` | `WLX_UNSET` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
+| `content_padding` | `float` | `WLX_UNSET` | See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. See [Content padding](#content-padding-wlx_content_padding_fields). |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. |
 
 Shared placement, sizing, typography, color, and border fields also apply.
 The button always draws a filled `back_color` rectangle — hover brightens it
@@ -866,9 +883,9 @@ if (wlx_checkbox(ctx, "Dark mode", &dark_mode)) {
 |-------|------|---------|-------------|
 | `full_slot_hit` | `bool` | `true` | Use the full slot rect for hover/click interaction |
 | `border_color` | `WLX_Color` | `{0}` | Indicator border color. `{0}` = theme `checkbox.border` |
-| `border_width` | `float` | `-1` | Indicator border width. `-1` = theme `checkbox.border_width` |
-| `roundness` | `float` | `-1` | Indicator corner roundness. `-1` = theme default |
-| `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
+| `border_width` | `float` | `WLX_UNSET` | Indicator border width. unset = theme `checkbox.border_width` |
+| `roundness` | `float` | `WLX_UNSET` | Indicator corner roundness. unset = theme default |
+| `rounded_segments` | `int` | `WLX_UNSET` | Segment count for rounded drawing. unset = theme default |
 | `check_color` | `WLX_Color` | `{0}` | Checkmark color (native mode only). `{0}` = theme `checkbox.check` |
 | `tex_checked` | `WLX_Texture` | zero handle | Texture used for the checked state |
 | `tex_unchecked` | `WLX_Texture` | zero handle | Texture used for the unchecked state |
@@ -876,11 +893,11 @@ if (wlx_checkbox(ctx, "Dark mode", &dark_mode)) {
 | `tex_unchecked_src` | `WLX_Rect` | `{0}` | Source rect within `tex_unchecked`. `{0}` = full texture |
 | `tex_checked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_checked`. `{0}` = `WLX_WHITE` |
 | `tex_unchecked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_unchecked`. `{0}` = `WLX_WHITE` |
-| `content_padding` | `float` | `-1` | Uniform inner inset around the compound content (indicator + label). See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
-| `content_padding_left` | `float` | `-1` | Left-side override. |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset around the compound content (indicator + label). See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. |
 
 All shared placement, sizing, typography, and color fields also apply.
 Default `wrap` is `false` for checkbox. `.back_color` fills the indicator in
@@ -1005,14 +1022,14 @@ if (wlx_inputbox(ctx, "Name:", name, sizeof(name), .height = 40)) {
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `content_padding` | `float` | `10` | Outer gutter inset. See [Content padding](#content-padding-wlx_content_padding_fields). Default `10` applies to all sides. |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. `< 0` falls back to `content_padding`. |
 | `border_color` | `WLX_Color` | `{0}` | Border color in unfocused state. `{0}` = theme `border` |
-| `border_width` | `float` | `-1` | Border width. `-1` = theme `input.border_width`, then theme `border_width` |
-| `roundness` | `float` | `-1` | Corner roundness. `-1` = theme default |
-| `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
+| `border_width` | `float` | `WLX_UNSET` | Border width. unset = theme `input.border_width`, then theme `border_width` |
+| `roundness` | `float` | `WLX_UNSET` | Corner roundness. unset = theme default |
+| `rounded_segments` | `int` | `WLX_UNSET` | Segment count for rounded drawing. unset = theme default |
 | `border_focus_color` | `WLX_Color` | `{0}` | Border color when focused. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Blinking cursor color. `{0}` = theme `input.cursor` |
 | `selection_color` | `WLX_Color` | `{0}` | Selection highlight fill. `{0}` = theme `input.selection`, then translucent accent. |
@@ -1026,7 +1043,7 @@ if (wlx_inputbox(ctx, "Name:", name, sizeof(name), .height = 40)) {
 | `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the icon. `{0}` resolves to `WLX_WHITE`. |
 | `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Which interior edge the icon sits on. Only `LEFT` and `RIGHT` are meaningful; `TOP`/`BOTTOM` are treated as `LEFT`. |
 | `image_size` | `float` | `0` | Reserved square size for the icon. `<= 0` is automatic (derived from `font_size`, clamped to the field interior). |
-| `image_text_gap` | `float` | `-1` | Gap between the icon band and the text. `< 0` is font-derived (`font_size * 0.5`). |
+| `image_text_gap` | `float` | `WLX_UNSET` | Gap between the icon band and the text. `< 0` is font-derived (`font_size * 0.5`). |
 
 All shared placement, sizing, typography, and color fields also apply.
 Default `wrap` is `true` for inputbox, so long buffers display over multiple
@@ -1494,19 +1511,19 @@ It also omits `wrap` — all slider text is single-line.
 | `track_height` | `float` | `0` | Height of the track bar. `0` = theme default (6) |
 | `thumb_width` | `float` | `0` | Width of the thumb handle. `0` = theme default (14) |
 | `border_color` | `WLX_Color` | `{0}` | Border color for track/thumb outlines. `{0}` = theme `border` |
-| `border_width` | `float` | `-1` | Border width. `-1` = theme `border_width` |
-| `roundness` | `float` | `-1` | Corner rounding for track/fill/thumb. `-1` = theme default |
-| `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
-| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Brightness shift on track hover. Unset = theme default |
-| `thumb_hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Brightness shift on thumb hover. Unset = theme default |
+| `border_width` | `float` | `WLX_UNSET` | Border width. unset = theme `border_width` |
+| `roundness` | `float` | `WLX_UNSET` | Corner rounding for track/fill/thumb. unset = theme default |
+| `rounded_segments` | `int` | `WLX_UNSET` | Segment count for rounded drawing. unset = theme default |
+| `hover_brightness` | `float` | `WLX_UNSET` | Brightness shift on track hover. Unset = theme default |
+| `thumb_hover_brightness` | `float` | `WLX_UNSET` | Brightness shift on thumb hover. Unset = theme default |
 | `fill_inactive_brightness` | `float` | `-0.3` | Brightness offset for the filled portion of the track |
 | `min_value` | `float` | `0.0` | Minimum slider value |
 | `max_value` | `float` | `1.0` | Maximum slider value |
-| `content_padding` | `float` | `-1` | Uniform inner inset around the label / track / value region. See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
-| `content_padding_top` | `float` | `-1` | Top-side override. |
-| `content_padding_right` | `float` | `-1` | Right-side override. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
-| `content_padding_left` | `float` | `-1` | Left-side override. |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset around the label / track / value region. See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. |
 
 Shared placement and sizing fields also apply.
 
@@ -1616,11 +1633,11 @@ wlx_progress(ctx, download_progress,
 | `track_height` | `float` | `0` | Centered track height. `0` = theme/default progress height |
 | `segments` | `int` | `0` | `0` = continuous bar (default). `> 0` = discrete segmented mode drawing this many equal cells |
 | `segment_gap` | `float` | `0` | Pixel gap between cells in segmented mode. `<= 0` = theme `progress.segment_gap`, then a `2px` fallback |
-| `content_padding` | `float` | `-1` | Uniform inner inset around the track rect. See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
-| `content_padding_top` | `float` | `-1` | Top-side override. |
-| `content_padding_right` | `float` | `-1` | Right-side override. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
-| `content_padding_left` | `float` | `-1` | Left-side override. |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset around the track rect. See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. |
 
 Shared placement, sizing, and border fields also apply.
 
@@ -1707,12 +1724,12 @@ if (wlx_toggle(ctx, "Autosave", &autosave, .height = 34)) {
 | `track_color` | `WLX_Color` | `{0}` | Off-state track color. `{0}` = theme `toggle.track`, then `slider.track` |
 | `track_active_color` | `WLX_Color` | `{0}` | On-state track color. `{0}` = theme `toggle.track_active`, then `accent` |
 | `thumb_color` | `WLX_Color` | `{0}` | Thumb color. `{0}` = theme `toggle.thumb`, then `foreground` |
-| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness override. Unset = theme `hover_brightness` |
-| `content_padding` | `float` | `-1` | Uniform inner inset around the compound content (track + label). See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
-| `content_padding_top` | `float` | `-1` | Top-side override. |
-| `content_padding_right` | `float` | `-1` | Right-side override. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
-| `content_padding_left` | `float` | `-1` | Left-side override. |
+| `hover_brightness` | `float` | `WLX_UNSET` | Hover brightness override. Unset = theme `hover_brightness` |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset around the compound content (track + label). See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. |
 
 Shared placement, sizing, typography, text-color, and border fields also
 apply. Default `wrap` is `false`. `front_color` styles the label text;
@@ -1779,13 +1796,13 @@ wlx_radio(ctx, "Glass", &theme_choice, 2);
 |-------|------|---------|-------------|
 | `ring_color` | `WLX_Color` | `{0}` | Ring color. `{0}` = theme `radio.ring`, then `border` |
 | `fill_color` | `WLX_Color` | `{0}` | Selected fill color. `{0}` = theme `radio.fill`, then `accent` |
-| `ring_border_width` | `float` | `-1` | Ring outline width. `-1` = theme `radio.border_width`, then theme `border_width` |
-| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness override. Unset = theme `hover_brightness` |
-| `content_padding` | `float` | `-1` | Uniform inner inset around the compound content (ring + label). See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
-| `content_padding_top` | `float` | `-1` | Top-side override. |
-| `content_padding_right` | `float` | `-1` | Right-side override. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. |
-| `content_padding_left` | `float` | `-1` | Left-side override. |
+| `ring_border_width` | `float` | `WLX_UNSET` | Ring outline width. unset = theme `radio.border_width`, then theme `border_width` |
+| `hover_brightness` | `float` | `WLX_UNSET` | Hover brightness override. Unset = theme `hover_brightness` |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset around the compound content (ring + label). See [Content padding](#content-padding-wlx_content_padding_fields). Default resolves to `0`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. |
 
 Shared placement, sizing, typography, and text-color fields also apply.
 Default `wrap` is `false`. `front_color` styles the label text; `back_color`
@@ -1832,7 +1849,7 @@ void wlx_scroll_panel_end(WLX_Context *ctx);
 
 | Parameter | Description |
 |-----------|-------------|
-| `content_height` | Total height of the scrollable content in pixels. Use `-1` for **auto-height** mode (measured from children automatically) |
+| `content_height` | Total height of the scrollable content in pixels. Use `WLX_SCROLL_AUTO_HEIGHT` (`-1`) for **auto-height** mode (measured from children automatically) |
 
 ### Minimal example
 
@@ -1855,14 +1872,14 @@ wlx_scroll_panel_end(ctx);
 | `back_color` | `WLX_Color` | `{0}` | Panel background color. `{0}` = theme background |
 | `transparent_background` | `bool` | `false` | `true` draws no panel fill so the container behind shows through (distinct from `back_color = {0}`, which uses the theme background) |
 | `scrollbar_color` | `WLX_Color` | `{0}` | Scrollbar thumb color. `{0}` = theme `scrollbar.bar` |
-| `scrollbar_hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Brightness shift when hovering the scrollbar. Unset = theme default |
-| `scrollbar_width` | `float` | `-1` | Width of the scrollbar. `-1` = theme default |
+| `scrollbar_hover_brightness` | `float` | `WLX_UNSET` | Brightness shift when hovering the scrollbar. Unset = theme default |
+| `scrollbar_width` | `float` | `WLX_UNSET` | Width of the scrollbar. unset = theme default |
 | `wheel_scroll_speed` | `float` | `20.0` | Pixels scrolled per mouse wheel tick |
 | `show_scrollbar` | `bool` | `true` | Whether to draw the scrollbar |
 | `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = theme `border` |
-| `border_width` | `float` | `-1` | Panel border width. `-1` = theme `border_width` |
-| `roundness` | `float` | `-1` | Panel corner roundness. `-1` = theme default |
-| `rounded_segments` | `int` | `-1` | Segment count for rounded drawing. `-1` = theme default |
+| `border_width` | `float` | `WLX_UNSET` | Panel border width. unset = theme `border_width` |
+| `roundness` | `float` | `WLX_UNSET` | Panel corner roundness. unset = theme default |
+| `rounded_segments` | `int` | `WLX_UNSET` | Segment count for rounded drawing. unset = theme default |
 
 Shared placement and sizing fields also apply (no typography or text-color fields).
 When `.id` is set, that scope stays active for the full scroll-panel body
@@ -2016,10 +2033,10 @@ wlx_split_end(ctx);
 | `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width of the second (right) pane |
 | `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Outer wrapper slot size |
 | `content_padding` | `float` | `4` | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. `< 0` falls back to `content_padding`. |
 | `gap` | `float` | `0` | Space between the two panes |
 | `first_back_color` | `WLX_Color` | `{0}` | First pane background. `{0}` = theme default |
 | `second_back_color` | `WLX_Color` | `{0}` | Second pane background. `{0}` = theme default |
@@ -2132,15 +2149,15 @@ wlx_panel_end(ctx);
 | `title_back_color` | `WLX_Color` | `{0}` | Heading background color |
 | `back_color` | `WLX_Color` | `{0}` | Panel body background color. `{0}` = transparent |
 | `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = theme `border` (v0.6) |
-| `border_width` | `float` | `-1` | Border thickness in pixels. `-1` (unset) inherits theme `border_width` (v0.6); explicit `0` = borderless |
+| `border_width` | `float` | `WLX_UNSET` | Border thickness in pixels. unset inherits theme `border_width` (v0.6); explicit `0` = borderless |
 | `roundness` | `float` | `0` | Corner roundness for border/background (fraction of the shorter side). `0` = sharp |
 | `corner_radius` | `float` | `0` | Absolute corner radius in **pixels**. `> 0` overrides `roundness`; `0` = unset. See [Absolute corner radius](#absolute-corner-radius-corner_radius) |
 | `clip` | `bool` | `false` | Clip body content to panel bounds |
 | `content_padding` | `float` | `2` | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. `< 0` falls back to `content_padding`. |
 | `gap` | `float` | `0` | Gap between child widgets |
 | `capacity` | `int` | `32` | Max child widgets (excl. title). Clamped to `WLX_CONTENT_SLOTS_MAX` (32). |
 | `id` | `const char *` | `NULL` | Scope ID applied to the full panel body |
@@ -2253,7 +2270,7 @@ wlx_overlay_end(ctx);
 | `back_color` | `WLX_Color` | `{0}` | Panel fill (`{0}` = none) |
 | `border_color` / `border_width` | | `{0}` / `0` | Panel border |
 | `roundness` / `rounded_segments` | | `0` / `0` | Corner rounding |
-| `content_padding` (+ per-side) | `float` | `-1` | Body inset |
+| `content_padding` (+ per-side) | `float` | `WLX_UNSET` | Body inset |
 
 ## `wlx_dropdown`
 
@@ -2294,7 +2311,7 @@ if (wlx_dropdown(ctx, "size", &size, sizes, 4))
 | `max_list_height` | `float` | `0` | Open-list height cap. `<= 0` = `WLX_DROPDOWN_MAX_LIST_HEIGHT` (240) |
 | `list_back_color` | `WLX_Color` | `{0}` | List panel + row fill. `{0}` = theme background |
 | `list_border_color` | `WLX_Color` | `{0}` | List border. `{0}` = face border color |
-| `list_border_width` | `float` | `-1` | List border width. `-1` = face border width |
+| `list_border_width` | `float` | `WLX_UNSET` | List border width. unset = face border width |
 | `hover_brightness` / `hover_back_color` | | unset / `{0}` | Hover treatment for face and rows (as on `wlx_button`) |
 
 Shared placement, sizing, state, typography (no wrap), color, border, and
@@ -2339,12 +2356,12 @@ follows its anchor with no manual geometry (see API_REFERENCE.md).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `id` | `const char *` | `NULL` | Scope id for the tip's persistent hover-delay state |
-| `delay` | `float` | `-1` | Seconds of hover before showing. `< 0` = 0.5 |
+| `delay` | `float` | `WLX_UNSET` | Seconds of hover before showing. `< 0` = 0.5 |
 | `offset_x` / `offset_y` | `float` | `12` / `18` | Tip origin relative to the pointer |
-| `padding` | `float` | `-1` | Inner text inset. `< 0` = 6 |
+| `content_padding` (+ per-side) | `float` | `WLX_UNSET` | Inner text inset; unset = 6. `.padding` is the deprecated pre-0.9 name of the uniform field (same storage, removed in the first minor after 0.9) |
 | `front_color` / `back_color` | `WLX_Color` | `{0}` | Text / panel colors. `{0}` = theme foreground / background |
-| `border_color` / `border_width` | | `{0}` / `-1` | Panel border. Unset = theme |
-| `roundness` / `rounded_segments` | | `-1` | Corner rounding. Unset = theme |
+| `border_color` / `border_width` | | `{0}` / `WLX_UNSET` | Panel border. Unset = theme |
+| `roundness` / `rounded_segments` | | `WLX_UNSET` | Corner rounding. Unset = theme |
 
 Typography fields also apply. There are no placement or sizing fields: the
 tip sizes itself from the text.
@@ -2403,12 +2420,12 @@ if (wlx_menu_begin(ctx, &open, 200, 80)) {
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `width` | `float` | `0` | Menu width. `<= 0` = 180 |
+| `width` | `float` | `WLX_UNSET` | Menu width. Unset = 180; `0` is a zero-width list |
 | `row_height` | `float` | `0` | Item height. `<= 0` = `font_size + 12` |
-| `item_padding` | `float` | `-1` | Left/right text inset on items. `< 0` = 8 |
+| `item_padding` | `float` | `WLX_UNSET` | Left/right text inset on items. `< 0` = 8 |
 | `front_color` / `back_color` | `WLX_Color` | `{0}` | Item text / panel colors. `{0}` = theme foreground / background |
-| `border_color` / `border_width` | | `{0}` / `-1` | Panel border. Unset = theme |
-| `roundness` / `rounded_segments` | | `-1` | Corner rounding. Unset = theme |
+| `border_color` / `border_width` | | `{0}` / `WLX_UNSET` | Panel border. Unset = theme |
+| `roundness` / `rounded_segments` | | `WLX_UNSET` | Corner rounding. Unset = theme |
 | `hover_brightness` / `hover_back_color` | | unset / `{0}` | Item hover treatment |
 | `id` | `const char *` | `NULL` | Scope id (needed for loop-generated menus) |
 
@@ -2473,10 +2490,10 @@ follows its label. The list adds:
 | `id` | `const char *` | `NULL` | Scope id (needed for loop-generated menu buttons) |
 | `menu_width` | `float` | `0` | List width. `<= 0` = the face's resolved width |
 | `row_height` | `float` | `0` | Item height. `<= 0` = `font_size + 12` |
-| `item_padding` | `float` | `-1` | Item text left/right inset. `< 0` = 8 |
+| `item_padding` | `float` | `WLX_UNSET` | Item text left/right inset. `< 0` = 8 |
 | `list_back_color` | `WLX_Color` | `{0}` | List panel + item fill. `{0}` = theme background |
 | `list_border_color` | `WLX_Color` | `{0}` | List border. `{0}` = face border color |
-| `list_border_width` | `float` | `-1` | List border width. `-1` = face border width |
+| `list_border_width` | `float` | `WLX_UNSET` | List border width. unset = face border width |
 
 ## `wlx_submenu_begin`
 

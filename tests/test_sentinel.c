@@ -54,6 +54,7 @@ TEST(sentinel_explicit_zero_is_zero) {
     WLX_Rect b1 = wlx_get_slot_rect(&ctx, lb, -1, 1);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
     ASSERT_EQ_F(a1.y - a0.y, 50.0f, 0.0001f);
     ASSERT_EQ_F(b1.y - b0.y, 55.0f, 0.0001f);
 }

@@ -7,7 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (Breaking) - v0.9 coordinated API group
+
+One release, one group. Renamed fields and constants keep a deprecated
+alias of the same storage or value for **one minor version after 0.9**,
+so existing code compiles unchanged; migrate before the next minor. Default
+*meanings* cannot be aliased: each one below names its migration.
+
+- **`WLX_UNSET` is the single unset sentinel for numeric option fields.**
+  Every option field follows one of two rules, documented in SENTINEL.md:
+  zero is unset only where zero can never be a meaningful value (colors,
+  fonts, `font_size`, ...); everywhere zero is meaningful the macro installs
+  `WLX_UNSET` (`-1`) and the resolver replaces it with the theme, parent or
+  widget default. `-1` was already the value on most fields, so
+  `.width = -1` and friends keep working; `WLX_FLOAT_UNSET` (`-1e30f`) stays
+  as a deprecated alias that still resolves as unset. The brightness shifts
+  (`hover_brightness`, `thumb_hover_brightness`, `scrollbar_hover_brightness`,
+  theme `disabled_brightness`) join the same sentinel: their domain is now
+  `-1 < b <= 1`, and an explicit `-1.0f` means unset rather than a full
+  black shift. Migration: write `-0.999f` for a full darken; spell the
+  sentinel `WLX_UNSET`.
+- **Panel roundness inherits the theme.** `wlx_panel_begin` `.roundness` and
+  `.rounded_segments` were literal zeros while `.border_width` inherited
+  the theme (v0.6); all three now inherit like every widget's. The bundled
+  themes ship `roundness = 0`, so stock rendering is unchanged. Migration:
+  under a custom theme with non-zero roundness, a panel that relied on the
+  literal default passes `.roundness = 0`.
+- **Tooltip `.padding` is `.content_padding`.** `padding` is the slot inset
+  everywhere else and the tooltip's was an inner inset; the tooltip now
+  carries the shared `content_padding` field group (per-side fields
+  included) with its 6 px default. `.padding` still compiles via the
+  deprecated alias. Migration: rename the initializer.
+- **Menu `.width` follows the unset rule.** Unset resolves to 180 as before;
+  an explicit `.width = 0` is now a zero-width list instead of 180, as `0`
+  is on every other `width`. Migration: drop an explicit `0`.
+- **Panel `.title_align = WLX_ALIGN_NONE` is honoured.** The centred default
+  moved into the macro; an explicit `WLX_ALIGN_NONE` now places the title
+  at the raw rect origin instead of being resolved to `WLX_CENTER`.
+  Migration: write `WLX_CENTER` if `WLX_ALIGN_NONE` was meant as "default".
+- **Split sizes `WLX_SLOT_AUTO` are honoured.** `first_size`, `second_size`
+  and `fill_size` default in the macro (`WLX_SLOT_PX(280)`, `WLX_SLOT_FLEX(1)`,
+  `WLX_SLOT_FLEX(1)`); an explicit `WLX_SLOT_AUTO` reaches the layout as
+  AUTO instead of being mistaken for the default. `wlx_slot_size_is_zero`
+  is removed. Migration: none unless `WLX_SLOT_AUTO` was written to mean
+  "default".
+- **Compound content padding: unset means the widget default.** Writing
+  `.content_padding = WLX_UNSET` on the inputbox, editor, split, panel or
+  tooltip now resolves to the widget's own inset (10, 10, 4, 2, 6) exactly
+  like omission, as SENTINEL.md always said, instead of `0`; the constants
+  are `WLX_INPUTBOX_CONTENT_PADDING`, `WLX_SPLIT_CONTENT_PADDING`,
+  `WLX_PANEL_CONTENT_PADDING`, `WLX_TOOLTIP_CONTENT_PADDING`. Omission is
+  unchanged. Migration: write `0` for no inset.
+- **Split `.gap` is a literal `0`** like every other container gap (its `-1`
+  resolved to `0` and inherited nothing). Omission is unchanged.
+
 ### Added
+- **Option defaults as values.** `wlx_<widget>_opt_defaults()` returns each
+  option struct's defaults exactly as its macro installs them, one function
+  per struct (26 in the core, `wlx_editor_opt_defaults` in the editor
+  header). This is the call surface for code that cannot repeat designated
+  initializers - take the defaults, assign, call the `_impl` function. The
+  macros stay the C11 surface.
 - **Undo and redo in the inputbox, textarea and editor.** Every edit made
   through a text widget lands in a per-widget undo journal in the core;
   command+Z steps back and command+Shift+Z or command+Y steps forward
@@ -61,6 +121,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   edge. Two tests in `tests/test_tab_traversal.c`.
 
 ### Changed
+- SENTINEL.md is rewritten around the two unset rules, the literal
+  defaults, the request tokens and the container exception; the
+  `wollix.h` option-field comment block states the same rules in short.
+- Tests: every option default macro sets each designator once, pinned by
+  `tests/test_defaults_once` (built with the initializer-override warning
+  promoted to an error); `tests/test_sentinel.c` pins explicit zero, unset
+  inheritance, the brightness domain, the padding request token and each
+  default change above.
 - Tests: the enabled slider's press-to-jump, drag, release and custom-range
   mapping are pinned in `tests/test_widgets.c`; the disabled case was the
   only drag-cycle test before.
