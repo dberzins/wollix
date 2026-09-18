@@ -13,19 +13,22 @@ static int _ov_scissor_begins = 0;
 static int _ov_scissor_ends = 0;
 static int _ov_rects_inside_scissor = 0;
 
-static void _ov_rec_rect(WLX_Rect r, WLX_Color c) {
+static void _ov_rec_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)c;
     if (_ov_rect_count < 16) _ov_rects[_ov_rect_count++] = r;
     if (_ov_scissor_open > 0) _ov_rects_inside_scissor++;
 }
 
-static void _ov_rec_scissor_begin(WLX_Rect r) {
+static void _ov_rec_scissor_begin(WLX_Rect r, void *user) {
+    (void)user;
     (void)r;
     _ov_scissor_begins++;
     _ov_scissor_open++;
 }
 
-static void _ov_rec_scissor_end(void) {
+static void _ov_rec_scissor_end(void *user) {
+    (void)user;
     _ov_scissor_ends++;
     _ov_scissor_open--;
 }

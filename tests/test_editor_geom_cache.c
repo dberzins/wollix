@@ -28,7 +28,8 @@
 static unsigned long long gc_calls;
 
 static void gc_counting_measure(const char *text, size_t len, WLX_Text_Style style,
-                                float *out_w, float *out_h) {
+                                float *out_w, float *out_h, void *user) {
+    (void)user;
     (void)text;
     gc_calls++;
     int fs = style.font_size > 0 ? style.font_size : 10;

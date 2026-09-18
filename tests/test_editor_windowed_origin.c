@@ -39,7 +39,8 @@ enum { WO_BAND_X_ = 9, WO_BAND_W_ = 383 };
 static unsigned long long wo_calls;
 
 static void wo_counting_measure(const char *text, size_t len, WLX_Text_Style style,
-                                float *out_w, float *out_h) {
+                                float *out_w, float *out_h, void *user) {
+    (void)user;
     (void)text;
     wo_calls++;
     int fs = style.font_size > 0 ? style.font_size : 10;
@@ -51,7 +52,8 @@ static void wo_counting_measure(const char *text, size_t len, WLX_Text_Style sty
 static struct { char text[80]; float x; float y; size_t len; } wo_texts[WO_MAX_TEXTS_];
 static int wo_text_count;
 
-static void wo_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void wo_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)style;
     if (wo_text_count < WO_MAX_TEXTS_) {
         const char *src = text ? text : "";
@@ -70,7 +72,8 @@ static void wo_capture_draw_text(const char *text, float x, float y, WLX_Text_St
 static WLX_Rect wo_rects[WO_MAX_RECTS_];
 static int wo_rect_count;
 
-static void wo_capture_draw_rect(WLX_Rect r, WLX_Color c) {
+static void wo_capture_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)c;
     if (wo_rect_count < WO_MAX_RECTS_) wo_rects[wo_rect_count++] = r;
 }

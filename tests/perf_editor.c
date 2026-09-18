@@ -147,7 +147,8 @@ static unsigned long long g_tm_bytes;
 static size_t g_tm_maxlen;
 
 static void traffic_measure_slice(const char *text, size_t len, WLX_Text_Style style,
-                                  float *out_w, float *out_h) {
+                                  float *out_w, float *out_h, void *user) {
+    (void)user;
     (void)text;
     g_tm_calls++;
     g_tm_bytes += len;
@@ -162,7 +163,8 @@ static void traffic_measure_slice(const char *text, size_t len, WLX_Text_Style s
 // per-unit fallback (calls and bytes at the backend boundary).
 static size_t traffic_measure_advances(const char *text, size_t len,
         WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
-        float *out_advances) {
+        float *out_advances, void *user) {
+    (void)user;
     (void)text;
     g_tm_calls++;
     g_tm_bytes += len;

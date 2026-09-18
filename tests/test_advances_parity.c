@@ -29,7 +29,8 @@ static unsigned long long ap_slice_calls;
 static unsigned long long ap_adv_calls;
 
 static void ap_measure_slice(const char *text, size_t len, WLX_Text_Style style,
-                             float *out_w, float *out_h) {
+                             float *out_w, float *out_h, void *user) {
+    (void)user;
     (void)text;
     ap_slice_calls++;
     int fs = style.font_size > 0 ? style.font_size : 10;
@@ -39,10 +40,11 @@ static void ap_measure_slice(const char *text, size_t len, WLX_Text_Style style,
 
 static size_t ap_measure_advances(const char *text, size_t len,
         WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
-        float *out_advances) {
+        float *out_advances, void *user) {
+    (void)user;
     ap_adv_calls++;
     return mock_measure_text_advances(text, len, style, unit_ends, unit_count,
-        out_advances);
+        out_advances, user);
 }
 
 typedef struct {

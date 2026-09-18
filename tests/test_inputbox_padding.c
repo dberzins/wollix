@@ -7,7 +7,8 @@
 static int      _ibp_box_count;
 static WLX_Rect _ibp_first_box;
 
-static void ibp_capture_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
+static void ibp_capture_rect_lines(WLX_Rect r, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)thick; (void)c;
     if (_ibp_box_count == 0) _ibp_first_box = r;
     _ibp_box_count++;

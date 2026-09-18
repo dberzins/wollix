@@ -24,7 +24,8 @@ static int       _bi_text_count;
 static int       _bi_rect_count;
 static WLX_Color _bi_last_rect_color;
 
-static void bi_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+static void bi_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    (void)user;
     (void)tex;
     if (_bi_tex_count < BI_MAX_DRAWS) {
         _bi_tex_srcs[_bi_tex_count]  = src;
@@ -37,12 +38,14 @@ static void bi_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX
     _bi_tex_tint = tint;
 }
 
-static void bi_rec_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void bi_rec_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)text; (void)x; (void)y; (void)style;
     _bi_text_count++;
 }
 
-static void bi_rec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void bi_rec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)r;
     _bi_rect_count++;
     _bi_last_rect_color = c;

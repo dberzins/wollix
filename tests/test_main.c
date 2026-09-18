@@ -70,6 +70,10 @@
 // reuse the crec_* recording backend.
 #include "test_layout_clip.c"
 
+// WLX_Backend v2 contract: instance pointer, v1 shim, style transform at
+// the backend boundary. Reuses the crec_* recording backend.
+#include "test_backend_contract.c"
+
 // Slot and grid cell decoration / style overrides
 #include "test_slot_style.c"
 
@@ -281,6 +285,7 @@ int main(void) {
     RUN_SUITE(slot_style);
     RUN_SUITE(per_side_border);
     RUN_SUITE(sentinel);
+    RUN_SUITE(backend_contract);
     RUN_SUITE(interactive_container);
     RUN_SUITE(wasm_clipboard);
     RUN_SUITE(wasm_pool);

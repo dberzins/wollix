@@ -4056,22 +4056,26 @@ static WLX_Text_Style gallery_raylib_scaled_text_style(WLX_Text_Style style) {
     return style;
 }
 
-static void gallery_raylib_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
-    wlx_raylib_draw_text(text, x, y, gallery_raylib_scaled_text_style(style));
+static void gallery_raylib_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
+    wlx_raylib_draw_text(text, x, y, gallery_raylib_scaled_text_style(style), user);
 }
 
 static void gallery_raylib_draw_text_slice(const char *text, size_t len, float x, float y,
-    WLX_Text_Style style) {
-    wlx_raylib_draw_text_slice(text, len, x, y, gallery_raylib_scaled_text_style(style));
+    WLX_Text_Style style, void *user) {
+    (void)user;
+    wlx_raylib_draw_text_slice(text, len, x, y, gallery_raylib_scaled_text_style(style), user);
 }
 
-static void gallery_raylib_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
-    wlx_raylib_measure_text(text, gallery_raylib_scaled_text_style(style), out_w, out_h);
+static void gallery_raylib_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    (void)user;
+    wlx_raylib_measure_text(text, gallery_raylib_scaled_text_style(style), out_w, out_h, user);
 }
 
 static void gallery_raylib_measure_text_slice(const char *text, size_t slice_len,
-    WLX_Text_Style style, float *out_w, float *out_h) {
-    wlx_raylib_measure_text_slice(text, slice_len, gallery_raylib_scaled_text_style(style), out_w, out_h);
+    WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    (void)user;
+    wlx_raylib_measure_text_slice(text, slice_len, gallery_raylib_scaled_text_style(style), out_w, out_h, user);
 }
 
 // The advances callback must scale identically to the slice measure: the
@@ -4079,9 +4083,10 @@ static void gallery_raylib_measure_text_slice(const char *text, size_t slice_len
 // drawn at the scaled size.
 static size_t gallery_raylib_measure_text_advances(const char *text, size_t len,
     WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
-    float *out_advances) {
+    float *out_advances, void *user) {
+    (void)user;
     return wlx_raylib_measure_text_advances(text, len, gallery_raylib_scaled_text_style(style),
-        unit_ends, unit_count, out_advances);
+        unit_ends, unit_count, out_advances, user);
 }
 
 // Every text callback the raylib adapter installs is wrapped here; the core

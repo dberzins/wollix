@@ -34,14 +34,18 @@ static void psb_push(int type, WLX_Rect r, WLX_Color c) {
     if (_psb_n < PSB_LOG_CAP) _psb_log[_psb_n++] = (PSB_Entry){ type, r, c };
 }
 
-static void psb_draw_rect(WLX_Rect r, WLX_Color c) { psb_push(PSB_RECT, r, c); }
-static void psb_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
+static void psb_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user; psb_push(PSB_RECT, r, c); }
+static void psb_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)thick; psb_push(PSB_RECT_LINES, r, c);
 }
-static void psb_draw_rect_rounded(WLX_Rect r, float roundness, int seg, WLX_Color c) {
+static void psb_draw_rect_rounded(WLX_Rect r, float roundness, int seg, WLX_Color c, void *user) {
+    (void)user;
     (void)roundness; (void)seg; psb_push(PSB_RECT_ROUNDED, r, c);
 }
-static void psb_draw_rect_rounded_lines(WLX_Rect r, float roundness, int seg, float thick, WLX_Color c) {
+static void psb_draw_rect_rounded_lines(WLX_Rect r, float roundness, int seg, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)roundness; (void)seg; (void)thick; psb_push(PSB_RECT_ROUNDED_LINES, r, c);
 }
 

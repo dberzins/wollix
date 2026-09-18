@@ -2884,27 +2884,32 @@ static WLX_Text_Style dashboard_raylib_scale_style(WLX_Text_Style style) {
     return style;
 }
 
-static void dashboard_raylib_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
-    wlx_raylib_draw_text(text, x, y, dashboard_raylib_scale_style(style));
+static void dashboard_raylib_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
+    wlx_raylib_draw_text(text, x, y, dashboard_raylib_scale_style(style), user);
 }
 static void dashboard_raylib_draw_text_slice(const char *text, size_t len, float x, float y,
-                                             WLX_Text_Style style) {
-    wlx_raylib_draw_text_slice(text, len, x, y, dashboard_raylib_scale_style(style));
+                                             WLX_Text_Style style, void *user) {
+    (void)user;
+    wlx_raylib_draw_text_slice(text, len, x, y, dashboard_raylib_scale_style(style), user);
 }
 static void dashboard_raylib_measure_text(const char *text, WLX_Text_Style style,
-                                          float *out_w, float *out_h) {
-    wlx_raylib_measure_text(text, dashboard_raylib_scale_style(style), out_w, out_h);
+                                          float *out_w, float *out_h, void *user) {
+    (void)user;
+    wlx_raylib_measure_text(text, dashboard_raylib_scale_style(style), out_w, out_h, user);
 }
 static void dashboard_raylib_measure_text_slice(const char *text, size_t len, WLX_Text_Style style,
-                                                float *out_w, float *out_h) {
-    wlx_raylib_measure_text_slice(text, len, dashboard_raylib_scale_style(style), out_w, out_h);
+                                                float *out_w, float *out_h, void *user) {
+    (void)user;
+    wlx_raylib_measure_text_slice(text, len, dashboard_raylib_scale_style(style), out_w, out_h, user);
 }
 static size_t dashboard_raylib_measure_text_advances(const char *text, size_t len,
                                                      WLX_Text_Style style,
                                                      const size_t *unit_ends, size_t unit_count,
-                                                     float *out_advances) {
+                                                     float *out_advances, void *user) {
+    (void)user;
     return wlx_raylib_measure_text_advances(text, len, dashboard_raylib_scale_style(style),
-                                            unit_ends, unit_count, out_advances);
+                                            unit_ends, unit_count, out_advances, user);
 }
 
 // Every text callback the raylib adapter installs is wrapped here. The core
@@ -3223,7 +3228,8 @@ void wlx_wasm_frame(float width, float height) {
     WLX_Rect root = { 0, 0, width, height };
     dashboard_frame_prepare(g_dashboard_ctx, &g_dashboard_fonts);
     wlx_begin(g_dashboard_ctx, root, wlx_process_wasm_input);
-    g_dashboard_ctx->backend.draw_rect(root, g_dashboard_ctx->theme->background);
+    g_dashboard_ctx->backend.draw_rect(root, g_dashboard_ctx->theme->background,
+                                       g_dashboard_ctx->backend.user);
     dashboard_render_body(g_dashboard_ctx, &g_dashboard_fonts);
     wlx_end(g_dashboard_ctx);
 }

@@ -41,7 +41,8 @@ static float _input_cursor_y2 = 0.0f;
 static int _input_text_draw_count = 0;
 static char _input_text_draw_text[64];
 
-static void input_capture_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c) {
+static void input_capture_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)thick;
     (void)c;
     _input_cursor_draw_count++;
@@ -59,7 +60,8 @@ static inline void input_reset_cursor_capture(void) {
     _input_cursor_y2 = 0.0f;
 }
 
-static void input_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void input_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)x;
     (void)y;
     (void)style;
@@ -76,7 +78,8 @@ static inline void input_reset_text_capture(void) {
     _input_text_draw_text[0] = '\0';
 }
 
-static void input_measure_tall_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+static void input_measure_tall_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    (void)user;
     int font_size = style.font_size > 0 ? style.font_size : 10;
     size_t len = text ? strlen(text) : 0;
     if (out_w) *out_w = (float)len * (float)font_size * 0.5f;
@@ -109,13 +112,15 @@ static void input_reset_clip_capture(void) {
     memset(_input_clip_log, 0, sizeof(_input_clip_log));
 }
 
-static void input_capture_begin_scissor(WLX_Rect rect) {
+static void input_capture_begin_scissor(WLX_Rect rect, void *user) {
+    (void)user;
     if (_input_clip_count < INPUT_CLIP_LOG_CAP) {
         _input_clip_log[_input_clip_count++] = (Input_Clip_Log_Entry){1, rect};
     }
 }
 
-static void input_capture_end_scissor(void) {
+static void input_capture_end_scissor(void *user) {
+    (void)user;
     if (_input_clip_count < INPUT_CLIP_LOG_CAP) {
         _input_clip_log[_input_clip_count++] = (Input_Clip_Log_Entry){2, {0}};
     }

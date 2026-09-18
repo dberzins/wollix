@@ -17,7 +17,8 @@ static bool _mn_base_clicked = false;
 
 static WLX_Rect _mn_rects[32];
 static int _mn_rect_count = 0;
-static void _mn_rec_rect(WLX_Rect r, WLX_Color c) {
+static void _mn_rec_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)c;
     if (_mn_rect_count < 32) _mn_rects[_mn_rect_count++] = r;
 }

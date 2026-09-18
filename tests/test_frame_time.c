@@ -7,7 +7,8 @@
 
 static int ft_calls = 0;
 
-static float ft_counting_get_frame_time(void) {
+static float ft_counting_get_frame_time(void *user) {
+    (void)user;
     ft_calls++;
     return 0.010f + 0.001f * (float)ft_calls;  // distinct value per call
 }

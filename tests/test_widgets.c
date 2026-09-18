@@ -14,7 +14,8 @@ static WLX_Color _wgt_draw_rect_last_color;
 static WLX_Rect  _wgt_rect_log[WGT_REC_MAX];
 static WLX_Color _wgt_rect_color_log[WGT_REC_MAX];
 
-static void wgt_rec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void wgt_rec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     if (_wgt_draw_rect_count < WGT_REC_MAX) {
         _wgt_rect_log[_wgt_draw_rect_count] = r;
         _wgt_rect_color_log[_wgt_draw_rect_count] = c;
@@ -28,7 +29,8 @@ static int _wgt_draw_rect_rounded_count;
 static float _wgt_draw_rect_rounded_last_rn;
 static WLX_Color _wgt_draw_rect_rounded_last_color;
 
-static void wgt_rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c) {
+static void wgt_rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)segments;
     _wgt_draw_rect_rounded_count++;
     _wgt_draw_rect_rounded_last_rn = roundness;
@@ -37,7 +39,8 @@ static void wgt_rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments,
 
 static int _wgt_draw_rect_rounded_lines_count;
 
-static void wgt_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
+static void wgt_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)roundness; (void)segments; (void)thick; (void)c;
     _wgt_draw_rect_rounded_lines_count++;
 }
@@ -45,7 +48,8 @@ static void wgt_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int seg
 static int _wgt_draw_circle_count;
 static float _wgt_draw_circle_last_radius;
 
-static void wgt_rec_draw_circle(float cx, float cy, float radius, int segments, WLX_Color c) {
+static void wgt_rec_draw_circle(float cx, float cy, float radius, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)cx; (void)cy; (void)segments; (void)c;
     _wgt_draw_circle_count++;
     _wgt_draw_circle_last_radius = radius;
@@ -53,7 +57,8 @@ static void wgt_rec_draw_circle(float cx, float cy, float radius, int segments, 
 
 static int _wgt_draw_ring_count;
 
-static void wgt_rec_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c) {
+static void wgt_rec_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)cx; (void)cy; (void)inner_r; (void)outer_r; (void)segments; (void)c;
     _wgt_draw_ring_count++;
 }

@@ -22,19 +22,22 @@ static WLX_Color _ibi_tex_tint;
 static int       _ibi_text_count;
 static int       _ibi_rect_count;
 
-static void ibi_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+static void ibi_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    (void)user;
     (void)tex; (void)src;
     _ibi_tex_count++;
     _ibi_tex_dst  = dst;
     _ibi_tex_tint = tint;
 }
 
-static void ibi_rec_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void ibi_rec_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)text; (void)x; (void)y; (void)style;
     _ibi_text_count++;
 }
 
-static void ibi_rec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void ibi_rec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)c;
     _ibi_rect_count++;
 }

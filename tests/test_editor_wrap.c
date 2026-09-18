@@ -620,7 +620,8 @@ static struct { float x; float y0; float y1; } _ew_lines[EW_MAX_LINES_CAP_];
 static int _ew_line_count = 0;
 
 static void _ew_capture_draw_line(float x1, float y1, float x2, float y2, float thick,
-                                  WLX_Color c) {
+                                  WLX_Color c, void *user) {
+    (void)user;
     (void)thick; (void)c;
     if (_ew_line_count < EW_MAX_LINES_CAP_) {
         _ew_lines[_ew_line_count].x = x1;
@@ -838,7 +839,8 @@ TEST(editor_wrap_toggle_preserves_caret_and_selection) {
 // column-0 caret teleports to the row's end (or past the band, where the
 // gate culls it entirely).
 static void ew_poison_measure(const char *text, size_t len, WLX_Text_Style ts,
-                              float *w, float *h) {
+                              float *w, float *h, void *user) {
+    (void)user;
     (void)text;
     int fs = ts.font_size > 0 ? ts.font_size : 10;
     if (len == 0) { if (w) *w = 9999.0f; if (h) *h = (float)fs; return; }

@@ -387,7 +387,8 @@ TEST(tab_into_editor_does_not_insert) {
 static struct { WLX_Rect rect; float thick; WLX_Color color; } _tt_lines[TT_MAX_LINES_];
 static int _tt_line_count = 0;
 
-static void _tt_record_rect_lines(WLX_Rect rect, float thick, WLX_Color color) {
+static void _tt_record_rect_lines(WLX_Rect rect, float thick, WLX_Color color, void *user) {
+    (void)user;
     if (_tt_line_count < TT_MAX_LINES_) {
         _tt_lines[_tt_line_count].rect = rect;
         _tt_lines[_tt_line_count].thick = thick;

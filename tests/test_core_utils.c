@@ -66,7 +66,8 @@ TEST(outline_subpixel_scales_alpha_below_one_px) {
 
 // A measure that reports no line height, so the reference line height must
 // fall back to the font size while the space advance still comes back.
-static void _cu_measure_flat(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+static void _cu_measure_flat(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    (void)user;
     (void)style;
     size_t len = text ? strlen(text) : 0;
     if (out_w) *out_w = (float)len * 7.0f;

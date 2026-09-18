@@ -446,14 +446,16 @@ TEST(horz_content_two_slots_settle_independently) {
 
 static WLX_Rect _ca_rects[8];
 static int _ca_rect_count = 0;
-static void _ca_rec_rect(WLX_Rect r, WLX_Color c) {
+static void _ca_rec_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)c;
     if (_ca_rect_count < 8) _ca_rects[_ca_rect_count++] = r;
 }
 
 static WLX_Rect _ca_scissors[8];
 static int _ca_scissor_count = 0;
-static void _ca_rec_scissor(WLX_Rect r) {
+static void _ca_rec_scissor(WLX_Rect r, void *user) {
+    (void)user;
     if (_ca_scissor_count < 8) _ca_scissors[_ca_scissor_count++] = r;
 }
 

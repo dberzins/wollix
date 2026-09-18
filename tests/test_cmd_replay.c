@@ -27,51 +27,59 @@ static size_t _crec_count = 0;
 
 static void crec_reset(void) { _crec_count = 0; }
 
-static void crec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void crec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     if (_crec_count < CREC_CAP)
         _crec_log[_crec_count++] = (CRec_Entry){ WLX_CMD_RECT, r, c, NULL, r.y };
 }
 
-static void crec_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
+static void crec_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)thick;
     if (_crec_count < CREC_CAP)
         _crec_log[_crec_count++] = (CRec_Entry){ WLX_CMD_RECT_LINES, r, c, NULL, r.y };
 }
 
-static void crec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c) {
+static void crec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)roundness; (void)segments;
     if (_crec_count < CREC_CAP)
         _crec_log[_crec_count++] = (CRec_Entry){ WLX_CMD_RECT_ROUNDED, r, c, NULL, r.y };
 }
 
-static void crec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
+static void crec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)roundness; (void)segments; (void)thick;
     if (_crec_count < CREC_CAP)
         _crec_log[_crec_count++] = (CRec_Entry){ WLX_CMD_RECT_ROUNDED_LINES, r, c, NULL, r.y };
 }
 
-static void crec_draw_circle(float cx, float cy, float radius, int segments, WLX_Color c) {
+static void crec_draw_circle(float cx, float cy, float radius, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)segments;
     WLX_Rect r = { cx - radius, cy - radius, radius * 2, radius * 2 };
     if (_crec_count < CREC_CAP)
         _crec_log[_crec_count++] = (CRec_Entry){ WLX_CMD_CIRCLE, r, c, NULL, cy };
 }
 
-static void crec_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c) {
+static void crec_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)segments; (void)inner_r;
     WLX_Rect r = { cx - outer_r, cy - outer_r, outer_r * 2, outer_r * 2 };
     if (_crec_count < CREC_CAP)
         _crec_log[_crec_count++] = (CRec_Entry){ WLX_CMD_RING, r, c, NULL, cy };
 }
 
-static void crec_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c) {
+static void crec_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)thick;
     WLX_Rect r = { x1, y1, x2 - x1, y2 - y1 };
     if (_crec_count < CREC_CAP)
         _crec_log[_crec_count++] = (CRec_Entry){ WLX_CMD_LINE, r, c, NULL, y1 };
 }
 
-static void crec_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void crec_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)style;
     WLX_Rect r = { x, y, 0, 0 };
     if (_crec_count < CREC_CAP) {
@@ -87,18 +95,21 @@ static void crec_draw_text(const char *text, float x, float y, WLX_Text_Style st
     }
 }
 
-static void crec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+static void crec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    (void)user;
     (void)tex; (void)src;
     if (_crec_count < CREC_CAP)
         _crec_log[_crec_count++] = (CRec_Entry){ WLX_CMD_TEXTURE, dst, tint, NULL, dst.y };
 }
 
-static void crec_begin_scissor(WLX_Rect r) {
+static void crec_begin_scissor(WLX_Rect r, void *user) {
+    (void)user;
     if (_crec_count < CREC_CAP)
         _crec_log[_crec_count++] = (CRec_Entry){ WLX_CMD_SCISSOR_BEGIN, r, {0}, NULL, r.y };
 }
 
-static void crec_end_scissor(void) {
+static void crec_end_scissor(void *user) {
+    (void)user;
     WLX_Rect z = {0};
     if (_crec_count < CREC_CAP)
         _crec_log[_crec_count++] = (CRec_Entry){ WLX_CMD_SCISSOR_END, z, {0}, NULL, 0 };
@@ -106,6 +117,7 @@ static void crec_end_scissor(void) {
 
 static inline WLX_Backend crec_backend(void) {
     return (WLX_Backend){
+        .contract_version = WLX_BACKEND_CONTRACT_VERSION,
         .draw_rect               = crec_draw_rect,
         .draw_rect_lines         = crec_draw_rect_lines,
         .draw_rect_rounded       = crec_draw_rect_rounded,
@@ -645,7 +657,8 @@ static size_t _crec_slice_len_captured = 0;
 static char   _crec_slice_text_captured[128];
 static int    _crec_slice_call_count = 0;
 
-static void crec_draw_text_slice(const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+static void crec_draw_text_slice(const char *text, size_t len, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)x; (void)y; (void)style;
     _crec_slice_len_captured = len;
     size_t copy = len < 127 ? len : 127;

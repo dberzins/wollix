@@ -233,7 +233,8 @@ TEST(menu_width_rule_u) {
 
 // Text recorder: x of the last text drawn in a frame.
 static float _sentinel_last_text_x = 0.0f;
-static void sentinel_rec_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void sentinel_rec_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)text; (void)y; (void)style;
     _sentinel_last_text_x = x;
 }
@@ -319,9 +320,11 @@ TEST(content_padding_unset_equals_omission) {
 
 // Tooltip fixture: fixed 1 s frames so the default 0.5 s delay elapses on
 // the second hovered frame; the tip background is the last rect replayed.
-static float sentinel_tt_frame_time(void) { return 1.0f; }
+static float sentinel_tt_frame_time(void *user) {
+    (void)user; return 1.0f; }
 static WLX_Rect _sentinel_last_rect;
-static void sentinel_rec_rect(WLX_Rect r, WLX_Color c) { (void)c; _sentinel_last_rect = r; }
+static void sentinel_rec_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user; (void)c; _sentinel_last_rect = r; }
 
 static float sentinel_tip_width(WLX_Context *ctx, WLX_Tooltip_Opt opt) {
     for (int i = 0; i < 2; i++) {
@@ -347,7 +350,7 @@ TEST(tooltip_content_padding_alias) {
     ctx.backend.draw_rect = sentinel_rec_rect;
     float text_w = 0.0f, text_h = 0.0f;
     mock_measure_text("hint", (WLX_Text_Style){ .font_size = wlx_theme_dark.font_size },
-                      &text_w, &text_h);
+                      &text_w, &text_h, NULL);
 
     // Pointer parked off the anchor first so the hover timer starts fresh.
     test_frame_begin(&ctx, 300, 200, false, false);

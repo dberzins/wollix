@@ -153,6 +153,23 @@ TEST(hard_assert_fires_on_sub_arena_alloc_count_overflow) {
     ASSERT_TRUE(run_in_child(trigger_sub_arena_alloc_count_overflow) == CHILD_ABORTED);
 }
 
+// A backend table that never declared the v2 contract (a pre-0.9 table
+// assigned field by field, or one whose author forgot the version) must
+// fail at wlx_begin in every build, since calling its callbacks through
+// the v2 signatures would be memory-unsafe.
+static void trigger_backend_contract_mismatch(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend.contract_version = 0;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(hard_assert_fires_on_backend_contract_mismatch) {
+    ASSERT_TRUE(run_in_child(trigger_backend_contract_mismatch) == CHILD_ABORTED);
+}
+
 TEST(plain_assert_is_inert_under_ndebug) {
     // Meta-check: this TU really is a release-style build.
     int reached = 0;
@@ -170,6 +187,7 @@ SUITE(hard_assert) {
     RUN_TEST(hard_assert_fires_on_menu_end_without_begin);
     RUN_TEST(hard_assert_fires_on_sub_arena_reserve_overflow);
     RUN_TEST(hard_assert_fires_on_sub_arena_alloc_count_overflow);
+    RUN_TEST(hard_assert_fires_on_backend_contract_mismatch);
     RUN_TEST(plain_assert_is_inert_under_ndebug);
 }
 

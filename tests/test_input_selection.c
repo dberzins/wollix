@@ -340,7 +340,8 @@ TEST(sel_word_bounds) {
 static int _sel_rect_count = 0;
 static WLX_Rect _sel_rect_last = {0};
 
-static void sel_capture_draw_rect(WLX_Rect r, WLX_Color c) {
+static void sel_capture_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     if (c.r == 9 && c.g == 9 && c.b == 9 && c.a == 99) {
         _sel_rect_count++;
         _sel_rect_last = r;

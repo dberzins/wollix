@@ -24,12 +24,14 @@ static int _ss_rect_n = 0;
 static WLX_Color _ss_lines[SS_LOG_CAP];
 static int _ss_lines_n = 0;
 
-static void ss_draw_rect(WLX_Rect r, WLX_Color c) {
+static void ss_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)r;
     if (_ss_rect_n < SS_LOG_CAP) _ss_rects[_ss_rect_n++] = c;
 }
 
-static void ss_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
+static void ss_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)thick;
     if (_ss_lines_n < SS_LOG_CAP) _ss_lines[_ss_lines_n++] = c;
 }

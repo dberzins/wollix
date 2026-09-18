@@ -310,7 +310,8 @@ static inline void wlx_process_raylib_input(WLX_Context *ctx) {
     }
 }
 
-static inline void wlx_raylib_draw_texture(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+static inline void wlx_raylib_draw_texture(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_texture_calls);
     DrawTexturePro(
@@ -324,7 +325,8 @@ static inline void wlx_raylib_draw_texture(WLX_Texture texture, WLX_Rect src, WL
     WLX_RAYLIB_SCOPE_END(texture_ns);
 }
 
-static inline void wlx_raylib_draw_rect(WLX_Rect rect, WLX_Color color) {
+static inline void wlx_raylib_draw_rect(WLX_Rect rect, WLX_Color color, void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_rect_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
@@ -332,7 +334,8 @@ static inline void wlx_raylib_draw_rect(WLX_Rect rect, WLX_Color color) {
     WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
-static inline void wlx_raylib_draw_rect_lines(WLX_Rect rect, float thick, WLX_Color color) {
+static inline void wlx_raylib_draw_rect_lines(WLX_Rect rect, float thick, WLX_Color color, void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_rect_lines_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
@@ -340,7 +343,8 @@ static inline void wlx_raylib_draw_rect_lines(WLX_Rect rect, float thick, WLX_Co
     WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
-static inline void wlx_raylib_draw_rect_rounded(WLX_Rect rect, float roundness, int segments, WLX_Color color) {
+static inline void wlx_raylib_draw_rect_rounded(WLX_Rect rect, float roundness, int segments, WLX_Color color, void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_rect_rounded_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
@@ -348,7 +352,8 @@ static inline void wlx_raylib_draw_rect_rounded(WLX_Rect rect, float roundness, 
     WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
-static inline void wlx_raylib_draw_rect_rounded_lines(WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color) {
+static inline void wlx_raylib_draw_rect_rounded_lines(WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color, void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_rect_rounded_lines_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
@@ -361,7 +366,8 @@ static inline void wlx_raylib_draw_rect_rounded_lines(WLX_Rect rect, float round
 // bottom corners). Raylib has no rounded gradient, so rounded rects fall back to
 // stacked rounded bands (the same approximation the core software fallback uses).
 static inline void wlx_raylib_draw_gradient_v(WLX_Rect rect, WLX_Color top, WLX_Color bottom,
-                                              float roundness, int rounded_segs) {
+                                              float roundness, int rounded_segs, void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
     if (roundness <= 0.0f) {
@@ -381,7 +387,8 @@ static inline void wlx_raylib_draw_gradient_v(WLX_Rect rect, WLX_Color top, WLX_
     WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
-static inline void wlx_raylib_draw_circle(float cx, float cy, float radius, int segments, WLX_Color color) {
+static inline void wlx_raylib_draw_circle(float cx, float cy, float radius, int segments, WLX_Color color, void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_circle_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
@@ -389,7 +396,8 @@ static inline void wlx_raylib_draw_circle(float cx, float cy, float radius, int 
     WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
-static inline void wlx_raylib_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color) {
+static inline void wlx_raylib_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color, void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_ring_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
@@ -397,7 +405,8 @@ static inline void wlx_raylib_draw_ring(float cx, float cy, float inner_r, float
     WLX_RAYLIB_SCOPE_END(geometry_ns);
 }
 
-static inline void wlx_raylib_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color color) {
+static inline void wlx_raylib_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color color, void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_line_calls);
     WLX_RAYLIB_PERF_INC(geometry_submit_calls);
@@ -429,7 +438,8 @@ static inline float wlx_raylib_effective_spacing(WLX_Text_Style style) {
     return spacing;
 }
 
-static inline void wlx_raylib_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static inline void wlx_raylib_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(draw_text_calls);
     Font font = (style.font != WLX_FONT_DEFAULT)
@@ -543,15 +553,17 @@ static inline void wlx_raylib_text_cache_store(uintptr_t font_handle,
 // fallback used to make now lives here; measurement-cache behavior is
 // untouched (draws are uncached).
 static inline void wlx_raylib_draw_text_slice(const char *text, size_t len,
-        float x, float y, WLX_Text_Style style) {
+        float x, float y, WLX_Text_Style style, void *user) {
+    WLX_UNUSED(user);
     WLX_CStr_Tmp tmp;
     const char *cstr = wlx_cstr_tmp_begin(&tmp, text, len);
     if (cstr == NULL) return;
-    wlx_raylib_draw_text(cstr, x, y, style);
+    wlx_raylib_draw_text(cstr, x, y, style, user);
     wlx_cstr_tmp_end(&tmp);
 }
 
-static inline void wlx_raylib_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+static inline void wlx_raylib_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(measure_text_calls);
 
@@ -584,7 +596,8 @@ static inline void wlx_raylib_measure_text(const char *text, WLX_Text_Style styl
 // and spans may end exactly at the end of an allocation.
 // Cache lookup happens before the copy so cache hits skip the copy work.
 static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_len,
-        WLX_Text_Style style, float *out_w, float *out_h) {
+        WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    WLX_UNUSED(user);
     if (out_w == NULL || out_h == NULL) return;
     if (text == NULL) { text = ""; slice_len = 0; }
 
@@ -632,7 +645,8 @@ static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_
 // for an existing terminator would read one byte past the slice).
 static inline size_t wlx_raylib_measure_text_advances(const char *text, size_t len,
         WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
-        float *out_advances) {
+        float *out_advances, void *user) {
+    WLX_UNUSED(user);
     if (text == NULL || unit_ends == NULL || out_advances == NULL || unit_count == 0)
         return 0;
 
@@ -713,7 +727,8 @@ static inline void wlx_raylib_text_cache_clear(void) {
 #endif
 }
 
-static inline void wlx_raylib_begin_scissor(WLX_Rect rect) {
+static inline void wlx_raylib_begin_scissor(WLX_Rect rect, void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(begin_scissor_calls);
     WLX_RAYLIB_PERF_INC(clip_change_calls);
@@ -721,7 +736,8 @@ static inline void wlx_raylib_begin_scissor(WLX_Rect rect) {
     WLX_RAYLIB_SCOPE_END(scissor_ns);
 }
 
-static inline void wlx_raylib_end_scissor(void) {
+static inline void wlx_raylib_end_scissor(void *user) {
+    WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(end_scissor_calls);
     WLX_RAYLIB_PERF_INC(clip_change_calls);
@@ -729,11 +745,13 @@ static inline void wlx_raylib_end_scissor(void) {
     WLX_RAYLIB_SCOPE_END(scissor_ns);
 }
 
-static inline float wlx_raylib_get_frame_time(void) {
+static inline float wlx_raylib_get_frame_time(void *user) {
+    WLX_UNUSED(user);
     return GetFrameTime();
 }
 
-static inline const char *wlx_raylib_clipboard_get(void) {
+static inline const char *wlx_raylib_clipboard_get(void *user) {
+    WLX_UNUSED(user);
     return GetClipboardText();
 }
 
@@ -743,7 +761,8 @@ static inline const char *wlx_raylib_clipboard_get(void) {
 #define WLX_RAYLIB_CLIPBOARD_MAX (16u * 1024u * 1024u)
 #endif
 
-static inline void wlx_raylib_clipboard_set(const char *text, size_t len) {
+static inline void wlx_raylib_clipboard_set(const char *text, size_t len, void *user) {
+    WLX_UNUSED(user);
     // SetClipboardText needs a NUL-terminated string; copy the span into a
     // core wlx_buf_reserve grow-and-reuse buffer (process lifetime) so
     // arbitrarily long spans survive, bounded only by the soft cap.
@@ -765,12 +784,15 @@ static inline void wlx_raylib_clipboard_set(const char *text, size_t len) {
 // The core calls this only when the resolved shape changes. The enum is
 // append-only; this build check flags a new shape this mapping ignores.
 _Static_assert(WLX_CURSOR_COUNT == 2, "update wlx_raylib_set_cursor for the new WLX_Cursor_Shape");
-static inline void wlx_raylib_set_cursor(WLX_Cursor_Shape shape) {
+static inline void wlx_raylib_set_cursor(WLX_Cursor_Shape shape, void *user) {
+    WLX_UNUSED(user);
     SetMouseCursor(shape == WLX_CURSOR_IBEAM ? MOUSE_CURSOR_IBEAM : MOUSE_CURSOR_DEFAULT);
 }
 
 static inline WLX_Backend wlx_backend_raylib(void) {
     return (WLX_Backend){
+        .contract_version = WLX_BACKEND_CONTRACT_VERSION,
+        .user = NULL,
         .draw_rect = wlx_raylib_draw_rect,
         .draw_rect_lines = wlx_raylib_draw_rect_lines,
         .draw_rect_rounded = wlx_raylib_draw_rect_rounded,

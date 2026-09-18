@@ -7,7 +7,8 @@
 // ============================================================================
 
 static void mock_measure_text_kerning(const char *text, WLX_Text_Style style,
-                                       float *out_w, float *out_h) {
+                                       float *out_w, float *out_h, void *user) {
+    (void)user;
     int fs = style.font_size > 0 ? style.font_size : 10;
     size_t len = text ? strlen(text) : 0;
     float w = (float)len * (float)fs * 0.5f;
@@ -26,7 +27,8 @@ static void mock_measure_text_kerning(const char *text, WLX_Text_Style style,
 static struct { char text[TL_CAPTURE_TEXT_MAX_]; float x; float y; } _tl_captures[TL_MAX_CAPTURES_];
 static int _tl_capture_count = 0;
 
-static void _tl_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void _tl_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)style;
     if (_tl_capture_count < TL_MAX_CAPTURES_) {
         const char *src = text ? text : "";
@@ -80,12 +82,14 @@ static void _tl_reset_scissor(void) {
     memset(_tl_scissor_log, 0, sizeof(_tl_scissor_log));
 }
 
-static void _tl_begin_scissor(WLX_Rect r) {
+static void _tl_begin_scissor(WLX_Rect r, void *user) {
+    (void)user;
     if (_tl_scissor_count < TL_SCISSOR_LOG_CAP_)
         _tl_scissor_log[_tl_scissor_count++] = (TL_Scissor_Entry_){1, r};
 }
 
-static void _tl_end_scissor(void) {
+static void _tl_end_scissor(void *user) {
+    (void)user;
     WLX_Rect z = {0};
     if (_tl_scissor_count < TL_SCISSOR_LOG_CAP_)
         _tl_scissor_log[_tl_scissor_count++] = (TL_Scissor_Entry_){2, z};
@@ -721,7 +725,8 @@ TEST(fitted_text_scissors_partially_visible_line) {
 static size_t _tl_slice_measure_called_len = 0;
 static char _tl_slice_measure_text[64];
 static void _tl_capture_measure_slice(const char *text, size_t len, WLX_Text_Style style,
-                                       float *out_w, float *out_h) {
+                                       float *out_w, float *out_h, void *user) {
+    (void)user;
     _tl_slice_measure_called_len = len;
     size_t copy_len = len < 63 ? len : 63;
     memcpy(_tl_slice_measure_text, text, copy_len);
@@ -731,7 +736,7 @@ static void _tl_capture_measure_slice(const char *text, size_t len, WLX_Text_Sty
     if (len < sizeof(buf)) {
         memcpy(buf, text, len);
         buf[len] = '\0';
-        mock_measure_text(buf, style, out_w, out_h);
+        mock_measure_text(buf, style, out_w, out_h, NULL);
     }
 }
 
@@ -740,7 +745,8 @@ static size_t _tl_slice_draw_called_len = 0;
 static char _tl_slice_draw_text[64];
 static float _tl_slice_draw_x = -999.0f;
 static float _tl_slice_draw_y = -999.0f;
-static void _tl_capture_draw_slice(const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+static void _tl_capture_draw_slice(const char *text, size_t len, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)style;
     _tl_slice_draw_called_len = len;
     size_t copy_len = len < 63 ? len : 63;

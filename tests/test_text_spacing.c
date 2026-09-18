@@ -12,19 +12,22 @@ static int   _tsp_draw_span_count  = 0;
 static int   _tsp_captured_spacing = -1;
 static int   _tsp_span_spacing     = -1;
 
-static void tsp_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void tsp_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)text; (void)x; (void)y;
     _tsp_draw_text_count++;
     _tsp_captured_spacing = style.spacing;
 }
 
-static void tsp_draw_text_slice(const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+static void tsp_draw_text_slice(const char *text, size_t len, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)text; (void)len; (void)x; (void)y;
     _tsp_draw_span_count++;
     _tsp_span_spacing = style.spacing;
 }
 
-static void tsp_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+static void tsp_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    (void)user;
     (void)style;
     size_t n = text ? strlen(text) : 0;
     int fs = style.font_size > 0 ? style.font_size : 10;
@@ -32,7 +35,8 @@ static void tsp_measure_text(const char *text, WLX_Text_Style style, float *out_
     if (out_h) *out_h = (float)fs;
 }
 
-static void tsp_measure_text_slice(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h) {
+static void tsp_measure_text_slice(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    (void)user;
     (void)text; (void)len;
     int fs = style.font_size > 0 ? style.font_size : 10;
     if (out_w) *out_w = (float)len * (float)fs * 0.5f;

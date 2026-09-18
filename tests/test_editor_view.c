@@ -106,7 +106,8 @@ static size_t ev_fill_lines(char *buf, size_t cap, size_t n) {
 static struct { char text[64]; float x; float y; } _ev_captures[EV_MAX_CAPTURES_];
 static int _ev_capture_count = 0;
 
-static void _ev_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void _ev_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)style;
     if (_ev_capture_count < EV_MAX_CAPTURES_) {
         const char *src = text ? text : "";
@@ -131,7 +132,8 @@ static void _ev_reset_captures(void) {
 static struct { WLX_Rect r; } _ev_rects[EV_MAX_RECTS_];
 static int _ev_rect_count = 0;
 
-static void _ev_capture_draw_rect(WLX_Rect r, WLX_Color c) {
+static void _ev_capture_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)c;
     if (_ev_rect_count < EV_MAX_RECTS_) _ev_rects[_ev_rect_count++].r = r;
 }

@@ -13,7 +13,8 @@ static WLX_Color _img_last_tint;
 static int       _img_last_tex_w;
 static int       _img_last_tex_h;
 
-static void img_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+static void img_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    (void)user;
     _img_draw_count++;
     _img_last_src    = src;
     _img_last_dst    = dst;

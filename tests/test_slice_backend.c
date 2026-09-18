@@ -15,7 +15,8 @@ static int    _slice_measure_calls = 0;
 static char   _slice_last_text[64];
 static size_t _slice_last_len = 0;
 
-static void slice_only_draw_text(const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+static void slice_only_draw_text(const char *text, size_t len, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)x; (void)y; (void)style;
     _slice_draw_calls++;
     _slice_last_len = len;
@@ -25,7 +26,8 @@ static void slice_only_draw_text(const char *text, size_t len, float x, float y,
 }
 
 // Same proportional model as mock_measure_text so layout stays deterministic.
-static void slice_only_measure_text(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h) {
+static void slice_only_measure_text(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    (void)user;
     (void)text;
     _slice_measure_calls++;
     int fs = style.font_size > 0 ? style.font_size : 10;

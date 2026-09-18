@@ -203,7 +203,8 @@ TEST(dropdown_opening_one_closes_the_other) {
 static int _ddp_sel = 0;
 static WLX_Rect _ddp_scissors[32];
 static int _ddp_scissor_count = 0;
-static void _ddp_rec_scissor(WLX_Rect r) {
+static void _ddp_rec_scissor(WLX_Rect r, void *user) {
+    (void)user;
     if (_ddp_scissor_count < 32) _ddp_scissors[_ddp_scissor_count++] = r;
 }
 

@@ -373,7 +373,8 @@ static inline void wlx_process_sdl3_input(WLX_Context *ctx) {
     g_wlx_sdl3_text_len = 0;
 }
 
-static inline void wlx_sdl3_draw_texture(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+static inline void wlx_sdl3_draw_texture(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    WLX_UNUSED(user);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     SDL_Texture *tex = (SDL_Texture *)(uintptr_t)texture.handle;
@@ -521,7 +522,8 @@ static inline void wlx_sdl3_draw_rect_impl(WLX_Rect rect, WLX_Color color) {
     SDL_RenderFillRect(g_wlx_sdl3_renderer, &r);
 }
 
-static inline void wlx_sdl3_draw_rect(WLX_Rect rect, WLX_Color color) {
+static inline void wlx_sdl3_draw_rect(WLX_Rect rect, WLX_Color color, void *user) {
+    WLX_UNUSED(user);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -542,7 +544,8 @@ static inline void wlx_sdl3_draw_rect_lines_impl(WLX_Rect rect, float thick, WLX
     SDL_RenderRect(g_wlx_sdl3_renderer, &r);
 }
 
-static inline void wlx_sdl3_draw_rect_lines(WLX_Rect rect, float thick, WLX_Color color) {
+static inline void wlx_sdl3_draw_rect_lines(WLX_Rect rect, float thick, WLX_Color color, void *user) {
+    WLX_UNUSED(user);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -552,8 +555,9 @@ static inline void wlx_sdl3_draw_rect_lines(WLX_Rect rect, float thick, WLX_Colo
 }
 
 static inline void wlx_sdl3_draw_rect_rounded(
-    WLX_Rect rect, float roundness, int segments, WLX_Color color)
+    WLX_Rect rect, float roundness, int segments, WLX_Color color, void *user)
 {
+    WLX_UNUSED(user);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -590,8 +594,9 @@ static inline void wlx_sdl3_draw_rect_rounded(
 }
 
 static inline void wlx_sdl3_draw_rect_rounded_lines(
-    WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color)
+    WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color, void *user)
 {
+    WLX_UNUSED(user);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -628,7 +633,8 @@ static inline void wlx_sdl3_draw_rect_rounded_lines(
     WLX_SDL3_SCOPE_END(geometry_ns);
 }
 
-static inline void wlx_sdl3_draw_circle(float cx, float cy, float radius, int segments, WLX_Color color) {
+static inline void wlx_sdl3_draw_circle(float cx, float cy, float radius, int segments, WLX_Color color, void *user) {
+    WLX_UNUSED(user);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -650,7 +656,8 @@ static inline void wlx_sdl3_draw_circle(float cx, float cy, float radius, int se
 }
 
 static inline void wlx_sdl3_draw_ring(float cx, float cy, float inner_r, float outer_r,
-        int segments, WLX_Color color) {
+        int segments, WLX_Color color, void *user) {
+    WLX_UNUSED(user);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -671,7 +678,8 @@ static inline void wlx_sdl3_draw_ring(float cx, float cy, float inner_r, float o
     WLX_SDL3_SCOPE_END(geometry_ns);
 }
 
-static inline void wlx_sdl3_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color color) {
+static inline void wlx_sdl3_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color color, void *user) {
+    WLX_UNUSED(user);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -1349,7 +1357,8 @@ static inline void wlx_sdl3_text_cache_clear(void) {
 #endif
 }
 
-static inline void wlx_sdl3_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static inline void wlx_sdl3_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    WLX_UNUSED(user);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
     if (text == NULL || text[0] == '\0') return;
 
@@ -1375,7 +1384,8 @@ static inline void wlx_sdl3_draw_text(const char *text, float x, float y, WLX_Te
     WLX_SDL3_SCOPE_END(text_draw_ns);
 }
 
-static inline void wlx_sdl3_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+static inline void wlx_sdl3_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    WLX_UNUSED(user);
     if (out_w == NULL || out_h == NULL) return;
     if (text == NULL) text = "";
 
@@ -1412,7 +1422,8 @@ static inline void wlx_sdl3_measure_text(const char *text, WLX_Text_Style style,
 // Uses SDL3_ttf with exact length for custom fonts; falls back to a
 // null-terminated copy for the debug font path.
 static inline void wlx_sdl3_draw_text_slice(
-        const char *text, size_t slice_len, float x, float y, WLX_Text_Style style) {
+        const char *text, size_t slice_len, float x, float y, WLX_Text_Style style, void *user) {
+    WLX_UNUSED(user);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
     if (text == NULL || slice_len == 0) return;
 
@@ -1455,7 +1466,8 @@ static inline void wlx_sdl3_draw_text_slice(
 // estimation for the debug font path.
 static inline void wlx_sdl3_measure_text_slice(
         const char *text, size_t slice_len, WLX_Text_Style style,
-        float *out_w, float *out_h) {
+        float *out_w, float *out_h, void *user) {
+    WLX_UNUSED(user);
     if (out_w == NULL || out_h == NULL) return;
     // Wollix slices treat length 0 as an empty span (zero width, line
     // height), but the TTF paths below inherit SDL_ttf's "0 means
@@ -1506,7 +1518,8 @@ static inline void wlx_sdl3_measure_text_slice(
 // prefix measures) when the TTF machinery is unavailable.
 static inline size_t wlx_sdl3_measure_text_advances(const char *text, size_t len,
         WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
-        float *out_advances) {
+        float *out_advances, void *user) {
+    WLX_UNUSED(user);
     if (text == NULL || unit_ends == NULL || out_advances == NULL || unit_count == 0)
         return 0;
 
@@ -1583,7 +1596,8 @@ static inline size_t wlx_sdl3_measure_text_advances(const char *text, size_t len
     return unit_count;
 }
 
-static inline void wlx_sdl3_begin_scissor(WLX_Rect rect) {
+static inline void wlx_sdl3_begin_scissor(WLX_Rect rect, void *user) {
+    WLX_UNUSED(user);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -1601,7 +1615,8 @@ static inline void wlx_sdl3_begin_scissor(WLX_Rect rect) {
     WLX_SDL3_SCOPE_END(scissor_ns);
 }
 
-static inline void wlx_sdl3_end_scissor(void) {
+static inline void wlx_sdl3_end_scissor(void *user) {
+    WLX_UNUSED(user);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -1612,7 +1627,8 @@ static inline void wlx_sdl3_end_scissor(void) {
     WLX_SDL3_SCOPE_END(scissor_ns);
 }
 
-static inline float wlx_sdl3_get_frame_time(void) {
+static inline float wlx_sdl3_get_frame_time(void *user) {
+    WLX_UNUSED(user);
     Uint64 counter = SDL_GetPerformanceCounter();
     Uint64 frequency = SDL_GetPerformanceFrequency();
 
@@ -1633,7 +1649,8 @@ static inline float wlx_sdl3_get_frame_time(void) {
 #endif
 
 
-static inline const char *wlx_sdl3_clipboard_get(void) {
+static inline const char *wlx_sdl3_clipboard_get(void *user) {
+    WLX_UNUSED(user);
     // SDL_GetClipboardText returns a heap string the caller must free. Copy
     // it into the reused buffer and free immediately so the returned pointer
     // is borrowed and valid until the next clipboard call (per the backend
@@ -1656,7 +1673,8 @@ static inline const char *wlx_sdl3_clipboard_get(void) {
     return buf;
 }
 
-static inline void wlx_sdl3_clipboard_set(const char *text, size_t len) {
+static inline void wlx_sdl3_clipboard_set(const char *text, size_t len, void *user) {
+    WLX_UNUSED(user);
     // SDL_SetClipboardText needs a NUL-terminated string; same core
     // wlx_buf_reserve grow-and-reuse discipline as the get side.
     static char *buf = NULL;
@@ -1677,7 +1695,8 @@ static inline void wlx_sdl3_clipboard_set(const char *text, size_t len) {
 // adapter globals). The core calls this only when the shape changes. The
 // enum is append-only; this build check flags a new shape the map ignores.
 _Static_assert(WLX_CURSOR_COUNT == 2, "update wlx_sdl3_set_cursor for the new WLX_Cursor_Shape");
-static inline void wlx_sdl3_set_cursor(WLX_Cursor_Shape shape) {
+static inline void wlx_sdl3_set_cursor(WLX_Cursor_Shape shape, void *user) {
+    WLX_UNUSED(user);
     static SDL_Cursor *cursors[WLX_CURSOR_COUNT] = {0};
     if ((int)shape < 0 || (int)shape >= WLX_CURSOR_COUNT) shape = WLX_CURSOR_ARROW;
     if (cursors[shape] == NULL) {
@@ -1694,6 +1713,8 @@ static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer) {
     g_wlx_sdl3_last_counter = 0;
 
     WLX_Backend backend = (WLX_Backend){
+        .contract_version = WLX_BACKEND_CONTRACT_VERSION,
+        .user = NULL,
         .draw_rect = wlx_sdl3_draw_rect,
         .draw_rect_lines = wlx_sdl3_draw_rect_lines,
         .draw_rect_rounded = wlx_sdl3_draw_rect_rounded,

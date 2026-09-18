@@ -37,14 +37,18 @@ static void tic_push(int type, WLX_Rect r, WLX_Color c) {
     if (_tic_n < TIC_LOG_CAP) _tic_log[_tic_n++] = (TIC_Entry){ type, r, c };
 }
 
-static void tic_draw_rect(WLX_Rect r, WLX_Color c) { tic_push(TIC_RECT, r, c); }
-static void tic_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
+static void tic_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user; tic_push(TIC_RECT, r, c); }
+static void tic_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)thick; tic_push(TIC_RECT_LINES, r, c);
 }
-static void tic_draw_rect_rounded(WLX_Rect r, float roundness, int seg, WLX_Color c) {
+static void tic_draw_rect_rounded(WLX_Rect r, float roundness, int seg, WLX_Color c, void *user) {
+    (void)user;
     (void)roundness; (void)seg; tic_push(TIC_RECT_ROUNDED, r, c);
 }
-static void tic_draw_rect_rounded_lines(WLX_Rect r, float roundness, int seg, float thick, WLX_Color c) {
+static void tic_draw_rect_rounded_lines(WLX_Rect r, float roundness, int seg, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)roundness; (void)seg; (void)thick; tic_push(TIC_RECT_ROUNDED_LINES, r, c);
 }
 

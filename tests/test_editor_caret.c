@@ -352,9 +352,11 @@ static struct { float x; float clip_x; } ec_caret_lines[EC_CARET_LINES_CAP];
 static int ec_caret_line_count = 0;
 static WLX_Rect ec_last_clip;
 
-static void ec_capture_begin_scissor(WLX_Rect r) { ec_last_clip = r; }
+static void ec_capture_begin_scissor(WLX_Rect r, void *user) {
+    (void)user; ec_last_clip = r; }
 static void ec_capture_draw_line(float x1, float y1, float x2, float y2,
-                                 float thick, WLX_Color c) {
+                                 float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)y1; (void)x2; (void)y2; (void)thick; (void)c;
     if (ec_caret_line_count < EC_CARET_LINES_CAP) {
         ec_caret_lines[ec_caret_line_count].x = x1;

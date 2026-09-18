@@ -13,12 +13,14 @@
 static WLX_Color _ww_last_fill_color;
 static WLX_Color _ww_last_border_color;
 
-static void ww_rec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void ww_rec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)r;
     _ww_last_fill_color = c;
 }
 
-static void ww_rec_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
+static void ww_rec_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)thick;
     _ww_last_border_color = c;
 }

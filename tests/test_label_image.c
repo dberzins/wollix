@@ -27,7 +27,8 @@ static int       _li_text_count;
 static int       _li_rect_count;
 static WLX_Color _li_last_rect_color;
 
-static void li_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+static void li_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    (void)user;
     (void)tex;
     if (_li_tex_count < LI_MAX_DRAWS) {
         _li_tex_srcs[_li_tex_count]  = src;
@@ -40,12 +41,14 @@ static void li_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX
     _li_tex_tint = tint;
 }
 
-static void li_rec_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void li_rec_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)text; (void)x; (void)y; (void)style;
     _li_text_count++;
 }
 
-static void li_rec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void li_rec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)r;
     _li_rect_count++;
     _li_last_rect_color = c;

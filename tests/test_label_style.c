@@ -15,7 +15,8 @@ static float          _ls_text_xs[LS_MAX_DRAWS];
 static float          _ls_text_ys[LS_MAX_DRAWS];
 static WLX_Text_Style _ls_text_styles[LS_MAX_DRAWS];
 
-static void ls_rec_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void ls_rec_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)text;
     if (_ls_text_count < LS_MAX_DRAWS) {
         _ls_text_xs[_ls_text_count]     = x;
@@ -30,7 +31,8 @@ static void ls_rec_draw_text(const char *text, float x, float y, WLX_Text_Style 
 static float _ls_line_h_mult = 1.0f;
 
 static void ls_measure_text_with_mult(const char *text, WLX_Text_Style style,
-                                       float *out_w, float *out_h) {
+                                       float *out_w, float *out_h, void *user) {
+    (void)user;
     int fs = style.font_size > 0 ? style.font_size : 10;
     size_t len = text ? strlen(text) : 0;
     if (out_w) *out_w = (float)len * (float)fs * 0.5f;

@@ -29,7 +29,8 @@ static uint32_t modes_command_mod(void) {
 static int _modes_text_draw_count = 0;
 static char _modes_text_drawn[64];
 
-static void modes_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void modes_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)x; (void)y; (void)style;
     _modes_text_draw_count++;
     const char *source = text ? text : "";

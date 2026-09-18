@@ -530,14 +530,26 @@ typedef enum {
     WLX_CURSOR_COUNT
 } WLX_Cursor_Shape;
 
+// Backend contract version. A table must carry WLX_BACKEND_CONTRACT_VERSION
+// in `contract_version`; wlx_begin refuses any other value in every build,
+// since calling a table of the wrong shape through these signatures is
+// memory-unsafe. Version 2 (v0.9): every callback takes a trailing
+// `void *user`, the table's own `user` member, so an adapter can reach
+// per-instance state instead of file-scope globals. A v0.8 table is
+// wrapped in one line with wlx_backend_from_v1 (deprecated shim, removed in
+// the first minor release after 0.9).
+#define WLX_BACKEND_CONTRACT_VERSION 2u
+
 typedef struct {
-    void (*draw_rect)(WLX_Rect rect, WLX_Color color);
-    void (*draw_rect_lines)(WLX_Rect rect, float thick, WLX_Color color);
-    void (*draw_rect_rounded)(WLX_Rect rect, float roundness, int segments, WLX_Color color);
-    void (*draw_rect_rounded_lines)(WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color);
-    void (*draw_circle)(float cx, float cy, float radius, int segments, WLX_Color color); /* optional: NULL falls back to draw_rect_rounded */
-    void (*draw_ring)(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color); /* optional: NULL falls back to draw_rect_rounded_lines */
-    void (*draw_line)(float x1, float y1, float x2, float y2, float thick, WLX_Color color);
+    uint32_t contract_version;  // WLX_BACKEND_CONTRACT_VERSION
+    void    *user;              // passed as the last argument of every callback; the core never reads it
+    void (*draw_rect)(WLX_Rect rect, WLX_Color color, void *user);
+    void (*draw_rect_lines)(WLX_Rect rect, float thick, WLX_Color color, void *user);
+    void (*draw_rect_rounded)(WLX_Rect rect, float roundness, int segments, WLX_Color color, void *user);
+    void (*draw_rect_rounded_lines)(WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color, void *user);
+    void (*draw_circle)(float cx, float cy, float radius, int segments, WLX_Color color, void *user); /* optional: NULL falls back to draw_rect_rounded */
+    void (*draw_ring)(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color, void *user); /* optional: NULL falls back to draw_rect_rounded_lines */
+    void (*draw_line)(float x1, float y1, float x2, float y2, float thick, WLX_Color color, void *user);
     // Text callbacks.
     //
     // draw_text / measure_text accept NUL-terminated text. They are required
@@ -550,26 +562,29 @@ typedef struct {
     // default. New backends SHOULD implement the slice callbacks; the
     // NUL-terminated callbacks then receive only synthetic NUL-terminated
     // input via the core fallback (rare, off the hot path).
-    void (*draw_text)(const char *text, float x, float y, WLX_Text_Style style);
-    void (*measure_text)(const char *text, WLX_Text_Style style, float *out_w, float *out_h);
-    void (*draw_texture)(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint);
+    //
+    // Every text callback receives the style after the context's style
+    // transform (wlx_set_style_transform), the one place an application
+    // reshapes text styles: draw, measure and advances therefore always
+    // agree. An application that still overrides individual callbacks of an
+    // adapter-installed table must forward `user` unchanged and must not
+    // repoint `backend.user`, which every other callback of the table reads.
+    void (*draw_text)(const char *text, float x, float y, WLX_Text_Style style, void *user);
+    void (*measure_text)(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user);
+    void (*draw_texture)(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user);
     // Scissor contract: begin_scissor installs rect as the current clip.
     // Core code explicitly restores parent clipping after ending nested child
     // regions, so backends must not rely on implicit push/pop clip stacks.
-    void (*begin_scissor)(WLX_Rect rect);
-    void (*end_scissor)(void);
+    void (*begin_scissor)(WLX_Rect rect, void *user);
+    void (*end_scissor)(void *user);
     // Frame delta seconds. The core calls this exactly once per frame (in
     // wlx_begin) and caches the value for every wlx_get_frame_time read, so
     // an adapter may measure elapsed time since its own previous call.
-    float (*get_frame_time)(void);
+    float (*get_frame_time)(void *user);
     // Slice text pair: the core calls these in preference to draw_text /
-    // measure_text whenever they are set. An app that decorates the text
-    // callbacks after an adapter's context init (a font-size scale, say)
-    // must wrap every text callback the adapter installed - draw_text,
-    // draw_text_slice, measure_text, measure_text_slice and
-    // measure_text_advances - or draw and layout run at different sizes.
-    void (*draw_text_slice)(const char *text, size_t len, float x, float y, WLX_Text_Style style);
-    void (*measure_text_slice)(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h);
+    // measure_text whenever they are set.
+    void (*draw_text_slice)(const char *text, size_t len, float x, float y, WLX_Text_Style style, void *user);
+    void (*measure_text_slice)(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h, void *user);
     // Optional batched advance measurement: fill out_advances[i] with the
     // cumulative advance width in pixels of the prefix [0, unit_ends[i]) of
     // one text run, for every i < unit_count, and return the number of
@@ -590,40 +605,38 @@ typedef struct {
     // Runs are capped at WLX_TEXT_ADVANCES_CHUNK units. Consecutive chunks
     // of one line are spliced by adding the previous chunk's final advance,
     // so shaping context does not carry across a chunk boundary - the same
-    // documented approximation class as a tab stop inside a line.
-    //
-    // Apps that decorate the backend's text callbacks (style transforms
-    // such as a font-size scale) must decorate this one identically to
-    // draw/measure: its results are retained as caret, hit-test, and fit
-    // geometry against text drawn through the decorated draw path.
+    // documented approximation class as a tab stop inside a line. Its
+    // results are retained as caret, hit-test and fit geometry against text
+    // drawn through draw_text_slice, which is why both see the transformed
+    // style.
     size_t (*measure_text_advances)(const char *text, size_t len, WLX_Text_Style style,
                                     const size_t *unit_ends, size_t unit_count,
-                                    float *out_advances); /* optional */
+                                    float *out_advances, void *user); /* optional */
     // Optional soft-effect callbacks: NULL -> software fallback (layered rects /
     // concentric rings). rect is the element rect (not grown); color already has
     // effective opacity applied; roundness and rounded_segs come from the element.
     void (*draw_shadow)(WLX_Rect rect, WLX_Color color, float offset_x, float offset_y,
-                        float blur, int layers, float roundness, int rounded_segs); /* optional */
+                        float blur, int layers, float roundness, int rounded_segs, void *user); /* optional */
     void (*draw_glow)(WLX_Rect rect, WLX_Color color, float spread, int rings,
-                      float roundness, int rounded_segs); /* optional */
+                      float roundness, int rounded_segs, void *user); /* optional */
     // Optional vertical two-stop gradient: NULL -> software fallback (stacked
     // solid bands). top/bottom already have effective opacity applied;
     // roundness = 0 means sharp rect, > 0 with rounded_segs for rounding.
     void (*draw_gradient_v)(WLX_Rect rect, WLX_Color top, WLX_Color bottom,
-                            float roundness, int rounded_segs); /* optional */
+                            float roundness, int rounded_segs, void *user); /* optional */
     // Optional clipboard transport. clipboard_get returns the current system
     // clipboard text as a borrowed, NUL-terminated UTF-8 string owned by the
     // backend and valid only until the next clipboard call or end of frame; the
     // core copies out immediately. clipboard_set copies the (text, len) span to
     // the system clipboard and must not retain the pointer. Either NULL ->
     // clipboard operations are safe no-ops.
-    const char *(*clipboard_get)(void); /* optional */
-    void (*clipboard_set)(const char *text, size_t len); /* optional */
+    const char *(*clipboard_get)(void *user); /* optional */
+    void (*clipboard_set)(const char *text, size_t len, void *user); /* optional */
     // Optional cursor shape. The core resolves the shape from the widget
     // under the pointer once per frame in wlx_begin and calls this only when
     // the shape changes, so implementations stay stateless. NULL -> the
     // platform cursor is never touched.
-    void (*set_cursor)(WLX_Cursor_Shape shape); /* optional */
+    void (*set_cursor)(WLX_Cursor_Shape shape, void *user); /* optional */
 } WLX_Backend;
 
 // ============================================================================
@@ -4594,7 +4607,7 @@ static inline void wlx_span_measure_text(WLX_Context *ctx,
     if (text == NULL) { text = ""; len = 0; }
 
     if (ctx->backend.measure_text_slice != NULL) {
-        ctx->backend.measure_text_slice(text, len, style, out_w, out_h);
+        ctx->backend.measure_text_slice(text, len, style, out_w, out_h, ctx->backend.user);
         return;
     }
 
@@ -4605,7 +4618,7 @@ static inline void wlx_span_measure_text(WLX_Context *ctx,
         if (out_h) *out_h = 0.0f;
         return;
     }
-    ctx->backend.measure_text(cstr, style, out_w, out_h);
+    ctx->backend.measure_text(cstr, style, out_w, out_h, ctx->backend.user);
     wlx_cstr_tmp_end(&tmp);
 }
 
@@ -4617,14 +4630,14 @@ static inline void wlx_draw_text_span_immediate(WLX_Context *ctx,
     if (text == NULL) { text = ""; len = 0; }
 
     if (ctx->backend.draw_text_slice != NULL) {
-        ctx->backend.draw_text_slice(text, len, x, y, style);
+        ctx->backend.draw_text_slice(text, len, x, y, style, ctx->backend.user);
         return;
     }
 
     WLX_CStr_Tmp tmp;
     const char *cstr = wlx_cstr_tmp_begin(&tmp, text, len);
     if (cstr == NULL) return;
-    ctx->backend.draw_text(cstr, x, y, style);
+    ctx->backend.draw_text(cstr, x, y, style, ctx->backend.user);
     wlx_cstr_tmp_end(&tmp);
 }
 
@@ -4675,7 +4688,7 @@ static inline void wlx_draw_text(WLX_Context *ctx, const char *text, float x, fl
 static inline void wlx_draw_rect(WLX_Context *ctx, WLX_Rect rect, WLX_Color color) {
     if (ctx->immediate_mode) {
         assert(ctx->backend.draw_rect != NULL && "WLX_Backend.draw_rect must be set");
-        ctx->backend.draw_rect(rect, color);
+        ctx->backend.draw_rect(rect, color, ctx->backend.user);
     } else {
         wlx_cmd_record_rect(ctx, rect, color);
     }
@@ -4694,7 +4707,7 @@ static inline void wlx_draw_rect_lines(WLX_Context *ctx, WLX_Rect rect, float th
     wlx_outline_subpixel(&thick, &color);
     if (ctx->immediate_mode) {
         assert(ctx->backend.draw_rect_lines != NULL && "WLX_Backend.draw_rect_lines must be set");
-        ctx->backend.draw_rect_lines(rect, thick, color);
+        ctx->backend.draw_rect_lines(rect, thick, color, ctx->backend.user);
     } else {
         wlx_cmd_record_rect_lines(ctx, rect, thick, color);
     }
@@ -4705,7 +4718,7 @@ static inline void wlx_draw_rect_rounded(WLX_Context *ctx, WLX_Rect rect, float 
             && ctx->backend.draw_circle) {
         float r = rect.w * 0.5f;
         if (ctx->immediate_mode) {
-            ctx->backend.draw_circle(rect.x + r, rect.y + r, r, segments, color);
+            ctx->backend.draw_circle(rect.x + r, rect.y + r, r, segments, color, ctx->backend.user);
         } else {
             wlx_cmd_record_circle(ctx, rect.x + r, rect.y + r, r, segments, color);
         }
@@ -4713,7 +4726,7 @@ static inline void wlx_draw_rect_rounded(WLX_Context *ctx, WLX_Rect rect, float 
     }
     if (ctx->immediate_mode) {
         assert(ctx->backend.draw_rect_rounded != NULL && "WLX_Backend.draw_rect_rounded must be set");
-        ctx->backend.draw_rect_rounded(rect, roundness, segments, color);
+        ctx->backend.draw_rect_rounded(rect, roundness, segments, color, ctx->backend.user);
     } else {
         wlx_cmd_record_rect_rounded(ctx, rect, roundness, segments, color);
     }
@@ -4725,7 +4738,7 @@ static inline void wlx_draw_rect_rounded_lines(WLX_Context *ctx, WLX_Rect rect, 
         float r = rect.w * 0.5f;
         if (ctx->immediate_mode) {
             ctx->backend.draw_ring(rect.x + r, rect.y + r, r - thick, r,
-                                   segments, color);
+                                   segments, color, ctx->backend.user);
         } else {
             wlx_cmd_record_ring(ctx, rect.x + r, rect.y + r, r - thick, r,
                                 segments, color);
@@ -4735,7 +4748,7 @@ static inline void wlx_draw_rect_rounded_lines(WLX_Context *ctx, WLX_Rect rect, 
     wlx_outline_subpixel(&thick, &color);
     if (ctx->immediate_mode) {
         assert(ctx->backend.draw_rect_rounded_lines != NULL && "WLX_Backend.draw_rect_rounded_lines must be set");
-        ctx->backend.draw_rect_rounded_lines(rect, roundness, segments, thick, color);
+        ctx->backend.draw_rect_rounded_lines(rect, roundness, segments, thick, color, ctx->backend.user);
     } else {
         wlx_cmd_record_rect_rounded_lines(ctx, rect, roundness, segments, thick, color);
     }
@@ -4744,7 +4757,7 @@ static inline void wlx_draw_rect_rounded_lines(WLX_Context *ctx, WLX_Rect rect, 
 static inline void wlx_draw_line(WLX_Context *ctx, float x1, float y1, float x2, float y2, float thick, WLX_Color color) {
     if (ctx->immediate_mode) {
         assert(ctx->backend.draw_line != NULL && "WLX_Backend.draw_line must be set");
-        ctx->backend.draw_line(x1, y1, x2, y2, thick, color);
+        ctx->backend.draw_line(x1, y1, x2, y2, thick, color, ctx->backend.user);
     } else {
         wlx_cmd_record_line(ctx, x1, y1, x2, y2, thick, color);
     }
@@ -4753,7 +4766,7 @@ static inline void wlx_draw_line(WLX_Context *ctx, float x1, float y1, float x2,
 static inline void wlx_draw_texture(WLX_Context *ctx, WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
     if (ctx->immediate_mode) {
         assert(ctx->backend.draw_texture != NULL && "WLX_Backend.draw_texture must be set");
-        ctx->backend.draw_texture(texture, src, dst, tint);
+        ctx->backend.draw_texture(texture, src, dst, tint, ctx->backend.user);
     } else {
         wlx_cmd_record_texture(ctx, texture, src, dst, tint);
     }
@@ -4768,7 +4781,7 @@ static inline float wlx_get_frame_time(WLX_Context *ctx) {
 static inline void wlx_begin_scissor(WLX_Context *ctx, WLX_Rect rect) {
     if (ctx->immediate_mode) {
         assert(ctx->backend.begin_scissor != NULL && "WLX_Backend.begin_scissor must be set");
-        ctx->backend.begin_scissor(rect);
+        ctx->backend.begin_scissor(rect, ctx->backend.user);
     } else {
         wlx_cmd_record_scissor_begin(ctx, rect);
     }
@@ -4777,15 +4790,21 @@ static inline void wlx_begin_scissor(WLX_Context *ctx, WLX_Rect rect) {
 static inline void wlx_end_scissor(WLX_Context *ctx) {
     if (ctx->immediate_mode) {
         assert(ctx->backend.end_scissor != NULL && "WLX_Backend.end_scissor must be set");
-        ctx->backend.end_scissor();
+        ctx->backend.end_scissor(ctx->backend.user);
     } else {
         wlx_cmd_record_scissor_end(ctx);
     }
 }
 
 static inline void wlx_assert_backend_ready(WLX_Context *ctx) {
-    WLX_UNUSED(ctx);  // assert-only body; unused under NDEBUG
     assert(ctx != NULL && "WLX_Context must not be NULL");
+    // Contract-version check, live in every build: a table of another
+    // version compiles on compilers that only warn about the callback
+    // signatures, and calling it through these signatures is memory-unsafe.
+    WLX_HARD_ASSERT(ctx->backend.contract_version == WLX_BACKEND_CONTRACT_VERSION,
+        "WLX_Backend contract v2 required: set .contract_version = "
+        "WLX_BACKEND_CONTRACT_VERSION and add a trailing void *user parameter "
+        "to every callback, or wrap a v1 table with wlx_backend_from_v1");
     assert(
         wlx_backend_is_ready(ctx) &&
         "WLX_Backend is not initialized. Set ctx->backend before wlx_begin (e.g. wlx_context_init_raylib(ctx))."
@@ -5983,14 +6002,14 @@ WLXDEF bool wlx_is_mouse_middle_clicked(WLX_Context *ctx) {
 
 WLXDEF void wlx_clipboard_set_text(WLX_Context *ctx, const char *text, size_t len) {
     if (ctx->backend.clipboard_set == NULL || text == NULL) return;
-    ctx->backend.clipboard_set(text, len);
+    ctx->backend.clipboard_set(text, len, ctx->backend.user);
 }
 
 WLXDEF size_t wlx_clipboard_get_copy(WLX_Context *ctx, char *out, size_t out_size) {
     if (out == NULL || out_size == 0) return 0;
     out[0] = '\0';
     if (ctx->backend.clipboard_get == NULL) return 0;
-    const char *src = ctx->backend.clipboard_get();
+    const char *src = ctx->backend.clipboard_get(ctx->backend.user);
     if (src == NULL) return 0;
 
     size_t src_len = strlen(src);
@@ -6123,7 +6142,7 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
         if (shape != ctx->cursor_applied) {
             ctx->cursor_applied = shape;
             if (ctx->backend.set_cursor != NULL) {
-                ctx->backend.set_cursor((WLX_Cursor_Shape)shape);
+                ctx->backend.set_cursor((WLX_Cursor_Shape)shape, ctx->backend.user);
             }
         }
     }
@@ -6218,7 +6237,7 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
     // The frame's single backend time sample; adapters may measure time
     // since their own previous call because the core calls exactly once.
     ctx->frame_dt = ctx->backend.get_frame_time != NULL
-        ? ctx->backend.get_frame_time() : 0.0f;
+        ? ctx->backend.get_frame_time(ctx->backend.user) : 0.0f;
     wlx_frame_arbitrate(ctx);
     // Lazy pool init: callers that zero-init WLX_Context and skip
     // wlx_context_init still get the default macro-backed allocators.
@@ -6298,7 +6317,7 @@ static inline uint8_t wlx_glow_ring_alpha(uint8_t base_a, int rings, int i) {
 static inline void wlx_render_shadow(WLX_Context *ctx, WLX_Rect rect, WLX_Color color,
         float ox, float oy, float blur, int layers, float roundness, int segs) {
     if (ctx->backend.draw_shadow) {
-        ctx->backend.draw_shadow(rect, color, ox, oy, blur, layers, roundness, segs);
+        ctx->backend.draw_shadow(rect, color, ox, oy, blur, layers, roundness, segs, ctx->backend.user);
         return;
     }
     if (layers < 1) layers = 1;
@@ -6306,7 +6325,7 @@ static inline void wlx_render_shadow(WLX_Context *ctx, WLX_Rect rect, WLX_Color 
         WLX_Color lc = color;
         lc.a = wlx_shadow_layer_alpha(color.a, layers, i);
         ctx->backend.draw_rect_rounded(wlx_shadow_layer_rect(rect, ox, oy, layers, i),
-                                       roundness, segs, lc);
+                                       roundness, segs, lc, ctx->backend.user);
     }
 }
 
@@ -6315,7 +6334,7 @@ static inline void wlx_render_shadow(WLX_Context *ctx, WLX_Rect rect, WLX_Color 
 static inline void wlx_render_glow(WLX_Context *ctx, WLX_Rect rect, WLX_Color color,
         float spread, int rings, float roundness, int segs) {
     if (ctx->backend.draw_glow) {
-        ctx->backend.draw_glow(rect, color, spread, rings, roundness, segs);
+        ctx->backend.draw_glow(rect, color, spread, rings, roundness, segs, ctx->backend.user);
         return;
     }
     if (rings < 1) rings = 1;
@@ -6323,7 +6342,7 @@ static inline void wlx_render_glow(WLX_Context *ctx, WLX_Rect rect, WLX_Color co
         WLX_Color rc = color;
         rc.a = wlx_glow_ring_alpha(color.a, rings, i);
         ctx->backend.draw_rect_rounded_lines(wlx_glow_ring_rect(rect, spread, rings, i),
-                                             roundness, segs, 2.0f, rc);
+                                             roundness, segs, 2.0f, rc, ctx->backend.user);
     }
 }
 
@@ -6334,7 +6353,7 @@ static inline void wlx_render_glow(WLX_Context *ctx, WLX_Rect rect, WLX_Color co
 static inline void wlx_render_gradient_v(WLX_Context *ctx, WLX_Rect rect,
         WLX_Color top, WLX_Color bottom, float roundness, int segs) {
     if (ctx->backend.draw_gradient_v) {
-        ctx->backend.draw_gradient_v(rect, top, bottom, roundness, segs);
+        ctx->backend.draw_gradient_v(rect, top, bottom, roundness, segs, ctx->backend.user);
         return;
     }
     int bands = (int)(rect.h / WLX_GRADIENT_FALLBACK_BAND_HEIGHT_PX);
@@ -6345,8 +6364,8 @@ static inline void wlx_render_gradient_v(WLX_Context *ctx, WLX_Rect rect,
         WLX_Color c = wlx_color_lerp(top, bottom, t);
         // +1.0f guards against sub-pixel seams between adjacent bands.
         WLX_Rect b = { rect.x, rect.y + (float)i * band_h, rect.w, band_h + 1.0f };
-        if (roundness > 0.0f) ctx->backend.draw_rect_rounded(b, roundness, segs, c);
-        else                  ctx->backend.draw_rect(b, c);
+        if (roundness > 0.0f) ctx->backend.draw_rect_rounded(b, roundness, segs, c, ctx->backend.user);
+        else                  ctx->backend.draw_rect(b, c, ctx->backend.user);
     }
 }
 
@@ -6360,7 +6379,7 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
             ctx->backend.draw_rect(
                 (WLX_Rect){c->data.rect.rect.x + dx, c->data.rect.rect.y + dy,
                            c->data.rect.rect.w, c->data.rect.rect.h},
-                c->data.rect.color);
+                c->data.rect.color, ctx->backend.user);
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
@@ -6369,7 +6388,7 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
             ctx->backend.draw_rect_lines(
                 (WLX_Rect){c->data.rect_lines.rect.x + dx, c->data.rect_lines.rect.y + dy,
                            c->data.rect_lines.rect.w, c->data.rect_lines.rect.h},
-                c->data.rect_lines.thick, c->data.rect_lines.color);
+                c->data.rect_lines.thick, c->data.rect_lines.color, ctx->backend.user);
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
@@ -6379,7 +6398,7 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
                 (WLX_Rect){c->data.rect_rounded.rect.x + dx, c->data.rect_rounded.rect.y + dy,
                            c->data.rect_rounded.rect.w, c->data.rect_rounded.rect.h},
                 c->data.rect_rounded.roundness, c->data.rect_rounded.segments,
-                c->data.rect_rounded.color);
+                c->data.rect_rounded.color, ctx->backend.user);
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
@@ -6389,7 +6408,7 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
                 (WLX_Rect){c->data.rect_rounded_lines.rect.x + dx, c->data.rect_rounded_lines.rect.y + dy,
                            c->data.rect_rounded_lines.rect.w, c->data.rect_rounded_lines.rect.h},
                 c->data.rect_rounded_lines.roundness, c->data.rect_rounded_lines.segments,
-                c->data.rect_rounded_lines.thick, c->data.rect_rounded_lines.color);
+                c->data.rect_rounded_lines.thick, c->data.rect_rounded_lines.color, ctx->backend.user);
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
@@ -6398,7 +6417,7 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
             ctx->backend.draw_circle(
                 c->data.circle.cx + dx, c->data.circle.cy + dy,
                 c->data.circle.radius, c->data.circle.segments,
-                c->data.circle.color);
+                c->data.circle.color, ctx->backend.user);
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
@@ -6407,7 +6426,7 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
             ctx->backend.draw_ring(
                 c->data.ring.cx + dx, c->data.ring.cy + dy,
                 c->data.ring.inner_r, c->data.ring.outer_r,
-                c->data.ring.segments, c->data.ring.color);
+                c->data.ring.segments, c->data.ring.color, ctx->backend.user);
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
@@ -6416,7 +6435,7 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
             ctx->backend.draw_line(
                 c->data.line.x1 + dx, c->data.line.y1 + dy,
                 c->data.line.x2 + dx, c->data.line.y2 + dy,
-                c->data.line.thick, c->data.line.color);
+                c->data.line.thick, c->data.line.color, ctx->backend.user);
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
@@ -6427,7 +6446,7 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
                     (const char *)&wlx_pool_scratch(ctx)[c->data.text.text_off],
                     c->data.text.text_len,
                     c->data.text.x + dx, c->data.text.y + dy,
-                    c->data.text.style);
+                    c->data.text.style, ctx->backend.user);
             } else {
                 // Legacy draw_text expects NUL-terminated input; the recorded
                 // scratch span carries only `text_len` bytes so synthesise a
@@ -6442,7 +6461,7 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
                 }
                 ctx->backend.draw_text(cstr,
                     c->data.text.x + dx, c->data.text.y + dy,
-                    c->data.text.style);
+                    c->data.text.style, ctx->backend.user);
                 wlx_cstr_tmp_end(&tmp);
             }
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
@@ -6454,7 +6473,7 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
                 c->data.texture.texture, c->data.texture.src,
                 (WLX_Rect){c->data.texture.dst.x + dx, c->data.texture.dst.y + dy,
                            c->data.texture.dst.w, c->data.texture.dst.h},
-                c->data.texture.tint);
+                c->data.texture.tint, ctx->backend.user);
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
@@ -6462,13 +6481,13 @@ static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
             WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.begin_scissor(
                 (WLX_Rect){c->data.scissor_begin.rect.x + dx, c->data.scissor_begin.rect.y + dy,
-                           c->data.scissor_begin.rect.w, c->data.scissor_begin.rect.h});
+                           c->data.scissor_begin.rect.w, c->data.scissor_begin.rect.h}, ctx->backend.user);
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_SCISSOR_END:
             WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
-            ctx->backend.end_scissor();
+            ctx->backend.end_scissor(ctx->backend.user);
             WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
@@ -6532,7 +6551,7 @@ static void wlx_focus_ring_draw(WLX_Context *ctx) {
     const WLX_Theme *theme = ctx->theme ? ctx->theme : &wlx_theme_dark;
     WLX_Color color = theme->accent;
     wlx_outline_subpixel(&thick, &color);
-    ctx->backend.draw_rect_lines(ring, thick, color);
+    ctx->backend.draw_rect_lines(ring, thick, color, ctx->backend.user);
 }
 
 WLXDEF void wlx_end(WLX_Context *ctx) {
@@ -6636,7 +6655,7 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
                 wlx_replay_dispatch_cmd(ctx, c, cmd_dx[i], cmd_dy[i]);
             }
             while (scissor_depth-- > 0) {
-                if (ctx->backend.end_scissor) ctx->backend.end_scissor();
+                if (ctx->backend.end_scissor) ctx->backend.end_scissor(ctx->backend.user);
             }
         }
     }
@@ -9221,7 +9240,7 @@ static size_t wlx_text_measure_advances_batch(const WLX_Text_Measure_Args *args,
         size_t run_units = j - i;
         for (size_t k = 0; k < run_units; k++) rel_ends[k] = out_ends[i + k] - unit_start;
         size_t filled = ctx->backend.measure_text_advances(text + unit_start,
-            rel_ends[run_units - 1], style, rel_ends, run_units, out_adv + i);
+            rel_ends[run_units - 1], style, rel_ends, run_units, out_adv + i, ctx->backend.user);
         if (filled > run_units) filled = run_units;
         for (size_t k = 0; k < filled; k++) out_adv[i + k] += x;
         if (filled < run_units) {
@@ -13028,7 +13047,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
         // limited by the per-frame text_input ring.
         if (wlx_is_key_pressed(ctx, WLX_KEY_V) && !caps.read_only
             && ctx->backend.clipboard_get != NULL) {
-            const char *clip = ctx->backend.clipboard_get();
+            const char *clip = ctx->backend.clipboard_get(ctx->backend.user);
             size_t clip_len = clip ? strlen(clip) : 0;
             if (clip_len > 0) {
                 wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_PASTE);

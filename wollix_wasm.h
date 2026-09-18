@@ -391,7 +391,8 @@ static inline void wlx_perf_wasm_present_end(void) {
 // Backend callback wrappers
 // ============================================================================
 
-static inline void wlx_wasm_draw_rect(WLX_Rect r, WLX_Color c) {
+static inline void wlx_wasm_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_rect_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -399,7 +400,8 @@ static inline void wlx_wasm_draw_rect(WLX_Rect r, WLX_Color c) {
     WLX_WASM_SCOPE_END(geometry_ns);
 }
 
-static inline void wlx_wasm_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
+static inline void wlx_wasm_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_rect_lines_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -409,7 +411,8 @@ static inline void wlx_wasm_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c
 }
 
 static inline void wlx_wasm_draw_rect_rounded(
-        WLX_Rect r, float roundness, int segments, WLX_Color c) {
+        WLX_Rect r, float roundness, int segments, WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_rect_rounded_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -419,7 +422,8 @@ static inline void wlx_wasm_draw_rect_rounded(
 }
 
 static inline void wlx_wasm_draw_rect_rounded_lines(
-        WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
+        WLX_Rect r, float roundness, int segments, float thick, WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_rect_rounded_lines_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -429,7 +433,8 @@ static inline void wlx_wasm_draw_rect_rounded_lines(
 }
 
 static inline void wlx_wasm_draw_circle(
-        float cx, float cy, float radius, int segments, WLX_Color c) {
+        float cx, float cy, float radius, int segments, WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_circle_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -440,7 +445,8 @@ static inline void wlx_wasm_draw_circle(
 
 static inline void wlx_wasm_draw_ring(
         float cx, float cy, float inner_r, float outer_r, int segments,
-        WLX_Color c) {
+        WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_ring_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -450,7 +456,8 @@ static inline void wlx_wasm_draw_ring(
 }
 
 static inline void wlx_wasm_draw_line(
-        float x1, float y1, float x2, float y2, float thick, WLX_Color c) {
+        float x1, float y1, float x2, float y2, float thick, WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_line_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -459,7 +466,8 @@ static inline void wlx_wasm_draw_line(
 }
 
 static inline void wlx_wasm_draw_text(
-        const char *text, float x, float y, WLX_Text_Style style) {
+        const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_text_calls);
     wlx_wasm_import_draw_text(
@@ -469,7 +477,8 @@ static inline void wlx_wasm_draw_text(
 }
 
 static inline void wlx_wasm_measure_text(
-        const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+        const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(measure_text_calls);
     wlx_wasm_import_measure_text(
@@ -478,7 +487,8 @@ static inline void wlx_wasm_measure_text(
 }
 
 static inline void wlx_wasm_draw_text_slice(
-        const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+        const char *text, size_t len, float x, float y, WLX_Text_Style style, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_text_calls);
     wlx_wasm_import_draw_text_slice(
@@ -489,7 +499,8 @@ static inline void wlx_wasm_draw_text_slice(
 
 static inline void wlx_wasm_measure_text_slice(
         const char *text, size_t len, WLX_Text_Style style,
-        float *out_w, float *out_h) {
+        float *out_w, float *out_h, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(measure_text_calls);
     wlx_wasm_import_measure_text_slice(
@@ -500,7 +511,8 @@ static inline void wlx_wasm_measure_text_slice(
 
 static inline size_t wlx_wasm_measure_text_advances(
         const char *text, size_t len, WLX_Text_Style style,
-        const size_t *unit_ends, size_t unit_count, float *out_advances) {
+        const size_t *unit_ends, size_t unit_count, float *out_advances, void *user) {
+    WLX_UNUSED(user);
     if (text == NULL || unit_ends == NULL || out_advances == NULL || unit_count == 0)
         return 0;
     WLX_WASM_SCOPE_BEGIN();
@@ -513,7 +525,8 @@ static inline size_t wlx_wasm_measure_text_advances(
 }
 
 static inline void wlx_wasm_draw_texture(
-        WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+        WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_texture_calls);
     wlx_wasm_import_draw_texture(
@@ -541,7 +554,8 @@ static inline void wlx_wasm_texture_destroy(WLX_Texture tex) {
     wlx_wasm_import_destroy_texture(tex.handle);
 }
 
-static inline void wlx_wasm_begin_scissor(WLX_Rect r) {
+static inline void wlx_wasm_begin_scissor(WLX_Rect r, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(begin_scissor_calls);
     WLX_WASM_PERF_INC(clip_change_calls);
@@ -549,7 +563,8 @@ static inline void wlx_wasm_begin_scissor(WLX_Rect r) {
     WLX_WASM_SCOPE_END(scissor_ns);
 }
 
-static inline void wlx_wasm_end_scissor(void) {
+static inline void wlx_wasm_end_scissor(void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(end_scissor_calls);
     WLX_WASM_PERF_INC(clip_change_calls);
@@ -557,7 +572,8 @@ static inline void wlx_wasm_end_scissor(void) {
     WLX_WASM_SCOPE_END(scissor_ns);
 }
 
-static inline float wlx_wasm_get_frame_time(void) {
+static inline float wlx_wasm_get_frame_time(void *user) {
+    WLX_UNUSED(user);
     return wlx_wasm_import_get_frame_time();
 }
 
@@ -574,7 +590,8 @@ static inline float wlx_wasm_get_frame_time(void) {
 static char *g_wlx_wasm_clipboard_buf = NULL;
 static uint32_t g_wlx_wasm_clipboard_cap = 0;
 
-static inline const char *wlx_wasm_clipboard_get(void) {
+static inline const char *wlx_wasm_clipboard_get(void *user) {
+    WLX_UNUSED(user);
     if (g_wlx_wasm_clipboard_buf == NULL) {
         // First fetch: start small, but never above the (overridable) soft
         // cap plus its terminator byte.
@@ -607,7 +624,8 @@ static inline const char *wlx_wasm_clipboard_get(void) {
     }
 }
 
-static inline void wlx_wasm_clipboard_set(const char *text, size_t len) {
+static inline void wlx_wasm_clipboard_set(const char *text, size_t len, void *user) {
+    WLX_UNUSED(user);
     wlx_wasm_import_clipboard_set(text, (uint32_t)len);
 }
 
@@ -615,7 +633,8 @@ static inline void wlx_wasm_clipboard_set(const char *text, size_t len) {
 // CSS cursor. The enum is append-only; this build check flags a new shape
 // the JS map must learn about.
 _Static_assert(WLX_CURSOR_COUNT == 2, "update the JS set_cursor map for the new WLX_Cursor_Shape");
-static inline void wlx_wasm_set_cursor(WLX_Cursor_Shape shape) {
+static inline void wlx_wasm_set_cursor(WLX_Cursor_Shape shape, void *user) {
+    WLX_UNUSED(user);
     wlx_wasm_import_set_cursor((uint32_t)shape);
 }
 
@@ -625,6 +644,8 @@ static inline void wlx_wasm_set_cursor(WLX_Cursor_Shape shape) {
 
 static inline WLX_Backend wlx_backend_wasm(void) {
     return (WLX_Backend){
+        .contract_version  = WLX_BACKEND_CONTRACT_VERSION,
+        .user              = NULL,
         .draw_rect         = wlx_wasm_draw_rect,
         .draw_rect_lines   = wlx_wasm_draw_rect_lines,
         .draw_rect_rounded       = wlx_wasm_draw_rect_rounded,

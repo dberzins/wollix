@@ -29,25 +29,29 @@ static float    _mp_text_x;
 static float    _mp_text_y;
 static int      _mp_text_count;
 
-static void mp_rec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void mp_rec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)c;
     if (_mp_rect_count < MP_REC_MAX) _mp_rects[_mp_rect_count] = r;
     _mp_rect_count++;
 }
 
-static void mp_rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c) {
+static void mp_rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)roundness; (void)segments; (void)c;
     if (_mp_rounded_count < MP_REC_MAX) _mp_rounded[_mp_rounded_count] = r;
     _mp_rounded_count++;
 }
 
-static void mp_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
+static void mp_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)roundness; (void)segments; (void)thick; (void)c;
     if (_mp_rounded_lines_count < MP_REC_MAX) _mp_rounded_lines[_mp_rounded_lines_count] = r;
     _mp_rounded_lines_count++;
 }
 
-static void mp_rec_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c) {
+static void mp_rec_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)inner_r; (void)segments; (void)c;
     if (_mp_ring_count < MP_REC_MAX) {
         _mp_rings[_mp_ring_count] = (WLX_Rect){
@@ -57,7 +61,8 @@ static void mp_rec_draw_ring(float cx, float cy, float inner_r, float outer_r, i
     _mp_ring_count++;
 }
 
-static void mp_rec_draw_text(const char *t, float x, float y, WLX_Text_Style s) {
+static void mp_rec_draw_text(const char *t, float x, float y, WLX_Text_Style s, void *user) {
+    (void)user;
     (void)t; (void)s;
     if (_mp_text_count == 0) {
         _mp_text_x = x;

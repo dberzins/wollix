@@ -91,7 +91,7 @@ static char *clip_make_text(size_t len, bool two_byte) {
 TEST(wasm_clipboard_short_text_fetches_once) {
     clip_reset();
     clip_host("hello", 5);
-    const char *s = wlx_wasm_clipboard_get();
+    const char *s = wlx_wasm_clipboard_get(NULL);
     ASSERT_EQ_STR(s, "hello");
     ASSERT_EQ_INT(g_clip_host_calls, 1);
     ASSERT_EQ_INT((int)g_wlx_wasm_clipboard_cap, 4096);
@@ -103,7 +103,7 @@ TEST(wasm_clipboard_backoff_window_refetches) {
     clip_reset();
     char *t = clip_make_text(4093, false);
     clip_host(t, 4093);
-    const char *s = wlx_wasm_clipboard_get();
+    const char *s = wlx_wasm_clipboard_get(NULL);
     ASSERT_EQ_INT((int)strlen(s), 4093);
     ASSERT_TRUE(memcmp(s, t, 4093) == 0);
     ASSERT_EQ_INT(g_clip_host_calls, 2);
@@ -117,7 +117,7 @@ TEST(wasm_clipboard_grows_geometrically_to_fit) {
     clip_reset();
     char *t = clip_make_text(10000, false);
     clip_host(t, 10000);
-    const char *s = wlx_wasm_clipboard_get();
+    const char *s = wlx_wasm_clipboard_get(NULL);
     ASSERT_EQ_INT((int)strlen(s), 10000);
     ASSERT_TRUE(memcmp(s, t, 10000) == 0);
     ASSERT_EQ_INT(g_clip_host_calls, 3);
@@ -132,7 +132,7 @@ TEST(wasm_clipboard_stops_at_the_cap_on_a_utf8_boundary) {
     clip_reset();
     char *t = clip_make_text(19999, true);
     clip_host(t, 19999);
-    const char *s = wlx_wasm_clipboard_get();
+    const char *s = wlx_wasm_clipboard_get(NULL);
     ASSERT_EQ_INT((int)strlen(s), 11999);
     ASSERT_TRUE(memcmp(s, t, 11999) == 0);
     ASSERT_EQ_INT(((unsigned char)s[11998] & 0xC0), 0x80);
@@ -148,10 +148,10 @@ TEST(wasm_clipboard_reuses_the_grown_buffer) {
     clip_reset();
     char *t = clip_make_text(10000, false);
     clip_host(t, 10000);
-    (void)wlx_wasm_clipboard_get();
+    (void)wlx_wasm_clipboard_get(NULL);
     ASSERT_EQ_INT((int)g_wlx_wasm_clipboard_cap, 12001);
     clip_host("reuse", 5);
-    const char *s = wlx_wasm_clipboard_get();
+    const char *s = wlx_wasm_clipboard_get(NULL);
     ASSERT_EQ_STR(s, "reuse");
     ASSERT_EQ_INT(g_clip_host_calls, 1);
     ASSERT_EQ_INT((int)g_wlx_wasm_clipboard_cap, 12001);
@@ -162,7 +162,7 @@ TEST(wasm_clipboard_reuses_the_grown_buffer) {
 TEST(wasm_clipboard_empty_host_yields_empty_string) {
     clip_reset();
     clip_host("", 0);
-    const char *s = wlx_wasm_clipboard_get();
+    const char *s = wlx_wasm_clipboard_get(NULL);
     ASSERT_EQ_STR(s, "");
     ASSERT_EQ_INT(g_clip_host_calls, 1);
     ASSERT_EQ_INT((int)g_wlx_wasm_clipboard_cap, 4096);
@@ -175,7 +175,7 @@ TEST(wasm_clipboard_empty_host_yields_empty_string) {
 // The slice reaches the host as (text, len): the length, not the string.
 TEST(wasm_clipboard_set_passes_the_slice) {
     g_clip_host_set_calls = 0;
-    wlx_wasm_clipboard_set("abc", 2);
+    wlx_wasm_clipboard_set("abc", 2, NULL);
     ASSERT_EQ_INT(g_clip_host_set_calls, 1);
     ASSERT_EQ_INT((int)g_clip_host_set_len, 2);
     ASSERT_EQ_STR(g_clip_host_set_buf, "ab");

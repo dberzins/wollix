@@ -22,7 +22,8 @@
 
 static WLX_Color _ds_last_fill_color;
 
-static void ds_rec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void ds_rec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)r;
     _ds_last_fill_color = c;
 }
