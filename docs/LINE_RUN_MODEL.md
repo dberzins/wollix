@@ -529,10 +529,11 @@ unit policy and the tab splitting; the backend walks its own
 glyph/cluster geometry and reports the advance at (or snapped to the
 cluster edge after) each requested byte end. `NULL` keeps the per-unit
 prefix fallback — external backends work unmodified. See
-`docs/API_REFERENCE.md` for the full contract, and note the decoration
-rule: an application that wraps a backend's text callbacks (e.g. a
-font-size scale) must wrap all four text paths together, or retained
-geometry will disagree with draw.
+`docs/API_REFERENCE.md` for the full contract. An application that
+reshapes text styles (e.g. a font-size scale) does so through
+`wlx_set_style_transform`, which the core applies before every text
+callback - draw, measure and advances alike - so retained geometry
+cannot disagree with draw.
 
 One line's traffic on each measurement path, and the shared emission:
 

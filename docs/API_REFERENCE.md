@@ -311,34 +311,38 @@ font size (e.g. SDL3_ttf vs. Raylib's bitmap font).
 ### `WLX_Backend`
 
 ```c
+#define WLX_BACKEND_CONTRACT_VERSION 2u
+
 typedef struct {
-    void (*draw_rect)(WLX_Rect rect, WLX_Color color);
-    void (*draw_rect_lines)(WLX_Rect rect, float thick, WLX_Color color);
-    void (*draw_rect_rounded)(WLX_Rect rect, float roundness, int segments, WLX_Color color);
-    void (*draw_rect_rounded_lines)(WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color);
-    void (*draw_circle)(float cx, float cy, float radius, int segments, WLX_Color color);
-    void (*draw_ring)(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color);
-    void (*draw_line)(float x1, float y1, float x2, float y2, float thick, WLX_Color color);
-    void (*draw_text)(const char *text, float x, float y, WLX_Text_Style style);
-    void (*measure_text)(const char *text, WLX_Text_Style style, float *out_w, float *out_h);
-    void (*draw_texture)(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint);
-    void (*begin_scissor)(WLX_Rect rect);
-    void (*end_scissor)(void);
-    float (*get_frame_time)(void);
-    void (*draw_text_slice)(const char *text, size_t len, float x, float y, WLX_Text_Style style);
-    void (*measure_text_slice)(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h);
+    uint32_t contract_version;  // WLX_BACKEND_CONTRACT_VERSION
+    void    *user;              // last argument of every callback; the core never reads it
+    void (*draw_rect)(WLX_Rect rect, WLX_Color color, void *user);
+    void (*draw_rect_lines)(WLX_Rect rect, float thick, WLX_Color color, void *user);
+    void (*draw_rect_rounded)(WLX_Rect rect, float roundness, int segments, WLX_Color color, void *user);
+    void (*draw_rect_rounded_lines)(WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color, void *user);
+    void (*draw_circle)(float cx, float cy, float radius, int segments, WLX_Color color, void *user);
+    void (*draw_ring)(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color, void *user);
+    void (*draw_line)(float x1, float y1, float x2, float y2, float thick, WLX_Color color, void *user);
+    void (*draw_text)(const char *text, float x, float y, WLX_Text_Style style, void *user);
+    void (*measure_text)(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user);
+    void (*draw_texture)(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user);
+    void (*begin_scissor)(WLX_Rect rect, void *user);
+    void (*end_scissor)(void *user);
+    float (*get_frame_time)(void *user);
+    void (*draw_text_slice)(const char *text, size_t len, float x, float y, WLX_Text_Style style, void *user);
+    void (*measure_text_slice)(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h, void *user);
     size_t (*measure_text_advances)(const char *text, size_t len, WLX_Text_Style style,
                                     const size_t *unit_ends, size_t unit_count,
-                                    float *out_advances);      // optional
+                                    float *out_advances, void *user);      // optional
     void (*draw_shadow)(WLX_Rect rect, WLX_Color color, float offset_x, float offset_y,
-                        float blur, int layers, float roundness, int rounded_segs); // optional
+                        float blur, int layers, float roundness, int rounded_segs, void *user); // optional
     void (*draw_glow)(WLX_Rect rect, WLX_Color color, float spread, int rings,
-                      float roundness, int rounded_segs); // optional
+                      float roundness, int rounded_segs, void *user); // optional
     void (*draw_gradient_v)(WLX_Rect rect, WLX_Color top, WLX_Color bottom,
-                            float roundness, int rounded_segs); // optional
-    const char *(*clipboard_get)(void);                         // optional
-    void (*clipboard_set)(const char *text, size_t len);        // optional
-    void (*set_cursor)(WLX_Cursor_Shape shape);                 // optional
+                            float roundness, int rounded_segs, void *user); // optional
+    const char *(*clipboard_get)(void *user);                         // optional
+    void (*clipboard_set)(const char *text, size_t len, void *user);  // optional
+    void (*set_cursor)(WLX_Cursor_Shape shape, void *user);           // optional
 } WLX_Backend;
 ```
 
@@ -346,6 +350,20 @@ Function-pointer table that the library calls to perform all rendering and
 time queries. All required pointers must be non-NULL; use
 `wlx_backend_is_ready()` to verify the required set. Optional pointers may be
 left as `NULL`.
+
+**Contract v2 (v0.9).** Every callback takes a trailing `void *user`: the
+table's own `user` member, passed by the core on every call and never
+read by it, so an adapter can reach per-instance state instead of
+file-scope globals. `contract_version` must be
+`WLX_BACKEND_CONTRACT_VERSION`; `wlx_begin` checks it with a
+release-live `WLX_HARD_ASSERT`, because a table of another shape compiles
+on compilers that only warn about the callback signatures and calling it
+through these signatures is memory-unsafe. The in-tree adapters set the
+version and pass `NULL`. A v0.8 table migrates in one line with
+`wlx_backend_from_v1` (below). An application that overrides individual
+callbacks of an adapter-installed table must forward `user` unchanged and
+must not repoint `backend.user`, which every other callback of the table
+reads.
 
 | Callback | Purpose |
 |----------|---------|
@@ -407,15 +425,64 @@ consecutive chunks of one line are spliced by adding the previous
 chunk's final advance, so shaping context does not carry across a chunk
 boundary — the same documented approximation class as a tab stop inside
 a line. A backend's advances must be consistent with its own draw of
-the same run: applications that decorate a backend's text callbacks
-(e.g. a font-size scale) **must decorate all four text paths
-together** — `draw_text`/`draw_text_slice`, `measure_text`/
-`measure_text_slice`, and `measure_text_advances` — because advances
-are retained as caret, hit-test, and fit geometry against text drawn
-through the decorated draw path. All three in-tree adapters implement
-the callback (SDL3 requires SDL_ttf >= 3.3.0; older builds simply stay
-on the fallback). See `docs/LINE_RUN_MODEL.md` §5 and §14 for where it
-sits in the pipeline.
+the same run, since advances are retained as caret, hit-test and fit
+geometry against text drawn through `draw_text_slice`; an application
+that reshapes text styles (a font-size scale, say) does so through
+`wlx_set_style_transform`, which the core applies before every text
+callback, so the three paths cannot disagree. All three in-tree
+adapters implement the callback (SDL3 requires SDL_ttf >= 3.3.0; older
+builds simply stay on the fallback). See `docs/LINE_RUN_MODEL.md` §5
+and §14 for where it sits in the pipeline.
+
+### `wlx_backend_from_v1` (deprecated shim)
+
+```c
+typedef struct { /* the v0.8 WLX_Backend: same members, no user, no version */ } WLX_Backend_V1;
+WLXDEF WLX_Backend wlx_backend_from_v1(const WLX_Backend_V1 *v1);
+```
+
+Wraps a v0.8-shaped table in a v2 one: 22 trampolines reach the v1 table
+through `user`, and a `NULL` v1 member stays `NULL` on the v2 table so the
+core's optional fallbacks apply as for a native table. The caller keeps
+the v1 table alive for the context's lifetime (static storage in
+practice):
+
+```c
+static WLX_Backend_V1 my_table = { .draw_rect = my_draw_rect, /* ... */ };
+ctx->backend = wlx_backend_from_v1(&my_table);
+```
+
+Removed, with `WLX_Backend_V1`, in the first minor release after 0.9; the
+real migration is appending `void *user` to every callback and setting
+`.contract_version`.
+
+### `wlx_set_style_transform`
+
+```c
+typedef WLX_Text_Style (*WLX_Style_Transform_Fn)(WLX_Text_Style style, void *user);
+WLXDEF void wlx_set_style_transform(WLX_Context *ctx, WLX_Style_Transform_Fn fn, void *user);
+```
+
+Installs (or clears, with `NULL`) the context's style transform: the one
+place an application reshapes text styles. The core applies it to the
+`WLX_Text_Style` immediately before every text callback - draw, measure
+and advances alike - and nowhere else, so widget options, the command
+buffer and retained geometry hold nominal styles while the backend sees
+only transformed ones, and draw, measure and advances always agree. The
+function must be pure in `(style, user)` and return a style the backend
+can render. Every call counts as a measurement-environment change:
+retained text geometry measured under the previous transform is rebuilt
+on the next frame. Change the transform's behaviour only through this
+call; mutating `user` behind it leaves retained geometry stale.
+
+```c
+static WLX_Text_Style scale_for_raylib(WLX_Text_Style s, void *user) {
+    (void)user;
+    if (s.font_size > 0) s.font_size = (int)(s.font_size * 1.31f + 0.5f);
+    return s;
+}
+wlx_set_style_transform(ctx, scale_for_raylib, NULL);
+```
 
 ### In-tree adapter capabilities
 
@@ -440,7 +507,9 @@ static inline bool wlx_backend_is_ready(const WLX_Context *ctx);
 ```
 
 Returns `true` if `ctx` is non-NULL and all required backend function pointers
-are set. Text callbacks are accepted in either form per direction: a backend
+are set. It does not check `contract_version`; `wlx_begin` does, with a
+release-live `WLX_HARD_ASSERT`, ahead of these pointer checks. Text
+callbacks are accepted in either form per direction: a backend
 is ready with `draw_text_slice` *or* `draw_text`, and `measure_text_slice`
 *or* `measure_text` (the slice entries are the preferred contract; the
 NUL-terminated pair is the compatibility form). Optional callbacks such as

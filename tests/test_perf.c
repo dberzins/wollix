@@ -165,7 +165,7 @@ TEST(perf_text_measure_counter) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     float w = 0, h = 0;
-    ctx.backend.measure_text("test", (WLX_Text_Style){.font_size = 10}, &w, &h);
+    ctx.backend.measure_text("test", (WLX_Text_Style){.font_size = 10}, &w, &h, ctx.backend.user);
     WLX_PERF_HOOK(text_measure, &ctx, 4); // "test" = 4 bytes
     test_frame_end(&ctx);
 

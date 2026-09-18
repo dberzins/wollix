@@ -14,6 +14,21 @@ alias of the same storage or value for **one minor version after 0.9**,
 so existing code compiles unchanged; migrate before the next minor. Default
 *meanings* cannot be aliased: each one below names its migration.
 
+- **Backend contract v2: every callback carries an instance pointer.** All
+  22 `WLX_Backend` callbacks take a trailing `void *user`, the table's new
+  `user` member, passed by the core on every call and never read by it, so
+  an adapter can reach per-instance state instead of file-scope globals
+  (the in-tree adapters still use their globals this release and pass
+  `NULL`). The table also carries `contract_version`, which must be
+  `WLX_BACKEND_CONTRACT_VERSION` (`2`): `wlx_begin` checks it in every
+  build, because a v0.8 table compiles with warnings on compilers older
+  than GCC 14 and calling it through the v2 signatures is memory-unsafe.
+  Migration, one line: `ctx->backend = wlx_backend_from_v1(&my_table);`
+  with the v0.8 table typed `WLX_Backend_V1` (the shim and the type are
+  removed in the first minor after 0.9); or, for good, append `void *user`
+  to each callback and set `.contract_version`. An application that
+  overrides individual callbacks of an adapter-installed table forwards
+  `user` unchanged and never repoints `backend.user`.
 - **`.align` is `.content_align`; `.widget_align` is `.slot_align`.** The
   two alignment fields never said what they aligned: `content_align`
   places the text or image inside the widget rect (the typography field,
@@ -71,6 +86,16 @@ so existing code compiles unchanged; migrate before the next minor. Default
   resolved to `0` and inherited nothing). Omission is unchanged.
 
 ### Added
+- **`wlx_set_style_transform`.** A context-level transform (function plus
+  user pointer) that the core applies to the `WLX_Text_Style` immediately
+  before every text callback - draw, measure and advances - and nowhere
+  else, so widget options, the command buffer and retained geometry hold
+  nominal styles while the backend sees only transformed ones. This
+  replaces the pattern of wrapping an adapter's five text callbacks
+  identically (the rule the 0.7.0 caret-drift fix documented, and which
+  nothing could enforce): the dashboard and gallery Raylib font scales are
+  one transform each now. Every call counts as a measurement-environment
+  change, so the editor's retained geometry is rebuilt on the next frame.
 - **Option defaults as values.** `wlx_<widget>_opt_defaults()` returns each
   option struct's defaults exactly as its macro installs them, one function
   per struct (26 in the core, `wlx_editor_opt_defaults` in the editor
