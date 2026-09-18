@@ -639,6 +639,46 @@ typedef struct {
     void (*set_cursor)(WLX_Cursor_Shape shape, void *user); /* optional */
 } WLX_Backend;
 
+// Deprecated: the v0.8 backend table (contract v1), kept so an existing
+// backend migrates in one line: `ctx->backend = wlx_backend_from_v1(&t);`.
+// The v2 table it returns forwards every callback through 22 trampolines
+// that reach the v1 table through `user`, so the caller keeps `t` alive
+// for the context's lifetime (static storage in practice). A NULL v1
+// member stays NULL on the v2 table, so the core's optional-callback
+// fallbacks apply exactly as for a native table. Removed, with this type,
+// in the first minor release after 0.9.
+typedef struct {
+    void (*draw_rect)(WLX_Rect rect, WLX_Color color);
+    void (*draw_rect_lines)(WLX_Rect rect, float thick, WLX_Color color);
+    void (*draw_rect_rounded)(WLX_Rect rect, float roundness, int segments, WLX_Color color);
+    void (*draw_rect_rounded_lines)(WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color);
+    void (*draw_circle)(float cx, float cy, float radius, int segments, WLX_Color color);
+    void (*draw_ring)(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color);
+    void (*draw_line)(float x1, float y1, float x2, float y2, float thick, WLX_Color color);
+    void (*draw_text)(const char *text, float x, float y, WLX_Text_Style style);
+    void (*measure_text)(const char *text, WLX_Text_Style style, float *out_w, float *out_h);
+    void (*draw_texture)(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint);
+    void (*begin_scissor)(WLX_Rect rect);
+    void (*end_scissor)(void);
+    float (*get_frame_time)(void);
+    void (*draw_text_slice)(const char *text, size_t len, float x, float y, WLX_Text_Style style);
+    void (*measure_text_slice)(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h);
+    size_t (*measure_text_advances)(const char *text, size_t len, WLX_Text_Style style,
+                                    const size_t *unit_ends, size_t unit_count,
+                                    float *out_advances);
+    void (*draw_shadow)(WLX_Rect rect, WLX_Color color, float offset_x, float offset_y,
+                        float blur, int layers, float roundness, int rounded_segs);
+    void (*draw_glow)(WLX_Rect rect, WLX_Color color, float spread, int rings,
+                      float roundness, int rounded_segs);
+    void (*draw_gradient_v)(WLX_Rect rect, WLX_Color top, WLX_Color bottom,
+                            float roundness, int rounded_segs);
+    const char *(*clipboard_get)(void);
+    void (*clipboard_set)(const char *text, size_t len);
+    void (*set_cursor)(WLX_Cursor_Shape shape);
+} WLX_Backend_V1;
+
+WLXDEF WLX_Backend wlx_backend_from_v1(const WLX_Backend_V1 *v1);
+
 // ============================================================================
 // Public enums
 // ============================================================================
@@ -16676,6 +16716,68 @@ static inline void wlx_dbg_split_end(WLX_Context *ctx) {
 }
 
 #endif // WLX_DEBUG
+
+// ============================================================================
+// Implementation: v1 backend shim
+// ============================================================================
+// One trampoline per callback: `user` is the v1 table.
+
+#define WLX_V1(user) ((const WLX_Backend_V1 *)(user))
+static void wlx_v1_draw_rect(WLX_Rect r, WLX_Color c, void *u) { WLX_V1(u)->draw_rect(r, c); }
+static void wlx_v1_draw_rect_lines(WLX_Rect r, float t, WLX_Color c, void *u) { WLX_V1(u)->draw_rect_lines(r, t, c); }
+static void wlx_v1_draw_rect_rounded(WLX_Rect r, float ro, int seg, WLX_Color c, void *u) { WLX_V1(u)->draw_rect_rounded(r, ro, seg, c); }
+static void wlx_v1_draw_rect_rounded_lines(WLX_Rect r, float ro, int seg, float t, WLX_Color c, void *u) { WLX_V1(u)->draw_rect_rounded_lines(r, ro, seg, t, c); }
+static void wlx_v1_draw_circle(float cx, float cy, float rad, int seg, WLX_Color c, void *u) { WLX_V1(u)->draw_circle(cx, cy, rad, seg, c); }
+static void wlx_v1_draw_ring(float cx, float cy, float ri, float ro, int seg, WLX_Color c, void *u) { WLX_V1(u)->draw_ring(cx, cy, ri, ro, seg, c); }
+static void wlx_v1_draw_line(float x1, float y1, float x2, float y2, float t, WLX_Color c, void *u) { WLX_V1(u)->draw_line(x1, y1, x2, y2, t, c); }
+static void wlx_v1_draw_text(const char *text, float x, float y, WLX_Text_Style st, void *u) { WLX_V1(u)->draw_text(text, x, y, st); }
+static void wlx_v1_measure_text(const char *text, WLX_Text_Style st, float *w, float *h, void *u) { WLX_V1(u)->measure_text(text, st, w, h); }
+static void wlx_v1_draw_texture(WLX_Texture t, WLX_Rect s, WLX_Rect d, WLX_Color c, void *u) { WLX_V1(u)->draw_texture(t, s, d, c); }
+static void wlx_v1_begin_scissor(WLX_Rect r, void *u) { WLX_V1(u)->begin_scissor(r); }
+static void wlx_v1_end_scissor(void *u) { WLX_V1(u)->end_scissor(); }
+static float wlx_v1_get_frame_time(void *u) { return WLX_V1(u)->get_frame_time(); }
+static void wlx_v1_draw_text_slice(const char *text, size_t len, float x, float y, WLX_Text_Style st, void *u) { WLX_V1(u)->draw_text_slice(text, len, x, y, st); }
+static void wlx_v1_measure_text_slice(const char *text, size_t len, WLX_Text_Style st, float *w, float *h, void *u) { WLX_V1(u)->measure_text_slice(text, len, st, w, h); }
+static size_t wlx_v1_measure_text_advances(const char *text, size_t len, WLX_Text_Style st, const size_t *ends, size_t n, float *adv, void *u) { return WLX_V1(u)->measure_text_advances(text, len, st, ends, n, adv); }
+static void wlx_v1_draw_shadow(WLX_Rect r, WLX_Color c, float ox, float oy, float blur, int layers, float ro, int seg, void *u) { WLX_V1(u)->draw_shadow(r, c, ox, oy, blur, layers, ro, seg); }
+static void wlx_v1_draw_glow(WLX_Rect r, WLX_Color c, float spread, int rings, float ro, int seg, void *u) { WLX_V1(u)->draw_glow(r, c, spread, rings, ro, seg); }
+static void wlx_v1_draw_gradient_v(WLX_Rect r, WLX_Color top, WLX_Color bottom, float ro, int seg, void *u) { WLX_V1(u)->draw_gradient_v(r, top, bottom, ro, seg); }
+static const char *wlx_v1_clipboard_get(void *u) { return WLX_V1(u)->clipboard_get(); }
+static void wlx_v1_clipboard_set(const char *text, size_t len, void *u) { WLX_V1(u)->clipboard_set(text, len); }
+static void wlx_v1_set_cursor(WLX_Cursor_Shape shape, void *u) { WLX_V1(u)->set_cursor(shape); }
+#undef WLX_V1
+
+WLXDEF WLX_Backend wlx_backend_from_v1(const WLX_Backend_V1 *v1) {
+    WLX_Backend b;
+    memset(&b, 0, sizeof(b));
+    b.contract_version = WLX_BACKEND_CONTRACT_VERSION;
+    b.user = (void *)v1;
+#define WLX_V1_FORWARD(member) if (v1->member != NULL) b.member = wlx_v1_##member
+    WLX_V1_FORWARD(draw_rect);
+    WLX_V1_FORWARD(draw_rect_lines);
+    WLX_V1_FORWARD(draw_rect_rounded);
+    WLX_V1_FORWARD(draw_rect_rounded_lines);
+    WLX_V1_FORWARD(draw_circle);
+    WLX_V1_FORWARD(draw_ring);
+    WLX_V1_FORWARD(draw_line);
+    WLX_V1_FORWARD(draw_text);
+    WLX_V1_FORWARD(measure_text);
+    WLX_V1_FORWARD(draw_texture);
+    WLX_V1_FORWARD(begin_scissor);
+    WLX_V1_FORWARD(end_scissor);
+    WLX_V1_FORWARD(get_frame_time);
+    WLX_V1_FORWARD(draw_text_slice);
+    WLX_V1_FORWARD(measure_text_slice);
+    WLX_V1_FORWARD(measure_text_advances);
+    WLX_V1_FORWARD(draw_shadow);
+    WLX_V1_FORWARD(draw_glow);
+    WLX_V1_FORWARD(draw_gradient_v);
+    WLX_V1_FORWARD(clipboard_get);
+    WLX_V1_FORWARD(clipboard_set);
+    WLX_V1_FORWARD(set_cursor);
+#undef WLX_V1_FORWARD
+    return b;
+}
 
 // ============================================================================
 // Implementation: option defaults as values
