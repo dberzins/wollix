@@ -751,7 +751,7 @@ static void gallery_panel_heading_helper(WLX_Context *ctx,
     gallery_icon_label_helper(ctx, text, icon, role, wlx_default_label_opt(
         .height = height,
         .font_size = 18,
-        .align = WLX_LEFT,
+        .content_align = WLX_LEFT,
         .show_background = true,
         .back_color = sem.color_surface_3,
         .front_color = sem.color_text_1,
@@ -785,7 +785,7 @@ static void gallery_panel_heading_helper(WLX_Context *ctx,
 
 #define SECTION_HEADING(ctx, title) \
     wlx_label(ctx, title, \
-        .font_size = SECTION_FS, .align = WLX_CENTER, .height = HEADING_H, \
+        .font_size = SECTION_FS, .content_align = WLX_CENTER, .height = HEADING_H, \
         .show_background = true, .back_color = CONTENT_BG(ctx), \
         .content_padding_top = GALLERY_SPACING(ctx, space_heading_y), \
         .content_padding_right = GALLERY_SPACING(ctx, space_heading_x), \
@@ -794,7 +794,7 @@ static void gallery_panel_heading_helper(WLX_Context *ctx,
 
 #define SUB_HEADING(ctx, title) \
     wlx_label(ctx, title, \
-        .font_size = WLX_STYLE_HEADING_FONT_SIZE, .align = WLX_LEFT, .height = SUB_HEADING_H, \
+        .font_size = WLX_STYLE_HEADING_FONT_SIZE, .content_align = WLX_LEFT, .height = SUB_HEADING_H, \
         .show_background = true, .back_color = SECTION_BG(ctx), \
         .content_padding_top = GALLERY_SPACING(ctx, space_heading_y), \
         .content_padding_right = GALLERY_SPACING(ctx, space_heading_x), \
@@ -902,13 +902,13 @@ static void section_label(WLX_Context *ctx, Gallery_State *st) {
             .font_size = fs, .height = ROW_H);
 
         wlx_label(ctx, "Centered Heading (boxed)",
-            .font_size = fs + 4, .align = WLX_CENTER, .height = HEADING_H,
+            .font_size = fs + 4, .content_align = WLX_CENTER, .height = HEADING_H,
             .show_background = st->label_show_bg,
             .back_color = heading_color(ctx->theme, 22, 22, 42),
             .opacity = st->label_opacity);
 
         wlx_label(ctx, "Right-aligned with custom color",
-            .font_size = fs, .align = WLX_RIGHT, .height = ROW_H,
+            .font_size = fs, .content_align = WLX_RIGHT, .height = ROW_H,
             .front_color = (WLX_Color){100, 200, 255, 255},
             .opacity = st->label_opacity);
 
@@ -933,7 +933,7 @@ static void section_label(WLX_Context *ctx, Gallery_State *st) {
             for (int i = 0; i < 9; i++) {
                 wlx_push_id(ctx, (size_t)i);
                 wlx_label(ctx, align_names[i],
-                    .font_size = SMALL_FS, .align = aligns[i],
+                    .font_size = SMALL_FS, .content_align = aligns[i],
                     .back_color = heading_color(ctx->theme, 12, 17, 27), .show_background = true, .wrap = false);
                 wlx_pop_id(ctx);
             }
@@ -1031,24 +1031,24 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
             .height = DESC_H);
 
         if (wlx_button(ctx, "Default Button",
-            .height = bh, .font_size = fs, .align = WLX_CENTER)) {
+            .height = bh, .font_size = fs, .content_align = WLX_CENTER)) {
             st->button_click_count++;
         }
 
         if (wlx_button(ctx, "Custom Color Button",
-            .height = bh, .font_size = fs, .align = WLX_CENTER,
+            .height = bh, .font_size = fs, .content_align = WLX_CENTER,
             .back_color = bc)) {
             st->button_click_count++;
         }
 
         if (wlx_button(ctx, "Boxed Button",
-            .height = bh, .font_size = fs, .align = WLX_CENTER)) {
+            .height = bh, .font_size = fs, .content_align = WLX_CENTER)) {
             st->button_click_count++;
         }
 
         if (wlx_button(ctx, "Center Aligned (200x50)",
-            .widget_align = WLX_CENTER, .width = 200, .height = 50,
-            .font_size = fs, .align = WLX_CENTER)) {
+            .slot_align = WLX_CENTER, .width = 200, .height = 50,
+            .font_size = fs, .content_align = WLX_CENTER)) {
             st->button_click_count++;
         }
 
@@ -1061,7 +1061,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
 
             wlx_layout_begin(ctx, 4, WLX_HORZ, .gap = 8);
                 if (wlx_button(ctx, "",
-                    .height = image_bh, .align = WLX_CENTER,
+                    .height = image_bh, .content_align = WLX_CENTER,
                     .texture = atlas,
                     .texture_src = gallery_icon_src_for(WLX_ICON_PLAY, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_ACCENT),
@@ -1069,7 +1069,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
                     st->button_click_count++;
                 }
                 if (wlx_button(ctx, "Save",
-                    .height = image_bh, .align = WLX_CENTER, .font_size = fs,
+                    .height = image_bh, .content_align = WLX_CENTER, .font_size = fs,
                     .texture = atlas,
                     .texture_src = gallery_icon_src_for(WLX_ICON_SAVE, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_TEXT),
@@ -1079,7 +1079,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
                     st->button_click_count++;
                 }
                 if (wlx_button(ctx, "Confirm",
-                    .height = image_bh, .align = WLX_CENTER, .font_size = fs,
+                    .height = image_bh, .content_align = WLX_CENTER, .font_size = fs,
                     .texture = atlas,
                     .texture_src = gallery_icon_src_for(WLX_ICON_CHECK, (float)bh * 0.5f),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_SUCCESS),
@@ -1088,7 +1088,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
                     st->button_click_count++;
                 }
                 if (wlx_button(ctx, "Settings",
-                    .height = image_bh, .align = WLX_CENTER, .font_size = fs,
+                    .height = image_bh, .content_align = WLX_CENTER, .font_size = fs,
                     .texture = atlas,
                     .texture_src = gallery_icon_src_for(WLX_ICON_SETTINGS, icon_size),
                     .texture_tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_TEXT),
@@ -1109,7 +1109,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
         char click_buf[64];
         snprintf(click_buf, sizeof(click_buf), "Click count: %d", st->button_click_count);
         wlx_label(ctx, click_buf,
-            .font_size = DEMO_FS, .height = ROW_H, .align = WLX_CENTER);
+            .font_size = DEMO_FS, .height = ROW_H, .content_align = WLX_CENTER);
 
         {
             Gallery_Semantic_Theme sem = gallery_semantic_theme(ctx->theme);
@@ -1117,7 +1117,7 @@ static void section_button(WLX_Context *ctx, Gallery_State *st) {
             bool atlas_ready = gallery_icon_atlas_ready();
 
             if (wlx_button(ctx, "Reset Counter",
-                .height = ROW_H, .align = WLX_CENTER,
+                .height = ROW_H, .content_align = WLX_CENTER,
                 .back_color = DANGER_BG(ctx),
                 .texture = atlas_ready ? atlas : (WLX_Texture){0},
                 .texture_src = atlas_ready ? gallery_icon_src_for(WLX_ICON_ROTATE_CCW, (float)ROW_H - 14.0f) : (WLX_Rect){0},
@@ -1262,19 +1262,19 @@ static void section_image(WLX_Context *ctx, Gallery_State *st) {
             .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(20), WLX_SLOT_PX(PREVIEW_H) },
             .padding = 2);
             wlx_label(ctx, columns[i].label,
-                .font_size = 13, .align = WLX_CENTER);
+                .font_size = 13, .content_align = WLX_CENTER);
             if (i < 2) {
                 wlx_image(ctx, atlas,
                     .src = src_image,
                     .scale = columns[i].scale,
                     .tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_TEXT),
-                    .align = WLX_CENTER);
+                    .content_align = WLX_CENTER);
             } else {
                 wlx_image(ctx, atlas,
                     .src = src_palette,
                     .scale = columns[i].scale,
                     .tint = gallery_icon_tint(&sem, GALLERY_ICON_ROLE_ACCENT),
-                    .align = WLX_CENTER);
+                    .content_align = WLX_CENTER);
             }
         wlx_layout_end(ctx);
         wlx_pop_id(ctx);
@@ -1340,7 +1340,7 @@ static void section_slider(WLX_Context *ctx, Gallery_State *st) {
             {
                 WLX_Color preview = to_color(st->slider_color.r, st->slider_color.g, st->slider_color.b, 1.0f);
                 wlx_widget(ctx,
-                    .widget_align = WLX_CENTER, .width = -1, .height = 40,
+                    .slot_align = WLX_CENTER, .width = -1, .height = 40,
                     .back_color = preview);
             }
 
@@ -1410,7 +1410,7 @@ static void section_inputbox(WLX_Context *ctx, Gallery_State *st) {
         wlx_inputbox(ctx, "Email: ", st->inputs[1], sizeof(st->inputs[1]),
             .height = ih, .font_size = fs);
         wlx_inputbox(ctx, "Note:  ", st->inputs[2], sizeof(st->inputs[2]),
-            .height = ih*3, .font_size = fs, .align = WLX_TOP_LEFT);
+            .height = ih*3, .font_size = fs, .content_align = WLX_TOP_LEFT);
 
         SUB_HEADING(ctx, "Custom Focus Color");
         wlx_inputbox(ctx, "Styled: ", st->inputs[3], sizeof(st->inputs[3]),
@@ -1433,7 +1433,7 @@ static void section_inputbox(WLX_Context *ctx, Gallery_State *st) {
             .height = 120, .font_size = fs);
 
         if (wlx_button(ctx, "Clear All Inputs",
-            .height = ROW_H, .align = WLX_CENTER,
+            .height = ROW_H, .content_align = WLX_CENTER,
             .back_color = DANGER_BG(ctx))) {
             for (int i = 0; i < 4; i++) st->inputs[i][0] = '\0';
         }
@@ -1596,18 +1596,18 @@ static void section_editor(WLX_Context *ctx, Gallery_State *st) {
             // Document pickers: out-of-widget buffer swaps that showcase the
             // .revision guard rebuilding the line index.
             gallery_option_label(ctx, "Documents",
-                .height = SMALL_H, .font_size = TINY_FS, .align = WLX_LEFT,
+                .height = SMALL_H, .font_size = TINY_FS, .content_align = WLX_LEFT,
                 .front_color = semantic.color_text_muted);
             if (wlx_button(ctx, "Sample Doc",
-                .height = OPT_H, .font_size = OPT_FS, .align = WLX_CENTER)) {
+                .height = OPT_H, .font_size = OPT_FS, .content_align = WLX_CENTER)) {
                 gallery_editor_load_sample(st);
             }
             if (wlx_button(ctx, "Generate 30k Lines",
-                .height = OPT_H, .font_size = OPT_FS, .align = WLX_CENTER)) {
+                .height = OPT_H, .font_size = OPT_FS, .content_align = WLX_CENTER)) {
                 gallery_editor_generate(st, 30000);
             }
             if (wlx_button(ctx, "Prose Doc (wrap on)",
-                .height = OPT_H, .font_size = OPT_FS, .align = WLX_CENTER)) {
+                .height = OPT_H, .font_size = OPT_FS, .content_align = WLX_CENTER)) {
                 gallery_editor_load_prose(st);
                 st->editor_wrap = true;
             }
@@ -1652,7 +1652,7 @@ static void section_editor(WLX_Context *ctx, Gallery_State *st) {
                 (unsigned)(GALLERY_EDITOR_CAP / 1024u),
                 (unsigned)st->editor_revision);
             wlx_label(ctx, ed_stats,
-                .height = SMALL_H, .font_size = TINY_FS, .align = WLX_LEFT,
+                .height = SMALL_H, .font_size = TINY_FS, .content_align = WLX_LEFT,
                 .front_color = semantic.color_text_muted);
 
         wlx_layout_end(ctx);
@@ -1711,7 +1711,7 @@ static void section_scroll_panel(WLX_Context *ctx, Gallery_State *st) {
 
             wlx_layout_begin_auto(ctx, WLX_VERT, 30);
                 wlx_label(ctx, vp_buf,
-                    .height = SMALL_H, .font_size = TINY_FS, .align = WLX_LEFT,
+                    .height = SMALL_H, .font_size = TINY_FS, .content_align = WLX_LEFT,
                     .front_color = semantic.color_text_muted);
                 for (int i = 0; i < 20; i++) {
                     wlx_push_id(ctx, (size_t)i);
@@ -1726,7 +1726,7 @@ static void section_scroll_panel(WLX_Context *ctx, Gallery_State *st) {
                     wlx_label(ctx, buf,
                         .height = DESC_H, .font_size = 15,
                         .back_color = row_bg, .front_color = row_fg,
-                        .align = WLX_LEFT);
+                        .content_align = WLX_LEFT);
                     wlx_pop_id(ctx);
                 }
             wlx_layout_end(ctx);
@@ -1813,12 +1813,12 @@ static void section_widget(WLX_Context *ctx, Gallery_State *st) {
 
         SUB_HEADING(ctx, "Color Swatch");
         wlx_widget(ctx,
-            .widget_align = WLX_CENTER, .width = 120, .height = 40,
+            .slot_align = WLX_CENTER, .width = 120, .height = 40,
             .back_color = (WLX_Color){0, 120, 255, 255});
 
         SUB_HEADING(ctx, "Divider / Spacer");
         wlx_widget(ctx,
-            .widget_align = WLX_CENTER, .width = -1, .height = 2,
+            .slot_align = WLX_CENTER, .width = -1, .height = 2,
             .back_color = (WLX_Color){80, 80, 80, 255});
 
         SUB_HEADING(ctx, "Alignment Grid");
@@ -1851,7 +1851,7 @@ static void section_widget(WLX_Context *ctx, Gallery_State *st) {
             for (int i = 0; i < 12; i++) {
                 wlx_push_id(ctx, (size_t)i);
                 wlx_widget(ctx,
-                    .widget_align = all_aligns[i], .width = 30, .height = 30,
+                    .slot_align = all_aligns[i], .width = 30, .height = 30,
                     .back_color = swatch_colors[i]);
                 wlx_pop_id(ctx);
             }
@@ -1915,7 +1915,7 @@ static void section_layout_linear(WLX_Context *ctx, Gallery_State *st) {
                         char buf[16];
                         snprintf(buf, sizeof(buf), "%d", i);
                         wlx_label(ctx, buf,
-                            .font_size = DEMO_FS, .align = WLX_CENTER,
+                            .font_size = DEMO_FS, .content_align = WLX_CENTER,
                             .back_color = c, .show_background = true);
                         wlx_pop_id(ctx);
                     }
@@ -1929,7 +1929,7 @@ static void section_layout_linear(WLX_Context *ctx, Gallery_State *st) {
                         char buf[16];
                         snprintf(buf, sizeof(buf), "Row %d", i);
                         wlx_label(ctx, buf,
-                            .font_size = 16, .align = WLX_LEFT,
+                            .font_size = 16, .content_align = WLX_LEFT,
                             .back_color = c, .show_background = true);
                         wlx_pop_id(ctx);
                     }
@@ -1940,13 +1940,13 @@ static void section_layout_linear(WLX_Context *ctx, Gallery_State *st) {
                     WLX_SIZES(WLX_SLOT_PX(100), WLX_SLOT_PCT(30), WLX_SLOT_FLEX(1)),
                     .padding = 0);
                     wlx_label(ctx, "PX(100)",
-                        .height = 50, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = 50, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 62, 22, 22), .show_background = true);
                     wlx_label(ctx, "PCT(30)",
-                        .height = 50, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = 50, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 22, 62, 22), .show_background = true);
                     wlx_label(ctx, "FLEX(1)",
-                        .height = 50, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = 50, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 22, 22, 62), .show_background = true);
                 wlx_layout_end(ctx);
 
@@ -2030,7 +2030,7 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
                             char buf[16];
                             snprintf(buf, sizeof(buf), "%d,%d", r, c);
                             wlx_label(ctx, buf,
-                                .height = -1, .font_size = SMALL_FS, .align = WLX_CENTER,
+                                .height = -1, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                                 .back_color = clr, .show_background = true);
                             wlx_pop_id(ctx);
                         }
@@ -2049,7 +2049,7 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
                             wlx_push_id(ctx, (size_t)c);
                             WLX_Color clr = { (unsigned char)(50 + c * 30), 70, 140, 255 };
                             wlx_label(ctx, "Tall", .height = 40, .font_size = TINY_FS,
-                                .align = WLX_CENTER, .back_color = clr,
+                                .content_align = WLX_CENTER, .back_color = clr,
                                 .show_background = true);
                             wlx_pop_id(ctx);
                         }
@@ -2057,7 +2057,7 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
                             wlx_push_id(ctx, (size_t)(3 + c));
                             WLX_Color clr = { 70, (unsigned char)(50 + c * 30), 140, 255 };
                             wlx_label(ctx, "Min 20", .height = 20, .font_size = TINY_FS,
-                                .align = WLX_CENTER, .back_color = clr,
+                                .content_align = WLX_CENTER, .back_color = clr,
                                 .show_background = true);
                             wlx_pop_id(ctx);
                         }
@@ -2065,7 +2065,7 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
                             wlx_push_id(ctx, (size_t)(6 + c));
                             WLX_Color clr = { 70, 140, (unsigned char)(50 + c * 30), 255 };
                             wlx_label(ctx, "Max 30", .height = 35, .font_size = TINY_FS,
-                                .align = WLX_CENTER, .back_color = clr,
+                                .content_align = WLX_CENTER, .back_color = clr,
                                 .show_background = true);
                             wlx_pop_id(ctx);
                         }
@@ -2080,7 +2080,7 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
                         snprintf(buf, sizeof(buf), "Cell %d", i);
                         WLX_Color clr = { (unsigned char)(60 + i * 15), 80, (unsigned char)(180 - i * 10), 255 };
                         wlx_label(ctx, buf,
-                            .height = -1, .font_size = TINY_FS, .align = WLX_CENTER,
+                            .height = -1, .font_size = TINY_FS, .content_align = WLX_CENTER,
                             .back_color = clr, .show_background = true);
                         wlx_pop_id(ctx);
                     }
@@ -2094,7 +2094,7 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
                         snprintf(buf, sizeof(buf), "Tile %d", i);
                         WLX_Color clr = { (unsigned char)(80 + i * 10), (unsigned char)(60 + i * 15), 120, 255 };
                         wlx_label(ctx, buf,
-                            .height = -1, .font_size = TINY_FS, .align = WLX_CENTER,
+                            .height = -1, .font_size = TINY_FS, .content_align = WLX_CENTER,
                             .back_color = clr, .show_background = true);
                         wlx_pop_id(ctx);
                     }
@@ -2104,27 +2104,27 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
                 wlx_grid_begin(ctx, 3, 3);
                     wlx_grid_cell(ctx, 0, 0, .col_span = 2);
                     wlx_label(ctx, "Span 2 cols",
-                        .height = -1, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = -1, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 62, 22, 42), .show_background = true);
 
                     wlx_grid_cell(ctx, 0, 2, .row_span = 2);
                     wlx_label(ctx, "Span 2 rows",
-                        .height = -1, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = -1, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 22, 62, 42), .show_background = true);
 
                     wlx_grid_cell(ctx, 1, 0);
                     wlx_label(ctx, "1,0",
-                        .height = -1, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = -1, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 42, 42, 62), .show_background = true);
 
                     wlx_grid_cell(ctx, 1, 1);
                     wlx_label(ctx, "1,1",
-                        .height = -1, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = -1, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 42, 62, 42), .show_background = true);
 
                     wlx_grid_cell(ctx, 2, 0, .col_span = 3);
                     wlx_label(ctx, "Full width (span 3 cols)",
-                        .height = -1, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = -1, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 42, 42, 42), .show_background = true);
                 wlx_layout_end(ctx);
 
@@ -2197,10 +2197,10 @@ static void section_layout_flex(WLX_Context *ctx, Gallery_State *st) {
                         snprintf(buf_a, sizeof(buf_a), "FLEX(%.1f)", wa);
                         snprintf(buf_b, sizeof(buf_b), "FLEX(%.1f)", wb);
                         wlx_label(ctx, buf_a,
-                            .height = 60, .font_size = 16, .align = WLX_CENTER,
+                            .height = 60, .font_size = 16, .content_align = WLX_CENTER,
                             .back_color = heading_color(ctx->theme, 42, 22, 62), .show_background = true);
                         wlx_label(ctx, buf_b,
-                            .height = 60, .font_size = 16, .align = WLX_CENTER,
+                            .height = 60, .font_size = 16, .content_align = WLX_CENTER,
                             .back_color = heading_color(ctx->theme, 22, 42, 62), .show_background = true);
                     wlx_layout_end(ctx);
                 }
@@ -2209,13 +2209,13 @@ static void section_layout_flex(WLX_Context *ctx, Gallery_State *st) {
                 wlx_layout_begin_s(ctx, WLX_HORZ,
                     WLX_SIZES(WLX_SLOT_PX(120), WLX_SLOT_FLEX(1), WLX_SLOT_PX(120)));
                     wlx_label(ctx, "PX(120)",
-                        .height = 50, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = 50, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 62, 32, 32), .show_background = true);
                     wlx_label(ctx, "FLEX(1)",
-                        .height = 50, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = 50, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 32, 62, 32), .show_background = true);
                     wlx_label(ctx, "PX(120)",
-                        .height = 50, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = 50, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 32, 32, 62), .show_background = true);
                 wlx_layout_end(ctx);
 
@@ -2225,13 +2225,13 @@ static void section_layout_flex(WLX_Context *ctx, Gallery_State *st) {
                     wlx_layout_begin_s(ctx, WLX_VERT,
                         WLX_SIZES(WLX_SLOT_CONTENT, WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1)));
                         wlx_label(ctx, "CONTENT (h=30)",
-                            .height = DESC_H, .font_size = SMALL_FS, .align = WLX_CENTER,
+                            .height = DESC_H, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                             .back_color = heading_color(ctx->theme, 32, 52, 32), .show_background = true);
                         wlx_label(ctx, "CONTENT (h=50)",
-                            .height = 50, .font_size = SMALL_FS, .align = WLX_CENTER,
+                            .height = 50, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                             .back_color = heading_color(ctx->theme, 52, 32, 32), .show_background = true);
                         wlx_label(ctx, "FLEX(1) (remaining)",
-                            .font_size = SMALL_FS, .align = WLX_CENTER,
+                            .font_size = SMALL_FS, .content_align = WLX_CENTER,
                             .back_color = heading_color(ctx->theme, 32, 32, 52), .show_background = true);
                     wlx_layout_end(ctx);
                 wlx_layout_end(ctx);
@@ -2247,10 +2247,10 @@ static void section_layout_flex(WLX_Context *ctx, Gallery_State *st) {
                         char buf[64];
                         snprintf(buf, sizeof(buf), "FLEX_MINMAX(1, %.0f, %.0f)", lo, hi);
                         wlx_label(ctx, buf,
-                            .height = 50, .font_size = TINY_FS, .align = WLX_CENTER,
+                            .height = 50, .font_size = TINY_FS, .content_align = WLX_CENTER,
                             .back_color = heading_color(ctx->theme, 52, 32, 52), .show_background = true);
                         wlx_label(ctx, "FLEX(1)",
-                            .height = 50, .font_size = TINY_FS, .align = WLX_CENTER,
+                            .height = 50, .font_size = TINY_FS, .content_align = WLX_CENTER,
                             .back_color = heading_color(ctx->theme, 32, 52, 52), .show_background = true);
                     wlx_layout_end(ctx);
                 }
@@ -2258,9 +2258,9 @@ static void section_layout_flex(WLX_Context *ctx, Gallery_State *st) {
                 SUB_HEADING(ctx, "Widget-Level Min/Max");
                 wlx_layout_begin(ctx, 1, WLX_HORZ);
                     wlx_label(ctx, "min_w=100, max_w=300, centered",
-                        .widget_align = WLX_CENTER,
+                        .slot_align = WLX_CENTER,
                         .min_width = 100, .max_width = 300,
-                        .height = 40, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = 40, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 42, 42, 62), .show_background = true);
                 wlx_layout_end(ctx);
 
@@ -2268,7 +2268,7 @@ static void section_layout_flex(WLX_Context *ctx, Gallery_State *st) {
                 wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 10, .border_color = heading_color(ctx->theme, 62, 42, 22), .border_width = 1 );
                     wlx_label(ctx, "overflow=true, width=500 (exceeds slot if narrow)",
                         .overflow = true, .width = 500,
-                        .height = 40, .font_size = SMALL_FS, .align = WLX_CENTER,
+                        .height = 40, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                         .back_color = heading_color(ctx->theme, 62, 42, 22), .show_background = true);
                 wlx_layout_end(ctx);
 
@@ -2342,7 +2342,7 @@ static void theme_preview_widgets(WLX_Context *ctx) {
     wlx_layout_begin_s(ctx, WLX_VERT,
         WLX_SIZES(WLX_SLOT_PX(28), WLX_SLOT_PX(28), WLX_SLOT_PX(28)),
         .padding = spacing.space_panel, .gap = spacing.gap_dense);
-        wlx_button(ctx, "Button", .height = 28, .font_size = SMALL_FS, .align = WLX_CENTER,
+        wlx_button(ctx, "Button", .height = 28, .font_size = SMALL_FS, .content_align = WLX_CENTER,
             .content_padding_left = spacing.space_control_x,
             .content_padding_right = spacing.space_control_x);
         wlx_slider(ctx, "Value", &preview_slider, .height = 28, .font_size = TINY_FS);
@@ -2367,7 +2367,7 @@ static void theme_sample_widgets(WLX_Context *ctx) {
             WLX_SLOT_PX(ROW_H)
         ),
         .padding = spacing.space_panel, .gap = spacing.gap_dense);
-        wlx_button(ctx, "Sample Button", .height = ROW_H, .align = WLX_CENTER,
+        wlx_button(ctx, "Sample Button", .height = ROW_H, .content_align = WLX_CENTER,
             .content_padding_left = spacing.space_control_x,
             .content_padding_right = spacing.space_control_x);
         wlx_checkbox(ctx, "Sample Checkbox", &t_check, .height = ROW_H);
@@ -2396,13 +2396,13 @@ static void theme_lab_preview_card(WLX_Context *ctx, const char *name, const cha
             .border_color = active ? preview.color_selection : preview.color_border_strong,
             .border_width = active ? 1.0f : 0.5f);
             wlx_label(ctx, name,
-                .height = 26, .font_size = DEMO_FS, .align = WLX_CENTER,
+                .height = 26, .font_size = DEMO_FS, .content_align = WLX_CENTER,
                 .back_color = header_bg,
                 .front_color = gallery_on_color(header_bg),
                 .content_padding_left = spacing.space_control_x,
                 .content_padding_right = spacing.space_control_x);
             wlx_label(ctx, tag,
-                .height = 18, .font_size = TINY_FS, .align = WLX_CENTER,
+                .height = 18, .font_size = TINY_FS, .content_align = WLX_CENTER,
                 .front_color = preview.color_text_muted,
                 .content_padding_left = spacing.space_control_x,
                 .content_padding_right = spacing.space_control_x);
@@ -2415,7 +2415,7 @@ static void theme_lab_preview_card(WLX_Context *ctx, const char *name, const cha
 static void theme_lab_control_label(WLX_Context *ctx, const char *label) {
     Gallery_Semantic_Spacing spacing = gallery_semantic_spacing(ctx->theme);
     wlx_label(ctx, label,
-        .font_size = OPT_FS, .height = SMALL_H, .align = WLX_LEFT,
+        .font_size = OPT_FS, .height = SMALL_H, .content_align = WLX_LEFT,
         .show_background = true,
         .back_color = SECTION_BG(ctx),
         .front_color = GALLERY_ROLE(ctx, color_text_1),
@@ -2507,7 +2507,7 @@ static void theme_lab_token_card(WLX_Context *ctx, const Gallery_Semantic_Theme 
             .border_color = semantic->color_border,
             .border_width = 1.0f);
             wlx_label(ctx, name,
-                .height = 18, .font_size = TINY_FS, .align = WLX_CENTER,
+                .height = 18, .font_size = TINY_FS, .content_align = WLX_CENTER,
                 .front_color = semantic->color_text_1,
                 .content_padding_left = spacing->space_control_x,
                 .content_padding_right = spacing->space_control_x);
@@ -2518,11 +2518,11 @@ static void theme_lab_token_card(WLX_Context *ctx, const Gallery_Semantic_Theme 
                     .border_color = semantic->color_border_strong, .border_width = 1.0f);
             wlx_layout_end(ctx);
             wlx_layout_begin(ctx, 2, WLX_HORZ, .padding = spacing->space_shell, .gap = spacing->gap_dense);
-                wlx_label(ctx, "dark", .height = 16, .font_size = TINY_FS, .align = WLX_CENTER,
+                wlx_label(ctx, "dark", .height = 16, .font_size = TINY_FS, .content_align = WLX_CENTER,
                     .front_color = semantic->color_text_muted,
                     .content_padding_left = spacing->space_control_x,
                     .content_padding_right = spacing->space_control_x);
-                wlx_label(ctx, "light", .height = 16, .font_size = TINY_FS, .align = WLX_CENTER,
+                wlx_label(ctx, "light", .height = 16, .font_size = TINY_FS, .content_align = WLX_CENTER,
                     .front_color = semantic->color_text_muted,
                     .content_padding_left = spacing->space_control_x,
                     .content_padding_right = spacing->space_control_x);
@@ -2582,19 +2582,19 @@ static void section_tokens(WLX_Context *ctx, Gallery_State *st) {
             .content_padding = 0);
 
             wlx_label(ctx, "Color Roles",
-                .height = SUB_HEADING_H, .font_size = DEMO_FS, .align = WLX_LEFT,
+                .height = SUB_HEADING_H, .font_size = DEMO_FS, .content_align = WLX_LEFT,
                 .front_color = semantic.color_text_1,
                 .content_padding_left = spacing.space_control_x,
                 .content_padding_right = spacing.space_control_x);
             wlx_label(ctx,
                 "app_bg\nsurface_1 / surface_2 / surface_3\ntext_1 / text_2 / text_muted\nborder / border_strong\naccent / focus / selection\nstatus colors",
-                .height = 150, .font_size = OPT_FS, .align = WLX_LEFT,
+                .height = 150, .font_size = OPT_FS, .content_align = WLX_LEFT,
                 .front_color = semantic.color_text_2,
                 .content_padding_left = spacing.space_control_x,
                 .content_padding_right = spacing.space_control_x);
 
             wlx_label(ctx, "Text Scale",
-                .height = SUB_HEADING_H, .font_size = DEMO_FS, .align = WLX_LEFT,
+                .height = SUB_HEADING_H, .font_size = DEMO_FS, .content_align = WLX_LEFT,
                 .front_color = semantic.color_text_1,
                 .content_padding_left = spacing.space_control_x,
                 .content_padding_right = spacing.space_control_x);
@@ -2604,14 +2604,14 @@ static void section_tokens(WLX_Context *ctx, Gallery_State *st) {
                     "section %d\ndemo    %d\nsmall   %d\ntiny    %d",
                     SECTION_FS, DEMO_FS, SMALL_FS, TINY_FS);
                 wlx_label(ctx, type_buf,
-                    .height = 104, .font_size = OPT_FS, .align = WLX_LEFT,
+                    .height = 104, .font_size = OPT_FS, .content_align = WLX_LEFT,
                     .front_color = semantic.color_text_2,
                     .content_padding_left = spacing.space_control_x,
                     .content_padding_right = spacing.space_control_x);
             }
 
             wlx_label(ctx, "Theme Geometry",
-                .height = SUB_HEADING_H, .font_size = DEMO_FS, .align = WLX_LEFT,
+                .height = SUB_HEADING_H, .font_size = DEMO_FS, .content_align = WLX_LEFT,
                 .front_color = semantic.color_text_1,
                 .content_padding_left = spacing.space_control_x,
                 .content_padding_right = spacing.space_control_x);
@@ -2624,7 +2624,7 @@ static void section_tokens(WLX_Context *ctx, Gallery_State *st) {
                     ctx->theme->border_width,
                     ctx->theme->hover_brightness);
                 wlx_label(ctx, geometry_buf,
-                    .height = 112, .font_size = OPT_FS, .align = WLX_LEFT,
+                    .height = 112, .font_size = OPT_FS, .content_align = WLX_LEFT,
                     .front_color = semantic.color_text_2,
                     .content_padding_left = spacing.space_control_x,
                     .content_padding_right = spacing.space_control_x);
@@ -2661,21 +2661,21 @@ static void section_tokens(WLX_Context *ctx, Gallery_State *st) {
             SUB_HEADING(ctx, "Interaction Scale");
             wlx_layout_begin(ctx, 3, WLX_HORZ, .padding = 0, .gap = 4);
                 wlx_label(ctx, "Hover",
-                    .height = 86, .font_size = DEMO_FS, .align = WLX_CENTER,
+                    .height = 86, .font_size = DEMO_FS, .content_align = WLX_CENTER,
                     .show_background = true,
                     .back_color = semantic.color_surface_3,
                     .front_color = semantic.color_text_1,
                     .content_padding_left = spacing.space_preview,
                     .content_padding_right = spacing.space_preview);
                 wlx_label(ctx, "Focus",
-                    .height = 86, .font_size = DEMO_FS, .align = WLX_CENTER,
+                    .height = 86, .font_size = DEMO_FS, .content_align = WLX_CENTER,
                     .show_background = true,
                     .back_color = semantic.color_focus,
                     .front_color = gallery_on_color(semantic.color_focus),
                     .content_padding_left = spacing.space_preview,
                     .content_padding_right = spacing.space_preview);
                 wlx_label(ctx, "Selected",
-                    .height = 86, .font_size = DEMO_FS, .align = WLX_CENTER,
+                    .height = 86, .font_size = DEMO_FS, .content_align = WLX_CENTER,
                     .show_background = true,
                     .back_color = semantic.color_selection,
                     .front_color = gallery_on_color(semantic.color_selection),
@@ -2728,7 +2728,7 @@ static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_
             for (int i = 0; i < 5; i++) {
                 wlx_push_id(ctx, (size_t)i);
                 wlx_label(ctx, states[i],
-                    .height = THEME_LAB_MATRIX_STATE_H, .font_size = TINY_FS, .align = WLX_CENTER,
+                    .height = THEME_LAB_MATRIX_STATE_H, .font_size = TINY_FS, .content_align = WLX_CENTER,
                     .back_color = theme_lab_state_back(semantic, i),
                     .front_color = theme_lab_state_front(semantic, theme_lab_state_back(semantic, i), i),
                     .border_color = theme_lab_state_border(semantic, i),
@@ -2759,7 +2759,7 @@ static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_
                     switch (row) {
                         case 0:
                             wlx_label(ctx, "Label",
-                                .height = THEME_LAB_MATRIX_COL_H, .font_size = SMALL_FS, .align = WLX_CENTER,
+                                .height = THEME_LAB_MATRIX_COL_H, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                                 .show_background = true,
                                 .back_color = back, .front_color = front,
                                 .border_color = border, .border_width = border_width,
@@ -2769,7 +2769,7 @@ static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_
                             break;
                         case 1:
                             wlx_button(ctx, "Button",
-                                .height = THEME_LAB_MATRIX_COL_H, .font_size = SMALL_FS, .align = WLX_CENTER,
+                                .height = THEME_LAB_MATRIX_COL_H, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                                 .back_color = back,
                                 .front_color = front,
                                 .border_color = border, .border_width = border_width,
@@ -2811,7 +2811,7 @@ static void theme_lab_component_matrix(WLX_Context *ctx, const Gallery_Semantic_
                                 .border_color = border,
                                 .border_width = border_width);
                                 wlx_label(ctx, "Progress",
-                                    .height = 14, .font_size = TINY_FS, .align = WLX_CENTER,
+                                    .height = 14, .font_size = TINY_FS, .content_align = WLX_CENTER,
                                     .front_color = front,
                                     .opacity = opacity);
                                 wlx_progress(ctx, matrix_sliders[state],
@@ -2894,7 +2894,7 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
 
             if (gallery_icon_button(ctx, "Use Custom Theme",
                 WLX_ICON_CHECK, GALLERY_ICON_ROLE_SUCCESS,
-                .height = OPT_H, .font_size = OPT_FS, .align = WLX_CENTER,
+                .height = OPT_H, .font_size = OPT_FS, .content_align = WLX_CENTER,
                 .back_color = semantic.color_selection,
                 .front_color = gallery_on_color(semantic.color_selection),
                 .image_size = 16,
@@ -2988,7 +2988,7 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
                         .border_width = 1.0f,
                         .gap = custom_spacing.gap_dense);
                         wlx_label(ctx, "Custom",
-                            .height = 28, .font_size = DEMO_FS, .align = WLX_CENTER,
+                            .height = 28, .font_size = DEMO_FS, .content_align = WLX_CENTER,
                             .back_color = custom_semantic.color_surface_2,
                             .front_color = custom_semantic.color_text_1,
                             .border_color = custom_semantic.color_border,
@@ -3056,7 +3056,7 @@ static void section_theme_lab(WLX_Context *ctx, Gallery_State *st) {
                             for (int i = 0; i < icon_count; i++) {
                                 wlx_push_id(ctx, (size_t)i);
                                 wlx_label(ctx, icon_cells[i].label,
-                                    .height = 46, .font_size = TINY_FS, .align = WLX_BOTTOM_CENTER,
+                                    .height = 46, .font_size = TINY_FS, .content_align = WLX_BOTTOM_CENTER,
                                     .front_color = row_sem.color_text_2,
                                     .texture = atlas,
                                     .texture_src = gallery_icon_src_for(icon_cells[i].icon, 24.0f),
@@ -3132,10 +3132,10 @@ static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
                             char buf[16];
                             snprintf(buf, sizeof(buf), "%.0f%%", levels[i] * 100);
                             wlx_label(ctx, buf,
-                                .height = 20, .font_size = TINY_FS, .align = WLX_CENTER,
+                                .height = 20, .font_size = TINY_FS, .content_align = WLX_CENTER,
                                 .opacity = levels[i]);
                             wlx_button(ctx, "Btn",
-                                .height = SMALL_H, .font_size = TINY_FS, .align = WLX_CENTER,
+                                .height = SMALL_H, .font_size = TINY_FS, .content_align = WLX_CENTER,
                                 .opacity = levels[i]);
                             {
                                 static bool checks[5] = { true, true, true, true, true };
@@ -3144,7 +3144,7 @@ static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
                                     .opacity = levels[i]);
                             }
                             wlx_widget(ctx,
-                                .widget_align = WLX_CENTER, .width = -1, .height = 20,
+                                .slot_align = WLX_CENTER, .width = -1, .height = 20,
                                 .back_color = (WLX_Color){ 0, 120, 255, (unsigned char)(levels[i] * 255) });
                         wlx_layout_end(ctx);
                         wlx_pop_id(ctx);
@@ -3154,14 +3154,14 @@ static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
                 SUB_HEADING(ctx, "Interactive (per-widget slider)");
                 wlx_layout_begin(ctx, 3, WLX_HORZ);
                     wlx_label(ctx, "Dynamic text", .height = 40, .font_size = 16,
-                        .align = WLX_CENTER, .show_background = true,
+                        .content_align = WLX_CENTER, .show_background = true,
                         .back_color = heading_color(ctx->theme, 42, 22, 62),
                         .opacity = st->opacity_control);
                     wlx_button(ctx, "Dynamic button", .height = 40, .font_size = 16,
-                        .align = WLX_CENTER,
+                        .content_align = WLX_CENTER,
                         .opacity = st->opacity_control);
                     wlx_widget(ctx,
-                        .widget_align = WLX_CENTER, .width = -1, .height = 40,
+                        .slot_align = WLX_CENTER, .width = -1, .height = 40,
                         .back_color = (WLX_Color){ 200, 80, 60, (unsigned char)(st->opacity_control * 255) });
                 wlx_layout_end(ctx);
 
@@ -3173,9 +3173,9 @@ static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
                     wlx_push_opacity(ctx, st->stack_opacity);
                     wlx_layout_begin(ctx, 2, WLX_VERT);
                         wlx_label(ctx, "Single push", .height = 20, .font_size = TINY_FS,
-                            .align = WLX_CENTER);
+                            .content_align = WLX_CENTER);
                         wlx_button(ctx, "Faded", .height = DESC_H, .font_size = TINY_FS,
-                            .align = WLX_CENTER);
+                            .content_align = WLX_CENTER);
                     wlx_layout_end(ctx);
                     wlx_pop_opacity(ctx);
                     wlx_pop_id(ctx);
@@ -3186,9 +3186,9 @@ static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
                     wlx_push_opacity(ctx, 0.5f);
                     wlx_layout_begin(ctx, 2, WLX_VERT);
                         wlx_label(ctx, "Nested (slider * 0.5)", .height = 20, .font_size = TINY_FS,
-                            .align = WLX_CENTER);
+                            .content_align = WLX_CENTER);
                         wlx_button(ctx, "Double-faded", .height = DESC_H, .font_size = TINY_FS,
-                            .align = WLX_CENTER);
+                            .content_align = WLX_CENTER);
                     wlx_layout_end(ctx);
                     wlx_pop_opacity(ctx);
                     wlx_pop_opacity(ctx);
@@ -3199,9 +3199,9 @@ static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
                     wlx_push_opacity(ctx, st->stack_opacity);
                     wlx_layout_begin(ctx, 2, WLX_VERT);
                         wlx_button(ctx, ".opacity=1 override", .height = DESC_H, .font_size = TINY_FS,
-                            .align = WLX_CENTER, .opacity = 1.0f);
+                            .content_align = WLX_CENTER, .opacity = 1.0f);
                         wlx_label(ctx, "Stays opaque", .height = 20, .font_size = TINY_FS,
-                            .align = WLX_CENTER);
+                            .content_align = WLX_CENTER);
                     wlx_layout_end(ctx);
                     wlx_pop_opacity(ctx);
                     wlx_pop_id(ctx);
@@ -3218,11 +3218,11 @@ static void section_opacity(WLX_Context *ctx, Gallery_State *st) {
                     wlx_layout_begin(ctx, 4, WLX_HORZ);
                         wlx_push_id(ctx, 300);
                         wlx_label(ctx, "w*t*s", .height = 50, .font_size = SMALL_FS,
-                            .align = WLX_CENTER, .show_background = true,
+                            .content_align = WLX_CENTER, .show_background = true,
                             .back_color = heading_color(ctx->theme, 42, 22, 62),
                             .opacity = st->opacity_control);
                         wlx_button(ctx, "Combined", .height = 50, .font_size = SMALL_FS,
-                            .align = WLX_CENTER,
+                            .content_align = WLX_CENTER,
                             .opacity = st->opacity_control);
                         {
                             static bool cb = true;
@@ -3297,7 +3297,7 @@ static void section_id_stack(WLX_Context *ctx, Gallery_State *st) {
 
                     wlx_layout_auto_slot_px(ctx, 36);
                     wlx_label(ctx, header,
-                        .height = SUB_HEADING_H, .font_size = 20, .align = WLX_LEFT,
+                        .height = SUB_HEADING_H, .font_size = 20, .content_align = WLX_LEFT,
                         .back_color = section_bg, .show_background = true);
 
                     wlx_layout_auto_slot_px(ctx, ROW_H);
@@ -3313,7 +3313,7 @@ static void section_id_stack(WLX_Context *ctx, Gallery_State *st) {
                     // Divider
                     wlx_layout_auto_slot_px(ctx, 2);
                     wlx_widget(ctx,
-                        .widget_align = WLX_CENTER, .width = -1, .height = 2,
+                        .slot_align = WLX_CENTER, .width = -1, .height = 2,
                         .back_color = semantic.color_border_strong);
 
                     wlx_pop_id(ctx);
@@ -3391,13 +3391,13 @@ static void section_borders(WLX_Context *ctx, Gallery_State *st) {
                 SUB_HEADING(ctx, "Buttons");
                 wlx_layout_begin(ctx, 3, WLX_HORZ);
                     wlx_button(ctx, "Dynamic",
-                        .font_size = 16, .height = ROW_H, .align = WLX_CENTER,
+                        .font_size = 16, .height = ROW_H, .content_align = WLX_CENTER,
                         .border_color = bdr, .border_width = bw);
                     wlx_button(ctx, "Green outline",
-                        .font_size = 16, .height = ROW_H, .align = WLX_CENTER,
+                        .font_size = 16, .height = ROW_H, .content_align = WLX_CENTER,
                         .border_color = (WLX_Color){0, 200, 0, 255}, .border_width = 2);
                     wlx_button(ctx, "Yellow thick",
-                        .font_size = 16, .height = ROW_H, .align = WLX_CENTER,
+                        .font_size = 16, .height = ROW_H, .content_align = WLX_CENTER,
                         .border_color = (WLX_Color){255, 220, 0, 255}, .border_width = 4);
                 wlx_layout_end(ctx);
 
@@ -3513,7 +3513,7 @@ static void section_auto_layout(WLX_Context *ctx, Gallery_State *st) {
                             snprintf(buf, sizeof(buf), "PX(%.0f) Item %d", ih, i + 1);
                             wlx_layout_auto_slot(ctx, WLX_SLOT_PX(ih));
                             wlx_label(ctx, buf,
-                                .height = -1, .font_size = SMALL_FS, .align = WLX_CENTER,
+                                .height = -1, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                                 .show_background = true,
                                 .back_color = heading_color(ctx->theme,
                                     20 + i * 5, 30 + i * 3, 40 + i * 2));
@@ -3521,7 +3521,7 @@ static void section_auto_layout(WLX_Context *ctx, Gallery_State *st) {
                         }
                         wlx_layout_auto_slot(ctx, WLX_SLOT_FLEX_MIN(1, 30));
                         wlx_label(ctx, "FLEX_MIN(1, 30) - fills remaining",
-                            .height = -1, .font_size = 16, .align = WLX_CENTER,
+                            .height = -1, .font_size = 16, .content_align = WLX_CENTER,
                             .show_background = true,
                             .back_color = heading_color(ctx->theme, 22, 52, 22));
                     wlx_layout_end(ctx);
@@ -3541,12 +3541,12 @@ static void section_auto_layout(WLX_Context *ctx, Gallery_State *st) {
 
                         wlx_layout_auto_slot(ctx, WLX_SLOT_PCT(pct_left));
                         wlx_label(ctx, lbl_l,
-                            .height = 60, .font_size = 16, .align = WLX_CENTER,
+                            .height = 60, .font_size = 16, .content_align = WLX_CENTER,
                             .show_background = true,
                             .back_color = heading_color(ctx->theme, 42, 22, 52));
                         wlx_layout_auto_slot(ctx, WLX_SLOT_PCT(pct_right));
                         wlx_label(ctx, lbl_r,
-                            .height = 60, .font_size = 16, .align = WLX_CENTER,
+                            .height = 60, .font_size = 16, .content_align = WLX_CENTER,
                             .show_background = true,
                             .back_color = heading_color(ctx->theme, 22, 42, 52));
                     wlx_layout_end(ctx);
@@ -3567,13 +3567,13 @@ static void section_auto_layout(WLX_Context *ctx, Gallery_State *st) {
 
                         wlx_layout_auto_slot(ctx, WLX_SLOT_PCT(spct));
                         wlx_label(ctx, side_lbl,
-                            .height = 200, .font_size = SMALL_FS, .align = WLX_CENTER,
+                            .height = 200, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                             .show_background = true,
                             .back_color = heading_color(ctx->theme, 42, 22, 22));
 
                         wlx_layout_auto_slot(ctx, WLX_SLOT_FLEX(1));
                         wlx_label(ctx, content_lbl,
-                            .height = 200, .font_size = SMALL_FS, .align = WLX_CENTER,
+                            .height = 200, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                             .show_background = true,
                             .back_color = heading_color(ctx->theme, 22, 42, 32));
 
@@ -3587,13 +3587,13 @@ static void section_auto_layout(WLX_Context *ctx, Gallery_State *st) {
 
                         wlx_layout_auto_slot(ctx, WLX_SLOT_FLEX_MINMAX(1, 80, 250));
                         wlx_label(ctx, "FLEX_MINMAX(1, 80, 250)",
-                            .height = 60, .font_size = TINY_FS, .align = WLX_CENTER,
+                            .height = 60, .font_size = TINY_FS, .content_align = WLX_CENTER,
                             .show_background = true,
                             .back_color = heading_color(ctx->theme, 52, 32, 52));
 
                         wlx_layout_auto_slot(ctx, WLX_SLOT_PX(120));
                         wlx_label(ctx, "PX(120)",
-                            .height = 60, .font_size = TINY_FS, .align = WLX_CENTER,
+                            .height = 60, .font_size = TINY_FS, .content_align = WLX_CENTER,
                             .show_background = true,
                             .back_color = heading_color(ctx->theme, 32, 52, 42));
 
@@ -3614,12 +3614,12 @@ static void section_auto_layout(WLX_Context *ctx, Gallery_State *st) {
                     wlx_layout_begin_auto(ctx, WLX_VERT, 0);
                         wlx_layout_auto_slot(ctx, WLX_SLOT_PCT(hpct));
                         wlx_label(ctx, lbl_h,
-                            .height = -1, .font_size = SMALL_FS, .align = WLX_CENTER,
+                            .height = -1, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                             .show_background = true,
                             .back_color = heading_color(ctx->theme, 42, 32, 22));
                         wlx_layout_auto_slot(ctx, WLX_SLOT_PCT(rest));
                         wlx_label(ctx, lbl_b,
-                            .height = -1, .font_size = SMALL_FS, .align = WLX_CENTER,
+                            .height = -1, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                             .show_background = true,
                             .back_color = heading_color(ctx->theme, 22, 32, 42));
                     wlx_layout_end(ctx);
@@ -3686,7 +3686,7 @@ static void section_progress_toggle_radio(WLX_Context *ctx, Gallery_State *st) {
                 .height = SMALL_H, .font_size = SMALL_FS,
                 .front_color = semantic.color_text_2);
             wlx_label(ctx, status_label,
-                .height = SMALL_H, .font_size = SMALL_FS, .align = WLX_CENTER,
+                .height = SMALL_H, .font_size = SMALL_FS, .content_align = WLX_CENTER,
                 .back_color = status_color,
                 .front_color = gallery_on_color(status_color));
         wlx_layout_end(ctx);
@@ -3710,7 +3710,7 @@ static void section_progress_toggle_radio(WLX_Context *ctx, Gallery_State *st) {
         char buf[64];
         snprintf(buf, sizeof(buf), "Selected: %d", st->radio_choice);
         wlx_label(ctx, buf,
-            .height = SMALL_H, .font_size = SMALL_FS, .align = WLX_CENTER,
+            .height = SMALL_H, .font_size = SMALL_FS, .content_align = WLX_CENTER,
             .back_color = semantic.color_selection,
             .front_color = gallery_on_color(semantic.color_selection));
     }
@@ -3744,7 +3744,7 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
                 "Welcome", HEADING_H);
 
             wlx_label(ctx, "What is Wollix?",
-                .font_size = SECTION_FS, .height = HEADING_H, .align = WLX_LEFT,
+                .font_size = SECTION_FS, .height = HEADING_H, .content_align = WLX_LEFT,
                 .front_color = semantic.color_text_1,
                 .content_padding_left = content_pad,
                 .content_padding_right = content_pad);
@@ -3753,13 +3753,13 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
                 "Wollix is a header-only, immediate-mode GUI library for C11.\n"
                 "It is compact, mechanical, and clear -- designed for tools\n"
                 "and overlays where every pixel counts.",
-                .font_size = MEDIUM_FS, .height = 100, .align = WLX_LEFT,
+                .font_size = MEDIUM_FS, .height = 100, .content_align = WLX_LEFT,
                 .front_color = semantic.color_text_2,
                 .content_padding_left = content_pad,
                 .content_padding_right = content_pad);
 
             wlx_label(ctx, "Current Stats",
-                .font_size = SECTION_FS, .height = HEADING_H, .align = WLX_LEFT,
+                .font_size = SECTION_FS, .height = HEADING_H, .content_align = WLX_LEFT,
                 .front_color = semantic.color_text_1,
                 .content_padding_left = content_pad,
                 .content_padding_right = content_pad);
@@ -3774,7 +3774,7 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
                 gallery_platform_fps(),
                 theme_names[st->theme_mode]);
             wlx_label(ctx, stats,
-                .font_size = DEMO_FS, .height = 130, .align = WLX_LEFT,
+                .font_size = DEMO_FS, .height = 130, .content_align = WLX_LEFT,
                 .front_color = semantic.color_text_2,
                 .content_padding_left = content_pad,
                 .content_padding_right = content_pad);
@@ -3795,19 +3795,19 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
                 WLX_SIZES(WLX_SLOT_FLEX(1), WLX_SLOT_FLEX(1), WLX_SLOT_FLEX(1)),
                 .gap = 1,.padding_bottom = 0);
                 wlx_label(ctx, "Compact",
-                    .height = 50, .font_size = DEMO_FS, .align = WLX_CENTER,
+                    .height = 50, .font_size = DEMO_FS, .content_align = WLX_CENTER,
                     .show_background = true,
                     .back_color = semantic.color_surface_2,
                     .content_padding_left = content_pad,
                     .content_padding_right = content_pad);
                 wlx_label(ctx, "Mechanical",
-                    .height = 50, .font_size = DEMO_FS, .align = WLX_CENTER,
+                    .height = 50, .font_size = DEMO_FS, .content_align = WLX_CENTER,
                     .show_background = true,
                     .back_color = semantic.color_surface_2,
                     .content_padding_left = content_pad,
                     .content_padding_right = content_pad);
                 wlx_label(ctx, "Clear",
-                    .height = 50, .font_size = DEMO_FS, .align = WLX_CENTER,
+                    .height = 50, .font_size = DEMO_FS, .content_align = WLX_CENTER,
                     .show_background = true,
                     .back_color = semantic.color_surface_2,
                     .content_padding_left = content_pad,
@@ -3822,7 +3822,7 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
                 snprintf(btn_label, sizeof(btn_label), "Explore %s", groups[gi].name);
                 if (gallery_icon_button(ctx, btn_label,
                     WLX_ICON_CHEVRON_RIGHT, GALLERY_ICON_ROLE_ACCENT,
-                    .height = OPT_H, .align = WLX_LEFT,
+                    .height = OPT_H, .content_align = WLX_LEFT,
                     .font_size = MEDIUM_FS,
                     .back_color = semantic.color_surface_3,
                     .front_color = semantic.color_text_1,
@@ -3862,7 +3862,7 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                     .border_width = 0.5f);
                     gallery_icon_label(ctx, "Wollix",
                         WLX_ICON_APP_WINDOW, GALLERY_ICON_ROLE_ACCENT,
-                        .font_size = 24, .align = WLX_LEFT,
+                        .font_size = 24, .content_align = WLX_LEFT,
                         .height = 44,
                         .front_color = semantic.color_accent,
                         .image_size = 24,
@@ -3874,7 +3874,7 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                         char fps_label[32];
                         snprintf(fps_label, sizeof(fps_label), "FPS: %d  ", gallery_platform_fps());
                         wlx_label(ctx, fps_label,
-                            .font_size = TINY_FS, .height = 44, .align = WLX_RIGHT,
+                            .font_size = TINY_FS, .height = 44, .content_align = WLX_RIGHT,
                             .front_color = semantic.color_text_2,
                             .content_padding_left = spacing.space_control_x,
                             .content_padding_right = spacing.space_control_x);
@@ -3885,7 +3885,7 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                         snprintf(mode_label, sizeof(mode_label), "%s", theme_names[gs->theme_mode]);
                         if (gallery_icon_button(ctx, mode_label,
                             WLX_ICON_PALETTE, GALLERY_ICON_ROLE_TEXT,
-                            .height = 44, .align = WLX_CENTER,
+                            .height = 44, .content_align = WLX_CENTER,
                             .font_size = TINY_FS,
                             .back_color = semantic.color_surface_3,
                             .front_color = semantic.color_text_1,
@@ -3937,7 +3937,7 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                         if (gallery_icon_button(ctx, group->name,
                             group->icon, GALLERY_ICON_ROLE_TEXT,
                             .height = SUB_HEADING_H,
-                            .align = WLX_LEFT,
+                            .content_align = WLX_LEFT,
                             .back_color = group_bg,
                             .front_color = group_fg,
                             .texture_tint = group_icon,
@@ -3965,7 +3965,7 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                             if (gallery_icon_button(ctx, section->name,
                                 section->icon, GALLERY_ICON_ROLE_MUTED,
                                 .height = OPT_H,
-                                .align = WLX_LEFT,
+                                .content_align = WLX_LEFT,
                                 .back_color = sec_bg,
                                 .front_color = sec_fg,
                                 .texture_tint = sec_fg,
@@ -4011,7 +4011,7 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                 theme_names[gs->theme_mode]);
             gallery_icon_label(ctx, status,
                 WLX_ICON_INFO, GALLERY_ICON_ROLE_MUTED,
-                .font_size = TINY_FS, .height = SMALL_H, .align = WLX_LEFT,
+                .font_size = TINY_FS, .height = SMALL_H, .content_align = WLX_LEFT,
                 .back_color = semantic.color_surface_2,
                 .front_color = semantic.color_text_muted,
                 .border_color = semantic.color_border,

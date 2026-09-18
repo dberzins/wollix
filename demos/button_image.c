@@ -136,22 +136,22 @@ int main(void) {
                 .padding = 12, .gap = 8);
 
                 wlx_label(ctx, "wlx_button: text-only, image-only, image + text",
-                    .font_size = 22, .align = WLX_CENTER,
+                    .font_size = 22, .content_align = WLX_CENTER,
                     .front_color = WLX_WHITE);
 
                 // ── Modes ────────────────────────────────────────────────
                 wlx_label(ctx, "Modes",
-                    .font_size = 14, .align = WLX_LEFT,
+                    .font_size = 14, .content_align = WLX_LEFT,
                     .front_color = (Color){180, 200, 220, 255});
 
                 wlx_layout_begin(ctx, 3, WLX_HORZ, .gap = 12);
                     if (wlx_button(ctx, "Save",
-                        .font_size = 18, .align = WLX_CENTER)) {
+                        .font_size = 18, .content_align = WLX_CENTER)) {
                         app.total_clicks++; app.last_click_kind = 1;
                     }
 
                     if (wlx_button(ctx, "",
-                        .texture = tex_icon, .align = WLX_CENTER,
+                        .texture = tex_icon, .content_align = WLX_CENTER,
                         .image_size = 48)) {
                         app.total_clicks++; app.last_click_kind = 2;
                     }
@@ -159,14 +159,14 @@ int main(void) {
                     if (wlx_button(ctx, "Save",
                         .texture = tex_icon,
                         .image_size = 28, .image_text_gap = 10,
-                        .font_size = 18, .align = WLX_CENTER)) {
+                        .font_size = 18, .content_align = WLX_CENTER)) {
                         app.total_clicks++; app.last_click_kind = 3;
                     }
                 wlx_layout_end(ctx);
 
                 // ── Placements ───────────────────────────────────────────
                 wlx_label(ctx, "Image placement (image + text)",
-                    .font_size = 14, .align = WLX_LEFT,
+                    .font_size = 14, .content_align = WLX_LEFT,
                     .front_color = (Color){180, 200, 220, 255});
 
                 wlx_layout_begin(ctx, 4, WLX_HORZ, .gap = 12);
@@ -182,7 +182,7 @@ int main(void) {
                             .texture = tex_icon,
                             .image_placement = places[i],
                             .image_size = 28, .image_text_gap = 8,
-                            .font_size = 16, .align = WLX_CENTER)) {
+                            .font_size = 16, .content_align = WLX_CENTER)) {
                             app.total_clicks++; app.last_click_kind = 3;
                         }
                         wlx_pop_id(ctx);
@@ -191,7 +191,7 @@ int main(void) {
 
                 // ── Scales ───────────────────────────────────────────────
                 wlx_label(ctx, "Texture scale (image-only, landscape source)",
-                    .font_size = 14, .align = WLX_LEFT,
+                    .font_size = 14, .content_align = WLX_LEFT,
                     .front_color = (Color){180, 200, 220, 255});
 
                 wlx_layout_begin(ctx, 4, WLX_HORZ, .gap = 12);
@@ -208,12 +208,12 @@ int main(void) {
                                 WLX_SLOT_PX(18), WLX_SLOT_FLEX(1),
                             }, .gap = 4);
                             wlx_label(ctx, scale_label(scales[i]),
-                                .font_size = 12, .align = WLX_CENTER,
+                                .font_size = 12, .content_align = WLX_CENTER,
                                 .front_color = WLX_WHITE);
                             if (wlx_button(ctx, "",
                                 .texture = tex_land,
                                 .texture_scale = scales[i],
-                                .align = WLX_CENTER)) {
+                                .content_align = WLX_CENTER)) {
                                 app.total_clicks++; app.last_click_kind = 2;
                             }
                         wlx_layout_end(ctx);
@@ -227,7 +227,7 @@ int main(void) {
                     "Clicks: %d   |   Last: %s",
                     app.total_clicks, kind_label(app.last_click_kind));
                 wlx_label(ctx, status,
-                    .font_size = 16, .align = WLX_LEFT,
+                    .font_size = 16, .content_align = WLX_LEFT,
                     .front_color = (Color){200, 220, 240, 255});
 
             wlx_layout_end(ctx);

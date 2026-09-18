@@ -71,14 +71,14 @@ static void draw_widget_column(WLX_Context *ctx, bool disabled) {
 
         const char *label = disabled ? "Disabled" : "Enabled";
         wlx_label(ctx, label,
-            .height = 24, .font_size = 14, .align = WLX_CENTER);
+            .height = 24, .font_size = 14, .content_align = WLX_CENTER);
 
         char btn_label[40];
         snprintf(btn_label, sizeof(btn_label),
             disabled ? "Save (off)" : "Save (clicks: %d)", app.click_count);
         if (wlx_button(ctx, btn_label,
                 .height = 32, .font_size = 13,
-                .widget_align = WLX_CENTER,
+                .slot_align = WLX_CENTER,
                 .disabled = disabled)) {
             app.click_count++;
         }
@@ -162,16 +162,16 @@ int main(void) {
                 });
 
                 wlx_label(ctx, "Disabled State Model",
-                    .font_size = 22, .align = WLX_CENTER,
+                    .font_size = 22, .content_align = WLX_CENTER,
                     .front_color = theme->foreground);
 
                 draw_preset_picker(ctx);
 
                 wlx_layout_begin(ctx, 2, WLX_HORZ, .gap = 8, .padding = 0);
                     wlx_label(ctx, "Enabled",
-                        .font_size = 15, .align = WLX_CENTER);
+                        .font_size = 15, .content_align = WLX_CENTER);
                     wlx_label(ctx, "Disabled (hover-tint suppressed)",
-                        .font_size = 15, .align = WLX_CENTER);
+                        .font_size = 15, .content_align = WLX_CENTER);
                 wlx_layout_end(ctx);
 
                 wlx_layout_begin(ctx, 2, WLX_HORZ, .gap = 12, .padding = 8);

@@ -63,7 +63,7 @@ int main(void) {
 
         wlx_layout_begin(&ctx, 4, WLX_VERT, .padding = 8);
 
-            wlx_label(&ctx, "Hello, wollix.h!", .font_size = 24, .align = WLX_CENTER);
+            wlx_label(&ctx, "Hello, wollix.h!", .font_size = 24, .content_align = WLX_CENTER);
 
             if (wlx_button(&ctx, "Click me", .height = 40))
                 printf("clicked!\n");

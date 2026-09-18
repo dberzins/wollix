@@ -32,7 +32,7 @@ are documented once here.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `widget_align` | `WLX_Align` | `WLX_LEFT` | Where to place the widget inside its slot when it is smaller than the slot |
+| `slot_align` | `WLX_Align` | `WLX_LEFT` | Where to place the widget rect inside its slot when it is smaller than the slot. `widget_align` is the deprecated pre-0.9 name (same storage, removed in the first minor after 0.9) |
 | `width` | `float` | `WLX_UNSET` | Widget width in pixels. unset = fill parent width |
 | `height` | `float` | `WLX_UNSET` | Widget height in pixels. unset = fill parent height |
 | `min_width` | `float` | `0` | Minimum width constraint. `0` = unconstrained |
@@ -60,7 +60,7 @@ Used by `label`, `button`, `checkbox`, `inputbox`, `toggle`, and `radio`.
 |-------|------|---------|-------------|
 | `font` | `WLX_Font` | `WLX_FONT_DEFAULT` | Font handle. `0` = backend default / theme font |
 | `font_size` | `int` | `0` | Font size in pixels. `0` = use theme default |
-| `align` | `WLX_Align` | `WLX_LEFT` | Text alignment within the widget rect |
+| `content_align` | `WLX_Align` | `WLX_LEFT` | Text alignment within the widget rect. `align` is the deprecated pre-0.9 name (same storage, removed in the first minor after 0.9) |
 | `wrap` | `bool` | varies | Enable fitted multi-line wrapping for long text. Width wrapping stays greedy at UTF-8 codepoint boundaries; explicit `\n`, `\r\n`, and `\r` always break lines |
 | `spacing` | `int` | `0` | Opt-in extra tracking. `0` = natural backend spacing |
 
@@ -510,7 +510,7 @@ void wlx_label(WLX_Context *ctx, const char *text, ...options);
 
 ```c
 wlx_label(ctx, "Hello, world!",
-    .font_size = 20, .align = WLX_CENTER
+    .font_size = 20, .content_align = WLX_CENTER
 );
 ```
 
@@ -564,10 +564,10 @@ sentinel.
   (no texture draw is emitted).
 - **Empty texture + empty text** → no content is drawn; the chrome (background
   and/or border) still draws when configured.
-- **`align` vs. `image_placement`** are independent:
+- **`content_align` vs. `image_placement`** are independent:
   `image_placement` controls *which side* of the text the image sits on
   (`LEFT`/`RIGHT`/`TOP`/`BOTTOM` of the text within the combined block);
-  `align` then positions the *combined block* inside the label rect for
+  `content_align` then positions the *combined block* inside the label rect for
   text + image mode, or the image rect itself for image-only mode when
   `image_size > 0`.
 - The texture is always centered inside its reserved image rect. Hover
@@ -581,7 +581,7 @@ Centered heading with background:
 ```c
 wlx_label(ctx, "Settings",
     .font_size = 28,
-    .align = WLX_CENTER,
+    .content_align = WLX_CENTER,
     .height = 50,
     .back_color = (WLX_Color){40, 40, 40, 255},
     .show_background = true
@@ -593,7 +593,7 @@ Right-aligned status line:
 ```c
 wlx_label(ctx, status_text,
     .font_size = 14,
-    .align = WLX_RIGHT,
+    .content_align = WLX_RIGHT,
     .height = 30,
     .front_color = (WLX_Color){150, 150, 150, 255}
 );
@@ -603,7 +603,7 @@ Text + image with default LEFT placement:
 
 ```c
 wlx_label(ctx, "Saved",
-    .height = 32, .font_size = 18, .align = WLX_CENTER,
+    .height = 32, .font_size = 18, .content_align = WLX_CENTER,
     .texture = check_icon
 );
 ```
@@ -612,7 +612,7 @@ Text + image with image stacked on top:
 
 ```c
 wlx_label(ctx, "Saved",
-    .height = 56, .font_size = 14, .align = WLX_CENTER,
+    .height = 56, .font_size = 14, .content_align = WLX_CENTER,
     .texture = check_icon,
     .image_placement = WLX_IMAGE_PLACEMENT_TOP,
     .image_size = 24, .image_text_gap = 6
@@ -623,14 +623,14 @@ Text + image with `RIGHT` and `BOTTOM` placement:
 
 ```c
 wlx_label(ctx, "Reminder",
-    .height = 32, .font_size = 16, .align = WLX_CENTER,
+    .height = 32, .font_size = 16, .content_align = WLX_CENTER,
     .texture = info_icon,
     .image_placement = WLX_IMAGE_PLACEMENT_RIGHT,
     .image_size = 20
 );
 
 wlx_label(ctx, "Saved",
-    .height = 56, .font_size = 14, .align = WLX_CENTER,
+    .height = 56, .font_size = 14, .content_align = WLX_CENTER,
     .texture = check_icon,
     .image_placement = WLX_IMAGE_PLACEMENT_BOTTOM,
     .image_size = 24, .image_text_gap = 6
@@ -642,7 +642,7 @@ rendering):
 
 ```c
 wlx_label(ctx, "",
-    .texture = check_icon, .image_size = 32, .align = WLX_CENTER
+    .texture = check_icon, .image_size = 32, .content_align = WLX_CENTER
 );
 ```
 
@@ -653,7 +653,7 @@ wlx_push_opacity(ctx, 0.5f);
     wlx_label(ctx, "Saved",
         .texture = check_icon,
         .texture_tint = (WLX_Color){200, 220, 255, 255},
-        .image_size = 24, .font_size = 14, .align = WLX_CENTER);
+        .image_size = 24, .font_size = 14, .content_align = WLX_CENTER);
 wlx_pop_opacity(ctx);
 ```
 
@@ -661,7 +661,7 @@ Label with a left content inset (chrome stays at full width):
 
 ```c
 wlx_label(ctx, "padded heading",
-    .height = 32, .font_size = 18, .align = WLX_LEFT,
+    .height = 32, .font_size = 18, .content_align = WLX_LEFT,
     .show_background = true,
     .back_color = (WLX_Color){40, 60, 90, 255},
     .content_padding_left = 32);
@@ -738,10 +738,10 @@ in the shared section for full resolution rules.
   button (no texture draw is emitted).
 - **Empty texture + empty text** → only the chrome is drawn; the button still
   returns the click contract.
-- **`align` vs. `image_placement`** are independent:
+- **`content_align` vs. `image_placement`** are independent:
   `image_placement` controls *which side* of the text the image sits on (image
   is always on the LEFT/RIGHT/TOP/BOTTOM of the text within the combined block);
-  `align` then positions the *combined block* inside the button rect for
+  `content_align` then positions the *combined block* inside the button rect for
   image+text mode, or the image rect itself for image-only mode when
   `image_size > 0`.
 - The texture is always centered inside its reserved image rect; hover
@@ -754,10 +754,10 @@ Text-only button with custom color:
 
 ```c
 if (wlx_button(ctx, "Submit",
-    .widget_align = WLX_CENTER,
+    .slot_align = WLX_CENTER,
     .width = 200, .height = 50,
     .font_size = 22,
-    .align = WLX_CENTER,
+    .content_align = WLX_CENTER,
     .back_color = (WLX_Color){128, 0, 0, 255}
 )) {
     submit_form();
@@ -769,18 +769,18 @@ Image-only icon button (full button rect as image target):
 ```c
 if (wlx_button(ctx, "",
     .width = 48, .height = 48,
-    .texture = save_icon, .align = WLX_CENTER
+    .texture = save_icon, .content_align = WLX_CENTER
 )) {
     save_data();
 }
 ```
 
-Image-only with explicit square size, anchored via `align`:
+Image-only with explicit square size, anchored via `content_align`:
 
 ```c
 if (wlx_button(ctx, "",
     .height = 48,
-    .texture = save_icon, .image_size = 32, .align = WLX_CENTER
+    .texture = save_icon, .image_size = 32, .content_align = WLX_CENTER
 )) {
     save_data();
 }
@@ -790,7 +790,7 @@ Image + text with default LEFT placement:
 
 ```c
 if (wlx_button(ctx, "Save",
-    .height = 40, .font_size = 18, .align = WLX_CENTER,
+    .height = 40, .font_size = 18, .content_align = WLX_CENTER,
     .texture = save_icon
 )) {
     save_data();
@@ -801,7 +801,7 @@ Image + text with image stacked on top:
 
 ```c
 if (wlx_button(ctx, "Save",
-    .height = 64, .font_size = 14, .align = WLX_CENTER,
+    .height = 64, .font_size = 14, .content_align = WLX_CENTER,
     .texture = save_icon,
     .image_placement = WLX_IMAGE_PLACEMENT_TOP,
     .image_size = 28, .image_text_gap = 6
@@ -817,7 +817,7 @@ wlx_push_opacity(ctx, 0.5f);
     wlx_button(ctx, "",
         .texture = save_icon,
         .texture_tint = (WLX_Color){200, 220, 255, 255},
-        .image_size = 32, .align = WLX_CENTER);
+        .image_size = 32, .content_align = WLX_CENTER);
 wlx_pop_opacity(ctx);
 ```
 
@@ -825,7 +825,7 @@ Button with uniform content padding:
 
 ```c
 wlx_button(ctx, "Save",
-    .height = 56, .font_size = 18, .align = WLX_CENTER,
+    .height = 56, .font_size = 18, .content_align = WLX_CENTER,
     .content_padding = 12);
 ```
 
@@ -833,7 +833,7 @@ Asymmetric padding for a wide-padded label:
 
 ```c
 wlx_button(ctx, "Confirm",
-    .height = 48, .font_size = 16, .align = WLX_CENTER,
+    .height = 48, .font_size = 16, .content_align = WLX_CENTER,
     .content_padding_top = 6, .content_padding_bottom = 6,
     .content_padding_left = 20, .content_padding_right = 20);
 ```
@@ -843,7 +843,7 @@ consistent inset across all buttons):
 
 ```c
 wlx_button(ctx, "Continue",
-    .height = 44, .font_size = 16, .align = WLX_CENTER,
+    .height = 44, .font_size = 16, .content_align = WLX_CENTER,
     .content_padding = WLX_PADDING_USE_THEME);
 ```
 
@@ -1169,7 +1169,7 @@ wlx_inputbox(ctx, "API token:", token, sizeof(token), .height = 40, .read_only =
   rejected.
 - **Internal scrolling.** Content taller than the field scrolls instead of
   clipping. While overflowing, the run is top-anchored (the vertical
-  component of `.align` applies again once content fits):
+  component of `.content_align` applies again once content fits):
   - **Caret-follow**: any caret move or edit scrolls the view the minimal
     distance that keeps the caret line fully visible — typing at the bottom,
     Enter auto-repeat, UP/DOWN past the edges, HOME/END jumps, and paste all
@@ -1196,7 +1196,7 @@ static char notes[512] = "";
 wlx_textarea(ctx, "Notes:", notes, sizeof(notes), .height = 120);
 // equivalent to:
 // wlx_inputbox(ctx, "Notes:", notes, sizeof(notes),
-//     .multiline = true, .align = WLX_TOP_LEFT, .height = 120);
+//     .multiline = true, .content_align = WLX_TOP_LEFT, .height = 120);
 ```
 
 Current limits: the field is **caller-sized** (`.height`) and does not grow
@@ -1215,7 +1215,7 @@ signal — commit on blur (`.out_focused` transition) or an explicit button.
 Set `texture` to render an icon **inside** the field frame on the leading
 (`LEFT`, default) or trailing (`RIGHT`) interior edge — a search glyph, a clear
 affordance, etc. The icon is centered vertically within the field interior,
-independent of `align` (a glyph is not text and does not follow a multi-line
+independent of `content_align` (a glyph is not text and does not follow a multi-line
 text band). The reserved band — `image_size + image_text_gap` wide — insets the
 text and caret so they never overlap the icon, and the band width is clamped so
 a narrow field never produces a negative-width text band. A zero `texture`
@@ -1369,7 +1369,7 @@ if (wlx_editor(ctx, NULL, doc, doc_cap, &doc_len, .revision = doc_rev,
 | `revision` | `uint32_t` | `0` | External-mutation guard; bump after editing the buffer outside the widget. |
 
 All shared placement, sizing, typography, and color fields also apply. Text
-is always top-left anchored; `align` places only the label.
+is always top-left anchored; `content_align` places only the label.
 
 ### Editing and navigation vocabulary
 
@@ -1486,7 +1486,7 @@ bool wlx_slider(WLX_Context *ctx, const char *label, float *value, ...options);
 static float volume = 0.5f;
 
 if (wlx_slider(ctx, "Volume", &volume,
-    .widget_align = WLX_CENTER, .width = 400, .height = 40
+    .slot_align = WLX_CENTER, .width = 400, .height = 40
 )) {
     set_volume(volume);
 }
@@ -1494,7 +1494,7 @@ if (wlx_slider(ctx, "Volume", &volume,
 
 ### Widget-specific options
 
-Slider shares `WLX_TEXT_TYPOGRAPHY_FIELDS` (`font`, `font_size`, `align`, `spacing`) but has its own
+Slider shares `WLX_TEXT_TYPOGRAPHY_FIELDS` (`font`, `font_size`, `content_align`, `spacing`) but has its own
 color field (`label_color`) instead of the shared `WLX_TEXT_COLOR_FIELDS` (`front_color` / `back_color`).
 It also omits `wrap` — all slider text is single-line.
 
@@ -1502,7 +1502,7 @@ It also omits `wrap` — all slider text is single-line.
 |-------|------|---------|-------------|
 | `font` | `WLX_Font` | `WLX_FONT_DEFAULT` | Font for label and value text |
 | `font_size` | `int` | `0` | Font size. `0` = use theme default |
-| `align` | `WLX_Align` | `WLX_LEFT` | Text alignment for the label |
+| `content_align` | `WLX_Align` | `WLX_LEFT` | Text alignment for the label |
 | `spacing` | `int` | `0` | Opt-in extra tracking for label and value text. `0` = natural backend spacing |
 | `show_value` | `bool` | `true` | Show the numeric value readout to the right of the track (renamed from `show_label` in v0.6; the alias was removed in v0.7) |
 | `track_color` | `WLX_Color` | `{0}` | Track bar background color. `{0}` = derive from theme `slider.track` |
@@ -1537,7 +1537,7 @@ Color channel slider with colored thumb:
 
 ```c
 wlx_slider(ctx, "Red", &color_r,
-    .widget_align = WLX_CENTER, .width = 500, .height = 40,
+    .slot_align = WLX_CENTER, .width = 500, .height = 40,
     .min_value = 0.0f, .max_value = 1.0f,
     .thumb_color = (WLX_Color){255, 60, 60, 255}
 );
@@ -1547,7 +1547,7 @@ Integer-range slider (0–100) with custom font:
 
 ```c
 wlx_slider(ctx, "Speed", &speed,
-    .widget_align = WLX_CENTER, .width = 400, .height = 40,
+    .slot_align = WLX_CENTER, .width = 400, .height = 40,
     .min_value = 0.0f, .max_value = 100.0f,
     .font_size = 18
 );
@@ -1746,7 +1746,7 @@ Compact toolbar toggle:
 wlx_toggle(ctx, "Grid", &show_grid,
     .font_size = 14,
     .height = 26,
-    .widget_align = WLX_RIGHT
+    .slot_align = WLX_RIGHT
 );
 ```
 
@@ -1916,7 +1916,7 @@ wlx_scroll_panel_begin(ctx, -1,
             char label[64];
             snprintf(label, sizeof(label), "Item %d", i + 1);
             if (wlx_button(ctx, label,
-                .height = 40, .font_size = 18, .align = WLX_CENTER,
+                .height = 40, .font_size = 18, .content_align = WLX_CENTER,
                 .back_color = (i % 2 == 0)
                     ? (WLX_Color){35, 35, 35, 255}
                     : (WLX_Color){30, 30, 30, 255}
@@ -2502,7 +2502,7 @@ anchors flush to the parent panel's right edge at the row of the last
 emitted item — the trigger, which should be a `.keep_open` item that
 toggles `*open`. Every unset option inherits the parent's resolved
 styling (width, row height, item padding, typography, colors, border), so
-a submenu matches its parent by default. `align` and `spacing` have no
+a submenu matches its parent by default. `content_align` and `spacing` have no
 "unset" sentinel (`WLX_LEFT` and `0` are real values), so they inherit
 whenever left at those defaults - a submenu under a centered or tracked
 parent cannot ask for left-aligned, untracked rows explicitly. It shares the parent's press
@@ -2560,7 +2560,7 @@ All shared placement, sizing, and border fields also apply.
 
 ```c
 wlx_widget(ctx,
-    .widget_align = WLX_CENTER, .width = 100, .height = 4,
+    .slot_align = WLX_CENTER, .width = 100, .height = 4,
     .color = (WLX_Color){ 80, 80, 80, 255 }
 );
 ```
@@ -2607,18 +2607,19 @@ wlx_image(ctx, my_texture,
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_STRETCH` | How the texture is scaled inside the slot (see table above). |
-| `align` | `WLX_Align` | `WLX_CENTER` | Positions the image content within the slot for `FIT` and `NONE`; selects the crop anchor for `FILL`. Has no effect for `STRETCH`. |
+| `content_align` | `WLX_Align` | `WLX_CENTER` | Positions the image content within the widget rect for `FIT` and `NONE`; selects the crop anchor for `FILL`. Has no effect for `STRETCH`. |
 | `tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE` (no tint). The alpha component is multiplied by the opacity stack. |
 | `src` | `WLX_Rect` | `{0}` | Source sub-rect within the texture. `{0}` (or `src.w <= 0`) means the full texture. Use this for spritesheet cells. |
 | `id` | `const char *` | `NULL` | Optional widget ID for persistent state and scoping. |
 
-Shared placement, sizing (`widget_align`, `width`, `height`, etc.), and border
+Shared placement, sizing (`slot_align`, `width`, `height`, etc.), and border
 fields also apply.
 
-> **`widget_align` vs. `align`**: `widget_align` positions the *widget slot*
-> within the parent layout (e.g. center a 100px slot inside a 300px column).
-> `align` positions the *image content* within that widget slot (e.g. pin a
-> natural-size image to the top-left corner of the slot). They are independent.
+> **`slot_align` vs. `content_align`**: `slot_align` positions the *widget rect*
+> within its layout slot (e.g. center a 100px widget inside a 300px column).
+> `content_align` positions the *image content* within that widget rect (e.g.
+> pin a natural-size image to the top-left corner). They are independent, and
+> pair with `padding` (slot inset) and `content_padding` (content inset).
 
 ### Common overrides
 
@@ -2628,7 +2629,7 @@ Fit a portrait photo inside a landscape card, centered:
 wlx_image(ctx, portrait_photo,
     .width = 200, .height = 150,
     .scale = WLX_IMAGE_SCALE_FIT,
-    .align = WLX_CENTER
+    .content_align = WLX_CENTER
 );
 ```
 
@@ -2638,7 +2639,7 @@ Fill a thumbnail slot, crop from the left edge:
 wlx_image(ctx, banner_texture,
     .width = 80, .height = 80,
     .scale = WLX_IMAGE_SCALE_FILL,
-    .align = WLX_LEFT
+    .content_align = WLX_LEFT
 );
 ```
 
@@ -2647,7 +2648,7 @@ Draw a spritesheet cell at natural size, pinned to the top-left:
 ```c
 wlx_image(ctx, spritesheet,
     .scale = WLX_IMAGE_SCALE_NONE,
-    .align = WLX_TOP_LEFT,
+    .content_align = WLX_TOP_LEFT,
     .src   = (WLX_Rect){ 0, 0, 32, 32 }
 );
 ```
@@ -2703,7 +2704,7 @@ See the `WLX_Theme` struct in `wollix.h` for all themeable fields.
 
 ## Alignment quick reference
 
-The `WLX_Align` enum values used by `widget_align` and `align`:
+The `WLX_Align` enum values used by `slot_align` and `content_align`:
 
 | Value | Position |
 |-------|----------|

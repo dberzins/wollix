@@ -49,47 +49,47 @@ int main() {
 
                         // Title
                         wlx_label(ctx, "Checkbox Demo",
-                            .widget_align = WLX_TOP_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_TOP_LEFT);
+                            .slot_align = WLX_TOP_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_TOP_LEFT);
 
                         // Checkbox options
                         if (wlx_checkbox(ctx, "Option 1: Enable feature A", &app.option1,
                              .font_size = 20, .wrap = true,
-                             // .widget_align = RIGHT, .width = 400, .height = 60, .font_size = 20
+                             // .slot_align = RIGHT, .width = 400, .height = 60, .font_size = 20
                         )) {
                             printf("Option 1 toggled: %s\n", app.option1 ? "ON" : "OFF");
                         }
 
                         if (wlx_checkbox(ctx, "Option 2: Enable feature B", &app.option2,
                              .font_size = 20
-                             // .widget_align = BOTTOM_RIGHT, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
+                             // .slot_align = BOTTOM_RIGHT, .height = 40, .content_align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Option 2 toggled: %s\n", app.option2 ? "ON" : "OFF");
                         }
 
                         if (wlx_checkbox(ctx, "Option 3: Enable feature C", &app.option3,
                              .font_size = 20
-                             // .widget_align = TOP_RIGHT, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
+                             // .slot_align = TOP_RIGHT, .height = 40, .content_align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Option 3 toggled: %s\n", app.option3 ? "ON" : "OFF");
                         }
 
                         if (wlx_checkbox(ctx, "Enable advanced mode", &app.enable_feature,
                              .font_size = 20
-                             // .widget_align = TOP_RIGHT, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
+                             // .slot_align = TOP_RIGHT, .height = 40, .content_align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Advanced mode toggled: %s\n", app.enable_feature ? "ON" : "OFF");
                         }
 
                         if (wlx_checkbox(ctx, "Show detailed information", &app.show_details,
                              .font_size = 20
-                             // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
+                             // .slot_align = CENTER, .width = 300, .height = 40, .content_align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Show details toggled: %s\n", app.show_details ? "ON" : "OFF");
                         }
 
                         if (wlx_checkbox(ctx, "I accept terms and conditions", &app.accept_terms,
                              .font_size = 20
-                             // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
+                             // .slot_align = CENTER, .width = 300, .height = 40, .content_align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("Terms accepted toggled: %s\n", app.accept_terms ? "ON" : "OFF");
                         }
@@ -102,7 +102,7 @@ int main() {
                             app.accept_terms ? "ACCEPTED" : "NOT ACCEPTED"
                         );
                         wlx_label(ctx, status_text,
-                            .widget_align = WLX_BOTTOM_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_BOTTOM_LEFT);
+                            .slot_align = WLX_BOTTOM_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_BOTTOM_LEFT);
 
 
                     wlx_layout_end(ctx);

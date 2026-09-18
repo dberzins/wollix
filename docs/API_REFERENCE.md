@@ -479,8 +479,12 @@ typedef enum {
 } WLX_Align;
 ```
 
-Used for both widget placement inside a slot (`widget_align`) and text
-alignment inside a widget (`align`).
+Used for both widget placement inside a slot (`slot_align`: the widget rect
+inside its layout slot) and content placement inside a widget
+(`content_align`: text or image inside the widget rect). The names pair with
+`padding` (slot inset) and `content_padding` (content inset). `widget_align`
+and `align` are the deprecated pre-0.9 names: same storage, removed in the
+first minor release after 0.9.
 
 ### `WLX_Size_Kind`
 
@@ -2020,7 +2024,7 @@ WLX_Rect wlx_get_align_rect(WLX_Rect parent_rect, float width, float height, WLX
 ```
 
 Compute a sub-rect of `parent_rect` positioned according to `align`. Used
-internally for `widget_align`.
+internally for `slot_align`.
 
 ### `wlx_color_is_zero`
 
@@ -2311,7 +2315,7 @@ dividers, spacers, or color swatches.
 
 ```c
 wlx_widget(ctx,
-    .widget_align = WLX_CENTER, .width = 100, .height = 4,
+    .slot_align = WLX_CENTER, .width = 100, .height = 4,
     .back_color = (WLX_Color){ 80, 80, 80, 255 }
 );
 ```
@@ -2348,7 +2352,7 @@ prefer [`wlx_image`](#widget--wlx_image). Mode is selected by the inputs:
 |-------|------|---------|-------------|
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
-| *typography* | | | `font`, `font_size`, `align`, `wrap` (default `true`) |
+| *typography* | | | `font`, `font_size`, `content_align`, `wrap` (default `true`) |
 | *colors* | | | `front_color`, `back_color` |
 | *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
 | `show_background` | `bool` | `false` | Draw filled background behind content. Hover brightens the fill only when this is `true`. |
@@ -2374,7 +2378,7 @@ visible line. Labels are non-interactive: hover modulates only the optional
 background, never the texture tint, and labels never consume clicks from
 other widgets.
 
-`align` positions the combined image+text block inside the label rect (or
+`content_align` positions the combined image+text block inside the label rect (or
 the image-only sub-rect when `image_size > 0`); `image_placement` controls
 which side of the text the image sits on. The two are independent.
 
@@ -2430,7 +2434,7 @@ Button captions follow the same fitted line/run layout and per-line alignment
 behavior as labels. Hover modulates only the chrome background — the texture
 tint is not double-modulated by hover.
 
-`align` positions the combined image+text block inside the button rect (or
+`content_align` positions the combined image+text block inside the button rect (or
 the image-only sub-rect when `image_size > 0`); `image_placement` controls
 which side of the text the image sits on. The two are independent.
 
@@ -2496,7 +2500,7 @@ instead of the removed `wlx_checkbox_tex` compatibility macro.
 // previously returned focus — use .out_focused for that)
 
 #define wlx_textarea(ctx, label, buffer, buffer_size, ...options)
-// Sugar: wlx_inputbox with .multiline = true, .align = WLX_TOP_LEFT preset
+// Sugar: wlx_inputbox with .multiline = true, .content_align = WLX_TOP_LEFT preset
 // before the caller's options (both presets overridable per call)
 ```
 
@@ -2599,7 +2603,7 @@ fitted line records used for rendering.
 
 A non-zero `texture` draws an icon inside the field on the leading (`LEFT`,
 default) or trailing (`RIGHT`) interior edge, centered vertically independent of
-`align`. The reserved band (`image_size + image_text_gap`) insets the text and
+`content_align`. The reserved band (`image_size + image_text_gap`) insets the text and
 caret so they never overlap the icon; a zero `texture` keeps the field text-only
 with unchanged geometry. The icon is texture-based, matching the image content of
 `wlx_label` / `wlx_button` / `wlx_checkbox`.
@@ -2675,7 +2679,7 @@ mode toggles.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| *shared fields* | | | placement, sizing, typography (text is top-left; `align` places the label), colors |
+| *shared fields* | | | placement, sizing, typography (text is top-left; `content_align` places the label), colors |
 | `wrap` | `bool` | `false` | Wrapped mode: band-wide rows per hard line, row-based motion, approximate vertical thumb, no horizontal scroll |
 | `content_padding` (+ per-side) | `float` | `10` | Outer inset; same model as `wlx_inputbox` |
 | `border_color` / `border_width` / `roundness` / `rounded_segments` | | theme | Chrome, as on `wlx_inputbox` |
@@ -2711,10 +2715,10 @@ Horizontal slider. Click/drag the thumb or click the track to jump.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | *placement* | | | `pos`, `span`, `overflow`, `padding` |
-| *sizing* | | | `widget_align`, `width`, `height`, min/max, `opacity` |
+| *sizing* | | | `slot_align`, `width`, `height`, min/max, `opacity` |
 | `font` | `WLX_Font` | `WLX_FONT_DEFAULT` | Font for label/value text |
 | `font_size` | `int` | `0` | Font size |
-| `align` | `WLX_Align` | `WLX_LEFT` | Label text alignment |
+| `content_align` | `WLX_Align` | `WLX_LEFT` | Label text alignment |
 | `spacing` | `int` | `0` | Opt-in extra tracking for label/value text. `0` = natural backend spacing |
 | `show_value` | `bool` | `true` | Show the numeric value readout beside the track (renamed from `show_label` in v0.6; the alias was removed in v0.7) |
 | `track_color` | `WLX_Color` | `{0}` | Track background. `{0}` = theme `slider.track` |
@@ -2816,7 +2820,7 @@ The `label` may be `NULL`.
 |-------|------|---------|-------------|
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
-| *typography* | | | `font`, `font_size`, `align`, `wrap` (default `false`) |
+| *typography* | | | `font`, `font_size`, `content_align`, `wrap` (default `false`) |
 | *colors* | | | `front_color`, `back_color` (`back_color` is currently unused by this widget) |
 | *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
 | `track_color` | `WLX_Color` | `{0}` | Inactive track color. `{0}` = theme `toggle.track`, falling back to `slider.track` |
@@ -2854,7 +2858,7 @@ Select-one radio control. Activating the widget sets `*active = index`. The
 |-------|------|---------|-------------|
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
-| *typography* | | | `font`, `font_size`, `align`, `wrap` (default `false`) |
+| *typography* | | | `font`, `font_size`, `content_align`, `wrap` (default `false`) |
 | *colors* | | | `front_color`, `back_color` (`back_color` is currently unused by this widget) |
 | `ring_color` | `WLX_Color` | `{0}` | Ring color. `{0}` = theme `radio.ring`, falling back to `border` |
 | `fill_color` | `WLX_Color` | `{0}` | Selected fill color. `{0}` = theme `radio.fill`, falling back to `accent` |
@@ -2887,7 +2891,7 @@ Scrollable container. Used as a begin/end pair with layout content between.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | *placement* | | | `pos`, `span`, `overflow`, `padding` |
-| *sizing* | | | `widget_align`, `width`, `height`, min/max, `opacity` |
+| *sizing* | | | `slot_align`, `width`, `height`, min/max, `opacity` |
 | `back_color` | `WLX_Color` | `{0}` | Panel background |
 | `transparent_background` | `bool` | `false` | `true` draws no fill so the container shows through (distinct from `back_color = {0}` -> theme background) |
 | `scrollbar_color` | `WLX_Color` | `{0}` | Scrollbar thumb color |
@@ -3157,7 +3161,7 @@ press. Returns whether the tip is showing. Persistent state:
 | `delay` | `float` | `WLX_UNSET` | Hover seconds before showing. `< 0` = 0.5 |
 | `offset_x` / `offset_y` | `float` | `12` / `18` | Tip origin relative to the pointer |
 | `content_padding` (+ per-side) | `float` | `WLX_UNSET` | Inner text inset; unset = 6. `.padding` is the deprecated pre-0.9 name of the uniform field (same storage, removed in the first minor after 0.9) |
-| *typography* | | | `font`, `font_size`, `align`, `spacing` |
+| *typography* | | | `font`, `font_size`, `content_align`, `spacing` |
 | `front_color` / `back_color` | `WLX_Color` | `{0}` | `{0}` = theme foreground / background |
 | `border_color` / `border_width` | | `{0}` / `WLX_UNSET` | Unset = theme |
 | `roundness` / `rounded_segments` | | `WLX_UNSET` | Unset = theme |
@@ -3192,7 +3196,7 @@ opens a submenu on the next layer. Nesting is capped at
 | `width` | `float` | `WLX_UNSET` | Unset = 180; `0` is a zero-width list |
 | `row_height` | `float` | `0` | `<= 0` = `font_size + 12` |
 | `item_padding` | `float` | `WLX_UNSET` | Item text left/right inset. `< 0` = 8 |
-| *typography* | | | `font`, `font_size`, `align`, `spacing` |
+| *typography* | | | `font`, `font_size`, `content_align`, `spacing` |
 | `front_color` / `back_color` | `WLX_Color` | `{0}` | `{0}` = theme foreground / background |
 | `border_color` / `border_width` | | `{0}` / `WLX_UNSET` | Panel border. Unset = theme |
 | `roundness` / `rounded_segments` | | `WLX_UNSET` | Unset = theme |
@@ -3248,7 +3252,7 @@ parameters: the list anchors flush to the parent panel's right edge at the
 last emitted item's row (the trigger — make it a `.keep_open` item that
 toggles `*open`). Options are `WLX_Menu_Opt`; every unset field inherits
 the parent menu's resolved value, so a bare `wlx_submenu_begin(ctx, &open)`
-matches its parent's styling (`align` / `spacing` inherit whenever left at
+matches its parent's styling (`content_align` / `spacing` inherit whenever left at
 `WLX_LEFT` / `0` - those are their defaults and have no unset sentinel). Shares the parent's press scope (a press on
 the trigger is an inside press, so it toggles cleanly) and all close
 paths — a leaf click dismisses the submenu and every ancestor menu; body
@@ -3267,12 +3271,14 @@ Injected fields: `pos`, `span`, `overflow`, `padding`.
 
 ### `WLX_WIDGET_SIZING_FIELDS` / `WLX_WIDGET_SIZING_DEFAULTS`
 
-Injected fields: `widget_align`, `width`, `height`, `min_width`, `min_height`,
+Injected fields: `slot_align` (alias `widget_align`, deprecated), `width`,
+`height`, `min_width`, `min_height`,
 `max_width`, `max_height`, `opacity`.
 
 ### `WLX_TEXT_TYPOGRAPHY_FIELDS` / `WLX_TEXT_TYPOGRAPHY_DEFAULTS`
 
-Injected fields: `font`, `font_size`, `align`, `wrap`, `spacing`.
+Injected fields: `font`, `font_size`, `content_align` (alias `align`,
+deprecated), `wrap`, `spacing`.
 
 `spacing` defaults to `0`, which means natural backend spacing.
 

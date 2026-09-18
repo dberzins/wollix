@@ -69,12 +69,12 @@ int main(void) {
                 // wlx_label(ctx, "Outer Scroll Panel Content",
                 //     .height = 40, .font_size = 20,
                 //     .back_color = (Color){30, 35, 42, 255},
-                //     .align = LEFT);
+                //     .content_align = LEFT);
                 
                 // wlx_label(ctx, "Outer Scroll Panel Content",
                 //     .height = 40, .font_size = 20,
                 //     .back_color = (Color){30, 35, 42, 255},
-                //     .align = LEFT);
+                //     .content_align = LEFT);
 
                 wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
                     .back_color = (Color){22, 24, 28, 255},
@@ -83,7 +83,7 @@ int main(void) {
 
                     wlx_layout_begin(ctx, 2, WLX_VERT);
                         wlx_button(ctx, "MAIN PANEL",
-                            .widget_align = WLX_CENTER, .font_size = 20, .height = 200, .back_color = RED, .align = WLX_CENTER
+                            .slot_align = WLX_CENTER, .font_size = 20, .height = 200, .back_color = RED, .content_align = WLX_CENTER
                         );
                         wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
                             .back_color = (Color){22, 24, 28, 255},
@@ -91,7 +91,7 @@ int main(void) {
                         );
 
                         wlx_button(ctx, "NESTED PANEL",
-                            .widget_align = WLX_CENTER, .font_size = 20, .height = 200, .back_color = BLUE, .align = WLX_CENTER
+                            .slot_align = WLX_CENTER, .font_size = 20, .height = 200, .back_color = BLUE, .content_align = WLX_CENTER
                         );
                         wlx_scroll_panel_end(ctx);
 
@@ -106,7 +106,7 @@ int main(void) {
                         //             wlx_label(ctx, "yyyYYYYYYYYYYYYYYYYYY",
                         //                 .height = 40, .font_size = 20,
                         //                 .back_color = (Color){30, 35, 42, 255},
-                        //                 .align = LEFT);
+                        //                 .content_align = LEFT);
                         //         }
                         //     wlx_layout_end(ctx);
                         // wlx_scroll_panel_end(ctx);
@@ -116,7 +116,7 @@ int main(void) {
                 wlx_scroll_panel_end(ctx);
 
                 wlx_button(ctx, "BOTTOM",
-                    .widget_align = WLX_CENTER, .font_size = 20, .back_color = GREEN, .align = WLX_CENTER
+                    .slot_align = WLX_CENTER, .font_size = 20, .back_color = GREEN, .content_align = WLX_CENTER
                 );
 
                 wlx_layout_end(ctx);

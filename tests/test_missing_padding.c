@@ -127,7 +127,7 @@ TEST(missing_padding_checkbox_default_zero_inset) {
     WLX_Context ctx;
     mp_begin(&ctx);
     bool checked = false;
-    wlx_checkbox(&ctx, "", &checked, .align = WLX_LEFT, .font_size = 16);
+    wlx_checkbox(&ctx, "", &checked, .content_align = WLX_LEFT, .font_size = 16);
     mp_end(&ctx);
 
     ASSERT_TRUE(_mp_rect_count >= 1);
@@ -139,7 +139,7 @@ TEST(missing_padding_checkbox_uniform_shifts_glyph) {
     WLX_Context ctx;
     mp_begin(&ctx);
     bool checked = false;
-    wlx_checkbox(&ctx, "", &checked, .align = WLX_LEFT, .font_size = 16,
+    wlx_checkbox(&ctx, "", &checked, .content_align = WLX_LEFT, .font_size = 16,
                  .content_padding = 20);
     mp_end(&ctx);
 
@@ -152,7 +152,7 @@ TEST(missing_padding_checkbox_asymmetric_per_side) {
     WLX_Context ctx;
     mp_begin(&ctx);
     bool checked = false;
-    wlx_checkbox(&ctx, "", &checked, .align = WLX_LEFT, .font_size = 16,
+    wlx_checkbox(&ctx, "", &checked, .content_align = WLX_LEFT, .font_size = 16,
                  .content_padding_left = 24, .content_padding_top = 40);
     mp_end(&ctx);
 
@@ -171,7 +171,7 @@ TEST(missing_padding_checkbox_theme_opt_in) {
     test_frame_begin(&ctx, -1, -1, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
     bool checked = false;
-    wlx_checkbox(&ctx, "", &checked, .align = WLX_LEFT, .font_size = 16,
+    wlx_checkbox(&ctx, "", &checked, .content_align = WLX_LEFT, .font_size = 16,
                  .content_padding = WLX_PADDING_USE_THEME);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
@@ -188,7 +188,7 @@ TEST(missing_padding_checkbox_clamp_on_tight_slot) {
     test_frame_begin(&ctx, -1, -1, false, false);
     wlx_layout_begin_s(&ctx, WLX_HORZ, WLX_SIZES(WLX_SLOT_PX(20), WLX_SLOT_FLEX(1)));
     bool checked = false;
-    wlx_checkbox(&ctx, "", &checked, .align = WLX_LEFT, .font_size = 16,
+    wlx_checkbox(&ctx, "", &checked, .content_align = WLX_LEFT, .font_size = 16,
                  .content_padding_left = 12, .content_padding_right = 12);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
@@ -201,7 +201,7 @@ TEST(missing_padding_checkbox_clamp_on_tight_slot) {
 
 static bool mp_padded_checkbox(WLX_Context *ctx, bool *checked) {
     wlx_layout_begin(ctx, 1, WLX_VERT);
-    bool clicked = wlx_checkbox(ctx, "X", checked, .align = WLX_LEFT,
+    bool clicked = wlx_checkbox(ctx, "X", checked, .content_align = WLX_LEFT,
                                 .font_size = 16, .content_padding = 40);
     wlx_layout_end(ctx);
     return clicked;
@@ -243,7 +243,7 @@ TEST(missing_padding_radio_default_zero_inset) {
     WLX_Context ctx;
     mp_begin(&ctx);
     int active = -1;
-    wlx_radio(&ctx, NULL, &active, 0, .align = WLX_LEFT, .font_size = 16);
+    wlx_radio(&ctx, NULL, &active, 0, .content_align = WLX_LEFT, .font_size = 16);
     mp_end(&ctx);
 
     ASSERT_TRUE(_mp_ring_count >= 1);
@@ -255,7 +255,7 @@ TEST(missing_padding_radio_uniform_shifts_ring) {
     WLX_Context ctx;
     mp_begin(&ctx);
     int active = -1;
-    wlx_radio(&ctx, NULL, &active, 0, .align = WLX_LEFT, .font_size = 16,
+    wlx_radio(&ctx, NULL, &active, 0, .content_align = WLX_LEFT, .font_size = 16,
               .content_padding = 20);
     mp_end(&ctx);
 
@@ -273,7 +273,7 @@ TEST(missing_padding_radio_theme_opt_in) {
     test_frame_begin(&ctx, -1, -1, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
     int active = -1;
-    wlx_radio(&ctx, NULL, &active, 0, .align = WLX_LEFT, .font_size = 16,
+    wlx_radio(&ctx, NULL, &active, 0, .content_align = WLX_LEFT, .font_size = 16,
               .content_padding = WLX_PADDING_USE_THEME);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
@@ -292,7 +292,7 @@ TEST(missing_padding_toggle_default_zero_inset) {
     WLX_Context ctx;
     mp_begin(&ctx);
     bool on = false;
-    wlx_toggle(&ctx, NULL, &on, .align = WLX_LEFT, .font_size = 16);
+    wlx_toggle(&ctx, NULL, &on, .content_align = WLX_LEFT, .font_size = 16);
     mp_end(&ctx);
 
     ASSERT_TRUE(_mp_rounded_count >= 1);
@@ -305,7 +305,7 @@ TEST(missing_padding_toggle_uniform_shifts_track) {
     WLX_Context ctx;
     mp_begin(&ctx);
     bool on = false;
-    wlx_toggle(&ctx, NULL, &on, .align = WLX_LEFT, .font_size = 16,
+    wlx_toggle(&ctx, NULL, &on, .content_align = WLX_LEFT, .font_size = 16,
                .content_padding = 20);
     mp_end(&ctx);
 
@@ -318,7 +318,7 @@ TEST(missing_padding_toggle_asymmetric_per_side) {
     WLX_Context ctx;
     mp_begin(&ctx);
     bool on = false;
-    wlx_toggle(&ctx, NULL, &on, .align = WLX_LEFT, .font_size = 16,
+    wlx_toggle(&ctx, NULL, &on, .content_align = WLX_LEFT, .font_size = 16,
                .content_padding_top = 32, .content_padding_left = 12);
     mp_end(&ctx);
 
@@ -436,7 +436,7 @@ TEST(missing_padding_slot_plus_content_compose_on_checkbox) {
     WLX_Context ctx;
     mp_begin(&ctx);
     bool checked = false;
-    wlx_checkbox(&ctx, "", &checked, .align = WLX_LEFT, .font_size = 16,
+    wlx_checkbox(&ctx, "", &checked, .content_align = WLX_LEFT, .font_size = 16,
                  .padding = 4, .content_padding = 8);
     mp_end(&ctx);
 

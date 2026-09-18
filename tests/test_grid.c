@@ -667,7 +667,7 @@ TEST(grid_content_row_seed_does_not_warn_clip) {
         WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT_MAX(30) };
         wlx_grid_begin(&ctx, 1, 1, .row_sizes = row_sizes);
         wlx_label(&ctx, "Max 30", .height = 35, .font_size = 13,
-            .align = WLX_CENTER,
+            .content_align = WLX_CENTER,
             .show_background = true);
         wlx_grid_end(&ctx);
     }

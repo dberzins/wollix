@@ -64,23 +64,23 @@ int main(void) {
                         .show_background = true,
                         .back_color = WLX_RGBA(45, 55, 80, 255),
                         .font_size = 26,
-                        .align = WLX_CENTER,
-                        .widget_align = WLX_CENTER
+                        .content_align = WLX_CENTER,
+                        .slot_align = WLX_CENTER
                     );
 
                     wlx_label(ctx, title,
                         .show_background = true,
                         .back_color = WLX_RGBA(30, 30, 38, 255),
                         .font_size = 18,
-                        .align = WLX_CENTER,
-                        .widget_align = WLX_CENTER
+                        .content_align = WLX_CENTER,
+                        .slot_align = WLX_CENTER
                     );
 
                     if (wlx_button(ctx, "Reset Clicks",
                         .back_color = WLX_RGBA(80, 45, 45, 255),
                         .font_size = 18,
-                        .align = WLX_CENTER,
-                        .widget_align = WLX_CENTER,
+                        .content_align = WLX_CENTER,
+                        .slot_align = WLX_CENTER,
                         .height = 44
                     )) {
                         app.sidebar_clicks = 0;
@@ -98,15 +98,15 @@ int main(void) {
                             .show_background = true,
                             .back_color = WLX_RGBA(55, 40, 70, 255),
                             .font_size = 22,
-                            .align = WLX_CENTER,
-                            .widget_align = WLX_CENTER
+                            .content_align = WLX_CENTER,
+                            .slot_align = WLX_CENTER
                         );
 
                         if (wlx_button(ctx, "Sidebar action",
                             .back_color = WLX_RGBA(90, 50, 120, 255),
                             .font_size = 18,
-                            .align = WLX_CENTER,
-                            .widget_align = WLX_CENTER,
+                            .content_align = WLX_CENTER,
+                            .slot_align = WLX_CENTER,
                             .height = 44
                         )) {
                             app.sidebar_clicks += 1;
@@ -116,7 +116,7 @@ int main(void) {
                             .show_background = true,
                             .back_color = WLX_RGBA(28, 22, 34, 255),
                             .font_size = 18,
-                            .align = WLX_LEFT,
+                            .content_align = WLX_LEFT,
                             .wrap = true,
                             .padding = 6
                         );
@@ -125,7 +125,7 @@ int main(void) {
                             .show_background = true,
                             .back_color = WLX_RGBA(28, 22, 34, 255),
                             .font_size = 18,
-                            .align = WLX_LEFT,
+                            .content_align = WLX_LEFT,
                             .wrap = true,
                             .padding = 6
                         );
@@ -134,7 +134,7 @@ int main(void) {
                             .show_background = true,
                             .back_color = WLX_RGBA(40, 28, 50, 255),
                             .font_size = 17,
-                            .align = WLX_LEFT,
+                            .content_align = WLX_LEFT,
                             .wrap = true,
                             .padding = 6
                         );
@@ -145,15 +145,15 @@ int main(void) {
                             .show_background = true,
                             .back_color = WLX_RGBA(35, 60, 75, 255),
                             .font_size = 24,
-                            .align = WLX_CENTER,
-                            .widget_align = WLX_CENTER
+                            .content_align = WLX_CENTER,
+                            .slot_align = WLX_CENTER
                         );
 
                         wlx_label(ctx, content_info,
                             .show_background = true,
                             .back_color = WLX_RGBA(20, 28, 34, 255),
                             .font_size = 20,
-                            .align = WLX_LEFT,
+                            .content_align = WLX_LEFT,
                             .wrap = true,
                             .padding = 8
                         );
@@ -161,8 +161,8 @@ int main(void) {
                         if (wlx_button(ctx, "Main area button",
                             .back_color = WLX_RGBA(45, 100, 110, 255),
                             .font_size = 20,
-                            .align = WLX_CENTER,
-                            .widget_align = WLX_CENTER,
+                            .content_align = WLX_CENTER,
+                            .slot_align = WLX_CENTER,
                             .height = 48
                         )) {
                             app.content_clicks += 1;
@@ -172,7 +172,7 @@ int main(void) {
                             .show_background = true,
                             .back_color = WLX_RGBA(20, 28, 34, 255),
                             .font_size = 18,
-                            .align = WLX_LEFT,
+                            .content_align = WLX_LEFT,
                             .wrap = true,
                             .padding = 8
                         );
@@ -183,15 +183,15 @@ int main(void) {
                             .show_background = true,
                             .back_color = WLX_RGBA(70, 55, 35, 255),
                             .font_size = 22,
-                            .align = WLX_CENTER,
-                            .widget_align = WLX_CENTER
+                            .content_align = WLX_CENTER,
+                            .slot_align = WLX_CENTER
                         );
 
                         if (wlx_button(ctx, "Inspector action",
                             .back_color = WLX_RGBA(120, 85, 45, 255),
                             .font_size = 18,
-                            .align = WLX_CENTER,
-                            .widget_align = WLX_CENTER,
+                            .content_align = WLX_CENTER,
+                            .slot_align = WLX_CENTER,
                             .height = 44
                         )) {
                             app.inspector_clicks += 1;
@@ -201,7 +201,7 @@ int main(void) {
                             .show_background = true,
                             .back_color = WLX_RGBA(35, 28, 18, 255),
                             .font_size = 18,
-                            .align = WLX_LEFT,
+                            .content_align = WLX_LEFT,
                             .wrap = true,
                             .padding = 6
                         );
@@ -210,7 +210,7 @@ int main(void) {
                             .show_background = true,
                             .back_color = WLX_RGBA(35, 28, 18, 255),
                             .font_size = 18,
-                            .align = WLX_LEFT,
+                            .content_align = WLX_LEFT,
                             .wrap = true,
                             .padding = 6
                         );
@@ -219,7 +219,7 @@ int main(void) {
                             .show_background = true,
                             .back_color = WLX_RGBA(35, 28, 18, 255),
                             .font_size = 17,
-                            .align = WLX_LEFT,
+                            .content_align = WLX_LEFT,
                             .wrap = true,
                             .padding = 6
                         );
@@ -234,7 +234,7 @@ int main(void) {
                         .show_background = true,
                         .back_color = WLX_RGBA(24, 24, 28, 255),
                         .font_size = 18,
-                        .align = WLX_LEFT,
+                        .content_align = WLX_LEFT,
                         .wrap = true,
                         .padding = 8
                     );
@@ -243,24 +243,24 @@ int main(void) {
                         .show_background = true,
                         .back_color = WLX_RGBA(48, 48, 72, 255),
                         .font_size = 22,
-                        .align = WLX_CENTER,
-                        .widget_align = WLX_CENTER
+                        .content_align = WLX_CENTER,
+                        .slot_align = WLX_CENTER
                     );
 
                     wlx_label(ctx, "180 px", 
                         .show_background = true,
                         .back_color = WLX_RGBA(60, 48, 48, 255),
                         .font_size = 22,
-                        .align = WLX_CENTER,
-                        .widget_align = WLX_CENTER
+                        .content_align = WLX_CENTER,
+                        .slot_align = WLX_CENTER
                     );
 
                     wlx_label(ctx, "180 px", 
                         .show_background = true,
                         .back_color = WLX_RGBA(48, 60, 48, 255),
                         .font_size = 22,
-                        .align = WLX_CENTER,
-                        .widget_align = WLX_CENTER
+                        .content_align = WLX_CENTER,
+                        .slot_align = WLX_CENTER
                     );
                 wlx_layout_end(ctx);
             wlx_layout_end(ctx);

@@ -477,13 +477,13 @@ WLX_ALIGN_NONE    (= top-left, no centering)
 
 Used in two places:
 
-1. **Widget alignment** — `widget_align` in option structs positions the widget
+1. **Slot alignment** — `slot_align` in option structs positions the widget
    rect within its slot.
-2. **Text alignment** — `align` in text-based widgets aligns text within the
-   widget rect.
+2. **Content alignment** — `content_align` in text-based widgets aligns text
+   within the widget rect.
 
 ```c
-wlx_button(ctx, "Centered", .widget_align = WLX_CENTER, .align = WLX_CENTER);
+wlx_button(ctx, "Centered", .slot_align = WLX_CENTER, .content_align = WLX_CENTER);
 ```
 
 If the widget is larger than its slot, it is clamped to the slot bounds
@@ -532,7 +532,7 @@ Widget option structs share these field groups, depending on widget type:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `widget_align` | `WLX_LEFT` | Position within slot |
+| `slot_align` | `WLX_LEFT` | Position within slot |
 | `width` | `-1` | Widget width (`-1` = fill slot) |
 | `height` | `-1` | Widget height (`-1` = fill slot) |
 | `min_width` | `0` | Minimum width (`0` = none) |
@@ -553,7 +553,7 @@ Widget option structs share these field groups, depending on widget type:
 |-------|---------|-------------|
 | `font` | `WLX_FONT_DEFAULT` | Font handle |
 | `font_size` | `0` | Font size (`0` = use theme) |
-| `align` | `WLX_LEFT` | Text alignment within widget |
+| `content_align` | `WLX_LEFT` | Text alignment within widget |
 | `spacing` | `0` | Extra character spacing (`0` = backend default) |
 | `wrap` | varies | Word-wrap long text on widgets that embed `WLX_TEXT_WRAP_FIELDS`; slider omits it |
 
@@ -672,7 +672,7 @@ wlx_layout_begin(ctx, 1, WLX_VERT, .back_color = glass_fill, .corner_radius = 8.
 
 **`wlx_label`** — static text display:
 ```c
-wlx_label(ctx, "Hello", .font_size = 20, .align = WLX_CENTER, .wrap = true);
+wlx_label(ctx, "Hello", .font_size = 20, .content_align = WLX_CENTER, .wrap = true);
 ```
 
 **`wlx_button`** — clickable, returns `true` on click:

@@ -251,7 +251,7 @@ static void dashboard_icon_image_helper(WLX_Context *ctx, const Dashboard_Tokens
             .padding = opt.padding, .padding_top = opt.padding_top,
             .padding_right = opt.padding_right, .padding_bottom = opt.padding_bottom,
             .padding_left = opt.padding_left,
-            .widget_align = opt.widget_align,
+            .slot_align = opt.slot_align,
             .width = opt.width, .height = opt.height,
             .min_width = opt.min_width, .min_height = opt.min_height,
             .max_width = opt.max_width, .max_height = opt.max_height,

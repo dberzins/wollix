@@ -137,12 +137,12 @@ int main(int argc, char **argv) {
                         "editor: %zu bytes | %d fps | wrap %s (W) | 1 = 100 KB, 2 = 10 MB, 3 = mega-line, wheel / shift+wheel / PgUp / PgDn",
                         doc_len, GetFPS(), wrap_mode ? "on" : "off");
                     wlx_label(ctx, header, .font_size = 18,
-                        .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT);
+                        .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_LEFT);
 
                     wlx_label(ctx, wrap_mode
                             ? "wrapped rows; the vertical thumb maps hard lines (documented approximation)"
                             : "drag the scrollbars; the vertical thumb is exact from the line count",
-                        .font_size = 14, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT);
+                        .font_size = 14, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_LEFT);
 
                     if (doc_buf != NULL) {
                         wlx_editor(ctx, NULL, doc_buf, doc_cap, &doc_len,

@@ -145,7 +145,7 @@ TEST(label_vmetric_default_uses_line_height) {
     WLX_Context ctx;
     _ls_line_h_mult = 2.0f;
     ls_begin(&ctx, 100, 100);
-    wlx_label(&ctx, "Hi", .font_size = 10, .align = WLX_CENTER, .wrap = false);
+    wlx_label(&ctx, "Hi", .font_size = 10, .content_align = WLX_CENTER, .wrap = false);
     ls_end(&ctx);
 
     ASSERT_TRUE(_ls_text_count >= 1);
@@ -156,7 +156,7 @@ TEST(label_vmetric_font_size_centers_on_em) {
     WLX_Context ctx;
     _ls_line_h_mult = 2.0f;
     ls_begin(&ctx, 100, 100);
-    wlx_label(&ctx, "Hi", .font_size = 10, .align = WLX_CENTER, .wrap = false,
+    wlx_label(&ctx, "Hi", .font_size = 10, .content_align = WLX_CENTER, .wrap = false,
         .vertical_metric = WLX_VMETRIC_FONT_SIZE);
     ls_end(&ctx);
 
@@ -170,7 +170,7 @@ TEST(label_vmetric_font_size_via_style) {
     ls_begin(&ctx, 100, 100);
     // Same vmetric effect when typography comes from .style.
     WLX_Text_Style st = { .font_size = 10 };
-    wlx_label(&ctx, "Hi", .style = st, .align = WLX_CENTER, .wrap = false,
+    wlx_label(&ctx, "Hi", .style = st, .content_align = WLX_CENTER, .wrap = false,
         .vertical_metric = WLX_VMETRIC_FONT_SIZE);
     ls_end(&ctx);
 
@@ -184,12 +184,12 @@ TEST(label_vmetric_line_height_equals_font_size_no_shift) {
     WLX_Context ctx;
     _ls_line_h_mult = 1.0f;
     ls_begin(&ctx, 100, 100);
-    wlx_label(&ctx, "Hi", .font_size = 10, .align = WLX_CENTER, .wrap = false);
+    wlx_label(&ctx, "Hi", .font_size = 10, .content_align = WLX_CENTER, .wrap = false);
     ls_end(&ctx);
     float y_default = (_ls_text_count >= 1) ? _ls_text_ys[0] : -1.0f;
 
     ls_begin(&ctx, 100, 100);
-    wlx_label(&ctx, "Hi", .font_size = 10, .align = WLX_CENTER, .wrap = false,
+    wlx_label(&ctx, "Hi", .font_size = 10, .content_align = WLX_CENTER, .wrap = false,
         .vertical_metric = WLX_VMETRIC_FONT_SIZE);
     ls_end(&ctx);
     float y_em = (_ls_text_count >= 1) ? _ls_text_ys[0] : -2.0f;

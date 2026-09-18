@@ -81,10 +81,10 @@ static void draw_scale_pane(WLX_Context *ctx, WLX_Texture tex,
         .padding = 4);
 
         wlx_label(ctx, title,
-            .font_size = 14, .align = WLX_CENTER,
+            .font_size = 14, .content_align = WLX_CENTER,
             .front_color = WLX_WHITE);
 
-        wlx_image(ctx, tex, .scale = scale, .align = WLX_CENTER);
+        wlx_image(ctx, tex, .scale = scale, .content_align = WLX_CENTER);
 
     wlx_layout_end(ctx);
 }
@@ -126,7 +126,7 @@ int main(void) {
                 .padding = 8, .gap = 6);
 
                 wlx_label(ctx, "wlx_image: scale modes, alignment, opacity",
-                    .font_size = 22, .align = WLX_CENTER,
+                    .font_size = 22, .content_align = WLX_CENTER,
                     .front_color = WLX_WHITE);
 
                 wlx_layout_begin(ctx, 4, WLX_HORZ, .gap = 6);
@@ -151,17 +151,17 @@ int main(void) {
                     wlx_layout_begin(ctx, 2, WLX_VERT,
                         .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(22), WLX_SLOT_FLEX(1) }, .padding = 4);
                         wlx_label(ctx, "FILL + WLX_LEFT (landscape)",
-                            .font_size = 14, .align = WLX_CENTER, .front_color = WLX_WHITE);
+                            .font_size = 14, .content_align = WLX_CENTER, .front_color = WLX_WHITE);
                         wlx_image(ctx, tex_land,
-                            .scale = WLX_IMAGE_SCALE_FILL, .align = WLX_LEFT);
+                            .scale = WLX_IMAGE_SCALE_FILL, .content_align = WLX_LEFT);
                     wlx_layout_end(ctx);
 
                     wlx_layout_begin(ctx, 2, WLX_VERT,
                         .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(22), WLX_SLOT_FLEX(1) }, .padding = 4);
                         wlx_label(ctx, "FILL + WLX_RIGHT (landscape)",
-                            .font_size = 14, .align = WLX_CENTER, .front_color = WLX_WHITE);
+                            .font_size = 14, .content_align = WLX_CENTER, .front_color = WLX_WHITE);
                         wlx_image(ctx, tex_land,
-                            .scale = WLX_IMAGE_SCALE_FILL, .align = WLX_RIGHT);
+                            .scale = WLX_IMAGE_SCALE_FILL, .content_align = WLX_RIGHT);
                     wlx_layout_end(ctx);
 
                     wlx_layout_begin(ctx, 2, WLX_VERT,
@@ -169,19 +169,19 @@ int main(void) {
                         char fade_label[64];
                         snprintf(fade_label, sizeof(fade_label), "Stack opacity %.2f", (double)fade);
                         wlx_label(ctx, fade_label,
-                            .font_size = 14, .align = WLX_CENTER, .front_color = WLX_WHITE);
+                            .font_size = 14, .content_align = WLX_CENTER, .front_color = WLX_WHITE);
                         wlx_push_opacity(ctx, fade);
                             wlx_image(ctx, tex_port,
-                                .scale = WLX_IMAGE_SCALE_FIT, .align = WLX_CENTER);
+                                .scale = WLX_IMAGE_SCALE_FIT, .content_align = WLX_CENTER);
                         wlx_pop_opacity(ctx);
                     wlx_layout_end(ctx);
 
                     wlx_layout_begin(ctx, 2, WLX_VERT,
                         .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(22), WLX_SLOT_FLEX(1) }, .padding = 4);
                         wlx_label(ctx, "Tinted FIT (portrait)",
-                            .font_size = 14, .align = WLX_CENTER, .front_color = WLX_WHITE);
+                            .font_size = 14, .content_align = WLX_CENTER, .front_color = WLX_WHITE);
                         wlx_image(ctx, tex_port,
-                            .scale = WLX_IMAGE_SCALE_FIT, .align = WLX_CENTER,
+                            .scale = WLX_IMAGE_SCALE_FIT, .content_align = WLX_CENTER,
                             .tint = WLX_RGBA(255, 180, 120, 255));
                     wlx_layout_end(ctx);
 

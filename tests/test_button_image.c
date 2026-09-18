@@ -135,7 +135,7 @@ TEST(button_image_image_only_emits_one_texture_no_text) {
     WLX_Context ctx;
     bi_begin(&ctx);
     wlx_button(&ctx, "", .texture = bi_make_texture(50, 50),
-               .align = WLX_CENTER);
+               .content_align = WLX_CENTER);
     bi_end(&ctx);
 
     ASSERT_EQ_INT(_bi_tex_count, 1);
@@ -164,7 +164,7 @@ TEST(button_image_image_only_explicit_size_anchors_via_align) {
     bi_begin(&ctx);
     wlx_button(&ctx, "", .texture = bi_make_texture(50, 50),
                .texture_scale = WLX_IMAGE_SCALE_STRETCH,
-               .image_size = 50, .align = WLX_CENTER);
+               .image_size = 50, .content_align = WLX_CENTER);
     bi_end(&ctx);
 
     ASSERT_EQ_RECT(_bi_tex_dst, ((WLX_Rect){75, 75, 50, 50}), 0.001f);
@@ -336,7 +336,7 @@ static void bi_capture_button_rects(WLX_Image_Scale scale, int tex_w, int tex_h,
     WLX_Context ctx;
     bi_begin(&ctx);
     wlx_button(&ctx, "", .texture = bi_make_texture(tex_w, tex_h),
-               .texture_scale = scale, .align = WLX_CENTER);
+               .texture_scale = scale, .content_align = WLX_CENTER);
     bi_end(&ctx);
     *out_src = _bi_tex_src;
     *out_dst = _bi_tex_dst;
@@ -350,7 +350,7 @@ static void bi_capture_image_rects(WLX_Image_Scale scale, int tex_w, int tex_h,
     test_frame_begin(&ctx, -1, -1, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
     wlx_image(&ctx, bi_make_texture(tex_w, tex_h),
-              .scale = scale, .align = WLX_CENTER);
+              .scale = scale, .content_align = WLX_CENTER);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
     *out_src = _bi_tex_src;

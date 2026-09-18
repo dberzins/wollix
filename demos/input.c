@@ -56,13 +56,13 @@ int main(void) {
 
                         // Title
                         wlx_label(ctx, "User registration form",
-                            .widget_align = WLX_TOP_LEFT, .height = 50, .font_size = 32, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
+                            .slot_align = WLX_TOP_LEFT, .height = 50, .font_size = 32, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_LEFT
                         );
 
                         // Instructions
                         wlx_label(ctx, "Click/drag or shift+arrows to select; double-click = word, triple = all; "
                                        "ctrl+C/X/V/A clipboard; HOME/END, ctrl+arrows word jump. ENTER finishes editing.",
-                            .widget_align = WLX_LEFT, .height = 30, .font_size = 16, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
+                            .slot_align = WLX_LEFT, .height = 30, .font_size = 16, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_LEFT
                         );
 
                         // Username input (focus reported via .out_focused;
@@ -102,8 +102,8 @@ int main(void) {
 
                         // Submit wlx_button
                         if (wlx_button(ctx, "Submit Form",
-                            .widget_align = WLX_CENTER, .font_size = 22, .width = 200, .height = 50, .back_color = MAROON, .align = WLX_CENTER
-                            // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
+                            .slot_align = WLX_CENTER, .font_size = 22, .width = 200, .height = 50, .back_color = MAROON, .content_align = WLX_CENTER
+                            // .slot_align = CENTER, .width = 300, .height = 40, .content_align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("\n=== FORM SUBMITTED ===\n");
                             printf("Username: %s\n", app.username);
@@ -119,7 +119,7 @@ int main(void) {
                         // Status message
                         if (show_submit) {
                             wlx_label(ctx, "Form submitted! Check console for details.",
-                                .widget_align = WLX_CENTER, .height = 35, .font_size = 18, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
+                                .slot_align = WLX_CENTER, .height = 35, .font_size = 18, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_LEFT
                             );
                         }
 
@@ -135,7 +135,7 @@ int main(void) {
                         );
 
                         wlx_label(ctx, info_text,
-                            .widget_align = WLX_BOTTOM_LEFT, .height = 30, .font_size = 16, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
+                            .slot_align = WLX_BOTTOM_LEFT, .height = 30, .font_size = 16, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_LEFT
                         );
 
                     wlx_layout_end(ctx);

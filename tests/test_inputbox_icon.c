@@ -1,6 +1,6 @@
 // test_inputbox_icon.c - tests for the inputbox inner icon: text-only
 // regression (no texture emitted), leading/trailing band placement, vertical
-// centering independent of opt.align, default white tint, explicit tint
+// centering independent of opt.content_align, default white tint, explicit tint
 // pass-through, and a narrow-field guard that the band clamp never crashes or
 // produces a negative-width text band. Included from test_main.c (single TU
 // build).
@@ -147,7 +147,7 @@ TEST(inputbox_icon_trailing_anchors_right) {
 }
 
 // ============================================================================
-// Vertical centering is independent of opt.align
+// Vertical centering is independent of opt.content_align
 // ============================================================================
 
 TEST(inputbox_icon_centered_vertically_top_align) {
@@ -157,7 +157,7 @@ TEST(inputbox_icon_centered_vertically_top_align) {
     wlx_inputbox(&ctx, NULL, buf, sizeof(buf), .font_size = 16,
                  .texture = ibi_make_texture(20, 20),
                  .image_size = 20, .image_text_gap = 8,
-                 .align = WLX_TOP_LEFT);
+                 .content_align = WLX_TOP_LEFT);
     ibi_end(&ctx);
 
     // Icon y stays centered (90) regardless of the text alignment.
@@ -171,7 +171,7 @@ TEST(inputbox_icon_centered_vertically_bottom_align) {
     wlx_inputbox(&ctx, NULL, buf, sizeof(buf), .font_size = 16,
                  .texture = ibi_make_texture(20, 20),
                  .image_size = 20, .image_text_gap = 8,
-                 .align = WLX_BOTTOM_LEFT);
+                 .content_align = WLX_BOTTOM_LEFT);
     ibi_end(&ctx);
 
     ASSERT_EQ_F(90.0f, _ibi_tex_dst.y, 0.001f);

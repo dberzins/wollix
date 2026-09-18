@@ -217,7 +217,7 @@ static void theme_button(WLX_Context *ctx, App_State *state, const char *label,
         if (wlx_button(ctx, label,
             .height = ROW_H,
             .font_size = 15,
-            .align = WLX_CENTER,
+            .content_align = WLX_CENTER,
             .back_color = back,
             .front_color = front,
             .border_color = selected ? ctx->theme->accent : ctx->theme->border,
@@ -236,7 +236,7 @@ static void reset_button(WLX_Context *ctx, App_State *state, const char *label,
         if (wlx_button(ctx, label,
             .height = SMALL_ROW_H,
             .font_size = 13,
-            .align = WLX_CENTER,
+            .content_align = WLX_CENTER,
             .back_color = back,
             .border_color = selected ? ctx->theme->accent : ctx->theme->border,
             .border_width = PANEL_BORDER_WIDTH)) {
@@ -251,7 +251,7 @@ static void section_label(WLX_Context *ctx, const char *text) {
         wlx_label(ctx, text,
             .height = 24,
             .font_size = 14,
-            .align = WLX_LEFT,
+            .content_align = WLX_LEFT,
             .front_color = blend_color(ctx->theme->foreground, ctx->theme->surface, 56),
             .show_background = true,
             .back_color = blend_color(ctx->theme->surface, ctx->theme->background, 48));
@@ -265,7 +265,7 @@ static void color_controls(WLX_Context *ctx, const char *name, Color_Edit *color
         wlx_label(ctx, name,
             .height = 22,
             .font_size = 13,
-            .align = WLX_LEFT,
+            .content_align = WLX_LEFT,
             .front_color = ctx->theme->foreground);
 
         wlx_layout_begin_s(ctx, WLX_HORZ,
@@ -377,7 +377,7 @@ static void tiny_preview_widgets(WLX_Context *ctx) {
         WLX_SIZES(WLX_SLOT_PX(28), WLX_SLOT_PX(28), WLX_SLOT_PX(28)),
         .padding = 4,
         .gap = 4);
-        wlx_button(ctx, "Button", .height = 28, .font_size = 12, .align = WLX_CENTER);
+        wlx_button(ctx, "Button", .height = 28, .font_size = 12, .content_align = WLX_CENTER);
         wlx_slider(ctx, "Value", &preview_slider, .height = 28, .font_size = 12);
         wlx_checkbox(ctx, "Check", &preview_check, .height = 28, .font_size = 12);
     wlx_layout_end(ctx);
@@ -404,14 +404,14 @@ static void preview_card(WLX_Context *ctx, const char *name, const char *tag,
             wlx_label(ctx, name,
                 .height = 28,
                 .font_size = 15,
-                .align = WLX_CENTER,
+                .content_align = WLX_CENTER,
                 .show_background = true,
                 .back_color = header,
                 .front_color = text_on_color(header));
             wlx_label(ctx, tag,
                 .height = 18,
                 .font_size = 11,
-                .align = WLX_CENTER,
+                .content_align = WLX_CENTER,
                 .front_color = blend_color(theme->foreground, theme->surface, 92));
             wlx_layout_begin(ctx, 5, WLX_HORZ, .padding = 0, .gap = 3);
                 wlx_widget(ctx, .height = 24, .back_color = theme->background,
@@ -466,7 +466,7 @@ static void token_swatch(WLX_Context *ctx, const char *name, WLX_Color color, si
             wlx_label(ctx, name,
                 .height = 20,
                 .font_size = 11,
-                .align = WLX_CENTER,
+                .content_align = WLX_CENTER,
                 .front_color = ctx->theme->foreground);
         wlx_layout_end(ctx);
     wlx_pop_id(ctx);
@@ -517,10 +517,10 @@ static void sample_widgets(WLX_Context *ctx, App_State *state) {
         .border_width = PANEL_BORDER_WIDTH);
 
         wlx_layout_begin(ctx, 2, WLX_HORZ, .padding = 0, .gap = 5);
-            wlx_button(ctx, "Theme default", .height = ROW_H, .align = WLX_CENTER);
+            wlx_button(ctx, "Theme default", .height = ROW_H, .content_align = WLX_CENTER);
             wlx_button(ctx, "Accent override",
                 .height = ROW_H,
-                .align = WLX_CENTER,
+                .content_align = WLX_CENTER,
                 .back_color = ctx->theme->accent,
                 .front_color = text_on_color(ctx->theme->accent));
         wlx_layout_end(ctx);
@@ -564,27 +564,27 @@ static void recipe_panel(WLX_Context *ctx) {
         wlx_label(ctx, "WLX_Theme theme = wlx_theme_dark;",
             .height = 22,
             .font_size = 12,
-            .align = WLX_LEFT,
+            .content_align = WLX_LEFT,
             .front_color = ctx->theme->foreground);
         wlx_label(ctx, "theme.background = custom_background;",
             .height = 22,
             .font_size = 12,
-            .align = WLX_LEFT,
+            .content_align = WLX_LEFT,
             .front_color = ctx->theme->foreground);
         wlx_label(ctx, "theme.input.border_focus = theme.accent;",
             .height = 22,
             .font_size = 12,
-            .align = WLX_LEFT,
+            .content_align = WLX_LEFT,
             .front_color = ctx->theme->foreground);
         wlx_label(ctx, "theme.progress.fill = theme.accent;",
             .height = 22,
             .font_size = 12,
-            .align = WLX_LEFT,
+            .content_align = WLX_LEFT,
             .front_color = ctx->theme->foreground);
         wlx_label(ctx, "ctx->theme = &theme;",
             .height = 22,
             .font_size = 12,
-            .align = WLX_LEFT,
+            .content_align = WLX_LEFT,
             .front_color = ctx->theme->accent);
 
     wlx_layout_end(ctx);
@@ -628,7 +628,7 @@ static void preview_panel(WLX_Context *ctx, App_State *state, const WLX_Theme *c
                 wlx_label(ctx, active_label,
                     .height = 30,
                     .font_size = 15,
-                    .align = WLX_LEFT,
+                    .content_align = WLX_LEFT,
                     .front_color = ctx->theme->foreground,
                     .show_background = true,
                     .back_color = blend_color(ctx->theme->surface, ctx->theme->background, 42));
@@ -713,20 +713,20 @@ int main(void) {
                         wlx_label(ctx, "Wollix Theme Builder",
                             .height = 34,
                             .font_size = 24,
-                            .align = WLX_LEFT,
+                            .content_align = WLX_LEFT,
                             .front_color = ctx->theme->foreground);
                         wlx_label(ctx, "Copy a preset, override fields, assign ctx->theme each frame.",
                             .height = 18,
                             .font_size = 13,
-                            .align = WLX_LEFT,
+                            .content_align = WLX_LEFT,
                             .front_color = blend_color(ctx->theme->foreground, ctx->theme->surface, 78));
                     wlx_layout_end(ctx);
 
                     if (wlx_button(ctx, "Use Custom Theme",
                         .height = 38,
                         .font_size = 15,
-                        .align = WLX_CENTER,
-                        .widget_align = WLX_CENTER,
+                        .content_align = WLX_CENTER,
+                        .slot_align = WLX_CENTER,
                         .back_color = ctx->theme->accent,
                         .front_color = text_on_color(ctx->theme->accent))) {
                         app.active_mode = THEME_MODE_CUSTOM;

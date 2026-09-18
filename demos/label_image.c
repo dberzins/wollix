@@ -149,34 +149,34 @@ int main(void) {
                 .padding = 12, .gap = 8);
 
                 wlx_label(ctx, "wlx_label: text-only, text + image, image-only edge case",
-                    .font_size = 22, .align = WLX_CENTER,
+                    .font_size = 22, .content_align = WLX_CENTER,
                     .front_color = WLX_WHITE);
 
                 // -- Modes -------------------------------------------------
                 wlx_label(ctx, "Modes",
-                    .font_size = 14, .align = WLX_LEFT,
+                    .font_size = 14, .content_align = WLX_LEFT,
                     .front_color = (Color){180, 200, 220, 255});
 
                 wlx_layout_begin(ctx, 3, WLX_HORZ, .gap = 12);
                     wlx_label(ctx, "Saved",
-                        .font_size = 18, .align = WLX_CENTER,
+                        .font_size = 18, .content_align = WLX_CENTER,
                         .front_color = WLX_WHITE);
 
                     wlx_label(ctx, "Saved",
                         .texture = tex_check,
                         .image_size = 28, .image_text_gap = 8,
-                        .font_size = 18, .align = WLX_CENTER,
+                        .font_size = 18, .content_align = WLX_CENTER,
                         .front_color = WLX_WHITE);
 
                     // Image-only edge case. Prefer wlx_image for pure image content.
                     wlx_label(ctx, "",
                         .texture = tex_check, .image_size = 36,
-                        .align = WLX_CENTER);
+                        .content_align = WLX_CENTER);
                 wlx_layout_end(ctx);
 
                 // -- Placements --------------------------------------------
                 wlx_label(ctx, "Image placement (text + image)",
-                    .font_size = 14, .align = WLX_LEFT,
+                    .font_size = 14, .content_align = WLX_LEFT,
                     .front_color = (Color){180, 200, 220, 255});
 
                 wlx_layout_begin(ctx, 4, WLX_HORZ, .gap = 12);
@@ -192,7 +192,7 @@ int main(void) {
                             .texture = tex_info,
                             .image_placement = places[i],
                             .image_size = 24, .image_text_gap = 6,
-                            .font_size = 16, .align = WLX_CENTER,
+                            .font_size = 16, .content_align = WLX_CENTER,
                             .front_color = WLX_WHITE);
                         wlx_pop_id(ctx);
                     }
@@ -200,7 +200,7 @@ int main(void) {
 
                 // -- Scales ------------------------------------------------
                 wlx_label(ctx, "Texture scale (image-only, landscape source)",
-                    .font_size = 14, .align = WLX_LEFT,
+                    .font_size = 14, .content_align = WLX_LEFT,
                     .front_color = (Color){180, 200, 220, 255});
 
                 wlx_layout_begin(ctx, 4, WLX_HORZ, .gap = 12);
@@ -217,12 +217,12 @@ int main(void) {
                                 WLX_SLOT_PX(18), WLX_SLOT_FLEX(1),
                             }, .gap = 4);
                             wlx_label(ctx, scale_label(scales[i]),
-                                .font_size = 12, .align = WLX_CENTER,
+                                .font_size = 12, .content_align = WLX_CENTER,
                                 .front_color = WLX_WHITE);
                             wlx_label(ctx, "",
                                 .texture = tex_land,
                                 .texture_scale = scales[i],
-                                .align = WLX_CENTER);
+                                .content_align = WLX_CENTER);
                         wlx_layout_end(ctx);
                         wlx_pop_id(ctx);
                     }
@@ -230,13 +230,13 @@ int main(void) {
 
                 // -- Hover background --------------------------------------
                 wlx_label(ctx, "show_background = true (hover brightens the fill, tint unchanged)",
-                    .font_size = 14, .align = WLX_LEFT,
+                    .font_size = 14, .content_align = WLX_LEFT,
                     .front_color = (Color){180, 200, 220, 255});
 
                 wlx_layout_begin(ctx, 2, WLX_HORZ, .gap = 12);
                     wlx_label(ctx, "Confirmed",
                         .texture = tex_check, .image_size = 22, .image_text_gap = 8,
-                        .font_size = 16, .align = WLX_CENTER,
+                        .font_size = 16, .content_align = WLX_CENTER,
                         .front_color = WLX_WHITE,
                         .show_background = true,
                         .back_color = (Color){40, 70, 50, 255});
@@ -244,7 +244,7 @@ int main(void) {
                     wlx_label(ctx, "More info",
                         .texture = tex_info, .image_size = 22, .image_text_gap = 8,
                         .image_placement = WLX_IMAGE_PLACEMENT_RIGHT,
-                        .font_size = 16, .align = WLX_CENTER,
+                        .font_size = 16, .content_align = WLX_CENTER,
                         .front_color = WLX_WHITE,
                         .show_background = true,
                         .back_color = (Color){40, 60, 90, 255});
@@ -252,13 +252,13 @@ int main(void) {
 
                 // -- Content padding ---------------------------------------
                 wlx_label(ctx, "Content padding (text + image inset; chrome unchanged)",
-                    .font_size = 14, .align = WLX_LEFT,
+                    .font_size = 14, .content_align = WLX_LEFT,
                     .front_color = (Color){180, 200, 220, 255});
 
                 wlx_layout_begin(ctx, 2, WLX_HORZ, .gap = 12);
                     wlx_label(ctx, "padding_left = 32",
                         .texture = tex_info, .image_size = 22, .image_text_gap = 8,
-                        .font_size = 16, .align = WLX_LEFT,
+                        .font_size = 16, .content_align = WLX_LEFT,
                         .front_color = WLX_WHITE,
                         .show_background = true,
                         .back_color = (Color){40, 60, 90, 255},
@@ -266,7 +266,7 @@ int main(void) {
 
                     wlx_label(ctx, "USE_THEME",
                         .texture = tex_check, .image_size = 22, .image_text_gap = 8,
-                        .font_size = 16, .align = WLX_CENTER,
+                        .font_size = 16, .content_align = WLX_CENTER,
                         .front_color = WLX_WHITE,
                         .show_background = true,
                         .back_color = (Color){40, 70, 50, 255},
@@ -278,7 +278,7 @@ int main(void) {
                     "Labels are non-interactive. For pure image-only content "
                     "prefer wlx_image; the image-only label branch above is "
                     "shown only as a supported edge case.",
-                    .font_size = 14, .align = WLX_LEFT, .wrap = true,
+                    .font_size = 14, .content_align = WLX_LEFT, .wrap = true,
                     .front_color = (Color){200, 220, 240, 255});
 
             wlx_layout_end(ctx);

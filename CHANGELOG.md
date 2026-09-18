@@ -14,6 +14,15 @@ alias of the same storage or value for **one minor version after 0.9**,
 so existing code compiles unchanged; migrate before the next minor. Default
 *meanings* cannot be aliased: each one below names its migration.
 
+- **`.align` is `.content_align`; `.widget_align` is `.slot_align`.** The
+  two alignment fields never said what they aligned: `content_align`
+  places the text or image inside the widget rect (the typography field,
+  and `wlx_image`'s), `slot_align` places the widget rect inside its layout
+  slot, pairing with `padding` / `content_padding`. Both old names still
+  compile via anonymous-union aliases of the same storage; every demo,
+  test and doc is on the new names. Migration: rename the initializers
+  (`sed -E 's/\.widget_align\b/.slot_align/g; s/\.align\b/.content_align/g'`
+  over your sources does it; `title_align` is untouched).
 - **`WLX_UNSET` is the single unset sentinel for numeric option fields.**
   Every option field follows one of two rules, documented in SENTINEL.md:
   zero is unset only where zero can never be a meaningful value (colors,

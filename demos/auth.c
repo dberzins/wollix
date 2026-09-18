@@ -210,7 +210,7 @@ int main(void) {
                     wlx_label(ctx, "", .height = -1);
 
                     wlx_label(ctx, "Sign in Wollix",
-                        .font_size = 21, .align = WLX_CENTER, .height = 36,
+                        .font_size = 21, .content_align = WLX_CENTER, .height = 36,
                         .front_color = (Color){220, 225, 240, 255});
 
                     wlx_label(ctx, "", .height = -1);
@@ -220,7 +220,7 @@ int main(void) {
                         WLX_SIZES(WLX_SLOT_PX(CARD_PAD), WLX_SLOT_FLEX(1), WLX_SLOT_PX(CARD_PAD)));
                         wlx_label(ctx, "", .width = -1);
                         wlx_label(ctx, "Email address",
-                            .font_size = 14, .height = 22, .align = WLX_LEFT,
+                            .font_size = 14, .height = 22, .content_align = WLX_LEFT,
                             .front_color = (Color){190, 195, 215, 255});
                         wlx_label(ctx, "", .width = -1);
                     wlx_layout_end(ctx);
@@ -250,7 +250,7 @@ int main(void) {
                         WLX_SIZES(WLX_SLOT_PX(CARD_PAD), WLX_SLOT_FLEX(1), WLX_SLOT_PX(CARD_PAD)));
                         wlx_label(ctx, "", .width = -1);
                         wlx_button(ctx, "Continue",
-                            .height = 44, .font_size = 15, .align = WLX_CENTER,
+                            .height = 44, .font_size = 15, .content_align = WLX_CENTER,
                             .back_color = (Color){20, 28, 60, 200},
                             .front_color = (Color){210, 215, 235, 255},
                             .border_color = (Color){60, 75, 130, 180},
@@ -266,7 +266,7 @@ int main(void) {
                         wlx_label(ctx, "", .width = -1);
                         wlx_separator(ctx, .back_color = (WLX_Color){60, 70, 110, 140});
                         wlx_label(ctx, "OR",
-                            .font_size = 12, .align = WLX_CENTER,
+                            .font_size = 12, .content_align = WLX_CENTER,
                             .front_color = (Color){80, 90, 130, 200});
                         wlx_separator(ctx, .back_color = (WLX_Color){60, 70, 110, 140});
                         wlx_label(ctx, "", .width = -1);
@@ -277,7 +277,7 @@ int main(void) {
                         WLX_SIZES(WLX_SLOT_PX(CARD_PAD), WLX_SLOT_FLEX(1), WLX_SLOT_PX(CARD_PAD)));
                         wlx_label(ctx, "", .width = -1);
                         wlx_button(ctx, "Continue with Google account",
-                            .height = 44, .font_size = 14, .align = WLX_CENTER,
+                            .height = 44, .font_size = 14, .content_align = WLX_CENTER,
                             .back_color = (Color){0, 0, 0, 0},
                             .front_color = (Color){200, 205, 225, 255},
                             .border_color = (Color){50, 60, 100, 160},
@@ -293,7 +293,7 @@ int main(void) {
                         WLX_SIZES(WLX_SLOT_PX(CARD_PAD), WLX_SLOT_FLEX(1), WLX_SLOT_PX(CARD_PAD)));
                         wlx_label(ctx, "", .width = -1);
                         wlx_button(ctx, "Continue with Facebook account",
-                            .height = 44, .font_size = 14, .align = WLX_CENTER,
+                            .height = 44, .font_size = 14, .content_align = WLX_CENTER,
                             .back_color = (Color){0, 0, 0, 0},
                             .front_color = (Color){200, 205, 225, 255},
                             .border_color = (Color){50, 60, 100, 160},
@@ -306,7 +306,7 @@ int main(void) {
 
                     // Footer
                     wlx_label(ctx, "Don't have an account?  Sign up",
-                        .font_size = 13, .align = WLX_CENTER, .height = 22,
+                        .font_size = 13, .content_align = WLX_CENTER, .height = 22,
                         .front_color = (Color){100, 110, 150, 200});
 
                     wlx_label(ctx, "", .height = -1);

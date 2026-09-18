@@ -734,14 +734,14 @@ TEST(toggle_align_left_positions_at_slot_left) {
     ctx.theme = &wlx_theme_dark;
     ctx.rect = wlx_rect(0, 0, 400, 300);
 
-    WLX_Toggle_Opt opt = wlx_default_toggle_opt(.align = WLX_LEFT);
+    WLX_Toggle_Opt opt = wlx_default_toggle_opt(.content_align = WLX_LEFT);
     WLX_Context tmp = ctx;
     WLX_Toggle_Opt resolved = opt;
     wlx_resolve_opt_toggle(&tmp, &resolved);
 
     // With WLX_LEFT, content starts at left of the slot.
     // Verify resolve doesn't clobber the align field.
-    ASSERT_EQ_INT(resolved.align, WLX_LEFT);
+    ASSERT_EQ_INT(resolved.content_align, WLX_LEFT);
 }
 
 TEST(toggle_align_center_differs_from_left) {
@@ -763,7 +763,7 @@ TEST(toggle_align_center_differs_from_left) {
     // WLX_CENTER frame - must not crash and must complete normally
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_toggle(&ctx, "Hi", &val, .align = WLX_CENTER);
+    wlx_toggle(&ctx, "Hi", &val, .content_align = WLX_CENTER);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -779,7 +779,7 @@ TEST(toggle_align_right_does_not_crash) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_toggle(&ctx, "Right", &val, .align = WLX_RIGHT);
+    wlx_toggle(&ctx, "Right", &val, .content_align = WLX_RIGHT);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -795,7 +795,7 @@ TEST(toggle_no_label_align_center_does_not_crash) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_toggle(&ctx, NULL, &val, .align = WLX_CENTER);
+    wlx_toggle(&ctx, NULL, &val, .content_align = WLX_CENTER);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -815,7 +815,7 @@ TEST(radio_align_left_does_not_crash) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_radio(&ctx, "A", &active, 0, .align = WLX_LEFT);
+    wlx_radio(&ctx, "A", &active, 0, .content_align = WLX_LEFT);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -831,7 +831,7 @@ TEST(radio_align_center_does_not_crash) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_radio(&ctx, "B", &active, 0, .align = WLX_CENTER);
+    wlx_radio(&ctx, "B", &active, 0, .content_align = WLX_CENTER);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -847,7 +847,7 @@ TEST(radio_align_right_does_not_crash) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_radio(&ctx, "C", &active, 0, .align = WLX_RIGHT);
+    wlx_radio(&ctx, "C", &active, 0, .content_align = WLX_RIGHT);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -863,7 +863,7 @@ TEST(radio_no_label_align_center_does_not_crash) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_radio(&ctx, NULL, &active, 0, .align = WLX_CENTER);
+    wlx_radio(&ctx, NULL, &active, 0, .content_align = WLX_CENTER);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 

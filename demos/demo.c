@@ -102,11 +102,11 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
 
                 wlx_label(ctx, "Buttons",
                     .height = ROW_H, .font_size = 22,
-                    .back_color = (Color){30, 30, 40, 255}, .align = WLX_CENTER);
+                    .back_color = (Color){30, 30, 40, 255}, .content_align = WLX_CENTER);
 
                 if (wlx_button(ctx, "Click Me!",
                     .height = ROW_H, .font_size = 18,
-                    .back_color = (Color){60, 30, 30, 255}, .align = WLX_CENTER)) {
+                    .back_color = (Color){60, 30, 30, 255}, .content_align = WLX_CENTER)) {
                     app.button_click_count++;
                     add_log("Button clicked %d time(s)", app.button_click_count);
                 }
@@ -114,25 +114,25 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
                 char click_text[64];
                 snprintf(click_text, sizeof(click_text), "Clicks: %d", app.button_click_count);
                 wlx_label(ctx, click_text,
-                    .height = ROW_H, .font_size = 16, .align = WLX_CENTER,
+                    .height = ROW_H, .font_size = 16, .content_align = WLX_CENTER,
                     .back_color = (Color){22, 22, 28, 255});
 
                 if (wlx_button(ctx, "Reset Counter",
                     .height = ROW_H, .font_size = 16,
-                    .back_color = (Color){40, 40, 60, 255}, .align = WLX_CENTER)) {
+                    .back_color = (Color){40, 40, 60, 255}, .content_align = WLX_CENTER)) {
                     app.button_click_count = 0;
                     add_log("Counter reset");
                 }
 
                 if (wlx_button(ctx, "Add Log Entry",
                     .height = ROW_H, .font_size = 16,
-                    .back_color = (Color){30, 50, 30, 255}, .align = WLX_CENTER)) {
+                    .back_color = (Color){30, 50, 30, 255}, .content_align = WLX_CENTER)) {
                     add_log("Manual log entry #%d", app.log_count + 1);
                 }
 
                 wlx_label(ctx, "Checkboxes",
                     .height = ROW_H, .font_size = 22,
-                    .back_color = (Color){30, 30, 40, 255}, .align = WLX_CENTER);
+                    .back_color = (Color){30, 30, 40, 255}, .content_align = WLX_CENTER);
 
                 if (wlx_checkbox(ctx, "Enable audio", &app.enable_audio,
                     .height = ROW_H, .font_size = 18)) {
@@ -161,7 +161,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
 
                 wlx_label(ctx, "Input Fields",
                     .height = ROW_H, .font_size = 22,
-                    .back_color = (Color){30, 30, 40, 255}, .align = WLX_CENTER);
+                    .back_color = (Color){30, 30, 40, 255}, .content_align = WLX_CENTER);
 
                 wlx_inputbox(ctx, "Name:", app.name, sizeof(app.name),
                     .height = ROW_H, .font_size = 16);
@@ -174,7 +174,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
 
                 if (wlx_button(ctx, "Clear All Inputs",
                     .height = ROW_H, .font_size = 16,
-                    .back_color = (Color){50, 30, 30, 255}, .align = WLX_CENTER)) {
+                    .back_color = (Color){50, 30, 30, 255}, .content_align = WLX_CENTER)) {
                     app.name[0] = '\0';
                     app.search[0] = '\0';
                     app.note[0] = '\0';
@@ -191,7 +191,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
             // ---- Outer scroll panel (event log) -------------------------
             wlx_label(ctx, "Event Log (outer scroll panel)",
                 .height = 30, .font_size = 18,
-                .back_color = (Color){35, 25, 25, 255}, .align = WLX_CENTER);
+                .back_color = (Color){35, 25, 25, 255}, .content_align = WLX_CENTER);
 
             wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT,
                 .back_color = (Color){20, 20, 24, 255},
@@ -201,7 +201,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
                     if (app.log_count == 0) {
                         wlx_label(ctx, "  No events yet...",
                             .height = 28, .font_size = 14,
-                            .back_color = (Color){20, 20, 24, 255}, .align = WLX_LEFT);
+                            .back_color = (Color){20, 20, 24, 255}, .content_align = WLX_LEFT);
                     }
                     for (int i = 0; i < app.log_count; i++) {
                         wlx_push_id(ctx, (size_t)i);
@@ -210,7 +210,7 @@ static void render_controls_tab(WLX_Context *ctx, int layout_span) {
                             : (Color){30, 30, 36, 255};
                         wlx_label(ctx, app.log_messages[i],
                             .height = 28, .font_size = 14,
-                            .back_color = row_bg, .align = WLX_LEFT);
+                            .back_color = row_bg, .content_align = WLX_LEFT);
                         wlx_pop_id(ctx);
                     }
                 wlx_layout_end(ctx);
@@ -235,7 +235,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
 
                 wlx_label(ctx, "Audio & Display",
                     .height = S_ROW, .font_size = 22,
-                    .back_color = (Color){30, 40, 30, 255}, .align = WLX_CENTER);
+                    .back_color = (Color){30, 40, 30, 255}, .content_align = WLX_CENTER);
 
                 wlx_slider(ctx, "Volume   ", &app.volume,
                     .height = S_ROW, .min_value = 0.0f, .max_value = 1.0f,
@@ -251,7 +251,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
 
                 wlx_label(ctx, "Color Mixer",
                     .height = S_ROW, .font_size = 22,
-                    .back_color = (Color){30, 40, 30, 255}, .align = WLX_CENTER);
+                    .back_color = (Color){30, 40, 30, 255}, .content_align = WLX_CENTER);
 
                 wlx_slider(ctx, "Red      ", &app.r,
                     .height = S_ROW, .min_value = 0.0f, .max_value = 1.0f,
@@ -273,7 +273,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
                         (unsigned char)(app.b * 255),
                         (unsigned char)(app.brightness * 255),
                     };
-                    wlx_widget(ctx, .widget_align = WLX_CENTER, .width = -1, .height = S_ROW, .back_color = preview);
+                    wlx_widget(ctx, .slot_align = WLX_CENTER, .width = -1, .height = S_ROW, .back_color = preview);
                 }
 
                 char color_hex[64];
@@ -281,11 +281,11 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
                     (int)(app.r * 255), (int)(app.g * 255), (int)(app.b * 255));
                 wlx_label(ctx, color_hex,
                     .height = S_ROW, .font_size = 16,
-                    .back_color = (Color){22, 26, 22, 255}, .align = WLX_CENTER);
+                    .back_color = (Color){22, 26, 22, 255}, .content_align = WLX_CENTER);
 
                 if (wlx_button(ctx, "Reset Colors",
                     .height = S_ROW, .font_size = 16,
-                    .back_color = (Color){50, 30, 30, 255}, .align = WLX_CENTER)) {
+                    .back_color = (Color){50, 30, 30, 255}, .content_align = WLX_CENTER)) {
                     app.r = 0.2f; app.g = 0.5f; app.b = 0.8f;
                     app.brightness = 1.0f;
                     add_log("Colors reset to defaults");
@@ -302,32 +302,32 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
 
                 wlx_label(ctx, "Quick Notes",
                     .height = R_ROW, .font_size = 22,
-                    .align = WLX_CENTER);
+                    .content_align = WLX_CENTER);
 
                 wlx_inputbox(ctx, "Note:", app.note, sizeof(app.note),
                     .height = R_ROW, .font_size = 16, .wrap = true);
 
                 wlx_label(ctx, "Current Settings",
                     .height = R_ROW, .font_size = 20,
-                    .align = WLX_CENTER);
+                    .content_align = WLX_CENTER);
 
                 {
                     char buf[128];
                     snprintf(buf, sizeof(buf), "  Volume: %.0f%%", app.volume * 100);
                     wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
-                        .align = WLX_LEFT);
+                        .content_align = WLX_LEFT);
                 }
                 {
                     char buf[128];
                     snprintf(buf, sizeof(buf), "  Brightness: %.0f%%", app.brightness * 100);
                     wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
-                        .align = WLX_LEFT);
+                        .content_align = WLX_LEFT);
                 }
                 {
                     char buf[128];
                     snprintf(buf, sizeof(buf), "  Font Scale: %.1fx", app.font_scale);
                     wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
-                        .align = WLX_LEFT);
+                        .content_align = WLX_LEFT);
                 }
                 {
                     char buf[128];
@@ -335,7 +335,7 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
                         app.enable_audio ? "ON" : "OFF",
                         app.enable_vsync ? "ON" : "OFF");
                     wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
-                        .align = WLX_LEFT);
+                        .content_align = WLX_LEFT);
                 }
                 {
                     char buf[128];
@@ -343,20 +343,20 @@ static void render_settings_tab(WLX_Context *ctx, int layout_span) {
                         app.fullscreen ? "ON" : "OFF",
                         app.show_fps ? "ON" : "OFF");
                     wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
-                        .align = WLX_LEFT);
+                        .content_align = WLX_LEFT);
                 }
                 {
                     char buf[128];
                     snprintf(buf, sizeof(buf), "  Color: #%02X%02X%02X",
                         (int)(app.r * 255), (int)(app.g * 255), (int)(app.b * 255));
                     wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
-                        .align = WLX_LEFT);
+                        .content_align = WLX_LEFT);
                 }
                 {
                     char buf[128];
                     snprintf(buf, sizeof(buf), "  Dark mode: %s", app.dark_mode ? "ON" : "OFF");
                     wlx_label(ctx, buf, .height = R_ROW, .font_size = 16,
-                        .align = WLX_LEFT);
+                        .content_align = WLX_LEFT);
                 }
 
             wlx_layout_end(ctx);
@@ -378,7 +378,7 @@ static void render_dynamic_tab(WLX_Context *ctx, int layout_span) {
 
             wlx_label(ctx, "Dynamic panels (wlx_push_id / wlx_pop_id)",
                 .height = D_ROW, .font_size = 22,
-                .back_color = (Color){35, 30, 45, 255}, .align = WLX_CENTER);
+                .back_color = (Color){35, 30, 45, 255}, .content_align = WLX_CENTER);
 
             // Each iteration of this loop creates stateful widgets
             // (wlx_inputbox, wlx_slider, wlx_checkbox, scroll_panel).
@@ -396,7 +396,7 @@ static void render_dynamic_tab(WLX_Context *ctx, int layout_span) {
                     snprintf(header, sizeof(header), "Panel %d", i + 1);
                     wlx_label(ctx, header,
                         .height = D_ROW, .font_size = 20,
-                        .back_color = section_bg, .align = WLX_LEFT);
+                        .back_color = section_bg, .content_align = WLX_LEFT);
 
                     wlx_inputbox(ctx, "Name:", app.panel_names[i], sizeof(app.panel_names[i]),
                         .height = D_ROW, .font_size = 16);
@@ -427,63 +427,63 @@ static void render_about_tab(WLX_Context *ctx, int layout_span) {
 
             wlx_label(ctx, "Wollix Library - Demo",
                 .height = A_ROW, .font_size = 28,
-                .align = WLX_CENTER);
+                .content_align = WLX_CENTER);
 
             wlx_label(ctx, "A lightweight immediate-mode UI layout library built on raylib.",
                 .height = A_ROW, .font_size = 18,
-                .align = WLX_CENTER);
+                .content_align = WLX_CENTER);
 
             wlx_label(ctx, "Supported Widgets:",
                 .height = A_ROW, .font_size = 22,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
             wlx_label(ctx, "  - Buttons (with hover highlight)",
                 .height = A_ROW, .font_size = 16,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
             wlx_label(ctx, "  - Checkboxes (toggle states)",
                 .height = A_ROW, .font_size = 16,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
             wlx_label(ctx, "  - Text boxes (static labels)",
                 .height = A_ROW, .font_size = 16,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
             wlx_label(ctx, "  - Input boxes (editable text fields)",
                 .height = A_ROW, .font_size = 16,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
             wlx_label(ctx, "  - Sliders (float value adjustment)",
                 .height = A_ROW, .font_size = 16,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
             wlx_label(ctx, "  - Scroll panels (with nesting support)",
                 .height = A_ROW, .font_size = 16,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
             wlx_label(ctx, "  - Colored widgets (rectangles)",
                 .height = A_ROW, .font_size = 16,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
             wlx_label(ctx, "Credits:",
                 .height = A_ROW, .font_size = 22,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
             wlx_label(ctx, "  Wollix library by Dainis",
                 .height = A_ROW, .font_size = 16,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
             wlx_label(ctx, "  Built with raylib - https://raylib.com",
                 .height = A_ROW, .font_size = 16,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
             wlx_label(ctx, "  Immediate mode UI paradigm",
                 .height = A_ROW, .font_size = 16,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
             wlx_label(ctx, "  Dynamic array macros from Alexey Kutepov",
                 .height = A_ROW, .font_size = 16,
-                .align = WLX_LEFT);
+                .content_align = WLX_LEFT);
 
         wlx_layout_end(ctx);
     wlx_scroll_panel_end(ctx);
@@ -533,7 +533,7 @@ int main(void) {
                         wlx_label(ctx, "Wollix - Widget Demo",
                             .height = 44, .font_size = 26,
                             .back_color = (Color){28, 28, 38, 255},
-                            .align = WLX_CENTER);
+                            .content_align = WLX_CENTER);
                     wlx_layout_end(ctx);
 
                     // ---- Tab bar ----------------------------------------
@@ -547,7 +547,7 @@ int main(void) {
                                 : (Color){30, 30, 40, 255};
                             if (wlx_button(ctx, tab_labels[t],
                                 .height = -1, .font_size = 18,
-                                .back_color = tab_colors[t], .align = WLX_CENTER)) {
+                                .back_color = tab_colors[t], .content_align = WLX_CENTER)) {
                                 if (app.active_tab != t) {
                                     app.active_tab = t;
                                     add_log("Switched to tab: %s", tab_labels[t]);

@@ -31,11 +31,11 @@ int main(void) {
             wlx_layout_begin(ctx, 3, WLX_VERT);
                 wlx_layout_begin(ctx, 4, WLX_HORZ);
 
-                    wlx_button(ctx, "BUTTON1", .pos =1, .span = 1, .overflow = true, .width = 350, .height = 350, .back_color = BLUE, .align = WLX_LEFT);
-                    wlx_button(ctx, "BUTTON2", .back_color = MAGENTA, .align = WLX_CENTER);
+                    wlx_button(ctx, "BUTTON1", .pos =1, .span = 1, .overflow = true, .width = 350, .height = 350, .back_color = BLUE, .content_align = WLX_LEFT);
+                    wlx_button(ctx, "BUTTON2", .back_color = MAGENTA, .content_align = WLX_CENTER);
                     
                 wlx_layout_end(ctx);
-                wlx_button(ctx, "BUTTON1",.pos = 2, .back_color = GREEN, .align = WLX_CENTER);
+                wlx_button(ctx, "BUTTON1",.pos = 2, .back_color = GREEN, .content_align = WLX_CENTER);
             wlx_layout_end(ctx);
         wlx_end(ctx);
         EndDrawing();

@@ -135,7 +135,7 @@
 #include "test_checkbox_texture.c"
 
 // Inputbox inner icon: text-only regression, leading/trailing band placement,
-// vertical centering independent of opt.align, default/explicit tint, and the
+// vertical centering independent of opt.content_align, default/explicit tint, and the
 // narrow-field clamp guard.
 #include "test_inputbox_icon.c"
 

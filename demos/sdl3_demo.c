@@ -97,17 +97,17 @@ int main(void) {
 
         wlx_layout_begin(ctx, 14, WLX_VERT);
 
-        wlx_label(ctx, "SDL3 Backend Demo", .height = 52, .font_size = 30, .font = wf_title, .align = WLX_CENTER, .back_color = WLX_RGBA(28, 32, 45, 255));
+        wlx_label(ctx, "SDL3 Backend Demo", .height = 52, .font_size = 30, .font = wf_title, .content_align = WLX_CENTER, .back_color = WLX_RGBA(28, 32, 45, 255));
 
         char click_label[64];
         snprintf(click_label, sizeof(click_label), "Clicks: %d", click_count);
-        wlx_label(ctx, click_label, .height = 40, .font_size = 18, .font = wf_small, .align = WLX_CENTER, .back_color = WLX_RGBA(20, 24, 34, 255));
+        wlx_label(ctx, click_label, .height = 40, .font_size = 18, .font = wf_small, .content_align = WLX_CENTER, .back_color = WLX_RGBA(20, 24, 34, 255));
 
-        if (wlx_button(ctx, "Click me", .height = 44, .font_size = 20, .font = wf_body, .align = WLX_CENTER, .back_color = WLX_RGBA(55, 70, 95, 255))) {
+        if (wlx_button(ctx, "Click me", .height = 44, .font_size = 20, .font = wf_body, .content_align = WLX_CENTER, .back_color = WLX_RGBA(55, 70, 95, 255))) {
             click_count++;
         }
 
-        wlx_checkbox(ctx, "Enable feature", &check_enabled, .height = 40, .font_size = 20, .font = wf_body, .align = WLX_LEFT);
+        wlx_checkbox(ctx, "Enable feature", &check_enabled, .height = 40, .font_size = 20, .font = wf_body, .content_align = WLX_LEFT);
 
         wlx_slider(ctx, "Value", &slider_value,
                .height = 44,
@@ -120,10 +120,10 @@ int main(void) {
 
         char status[128];
         snprintf(status, sizeof(status), "State: %s  |  value=%.2f", check_enabled ? "ON" : "OFF", slider_value);
-        wlx_label(ctx, status, .height = 40, .font_size = 18, .font = wf_small, .align = WLX_LEFT, .back_color = WLX_RGBA(20, 24, 34, 255));
+        wlx_label(ctx, status, .height = 40, .font_size = 18, .font = wf_small, .content_align = WLX_LEFT, .back_color = WLX_RGBA(20, 24, 34, 255));
 
         // --- Rounded Shapes Section ---
-        wlx_label(ctx, "Rounded Shapes", .height = 48, .font_size = 26, .font = wf_title, .align = WLX_CENTER, .back_color = WLX_RGBA(35, 40, 55, 255));
+        wlx_label(ctx, "Rounded Shapes", .height = 48, .font_size = 26, .font = wf_title, .content_align = WLX_CENTER, .back_color = WLX_RGBA(35, 40, 55, 255));
 
         wlx_slider(ctx, "Roundness", &roundness,
                .height = 44,
@@ -136,19 +136,19 @@ int main(void) {
 
         wlx_layout_begin(ctx, 3, WLX_HORZ, .padding = 4);
             if (wlx_button(ctx, "Rounded", .height = 70, .font_size = 20, .font = wf_body,
-                    .align = WLX_CENTER,
+                    .content_align = WLX_CENTER,
                     .back_color = WLX_RGBA(70, 50, 120, 255),
                     .roundness = roundness)) {
                 click_count++;
             }
             if (wlx_button(ctx, "Full Round", .height = 70, .font_size = 20, .font = wf_body,
-                    .align = WLX_CENTER,
+                    .content_align = WLX_CENTER,
                     .back_color = WLX_RGBA(50, 100, 70, 255),
                     .roundness = 1.0f)) {
                 click_count++;
             }
             if (wlx_button(ctx, "Sharp", .height = 70, .font_size = 20, .font = wf_body,
-                    .align = WLX_CENTER,
+                    .content_align = WLX_CENTER,
                     .back_color = WLX_RGBA(120, 50, 50, 255),
                     .roundness = 0.0f)) {
                 click_count++;
@@ -166,11 +166,11 @@ int main(void) {
                     .roundness = roundness,
                     .border_color = WLX_RGBA(120, 255, 140, 255), .border_width = 2);
             wlx_widget(ctx, .height = 70, .width = 70, .back_color = WLX_RGBA(200, 160, 60, 255),
-                    .roundness = 1.0f, .widget_align = WLX_CENTER);
+                    .roundness = 1.0f, .slot_align = WLX_CENTER);
         wlx_layout_end(ctx);
 
         // --- Toggle / Radio / Progress Section ---
-        wlx_label(ctx, "Toggle / Radio / Progress", .height = 48, .font_size = 26, .font = wf_title, .align = WLX_CENTER, .back_color = WLX_RGBA(35, 40, 55, 255));
+        wlx_label(ctx, "Toggle / Radio / Progress", .height = 48, .font_size = 26, .font = wf_title, .content_align = WLX_CENTER, .back_color = WLX_RGBA(35, 40, 55, 255));
 
         wlx_layout_begin(ctx, 2, WLX_HORZ, .padding = 4);
             wlx_toggle(ctx, "Feature A", &toggle_a, .height = 40);

@@ -68,7 +68,7 @@ int main(void) {
 
             // ── Title ──
             wlx_label(ctx, "Border System Demo",
-                .font_size = 26, .align = WLX_CENTER,
+                .font_size = 26, .content_align = WLX_CENTER,
                 .show_background = true,
                 .back_color = (WLX_Color){30, 30, 50, 255},
                 .border_color = bdr,
@@ -77,7 +77,7 @@ int main(void) {
             // ── Controls ──
             wlx_layout_begin(ctx, 4, WLX_VERT, .padding = 4);
                 wlx_label(ctx, "Border Options",
-                    .font_size = 20, .align = WLX_LEFT, .height = 32,
+                    .font_size = 20, .content_align = WLX_LEFT, .height = 32,
                     .show_background = true,
                     .back_color = (WLX_Color){40, 30, 30, 255});
 
@@ -135,16 +135,16 @@ int main(void) {
                     wlx_layout_begin(ctx, 3, WLX_HORZ, .padding = 6);
                         wlx_button(ctx, "Bordered",
                             .font_size = 16, .height = 44,
-                            .align = WLX_CENTER,
+                            .content_align = WLX_CENTER,
                             .border_color = bdr, .border_width = bw);
                         wlx_button(ctx, "Green outline",
                             .font_size = 16, .height = 44,
-                            .align = WLX_CENTER,
+                            .content_align = WLX_CENTER,
                             .border_color = (WLX_Color){0, 200, 0, 255},
                             .border_width = 2);
                         wlx_button(ctx, "Thick yellow",
                             .font_size = 16, .height = 44,
-                            .align = WLX_CENTER,
+                            .content_align = WLX_CENTER,
                             .border_color = (WLX_Color){255, 220, 0, 255},
                             .border_width = 4);
                     wlx_layout_end(ctx);

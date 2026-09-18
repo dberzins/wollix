@@ -55,7 +55,7 @@ int main(void) {
             wlx_label(ctx, "Auto-Sizing Grid Demo",
                 .height = 50, .font_size = 28,
                 .back_color = (Color){35, 30, 45, 255},
-                .align = WLX_CENTER);
+                .content_align = WLX_CENTER);
 
             // Controls row
             wlx_layout_begin(ctx, 4, WLX_HORZ,
@@ -106,7 +106,7 @@ int main(void) {
                     wlx_label(ctx, header_buf,
                         .height = 25, .font_size = 14,
                         .back_color = (Color){30, 40, 30, 255},
-                        .align = WLX_CENTER);
+                        .content_align = WLX_CENTER);
 
                     wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT);
                         wlx_grid_begin_auto(ctx, 3, 32,
@@ -144,11 +144,11 @@ int main(void) {
                                 }
 
                                 wlx_label(ctx, records[i].name,
-                                    .align = WLX_LEFT,
+                                    .content_align = WLX_LEFT,
                                     .back_color = row_bg,
                                     .show_background = true);
                                 wlx_label(ctx, records[i].value,
-                                    .align = WLX_LEFT,
+                                    .content_align = WLX_LEFT,
                                     .back_color = row_bg,
                                     .show_background = true);
                                 if (wlx_button(ctx, "Del")) {
@@ -172,7 +172,7 @@ int main(void) {
                     wlx_label(ctx, "Tile Grid",
                         .height = 25, .font_size = 14,
                         .back_color = (Color){40, 30, 30, 255},
-                        .align = WLX_CENTER);
+                        .content_align = WLX_CENTER);
 
                     wlx_scroll_panel_begin(ctx, WLX_SCROLL_AUTO_HEIGHT);
                         float tile_size = 80.0f;
@@ -188,7 +188,7 @@ int main(void) {
                                 char tile_label[16];
                                 snprintf(tile_label, sizeof(tile_label), "%d", i + 1);
                                 wlx_label(ctx, tile_label,
-                                    .align = WLX_CENTER,
+                                    .content_align = WLX_CENTER,
                                     .back_color = tile_bg,
                                     .font_size = 18,
                                     .show_background = true);

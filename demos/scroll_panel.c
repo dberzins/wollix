@@ -54,7 +54,7 @@ int main(void) {
                                     .back_color = item_color,
                                     .font_size = 18,
                                     .height = 40,
-                                    .align = WLX_CENTER
+                                    .content_align = WLX_CENTER
                                 )) {
                                     printf("Clicked: %s\n", label);
                                 }
@@ -76,7 +76,7 @@ int main(void) {
                                 wlx_label(ctx, label,
                                     .font_size = 16,
                                     .height = 40,
-                                    .align = WLX_LEFT
+                                    .content_align = WLX_LEFT
                                 );
                                 wlx_pop_id(ctx);
                             }

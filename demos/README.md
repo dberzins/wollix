@@ -11,7 +11,7 @@ README for the full target list.
 
 | Demo | Description |
 |------|-------------|
-| [button.c](button.c) | Basic button click handling with `widget_align`, `back_color`, and text alignment |
+| [button.c](button.c) | Basic button click handling with `slot_align`, `back_color`, and `content_align` |
 | [text.c](text.c) | `wlx_label` with every `WLX_Align` value, `show_background` mode, and Unicode text |
 | [checkbox.c](checkbox.c) | Six boolean toggles showing checkbox state management |
 | [checkbox_tex.c](checkbox_tex.c) | Texture-based checkboxes with programmatically generated checked/unchecked icons |

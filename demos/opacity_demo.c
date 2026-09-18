@@ -44,17 +44,17 @@ static void draw_widget_column(WLX_Context *ctx, float op) {
         char label[32];
         snprintf(label, sizeof(label), "%.0f%%", op * 100);
         wlx_label(ctx, label,
-            .font_size = 16, .align = WLX_CENTER,
+            .font_size = 16, .content_align = WLX_CENTER,
             .front_color = WLX_WHITE, .opacity = op);
 
         wlx_button(ctx, "Button",
             .font_size = 13, .height = 30,
-            .widget_align = WLX_CENTER, .opacity = op);
+            .slot_align = WLX_CENTER, .opacity = op);
 
         wlx_label(ctx, "Boxed text",
             .font_size = 13, .height = 26,
             .show_background = true,
-            .widget_align = WLX_CENTER, .opacity = op);
+            .slot_align = WLX_CENTER, .opacity = op);
 
         bool cb = app.checkbox_val;
         wlx_checkbox(ctx, "Check", &cb,
@@ -73,7 +73,7 @@ static void draw_widget_column(WLX_Context *ctx, float op) {
             .font_size = 11, .height = 30, .opacity = op);
 
         wlx_label(ctx, "Plain text",
-            .font_size = 11, .align = WLX_CENTER,
+            .font_size = 11, .content_align = WLX_CENTER,
             .front_color = WLX_WHITE, .opacity = op);
 
     wlx_layout_end(ctx);
@@ -119,7 +119,7 @@ int main(void) {
 
                 // -- Title ------------------------------------------------
                 wlx_label(ctx, "Three-Layer Opacity: widget * theme * context stack",
-                    .font_size = 20, .align = WLX_CENTER,
+                    .font_size = 20, .content_align = WLX_CENTER,
                     .front_color = WLX_WHITE);
 
                 // -- Control sliders --------------------------------------
@@ -144,7 +144,7 @@ int main(void) {
 
                 // -- Section header ---------------------------------------
                 wlx_label(ctx, "Per-widget .opacity at fixed levels (theme & stack also active)",
-                    .font_size = 13, .align = WLX_CENTER,
+                    .font_size = 13, .content_align = WLX_CENTER,
                     .front_color = (WLX_Color){180, 200, 255, 255});
 
                 // -- 5 columns at fixed per-widget opacity ---------------
@@ -169,7 +169,7 @@ int main(void) {
 
                         wlx_layout_begin(ctx, 2, WLX_VERT, .padding = 4);
                             wlx_label(ctx, "Inside push_opacity()",
-                                .font_size = 13, .align = WLX_CENTER,
+                                .font_size = 13, .content_align = WLX_CENTER,
                                 .front_color = (WLX_Color){150, 255, 150, 255});
 
                             wlx_layout_begin(ctx, 3, WLX_VERT, .padding = 4);
@@ -179,7 +179,7 @@ int main(void) {
                                 wlx_checkbox(ctx, "Stack-faded check", &cb,
                                     .font_size = 13, .height = 24);
                                 wlx_label(ctx, "No per-widget .opacity set",
-                                    .font_size = 11, .align = WLX_CENTER,
+                                    .font_size = 11, .content_align = WLX_CENTER,
                                     .show_background = true, .height = 24,
                                     .front_color = WLX_WHITE);
                             wlx_layout_end(ctx);
@@ -195,7 +195,7 @@ int main(void) {
 
                         wlx_layout_begin(ctx, 2, WLX_VERT, .padding = 4);
                             wlx_label(ctx, "Nested: push(slider) * push(0.5)",
-                                .font_size = 13, .align = WLX_CENTER,
+                                .font_size = 13, .content_align = WLX_CENTER,
                                 .front_color = (WLX_Color){255, 200, 150, 255});
 
                             wlx_layout_begin(ctx, 3, WLX_VERT, .padding = 4);
@@ -206,7 +206,7 @@ int main(void) {
                                     .height = 26, .font_size = 11,
                                     .show_value = false);
                                 wlx_label(ctx, "Both stacks compound",
-                                    .font_size = 11, .align = WLX_CENTER,
+                                    .font_size = 11, .content_align = WLX_CENTER,
                                     .show_background = true, .height = 24,
                                     .front_color = WLX_WHITE);
                             wlx_layout_end(ctx);
@@ -222,7 +222,7 @@ int main(void) {
 
                         wlx_layout_begin(ctx, 2, WLX_VERT, .padding = 4);
                             wlx_label(ctx, "Stack + per-widget override",
-                                .font_size = 13, .align = WLX_CENTER,
+                                .font_size = 13, .content_align = WLX_CENTER,
                                 .front_color = (WLX_Color){255, 150, 200, 255});
 
                             wlx_layout_begin(ctx, 3, WLX_VERT, .padding = 4);
@@ -235,7 +235,7 @@ int main(void) {
                                     .font_size = 13, .height = 30,
                                     .opacity = 1.0f);
                                 wlx_label(ctx, "All 3 layers multiply",
-                                    .font_size = 11, .align = WLX_CENTER,
+                                    .font_size = 11, .content_align = WLX_CENTER,
                                     .show_background = true, .height = 24,
                                     .front_color = WLX_WHITE);
                             wlx_layout_end(ctx);

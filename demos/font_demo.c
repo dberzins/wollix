@@ -133,7 +133,7 @@ int main(void) {
                 // ── Title row ───────────────────────────────────────────
                 wlx_label(ctx, "Font Demo",
                     .font = h_bold, .font_size = 30,
-                    .height = 50, .align = WLX_CENTER,
+                    .height = 50, .content_align = WLX_CENTER,
                     .back_color = theme.surface
                 );
 
@@ -145,7 +145,7 @@ int main(void) {
 
                         wlx_label(ctx, "Theme-level font",
                             .font = h_bold, .font_size = 20,
-                            .height = 36, .align = WLX_LEFT
+                            .height = 36, .content_align = WLX_LEFT
                         );
 
                         wlx_checkbox(ctx, "Use Sans as theme font",
@@ -158,12 +158,12 @@ int main(void) {
                                 ? "Theme font: DejaVu Sans"
                                 : "Theme font: Raylib default",
                             .font_size = 16, .height = 30,
-                            .align = WLX_LEFT
+                            .content_align = WLX_LEFT
                         );
 
                         wlx_label(ctx, "Per-widget font override",
                             .font = h_bold, .font_size = 20,
-                            .height = 36, .align = WLX_LEFT
+                            .height = 36, .content_align = WLX_LEFT
                         );
 
                         // These two checkboxes inherit the theme font
@@ -194,60 +194,60 @@ int main(void) {
 
                         wlx_label(ctx, "Font showcase",
                             .font = h_bold, .font_size = 20,
-                            .height = 36, .align = WLX_CENTER,
+                            .height = 36, .content_align = WLX_CENTER,
                             .back_color = theme.surface
                         );
 
                         wlx_label(ctx, "Sans - The quick brown fox",
                             .font = h_sans, .font_size = 20,
-                            .height = 36, .align = WLX_LEFT
+                            .height = 36, .content_align = WLX_LEFT
                         );
 
                         wlx_label(ctx, "Mono - The quick brown fox",
                             .font = h_mono, .font_size = 20,
-                            .height = 36, .align = WLX_LEFT
+                            .height = 36, .content_align = WLX_LEFT
                         );
 
                         wlx_label(ctx, "Bold - The quick brown fox",
                             .font = h_bold, .font_size = 20,
-                            .height = 36, .align = WLX_LEFT
+                            .height = 36, .content_align = WLX_LEFT
                         );
 
                         wlx_label(ctx, "Public Sans - The quick brown fox",
                             .font = h_public, .font_size = 20,
-                            .height = 36, .align = WLX_LEFT
+                            .height = 36, .content_align = WLX_LEFT
                         );
 
                         wlx_label(ctx, "Public Bold - The quick brown fox",
                             .font = h_public_bold, .font_size = 20,
-                            .height = 36, .align = WLX_LEFT
+                            .height = 36, .content_align = WLX_LEFT
                         );
 
                         wlx_label(ctx, "Inter - The quick brown fox",
                             .font = h_inter, .font_size = 20,
-                            .height = 36, .align = WLX_LEFT
+                            .height = 36, .content_align = WLX_LEFT
                         );
 
                         wlx_label(ctx, "Inter Bold - The quick brown fox",
                             .font = h_inter_bold, .font_size = 20,
-                            .height = 36, .align = WLX_LEFT
+                            .height = 36, .content_align = WLX_LEFT
                         );
 
                         wlx_label(ctx, "Default - The quick brown fox",
                             .font = WLX_FONT_DEFAULT, .font_size = 20,
-                            .height = 36, .align = WLX_LEFT
+                            .height = 36, .content_align = WLX_LEFT
                         );
 
                         if (wlx_button(ctx, "Bold button",
                             .font = h_bold, .font_size = 18,
-                            .height = 40, .widget_align = WLX_CENTER
+                            .height = 40, .slot_align = WLX_CENTER
                         )) {
                             printf("Bold button clicked\n");
                         }
 
                         if (wlx_button(ctx, "Mono button",
                             .font = h_mono, .font_size = 18,
-                            .height = 40, .widget_align = WLX_CENTER
+                            .height = 40, .slot_align = WLX_CENTER
                         )) {
                             printf("Mono button clicked\n");
                         }
@@ -270,7 +270,7 @@ int main(void) {
 
                 wlx_label(ctx, status,
                     .font = h_mono, .font_size = 14,
-                    .height = 28, .align = WLX_LEFT,
+                    .height = 28, .content_align = WLX_LEFT,
                     .back_color = theme.surface
                 );
 

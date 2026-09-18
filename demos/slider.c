@@ -52,39 +52,39 @@ int main(void) {
                     wlx_layout_begin(ctx, 8, WLX_VERT);
 
                         wlx_label(ctx, "Slider Demo",
-                            .widget_align = WLX_CENTER, .font_size = 28, .height = 50, .align = WLX_CENTER
+                            .slot_align = WLX_CENTER, .font_size = 28, .height = 50, .content_align = WLX_CENTER
                         );
 
                         wlx_slider(ctx, "Volume  ", &app.volume,
-                            .widget_align = WLX_CENTER, .width = 500, .height = 40,
+                            .slot_align = WLX_CENTER, .width = 500, .height = 40,
                             .min_value = 0.0f, .max_value = 1.0f
                         );
 
                         wlx_slider(ctx, "Bright  ", &app.brightness,
-                            .widget_align = WLX_CENTER, .width = 500, .height = 40,
+                            .slot_align = WLX_CENTER, .width = 500, .height = 40,
                             .min_value = 0.0f, .max_value = 1.0f
                         );
 
                         wlx_slider(ctx, "Red     ", &app.r,
-                            .widget_align = WLX_CENTER, .width = 500, .height = 40,
+                            .slot_align = WLX_CENTER, .width = 500, .height = 40,
                             .min_value = 0.0f, .max_value = 1.0f,
                             .thumb_color = RED
                         );
 
                         wlx_slider(ctx, "Green   ", &app.g,
-                            .widget_align = WLX_CENTER, .width = 500, .height = 40,
+                            .slot_align = WLX_CENTER, .width = 500, .height = 40,
                             .min_value = 0.0f, .max_value = 1.0f,
                             .thumb_color = GREEN
                         );
 
                         wlx_slider(ctx, "Blue    ", &app.b,
-                            .widget_align = WLX_CENTER, .width = 500, .height = 40,
+                            .slot_align = WLX_CENTER, .width = 500, .height = 40,
                             .min_value = 0.0f, .max_value = 1.0f,
                             .thumb_color = BLUE
                         );
 
                         wlx_slider(ctx, "Speed   ", &app.speed,
-                            .widget_align = WLX_CENTER, .width = 500, .height = 40,
+                            .slot_align = WLX_CENTER, .width = 500, .height = 40,
                             .min_value = 0.0f, .max_value = 100.0f,
                             .font_size = 18
                         );
@@ -97,7 +97,7 @@ int main(void) {
                                 (unsigned char)(app.b * 255),
                                 (unsigned char)(app.brightness * 255)
                             };
-                            wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 500, .height = 60, .back_color = preview);
+                            wlx_widget(ctx, .slot_align = WLX_CENTER, .width = 500, .height = 60, .back_color = preview);
                         }
 
                     wlx_layout_end(ctx);

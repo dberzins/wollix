@@ -385,7 +385,7 @@ static void dashboard_panel_heading(WLX_Context *ctx, const Dashboard_Tokens *tk
     wlx_label(ctx, up,
         .id = up,
         .style = dashboard_text_style(fonts, tk->type.label, head),
-        .align = WLX_LEFT,
+        .content_align = WLX_LEFT,
         .wrap = false,
         .vertical_metric = WLX_VMETRIC_FONT_SIZE,
         .border_width = 0);
@@ -415,12 +415,12 @@ static void dashboard_stat_card(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 wlx_label(ctx, up,
                     .id = up,
                     .style = dashboard_text_style(fonts, lbl, tk->color.on_surface_muted),
-                    .align = WLX_LEFT,
+                    .content_align = WLX_LEFT,
                     .wrap = false,
                     .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                     .border_width = 0);
                 dashboard_icon_image(ctx, tk, icon, DASHBOARD_ICON_ROLE_ACCENT, 18.0f,
-                    .id = label, .width = 18, .height = 18, .widget_align = WLX_TOP_RIGHT);
+                    .id = label, .width = 18, .height = 18, .slot_align = WLX_TOP_RIGHT);
             wlx_layout_end(ctx);
             // Value (display 36) + unit (label-md, accent). Both slots are flex
             // so the value and unit shrink with the card instead of holding a
@@ -436,14 +436,14 @@ static void dashboard_stat_card(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 wlx_label(ctx, value,
                     .id = value,
                     .style = dashboard_text_style(fonts, big, val),
-                    .align = WLX_LEFT,
+                    .content_align = WLX_LEFT,
                     .wrap = false,
                     .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                     .border_width = 0);
                 wlx_label(ctx, unit,
                     .id = unit,
                     .style = dashboard_text_style(fonts, tk->type.label, dash_accent_fg(tk)),
-                    .align = WLX_LEFT,
+                    .content_align = WLX_LEFT,
                     .wrap = false,
                     .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                     .border_width = 0);
@@ -464,7 +464,7 @@ static int dashboard_nav_item(WLX_Context *ctx, const Dashboard_Tokens *tk,
     // The leading glyph tints to match the link text (accent when active).
     int clicked = dashboard_icon_button(ctx, tk, label, icon, DASHBOARD_ICON_ROLE_MUTED,
         .back_color = bg, .front_color = fg, .roundness = 0.12f, .border_width = 0,
-        .align = WLX_LEFT, .content_padding_left = 14,
+        .content_align = WLX_LEFT, .content_padding_left = 14,
         .image_placement = WLX_IMAGE_PLACEMENT_LEFT, .image_size = 20, .image_text_gap = 10,
         .texture_tint = fg,
         .font = dashboard_font_resolve(fonts, DASHBOARD_FAMILY_SANS,
@@ -486,7 +486,7 @@ static void dashboard_footer_link(WLX_Context *ctx, const Dashboard_Tokens *tk,
         dashboard_icon_label(ctx, tk, text, icon, DASHBOARD_ICON_ROLE_MUTED,
             .id = text,
             .style = dashboard_text_style(fonts, tk->type.label, foot),
-            .align = WLX_LEFT, .wrap = false,
+            .content_align = WLX_LEFT, .wrap = false,
             .image_size = 16, .image_text_gap = 8, .texture_tint = foot,
             .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
     wlx_layout_end(ctx);
@@ -519,10 +519,10 @@ static int dashboard_list_row(WLX_Context *ctx, const Dashboard_Tokens *tk,
                               : dash_a(tk->color.on_surface_muted, dim ? 40 : 80);
         wlx_layout_begin(ctx, 2, WLX_HORZ, .id = text, .padding_left = 8, .gap = 0,
             .sizes = (WLX_Slot_Size[]){ WLX_SLOT_FLEX(1), WLX_SLOT_PX(14) });
-            wlx_label(ctx, text, .id = text, .style = st, .align = WLX_LEFT,
+            wlx_label(ctx, text, .id = text, .style = st, .content_align = WLX_LEFT,
                 .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
             dashboard_icon_image(ctx, tk, WLX_ICON_CHEVRON_RIGHT, DASHBOARD_ICON_ROLE_MUTED, 14.0f,
-                .id = "chevron", .width = 14, .height = 14, .widget_align = WLX_LEFT, .tint = cv);
+                .id = "chevron", .width = 14, .height = 14, .slot_align = WLX_LEFT, .tint = cv);
         wlx_layout_end(ctx);
     wlx_layout_end(ctx);
     return it.clicked ? 1 : 0;
@@ -550,11 +550,11 @@ static int dashboard_icon_row(WLX_Context *ctx, const Dashboard_Tokens *tk,
         WLX_Text_Style st = dashboard_text_style(fonts, tk->type.body_md, fg);
         dashboard_icon_image(ctx, tk, icon, DASHBOARD_ICON_ROLE_MUTED, 18.0f,
             .id = "icon", .width = 18, .height = 18,
-            .widget_align = WLX_LEFT, .padding_left = 4, .tint = fg);
+            .slot_align = WLX_LEFT, .padding_left = 4, .tint = fg);
         wlx_label(ctx, text,
             .id = text,
             .style = st,
-            .align = WLX_LEFT,
+            .content_align = WLX_LEFT,
             .vertical_metric = WLX_VMETRIC_FONT_SIZE,
             .border_width = 0);
     wlx_layout_end(ctx);
@@ -584,7 +584,7 @@ static void dashboard_icon_chip(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 .roundness = 0.2f, .rounded_segments = 8);
                 dashboard_icon_image(ctx, tk, icon, role, glyph,
                     .id = "chip-icon", .width = glyph, .height = glyph,
-                    .widget_align = WLX_CENTER);
+                    .slot_align = WLX_CENTER);
             wlx_layout_end(ctx);
             // Trailing flex spacer left empty.
         wlx_layout_end(ctx);
@@ -625,9 +625,9 @@ static int dashboard_feature_card(WLX_Context *ctx, const Dashboard_Tokens *tk,
         wlx_layout_begin(ctx, 2, WLX_VERT, .id = subtitle, .gap = row_gap,
             .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX((float)title_h),
                                         WLX_SLOT_PX((float)sub_h) });
-            wlx_label(ctx, title, .id = title, .style = ts, .align = WLX_LEFT,
+            wlx_label(ctx, title, .id = title, .style = ts, .content_align = WLX_LEFT,
                 .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
-            wlx_label(ctx, subtitle, .id = subtitle, .style = ss, .align = WLX_LEFT,
+            wlx_label(ctx, subtitle, .id = subtitle, .style = ss, .content_align = WLX_LEFT,
                 .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
         wlx_layout_end(ctx);
     wlx_layout_end(ctx);
@@ -651,10 +651,10 @@ static void dashboard_integration_row(WLX_Context *ctx, const Dashboard_Tokens *
         WLX_Text_Style st = dashboard_text_style(fonts, tk->type.body_md, fg);
         dashboard_icon_chip(ctx, tk, icon, DASHBOARD_ICON_ROLE_MUTED, 32.0f, 18.0f,
             (WLX_Color){0}, dash_hairline(tk, 26), 1.0f);
-        wlx_label(ctx, label, .id = label, .style = st, .align = WLX_LEFT,
+        wlx_label(ctx, label, .id = label, .style = st, .content_align = WLX_LEFT,
             .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
         dashboard_icon_image(ctx, tk, WLX_ICON_CHEVRON_RIGHT, DASHBOARD_ICON_ROLE_MUTED, 14.0f,
-            .id = "chevron", .width = 14, .height = 14, .widget_align = WLX_LEFT,
+            .id = "chevron", .width = 14, .height = 14, .slot_align = WLX_LEFT,
             .tint = it.hover ? dash_accent_fg(tk) : dash_a(tk->color.on_surface_muted, 90));
     wlx_layout_end(ctx);
     if (it.clicked && url) dashboard_open_url(url);
@@ -670,7 +670,7 @@ static int dashboard_accent_button(WLX_Context *ctx, const Dashboard_Tokens *tk,
     return wlx_button(ctx, text,
         .back_color = tk->color.accent, .front_color = tk->color.on_accent,
         .roundness = 0.12f, .border_width = 0,
-        .align = WLX_CENTER, .content_padding = 12,
+        .content_align = WLX_CENTER, .content_padding = 12,
         .hover_brightness = -0.18f,
         .font = font, .font_size = font_size, .height = height, .id = id) ? 1 : 0;
 }
@@ -711,7 +711,7 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 wlx_label(ctx, "Wollix Explorer",
                     .id = "Wollix Explorer",
                     .style = dashboard_text_style(fonts, tk->type.headline_md, dash_accent_fg(tk)),
-                    .align = WLX_LEFT,
+                    .content_align = WLX_LEFT,
                     .wrap = false,
                     .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                     .border_width = 0);
@@ -720,7 +720,7 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 wlx_label(ctx, "V0.6.0-UNSTABLE",
                     .id = "V0.6.0-UNSTABLE",
                     .style = dashboard_text_style(fonts, ver, dash_a(tk->color.on_surface_muted, 130)),
-                    .align = WLX_LEFT,
+                    .content_align = WLX_LEFT,
                     .wrap = false,
                     .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                     .border_width = 0);
@@ -759,7 +759,7 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
             wlx_label(ctx, fps_text,
                 .id = "topbar-fps",
                 .style = dashboard_text_style(fonts, tk->type.mono, dash_accent_fg(tk)),
-                .align = WLX_RIGHT,
+                .content_align = WLX_RIGHT,
                 .wrap = false,
                 .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                 .border_width = 0);
@@ -774,7 +774,7 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     .border_color = (WLX_Color){0}, .border_width = 0,
                     .image_size = 22, .image_text_gap = 0,
                     .image_placement = WLX_IMAGE_PLACEMENT_LEFT,
-                    .widget_align = WLX_CENTER, .align = WLX_CENTER)) {
+                    .slot_align = WLX_CENTER, .content_align = WLX_CENTER)) {
                 st->theme_toggle = true;
             }
             wlx_tooltip_for(ctx, wlx_last_rect(ctx), "Switch light / dark theme",
@@ -793,7 +793,7 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     .border_color = (WLX_Color){0}, .border_width = 0,
                     .image_size = 22, .image_text_gap = 0,
                     .image_placement = WLX_IMAGE_PLACEMENT_LEFT,
-                    .widget_align = WLX_CENTER, .align = WLX_CENTER)) {
+                    .slot_align = WLX_CENTER, .content_align = WLX_CENTER)) {
                 g_dashboard_log.unread = 0;
             }
             char bell_tip[48];
@@ -811,7 +811,7 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     .border_color = (WLX_Color){0}, .border_width = 0,
                     .image_size = 22, .image_text_gap = 0,
                     .image_placement = WLX_IMAGE_PLACEMENT_LEFT,
-                    .widget_align = WLX_CENTER, .align = WLX_CENTER)) {
+                    .slot_align = WLX_CENTER, .content_align = WLX_CENTER)) {
                 st->current_view = DASHBOARD_VIEW_THEME_LAB;
             }
             wlx_tooltip_for(ctx, wlx_last_rect(ctx), "Open the Theme Lab",
@@ -825,7 +825,7 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 wlx_label(ctx, "Admin_User",
                     .id = "Admin_User",
                     .style = dashboard_text_style(fonts, tk->type.label, tk->color.on_surface),
-                    .align = WLX_RIGHT,
+                    .content_align = WLX_RIGHT,
                     .wrap = false,
                     .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                     .border_width = 0);
@@ -834,7 +834,7 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 wlx_label(ctx, "Developer Access",
                     .id = "Developer Access",
                     .style = dashboard_text_style(fonts, sub, dash_a(tk->color.on_surface_muted, 110)),
-                    .align = WLX_RIGHT,
+                    .content_align = WLX_RIGHT,
                     .wrap = false,
                     .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                     .border_width = 0);
@@ -842,7 +842,7 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
             // Identity avatar: intentionally static demo chrome (there is no real
             // account behind it), so it stays a non-interactive glyph.
             dashboard_icon_image(ctx, tk, WLX_ICON_CIRCLE_USER, DASHBOARD_ICON_ROLE_ON_SURFACE, 34.0f,
-                .id = "avatar", .width = 32, .height = 32, .widget_align = WLX_CENTER);
+                .id = "avatar", .width = 32, .height = 32, .slot_align = WLX_CENTER);
         wlx_layout_end(ctx);
     wlx_layout_end(ctx);
     wlx_layout_end(ctx);
@@ -945,7 +945,7 @@ static int dashboard_tab(WLX_Context *ctx, const Dashboard_Tokens *tk,
     WLX_Color bg = active ? dash_a(tk->color.accent, 13) : tk->ramp.base;
     WLX_Color fg = active ? dash_accent_fg(tk) : tk->color.on_surface_muted;
     return wlx_button(ctx, text, .back_color = bg, .front_color = fg, .roundness = 0,
-        .border_width = 0, .align = WLX_CENTER,
+        .border_width = 0, .content_align = WLX_CENTER,
         .font = dashboard_font_resolve(fonts, DASHBOARD_FAMILY_MONO, DASHBOARD_WEIGHT_MEDIUM),
         .font_size = dashboard_type_px(tk->type.label), .height = 44, .id = text);
 }
@@ -1037,7 +1037,7 @@ static void dashboard_terminal_logs(WLX_Context *ctx, const Dashboard_Tokens *tk
                 .padding_right = 8, .gap = 0,
                 .sizes = (WLX_Slot_Size[]){ WLX_SLOT_FLEX(1), WLX_SLOT_PX(36) });
                 wlx_label(ctx, "TERMINAL LOGS [WOLLIX_ENGINE]", .style = ht,
-                    .align = WLX_TOP_LEFT, .vertical_metric = WLX_VMETRIC_FONT_SIZE,
+                    .content_align = WLX_TOP_LEFT, .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                     .content_padding_left = 12.0f, .content_padding_top = 9.0f,
                     .border_width = 0);
                 // Window dots: bright red/yellow/green in light, faded tints in
@@ -1049,11 +1049,11 @@ static void dashboard_terminal_logs(WLX_Context *ctx, const Dashboard_Tokens *tk
                 WLX_Color dot_g = light ? WLX_RGBA(34, 197, 94, 255)  : WLX_RGBA(0, 209, 255, 110);
                 wlx_layout_begin(ctx, 3, WLX_HORZ, .gap = 6,
                     .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(8), WLX_SLOT_PX(8), WLX_SLOT_PX(8) });
-                    wlx_widget(ctx, .id = "dot-r", .width = 8, .height = 8, .widget_align = WLX_CENTER,
+                    wlx_widget(ctx, .id = "dot-r", .width = 8, .height = 8, .slot_align = WLX_CENTER,
                         .back_color = dot_r, .roundness = 1.0f, .rounded_segments = 12, .border_width = 0);
-                    wlx_widget(ctx, .id = "dot-y", .width = 8, .height = 8, .widget_align = WLX_CENTER,
+                    wlx_widget(ctx, .id = "dot-y", .width = 8, .height = 8, .slot_align = WLX_CENTER,
                         .back_color = dot_y, .roundness = 1.0f, .rounded_segments = 12, .border_width = 0);
-                    wlx_widget(ctx, .id = "dot-g", .width = 8, .height = 8, .widget_align = WLX_CENTER,
+                    wlx_widget(ctx, .id = "dot-g", .width = 8, .height = 8, .slot_align = WLX_CENTER,
                         .back_color = dot_g, .roundness = 1.0f, .rounded_segments = 12, .border_width = 0);
                 wlx_layout_end(ctx);
             wlx_layout_end(ctx);
@@ -1091,13 +1091,13 @@ static void dashboard_terminal_logs(WLX_Context *ctx, const Dashboard_Tokens *tk
                                 .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(66), WLX_SLOT_FLEX(1) });
                                 WLX_Text_Style tg = dashboard_text_style(fonts, hr, tagcol);
                                 wlx_label(ctx, tagtext, .id = "tag", .style = tg,
-                                    .align = WLX_TOP_LEFT, .wrap = false,
+                                    .content_align = WLX_TOP_LEFT, .wrap = false,
                                     .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                                     .content_padding_left = 12.0f, .content_padding_top = 5.0f,
                                     .border_width = 0);
                                 WLX_Text_Style ms = dashboard_text_style(fonts, hr, muted);
                                 wlx_label(ctx, msgbuf, .id = "msg", .style = ms,
-                                    .align = WLX_TOP_LEFT, .wrap = false,
+                                    .content_align = WLX_TOP_LEFT, .wrap = false,
                                     .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                                     .content_padding_left = 12.0f, .content_padding_top = 5.0f,
                                     .border_width = 0);
@@ -1221,7 +1221,7 @@ static void dashboard_right_column(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 wlx_label(ctx, "Theme\nLaboratory",
                     .id = "Theme Laboratory",
                     .style = dashboard_text_style(fonts, tk->type.headline_md, lab_title),
-                    .align = WLX_LEFT,
+                    .content_align = WLX_LEFT,
                     .wrap = true,
                     .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                     .border_width = 0);
@@ -1229,7 +1229,7 @@ static void dashboard_right_column(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 wlx_label(ctx, "Explore component states,\ntheme presets, and live\ntheme geometry.",
                     .id = "theme-lab-subtitle",
                     .style = dashboard_text_style(fonts, tk->type.body_sm, lab_sub),
-                    .align = WLX_LEFT,
+                    .content_align = WLX_LEFT,
                     .wrap = true,
                     .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                     .border_width = 0);
@@ -1246,7 +1246,7 @@ static void dashboard_right_column(WLX_Context *ctx, const Dashboard_Tokens *tk,
                         .font = dashboard_type_font(fonts, tk->type.body_md),
                         .font_size = dashboard_type_px(tk->type.body_md),
                         .height = 36, .id = "launch-lab",
-                        .align = WLX_CENTER, .widget_align = WLX_CENTER)) {
+                        .content_align = WLX_CENTER, .slot_align = WLX_CENTER)) {
                     st->current_view = DASHBOARD_VIEW_THEME_LAB;
                 }
                 // Image placeholder: a deep cyan -> dark vertical gradient with a
@@ -1360,11 +1360,11 @@ static void dashboard_section_header(WLX_Context *ctx, const Dashboard_Tokens *t
         .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX((float)title_h), WLX_SLOT_PX((float)sub_h) });
         wlx_label(ctx, title, .id = title,
             .style = dashboard_text_style(fonts, tk->type.headline_lg, dash_accent_fg(tk)),
-            .align = WLX_LEFT, .wrap = false,
+            .content_align = WLX_LEFT, .wrap = false,
             .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
         wlx_label(ctx, subtitle, .id = subtitle,
             .style = dashboard_text_style(fonts, tk->type.body_md, tk->color.on_surface_muted),
-            .align = WLX_LEFT, .wrap = false,
+            .content_align = WLX_LEFT, .wrap = false,
             .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
     wlx_layout_end(ctx);
 }
@@ -1395,7 +1395,7 @@ static void dashboard_caption(WLX_Context *ctx, const Dashboard_Tokens *tk,
                               const Dashboard_Fonts *fonts, const char *text) {
     wlx_label(ctx, text, .id = text,
         .style = dashboard_text_style(fonts, tk->type.body_sm, dash_a(tk->color.on_surface_muted, 190)),
-        .align = WLX_LEFT, .wrap = false,
+        .content_align = WLX_LEFT, .wrap = false,
         .border_width = 0);
 }
 
@@ -1406,7 +1406,7 @@ static void dashboard_demo_tile(WLX_Context *ctx, const Dashboard_Tokens *tk,
                                 WLX_Color fill, WLX_Color fg) {
     wlx_label(ctx, text, .id = text,
         .style = dashboard_text_style(fonts, tk->type.body_sm, fg),
-        .align = WLX_CENTER, .wrap = false,
+        .content_align = WLX_CENTER, .wrap = false,
         .show_background = true, .back_color = fill,
         .roundness = 0.12f, .rounded_segments = 6,
         .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
@@ -1425,7 +1425,7 @@ static void dashboard_token_swatch(WLX_Context *ctx, const Dashboard_Tokens *tk,
         r.size = 11;
         wlx_label(ctx, name, .id = name,
             .style = dashboard_text_style(fonts, r, tk->color.on_surface_muted),
-            .align = WLX_CENTER, .wrap = false,
+            .content_align = WLX_CENTER, .wrap = false,
             .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
     wlx_layout_end(ctx);
 }
@@ -1512,11 +1512,11 @@ static void section_tokens(WLX_Context *ctx, const Dashboard_Tokens *tk,
                         wlx_label(ctx, types[i].name, .id = "role",
                             .style = dashboard_text_style(fonts, tk->type.label,
                                 dash_a(tk->color.on_surface_muted, 170)),
-                            .align = WLX_LEFT, .wrap = false,
+                            .content_align = WLX_LEFT, .wrap = false,
                             .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                         wlx_label(ctx, "Mechanical Glass 0123", .id = "sample",
                             .style = dashboard_text_style(fonts, types[i].role, tk->color.on_surface),
-                            .align = WLX_LEFT, .wrap = false,
+                            .content_align = WLX_LEFT, .wrap = false,
                             .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                     wlx_layout_end(ctx);
                     wlx_pop_id(ctx);
@@ -1542,9 +1542,9 @@ static void section_tokens(WLX_Context *ctx, const Dashboard_Tokens *tk,
                             wlx_label(ctx, space[i].name, .id = "sp",
                                 .style = dashboard_text_style(fonts, tk->type.label,
                                     tk->color.on_surface_muted),
-                                .align = WLX_LEFT, .wrap = false,
+                                .content_align = WLX_LEFT, .wrap = false,
                                 .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
-                            wlx_widget(ctx, .id = "bar", .widget_align = WLX_LEFT,
+                            wlx_widget(ctx, .id = "bar", .slot_align = WLX_LEFT,
                                 .width = (float)space[i].value * 4.0f, .height = 12,
                                 .back_color = dash_a(tk->color.accent, dash_is_light(tk) ? 70 : 130),
                                 .roundness = 0.3f, .rounded_segments = 4, .border_width = 0);
@@ -1570,7 +1570,7 @@ static void section_tokens(WLX_Context *ctx, const Dashboard_Tokens *tk,
                             wlx_label(ctx, radii[i].name, .id = "rl",
                                 .style = dashboard_text_style(fonts, tk->type.label,
                                     tk->color.on_surface_muted),
-                                .align = WLX_CENTER, .wrap = false,
+                                .content_align = WLX_CENTER, .wrap = false,
                                 .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                         wlx_layout_end(ctx);
                         wlx_pop_id(ctx);
@@ -1618,7 +1618,7 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
                         wlx_push_id(ctx, (size_t)i);
                         wlx_label(ctx, al_names[i], .id = "al",
                             .style = dashboard_text_style(fonts, tk->type.body_md, tk->color.on_surface),
-                            .align = al_vals[i], .wrap = false, .show_background = true,
+                            .content_align = al_vals[i], .wrap = false, .show_background = true,
                             .back_color = dash_a(tk->color.on_surface_muted, 24),
                             .roundness = 0.12f, .rounded_segments = 6,
                             .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
@@ -1628,24 +1628,24 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 wlx_label(ctx, "Wrapped paragraph: the label widget wraps long text to the "
                     "available width, with per-call alignment and color.", .id = "wrap",
                     .style = dashboard_text_style(fonts, tk->type.body_sm, tk->color.on_surface_muted),
-                    .align = WLX_LEFT, .wrap = true,
+                    .content_align = WLX_LEFT, .wrap = true,
                     .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                 // Icon-backed status row.
                 wlx_layout_begin(ctx, 3, WLX_HORZ, .gap = 12);
                     dashboard_icon_label(ctx, tk, "Saved", WLX_ICON_CHECK, DASHBOARD_ICON_ROLE_SUCCESS,
                         .id = "saved",
                         .style = dashboard_text_style(fonts, tk->type.body_md, tk->color.on_surface),
-                        .align = WLX_LEFT, .image_size = 18, .image_text_gap = 8,
+                        .content_align = WLX_LEFT, .image_size = 18, .image_text_gap = 8,
                         .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                     dashboard_icon_label(ctx, tk, "Details", WLX_ICON_INFO, DASHBOARD_ICON_ROLE_ACCENT,
                         .id = "details",
                         .style = dashboard_text_style(fonts, tk->type.body_md, tk->color.on_surface),
-                        .align = WLX_LEFT, .image_size = 18, .image_text_gap = 8,
+                        .content_align = WLX_LEFT, .image_size = 18, .image_text_gap = 8,
                         .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                     dashboard_icon_label(ctx, tk, "Heads up", WLX_ICON_TRIANGLE_ALERT,
                         DASHBOARD_ICON_ROLE_WARNING, .id = "warn",
                         .style = dashboard_text_style(fonts, tk->type.body_md, tk->color.on_surface),
-                        .align = WLX_LEFT, .image_size = 18, .image_text_gap = 8,
+                        .content_align = WLX_LEFT, .image_size = 18, .image_text_gap = 8,
                         .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                 wlx_layout_end(ctx);
             wlx_layout_end(ctx);
@@ -1661,24 +1661,24 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     if (wlx_button(ctx, "Neutral", .id = "btn-neutral", .height = 42,
                             .back_color = tk->color.surface_variant, .front_color = tk->color.on_surface,
                             .roundness = 0.15f, .font = body_font, .font_size = body_px,
-                            .align = WLX_CENTER))
+                            .content_align = WLX_CENTER))
                         st->comp_clicks++;
                     if (wlx_button(ctx, "Outline", .id = "btn-outline", .height = 42,
                             .back_color = (WLX_Color){0}, .front_color = dash_accent_fg(tk),
                             .border_color = dash_accent_fg(tk), .border_width = 1.0f,
                             .roundness = 0.15f, .font = body_font, .font_size = body_px,
-                            .align = WLX_CENTER))
+                            .content_align = WLX_CENTER))
                         st->comp_clicks++;
                 wlx_layout_end(ctx);
                 wlx_layout_begin(ctx, 3, WLX_HORZ, .gap = 12);
                     if (dashboard_icon_button(ctx, tk, "Save", WLX_ICON_SAVE, DASHBOARD_ICON_ROLE_ACCENT,
-                            .id = "btn-save", .height = 44, .align = WLX_CENTER,
+                            .id = "btn-save", .height = 44, .content_align = WLX_CENTER,
                             .back_color = tk->color.surface_variant, .front_color = tk->color.on_surface,
                             .roundness = 0.15f, .font = body_font, .font_size = body_px,
                             .image_placement = WLX_IMAGE_PLACEMENT_LEFT, .image_size = 18))
                         st->comp_clicks++;
                     if (dashboard_icon_button(ctx, tk, "Settings", WLX_ICON_SETTINGS,
-                            DASHBOARD_ICON_ROLE_MUTED, .id = "btn-settings", .height = 44, .align = WLX_CENTER,
+                            DASHBOARD_ICON_ROLE_MUTED, .id = "btn-settings", .height = 44, .content_align = WLX_CENTER,
                             .back_color = tk->color.surface_variant, .front_color = tk->color.on_surface,
                             .roundness = 0.15f, .font = body_font, .font_size = body_px,
                             .image_placement = WLX_IMAGE_PLACEMENT_RIGHT, .image_size = 18))
@@ -1687,7 +1687,7 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     snprintf(clicks, sizeof(clicks), "Clicks: %d", st->comp_clicks);
                     wlx_label(ctx, clicks, .id = "clicks",
                         .style = dashboard_text_style(fonts, tk->type.body_md, tk->color.on_surface_muted),
-                        .align = WLX_CENTER, .wrap = false,
+                        .content_align = WLX_CENTER, .wrap = false,
                         .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                 wlx_layout_end(ctx);
             wlx_layout_end(ctx);
@@ -1733,7 +1733,7 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
                             .back_color = tk->color.surface_variant,
                             .front_color = tk->color.on_surface,
                             .roundness = 0.15f, .font = body_font, .font_size = body_px,
-                            .align = WLX_CENTER, .item_padding = 12,
+                            .content_align = WLX_CENTER, .item_padding = 12,
                             .list_back_color = tk->color.surface_variant,
                             .list_border_color = tk->color.field_border,
                             .list_border_width = 1.0f)) {
@@ -1864,7 +1864,7 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     .border_focus_color = dash_accent_fg(tk), .cursor_color = dash_accent_fg(tk));
                 if (wlx_button(ctx, "Clear", .id = "in-clear", .height = 40,
                         .back_color = tk->status.error, .front_color = WLX_RGBA(255, 255, 255, 255),
-                        .roundness = 0.15f, .font = body_font, .font_size = body_px, .align = WLX_CENTER)) {
+                        .roundness = 0.15f, .font = body_font, .font_size = body_px, .content_align = WLX_CENTER)) {
                     st->comp_name[0] = '\0';
                     st->comp_email[0] = '\0';
                     st->comp_password[0] = '\0';
@@ -1883,21 +1883,21 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     dashboard_caption(ctx, tk, fonts, "Image (atlas)");
                     wlx_layout_begin(ctx, 3, WLX_HORZ, .gap = 12, .id = "img-row");
                         dashboard_icon_image(ctx, tk, WLX_ICON_IMAGE, DASHBOARD_ICON_ROLE_ON_SURFACE,
-                            40.0f, .id = "img-a", .width = 40, .height = 40, .widget_align = WLX_CENTER);
+                            40.0f, .id = "img-a", .width = 40, .height = 40, .slot_align = WLX_CENTER);
                         dashboard_icon_image(ctx, tk, WLX_ICON_PALETTE, DASHBOARD_ICON_ROLE_ACCENT,
-                            40.0f, .id = "img-b", .width = 40, .height = 40, .widget_align = WLX_CENTER);
+                            40.0f, .id = "img-b", .width = 40, .height = 40, .slot_align = WLX_CENTER);
                         dashboard_icon_image(ctx, tk, WLX_ICON_DATABASE, DASHBOARD_ICON_ROLE_TERTIARY,
-                            40.0f, .id = "img-c", .width = 40, .height = 40, .widget_align = WLX_CENTER);
+                            40.0f, .id = "img-c", .width = 40, .height = 40, .slot_align = WLX_CENTER);
                     wlx_layout_end(ctx);
                 wlx_layout_end(ctx);
                 // Widget: swatch + divider.
                 wlx_layout_begin(ctx, 3, WLX_VERT, .gap = 8,
                     .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(16), WLX_SLOT_PX(40), WLX_SLOT_FLEX(1) });
                     dashboard_caption(ctx, tk, fonts, "Widget (rect / divider)");
-                    wlx_widget(ctx, .id = "swatch", .widget_align = WLX_LEFT, .width = 120, .height = 36,
+                    wlx_widget(ctx, .id = "swatch", .slot_align = WLX_LEFT, .width = 120, .height = 36,
                         .back_color = tk->color.accent, .roundness = 0.15f, .rounded_segments = 6,
                         .border_width = 0);
-                    wlx_widget(ctx, .id = "divider", .widget_align = WLX_CENTER, .width = -1, .height = 2,
+                    wlx_widget(ctx, .id = "divider", .slot_align = WLX_CENTER, .width = -1, .height = 2,
                         .back_color = dash_hairline(tk, 60), .border_width = 0);
                 wlx_layout_end(ctx);
             wlx_layout_end(ctx);
@@ -2062,7 +2062,7 @@ static int dashboard_editor_doc_button(WLX_Context *ctx, const Dashboard_Tokens 
         .border_color = tk->color.field_border,
         .border_width = active ? 0.0f : 1.0f,
         .roundness = 0.15f, .font = font, .font_size = font_px,
-        .align = WLX_CENTER);
+        .content_align = WLX_CENTER);
 }
 
 static void dashboard_editor_seed_once(Dashboard_Demo_State *st) {
@@ -2322,13 +2322,13 @@ static void section_layouts(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 wlx_layout_begin(ctx, 3, WLX_HORZ, .gap = 8, .id = "op-row");
                     wlx_label(ctx, "Label", .id = "op-label",
                         .style = dashboard_text_style(fonts, tk->type.body_md, tk->color.on_surface),
-                        .align = WLX_CENTER, .show_background = true, .back_color = tile_a,
+                        .content_align = WLX_CENTER, .show_background = true, .back_color = tile_a,
                         .roundness = 0.12f, .rounded_segments = 6,
                         .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0,
                         .opacity = st->opacity_widget);
-                    wlx_button(ctx, "Button", .id = "op-btn", .height = 40, .align = WLX_CENTER,
+                    wlx_button(ctx, "Button", .id = "op-btn", .height = 40, .content_align = WLX_CENTER,
                         .font = body_font, .font_size = body_px, .opacity = st->opacity_widget);
-                    wlx_widget(ctx, .id = "op-rect", .widget_align = WLX_CENTER, .width = -1, .height = 40,
+                    wlx_widget(ctx, .id = "op-rect", .slot_align = WLX_CENTER, .width = -1, .height = 40,
                         .back_color = tk->color.accent, .roundness = 0.12f, .rounded_segments = 6,
                         .border_width = 0, .opacity = st->opacity_widget);
                 wlx_layout_end(ctx);
@@ -2393,7 +2393,7 @@ static void section_layouts(WLX_Context *ctx, const Dashboard_Tokens *tk,
                         wlx_push_id(ctx, (size_t)i);
                         wlx_label(ctx, wl[i], .id = "bw",
                             .style = dashboard_text_style(fonts, tk->type.body_md, tk->color.on_surface),
-                            .align = WLX_CENTER, .show_background = true, .back_color = tk->glass.fill,
+                            .content_align = WLX_CENTER, .show_background = true, .back_color = tk->glass.fill,
                             .border_color = dash_accent_fg(tk), .border_width = widths[i],
                             .roundness = 0.12f, .rounded_segments = 6,
                             .vertical_metric = WLX_VMETRIC_FONT_SIZE);
@@ -2433,7 +2433,7 @@ static void section_layouts(WLX_Context *ctx, const Dashboard_Tokens *tk,
                                                          : (WLX_Color){0};
                             wlx_label(ctx, buf, .id = "row",
                                 .style = dashboard_text_style(fonts, tk->type.body_sm, tk->color.on_surface),
-                                .align = WLX_LEFT, .show_background = (rbg.a != 0), .back_color = rbg,
+                                .content_align = WLX_LEFT, .show_background = (rbg.a != 0), .back_color = rbg,
                                 .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                             wlx_pop_id(ctx);
                         }
@@ -2461,7 +2461,7 @@ static void dashboard_preset_card(WLX_Context *ctx, const Dashboard_Tokens *tk,
         .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(18), WLX_SLOT_FLEX(1) });
         wlx_label(ctx, name, .id = name,
             .style = dashboard_text_style(fonts, tk->type.label, tk->color.on_surface),
-            .align = WLX_LEFT, .wrap = false,
+            .content_align = WLX_LEFT, .wrap = false,
             .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
         wlx_layout_begin(ctx, 3, WLX_HORZ, .gap = 6, .id = "sw");
             wlx_widget(ctx, .id = "bg", .back_color = preset->background,
@@ -2517,7 +2517,7 @@ static void section_theme_lab(WLX_Context *ctx, const Dashboard_Tokens *tk,
                         wlx_label(ctx, states[s], .id = "h",
                             .style = dashboard_text_style(fonts, tk->type.label,
                                 tk->color.on_surface_muted),
-                            .align = WLX_CENTER, .wrap = false,
+                            .content_align = WLX_CENTER, .wrap = false,
                             .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                         wlx_pop_id(ctx);
                     }
@@ -2533,14 +2533,14 @@ static void section_theme_lab(WLX_Context *ctx, const Dashboard_Tokens *tk,
                                     wlx_label(ctx, "Label", .id = "w",
                                         .style = dashboard_text_style(fonts, tk->type.body_sm,
                                             tk->color.on_surface),
-                                        .align = WLX_CENTER, .show_background = true, .back_color = st_bg[s],
+                                        .content_align = WLX_CENTER, .show_background = true, .back_color = st_bg[s],
                                         .border_color = st_bd[s], .border_width = st_bw[s],
                                         .roundness = 0.12f, .rounded_segments = 6,
                                         .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                                         .opacity = disabled ? 0.45f : 1.0f);
                                     break;
                                 case 1:
-                                    wlx_button(ctx, "Button", .id = "w", .height = 30, .align = WLX_CENTER,
+                                    wlx_button(ctx, "Button", .id = "w", .height = 30, .content_align = WLX_CENTER,
                                         .back_color = st_bg[s], .front_color = tk->color.on_surface,
                                         .border_color = st_bd[s], .border_width = st_bw[s],
                                         .roundness = 0.12f, .font = body_font, .font_size = body_px,
@@ -2600,17 +2600,17 @@ static void section_theme_lab(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(20), WLX_SLOT_PX(40) });
                 wlx_label(ctx, geo, .id = "geo",
                     .style = dashboard_text_style(fonts, tk->type.mono, tk->color.on_surface),
-                    .align = WLX_LEFT, .wrap = false,
+                    .content_align = WLX_LEFT, .wrap = false,
                     .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                 wlx_layout_begin(ctx, 2, WLX_HORZ, .gap = 12,
                     .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(120), WLX_SLOT_FLEX(1) });
-                    wlx_widget(ctx, .id = "acc-sw", .widget_align = WLX_LEFT, .width = 120, .height = 36,
+                    wlx_widget(ctx, .id = "acc-sw", .slot_align = WLX_LEFT, .width = 120, .height = 36,
                         .back_color = ctx->theme->accent, .roundness = 0.15f, .rounded_segments = 6,
                         .border_width = 0);
                     wlx_label(ctx, "theme->accent", .id = "acc-lbl",
                         .style = dashboard_text_style(fonts, tk->type.body_sm,
                             tk->color.on_surface_muted),
-                        .align = WLX_LEFT, .wrap = false,
+                        .content_align = WLX_LEFT, .wrap = false,
                         .vertical_metric = WLX_VMETRIC_FONT_SIZE, .border_width = 0);
                 wlx_layout_end(ctx);
             wlx_layout_end(ctx);

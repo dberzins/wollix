@@ -36,15 +36,15 @@ int main(void) {
                     wlx_layout_begin(ctx, 5, WLX_VERT);
 
                     wlx_button(ctx, "BUTTON1",
-                            .widget_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .align = WLX_CENTER
+                            .slot_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .content_align = WLX_CENTER
                         );
 
                     wlx_label(ctx, "TEXTBOX1",
-                            .widget_align = WLX_CENTER, .font_size = 20, .height = -1, .back_color = GREEN, .align = WLX_CENTER,
+                            .slot_align = WLX_CENTER, .font_size = 20, .height = -1, .back_color = GREEN, .content_align = WLX_CENTER,
                             .span = 3, .show_background = true
                         );
                     wlx_button(ctx, "BUTTON3",
-                            .widget_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .align = WLX_CENTER
+                            .slot_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .content_align = WLX_CENTER
                         );
                     wlx_layout_end(ctx);
                 wlx_layout_end(ctx);
