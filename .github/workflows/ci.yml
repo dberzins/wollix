@@ -153,3 +153,28 @@ jobs:
 
       - name: Run tests (WLX_PERF)
         run: make perf-test
+
+  # macOS proves Apple clang, the __APPLE__ branch and the C++ gate on the
+  # second platform. Tests only: the demo link line is Linux-specific and
+  # the perf gates are Linux-tuned. LeakSanitizer is not part of the Apple
+  # Silicon runtime, so the sanitizer run keeps ASan + UBSan and turns leak
+  # detection off.
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          clang --version
+          make --version | head -1
+
+      - name: Run tests
+        run: make CC=clang test
+
+      - name: Run tests (warnings-as-errors)
+        run: make CC=clang test BASE_CFLAGS="-Wall -Wextra -Werror -Werror=switch -std=c11 -Wno-initializer-overrides"
+
+      - name: Run tests (ASan + UBSan, leak detection off)
+        run: make CC=clang ASAN_DETECT_LEAKS=0 test-asan

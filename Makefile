@@ -255,13 +255,16 @@ $(PERF_TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard
 	$(CC) $(BASE_CFLAGS) -DWLX_PERF -I. -o $@ $(TEST_DIR)/test_main.c -lm
 
 # Sanitizer gate: the runner under ASan + UBSan with leak detection on. LSan
-# is off by default on some hosts, so the option is spelled out. The runner
-# alone is the gate; test_hard_assert longjmps out of asserts by design.
+# is off by default on some hosts, so the option is spelled out; hosts whose
+# runtime has no LeakSanitizer (Apple Silicon macOS) pass ASAN_DETECT_LEAKS=0
+# and keep the address and undefined-behaviour checks. The runner alone is
+# the gate; test_hard_assert longjmps out of asserts by design.
 TEST_ASAN_BIN = $(TEST_DIR)/test_runner_asan
 SANITIZE_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
+ASAN_DETECT_LEAKS ?= 1
 
 test-asan: $(TEST_ASAN_BIN)
-	ASAN_OPTIONS=detect_leaks=1 ./$(TEST_ASAN_BIN)
+	ASAN_OPTIONS=detect_leaks=$(ASAN_DETECT_LEAKS) ./$(TEST_ASAN_BIN)
 
 $(TEST_ASAN_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) $(SANITIZE_FLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
