@@ -4566,7 +4566,7 @@ static void gallery_platform_clear(WLX_Color bg) {
 
 static int gallery_platform_fps(void) {
     static float smoothed_fps = 0.0f;
-    float ft = g_wasm_ctx->backend.get_frame_time();
+    float ft = g_wasm_ctx->backend.get_frame_time(g_wasm_ctx->backend.user);
     if (ft > 0.0001f) {
         float instant = 1.0f / ft;
         if (smoothed_fps <= 0.0f) smoothed_fps = instant;
@@ -4602,7 +4602,8 @@ void wlx_wasm_frame(float width, float height) {
     wlx_begin(g_wasm_ctx, root, wlx_process_wasm_input);
 
     gallery_platform_clear(g_wasm_ctx->theme->background);
-    g_wasm_ctx->backend.draw_rect(root, g_wasm_ctx->theme->background);
+    g_wasm_ctx->backend.draw_rect(root, g_wasm_ctx->theme->background,
+                                  g_wasm_ctx->backend.user);
 
     gallery_render_frame(g_wasm_ctx, &g);
 
