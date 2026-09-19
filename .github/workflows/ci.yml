@@ -178,3 +178,24 @@ jobs:
 
       - name: Run tests (ASan + UBSan, leak detection off)
         run: make CC=clang ASAN_DETECT_LEAKS=0 test-asan
+
+  # Windows proves MSVC (C11 mode, the conforming preprocessor, the C++
+  # gate under cl) through the CMake project and CTest; the Makefile is
+  # POSIX-only. Tests only, no demos; test_hard_assert is POSIX-only and
+  # the CMake list leaves it out on Windows.
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Toolchain
+        run: cmake --version
+
+      - name: Configure
+        run: cmake -B build -DWOLLIX_BUILD_TESTS=ON -DWOLLIX_BUILD_DEMOS=OFF
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
