@@ -26,7 +26,13 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <io.h>      // _isatty, _fileno
+#define TESTS_STDOUT_IS_TTY() _isatty(_fileno(stdout))
+#else
 #include <unistd.h>  // isatty
+#define TESTS_STDOUT_IS_TTY() isatty(STDOUT_FILENO)
+#endif
 
 // ============================================================================
 // Internal state
@@ -47,7 +53,7 @@ static int         _test_current_failed = 0;
 
 static inline int _test_use_color(void) {
     static int cached = -1;
-    if (cached < 0) cached = isatty(STDOUT_FILENO);
+    if (cached < 0) cached = TESTS_STDOUT_IS_TTY();
     return cached;
 }
 

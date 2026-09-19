@@ -242,12 +242,16 @@ static inline void dashboard_segmented_progress(WLX_Context *ctx, const Dashboar
 
 // Dense data table: header row over `nrows` zebra-striped data rows with grid
 // lines. `cells` is row-major with `ncols` entries per row (nrows * ncols).
+// Rows beyond DASHBOARD_TABLE_MAX_ROWS are not shown: the row-size array is a
+// fixed buffer so the header compiles where variable-length arrays do not.
+#define DASHBOARD_TABLE_MAX_ROWS 64
 static inline void dashboard_table(WLX_Context *ctx, const Dashboard_Tokens *tk,
                                    const Dashboard_Fonts *fonts,
                                    const char **headers, const char **cells,
                                    int ncols, int nrows) {
     if (ncols < 1) ncols = 1;
     if (nrows < 0) nrows = 0;
+    if (nrows > DASHBOARD_TABLE_MAX_ROWS) nrows = DASHBOARD_TABLE_MAX_ROWS;
     const float header_h = 28.0f;
     const float row_h = 26.0f;
     const float pad = (float)tk->spacing.sm;
@@ -260,7 +264,7 @@ static inline void dashboard_table(WLX_Context *ctx, const Dashboard_Tokens *tk,
     // Header fill, zebra fills, and grid rules are the rows' own container decor:
     // per-row .back_color, a per-data-row bottom hairline, and a per-cell right
     // hairline (on every column but the last) forming the vertical separators.
-    WLX_Slot_Size row_sizes[1 + nrows];
+    WLX_Slot_Size row_sizes[1 + DASHBOARD_TABLE_MAX_ROWS];
     row_sizes[0] = WLX_SLOT_PX(header_h);
     for (int i = 1; i <= nrows; i++) row_sizes[i] = WLX_SLOT_PX(row_h);
     wlx_layout_begin(ctx, 1 + nrows, WLX_VERT, .id = "dash_table", .gap = 0,
