@@ -11,7 +11,9 @@ What IS very welcome right now, as GitHub issues:
 
 - Bug reports with a minimal reproducing snippet
 - API feedback and friction reports from real usage
-- Platform reports (does it build on your Windows / macOS setup?)
+- Platform reports (CI covers Linux with gcc and clang, macOS with Apple
+  clang, and Windows with MSVC through CMake; other compilers, older
+  toolchains and real applications are what we cannot see)
 
 ## Building and tests
 

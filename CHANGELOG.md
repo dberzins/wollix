@@ -166,6 +166,11 @@ your own pace before the next minor.
   address and undefined-behaviour checks.
 - **macOS CI leg.** `test-macos` runs the unit suite, the warnings-as-errors
   set and the sanitizer runner on `macos-latest`.
+- **Windows/MSVC CI leg.** `test-windows` configures the CMake project,
+  builds Release and runs CTest under MSVC (C11 mode, the conforming
+  preprocessor, the C++ gate under `cl`) on `windows-latest`; the death-check
+  binary stays POSIX-only. The test tree and the dashboard theme no longer
+  rely on compound literals in static initializers, which MSVC C rejects.
 - **MSVC build requirement documented.** `/std:c11 /Zc:preprocessor`
   (Visual Studio 2019 16.8 or later); the conforming preprocessor is needed
   for `wlx_layout_begin_s`. A Windows CI leg follows in this cycle.

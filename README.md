@@ -333,6 +333,11 @@ For build targets, gallery benchmark commands, and output interpretation, see
 
 ## Building
 
+CI builds and tests every push on Linux (gcc and clang, plus ASan/UBSan,
+warnings-as-errors and the perf gates), macOS (Apple clang) and Windows
+(MSVC through CMake). The Makefile is the Linux/macOS developer tool; the
+CMake project (below) is the consumer surface and the Windows build.
+
 ### Using Makefile
 
 ```bash
@@ -401,6 +406,8 @@ sites; CI runs both.
 
 Wollix is experimental and the API is not yet stable — **code contributions
 (PRs) are not being accepted before v1.0.0.** Bug reports, API feedback, and
-platform reports (Windows/macOS build attempts especially) are very welcome
-as issues. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+platform reports are very welcome as issues. CI builds the library and runs
+its test suite on Linux (gcc, clang), macOS (Apple clang) and Windows (MSVC,
+through CMake), so reports from other compilers and setups are the useful
+ones. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
