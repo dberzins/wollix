@@ -205,6 +205,10 @@ your own pace before the next minor.
   redo".
 
 ### Fixed
+- **MSVC `/W4` warnings in the header.** The U+FFFD writer copies its three
+  bytes instead of casting constants above 127 to `char` (C4310), and two
+  `int` font sizes are cast where a `float` is wanted (C4244). No behaviour
+  change.
 - **Layout `.clip` gates the pointer.** A `.clip` layout cropped its
   children's drawing but not their hit zones: the cropped part of a widget
   could still be hovered, pressed and dragged, and under topmost-wins

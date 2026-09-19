@@ -212,7 +212,12 @@ RGBA color. Fields are `r`, `g`, `b`, `a` — each 0–255. When all four are 0
 #define WLX_RGBA(r, g, b, a) ((WLX_Color){ (r), (g), (b), (a) })
 ```
 
-Construct a `WLX_Color` literal.
+Construct a `WLX_Color` literal. In C it is a compound literal: an
+expression, not a constant expression, so an object with static storage
+duration (a file-scope or `static` table) takes the plain brace form
+`{ r, g, b, a }` instead; gcc and clang accept the literal there as an
+extension, MSVC does not. In C++ the macro expands to a brace-initialised
+prvalue and either form is fine.
 
 ### `WLX_Texture`
 
@@ -1695,7 +1700,10 @@ Alias for `wlx_layout_end(ctx)`.
 ## Slot Size Macros
 
 Construct `WLX_Slot_Size` values for use in `sizes` / `row_sizes` / `col_sizes`
-arrays.
+arrays. In C each macro is a compound literal (an expression, not a constant
+expression): an automatic array may use them, but an object with static
+storage duration takes the brace form, `{ WLX_SIZE_PIXELS, 44, 0, 0 }`; gcc
+and clang accept the literal there as an extension, MSVC does not.
 
 ### Basic variants
 
