@@ -337,7 +337,14 @@ typedef struct {
 
 #endif // RAYLIB_H
 
+// Colour literal. C spells it as a compound literal; C++ (which has none)
+// as a brace-initialised WLX_Color prvalue, with the casts C++11
+// list-initialisation needs to accept int arguments without narrowing.
+#ifdef __cplusplus
+#define WLX_RGBA(r, g, b, a) (WLX_Color{ (uint8_t)(r), (uint8_t)(g), (uint8_t)(b), (uint8_t)(a) })
+#else
 #define WLX_RGBA(r, g, b, a) ((WLX_Color){ (r), (g), (b), (a) })
+#endif
 
 // Deprecated: use ctx->theme->background / scrollbar.bar / hover_brightness instead.
 // Kept for backward compatibility with existing demo ClearBackground() calls.
@@ -721,35 +728,46 @@ typedef struct {
     float max;   // 0 = unconstrained
 } WLX_Slot_Size;
 
-#define WLX_SLOT_AUTO ((WLX_Slot_Size){ WLX_SIZE_AUTO, 0, 0, 0 })
-#define WLX_SLOT_PX(px) ((WLX_Slot_Size){ WLX_SIZE_PIXELS, (px), 0, 0 })
-#define WLX_SLOT_PCT(pct) ((WLX_Slot_Size){ WLX_SIZE_PERCENT, (pct), 0, 0 })
-#define WLX_SLOT_FLEX(w) ((WLX_Slot_Size){ WLX_SIZE_FLEX, (w), 0, 0 })
+// Slot size literal, spelled per language: C as a compound literal, C++
+// (which has none) as a brace-initialised WLX_Slot_Size prvalue with the
+// casts C++11 list-initialisation needs to accept int arguments without
+// narrowing. Every WLX_SLOT_* macro below expands through it, so the two
+// languages share one vocabulary.
+#ifdef __cplusplus
+#define WLX_SLOT_LIT(kind, v, lo, hi) (WLX_Slot_Size{ (kind), (float)(v), (float)(lo), (float)(hi) })
+#else
+#define WLX_SLOT_LIT(kind, v, lo, hi) ((WLX_Slot_Size){ (kind), (v), (lo), (hi) })
+#endif
+
+#define WLX_SLOT_AUTO WLX_SLOT_LIT(WLX_SIZE_AUTO, 0, 0, 0)
+#define WLX_SLOT_PX(px) WLX_SLOT_LIT(WLX_SIZE_PIXELS, (px), 0, 0)
+#define WLX_SLOT_PCT(pct) WLX_SLOT_LIT(WLX_SIZE_PERCENT, (pct), 0, 0)
+#define WLX_SLOT_FLEX(w) WLX_SLOT_LIT(WLX_SIZE_FLEX, (w), 0, 0)
 
 // Constrained slot size variants
-#define WLX_SLOT_PX_MINMAX(px, lo, hi) ((WLX_Slot_Size){ WLX_SIZE_PIXELS, (px), (lo), (hi) })
-#define WLX_SLOT_FLEX_MIN(w, lo)        ((WLX_Slot_Size){ WLX_SIZE_FLEX, (w), (lo), 0 })
-#define WLX_SLOT_FLEX_MAX(w, hi)        ((WLX_Slot_Size){ WLX_SIZE_FLEX, (w), 0, (hi) })
-#define WLX_SLOT_FLEX_MINMAX(w, lo, hi) ((WLX_Slot_Size){ WLX_SIZE_FLEX, (w), (lo), (hi) })
-#define WLX_SLOT_AUTO_MIN(lo)           ((WLX_Slot_Size){ WLX_SIZE_AUTO, 0, (lo), 0 })
-#define WLX_SLOT_AUTO_MAX(hi)           ((WLX_Slot_Size){ WLX_SIZE_AUTO, 0, 0, (hi) })
-#define WLX_SLOT_AUTO_MINMAX(lo, hi)    ((WLX_Slot_Size){ WLX_SIZE_AUTO, 0, (lo), (hi) })
-#define WLX_SLOT_PCT_MINMAX(pct, lo, hi)((WLX_Slot_Size){ WLX_SIZE_PERCENT, (pct), (lo), (hi) })
+#define WLX_SLOT_PX_MINMAX(px, lo, hi) WLX_SLOT_LIT(WLX_SIZE_PIXELS, (px), (lo), (hi))
+#define WLX_SLOT_FLEX_MIN(w, lo)        WLX_SLOT_LIT(WLX_SIZE_FLEX, (w), (lo), 0)
+#define WLX_SLOT_FLEX_MAX(w, hi)        WLX_SLOT_LIT(WLX_SIZE_FLEX, (w), 0, (hi))
+#define WLX_SLOT_FLEX_MINMAX(w, lo, hi) WLX_SLOT_LIT(WLX_SIZE_FLEX, (w), (lo), (hi))
+#define WLX_SLOT_AUTO_MIN(lo)           WLX_SLOT_LIT(WLX_SIZE_AUTO, 0, (lo), 0)
+#define WLX_SLOT_AUTO_MAX(hi)           WLX_SLOT_LIT(WLX_SIZE_AUTO, 0, 0, (hi))
+#define WLX_SLOT_AUTO_MINMAX(lo, hi)    WLX_SLOT_LIT(WLX_SIZE_AUTO, 0, (lo), (hi))
+#define WLX_SLOT_PCT_MINMAX(pct, lo, hi) WLX_SLOT_LIT(WLX_SIZE_PERCENT, (pct), (lo), (hi))
 
 // Viewport-fill: resolve against the innermost scroll panel viewport
 // (or root rect if no scroll panel). value = fraction (1.0 = full viewport).
-#define WLX_SLOT_FILL                  ((WLX_Slot_Size){ WLX_SIZE_FILL, 1.0f, 0, 0 })
-#define WLX_SLOT_FILL_PCT(p)           ((WLX_Slot_Size){ WLX_SIZE_FILL, (p) / 100.0f, 0, 0 })
-#define WLX_SLOT_FILL_MIN(lo)          ((WLX_Slot_Size){ WLX_SIZE_FILL, 1.0f, (lo), 0 })
-#define WLX_SLOT_FILL_MAX(hi)          ((WLX_Slot_Size){ WLX_SIZE_FILL, 1.0f, 0, (hi) })
-#define WLX_SLOT_FILL_MINMAX(lo, hi)   ((WLX_Slot_Size){ WLX_SIZE_FILL, 1.0f, (lo), (hi) })
+#define WLX_SLOT_FILL                  WLX_SLOT_LIT(WLX_SIZE_FILL, 1.0f, 0, 0)
+#define WLX_SLOT_FILL_PCT(p)           WLX_SLOT_LIT(WLX_SIZE_FILL, (p) / 100.0f, 0, 0)
+#define WLX_SLOT_FILL_MIN(lo)          WLX_SLOT_LIT(WLX_SIZE_FILL, 1.0f, (lo), 0)
+#define WLX_SLOT_FILL_MAX(hi)          WLX_SLOT_LIT(WLX_SIZE_FILL, 1.0f, 0, (hi))
+#define WLX_SLOT_FILL_MINMAX(lo, hi)   WLX_SLOT_LIT(WLX_SIZE_FILL, 1.0f, (lo), (hi))
 
 // Content-fit: slot height is determined by the child's preferred height
 // (measured from the previous frame). min/max constrain the measured value.
-#define WLX_SLOT_CONTENT                ((WLX_Slot_Size){ WLX_SIZE_CONTENT, 0, 0, 0 })
-#define WLX_SLOT_CONTENT_MIN(lo)        ((WLX_Slot_Size){ WLX_SIZE_CONTENT, 0, (lo), 0 })
-#define WLX_SLOT_CONTENT_MAX(hi)        ((WLX_Slot_Size){ WLX_SIZE_CONTENT, 0, 0, (hi) })
-#define WLX_SLOT_CONTENT_MINMAX(lo, hi) ((WLX_Slot_Size){ WLX_SIZE_CONTENT, 0, (lo), (hi) })
+#define WLX_SLOT_CONTENT                WLX_SLOT_LIT(WLX_SIZE_CONTENT, 0, 0, 0)
+#define WLX_SLOT_CONTENT_MIN(lo)        WLX_SLOT_LIT(WLX_SIZE_CONTENT, 0, (lo), 0)
+#define WLX_SLOT_CONTENT_MAX(hi)        WLX_SLOT_LIT(WLX_SIZE_CONTENT, 0, 0, (hi))
+#define WLX_SLOT_CONTENT_MINMAX(lo, hi) WLX_SLOT_LIT(WLX_SIZE_CONTENT, 0, (lo), (hi))
 
 // Auto-counting sizes helper. Expands to two comma-separated arguments:
 // the element count (size_t) and a WLX_Slot_Size[] compound literal pointer.
@@ -762,6 +780,13 @@ typedef struct {
 // side-effect-free expressions (all WLX_SLOT_* macros are safe).
 // The outer (()) around the compound literal protects internal commas from
 // the preprocessor when passed through variadic macro arguments.
+// C only: an array compound literal has no C++ expression form. A C++
+// caller names the array and passes its count and pointer:
+//
+//   static const WLX_Slot_Size sizes[] = { WLX_SLOT_PX(44), WLX_SLOT_FLEX(1) };
+//   WLX_Layout_Opt lo = wlx_layout_opt_defaults();
+//   lo.sizes = sizes;
+//   wlx_layout_begin_impl(ctx, 2, WLX_VERT, lo, __FILE__, __LINE__);
 #define WLX_SIZES(...) \
     (sizeof((WLX_Slot_Size[]){ __VA_ARGS__ }) / sizeof(WLX_Slot_Size)), \
     ((WLX_Slot_Size[]){ __VA_ARGS__ })
