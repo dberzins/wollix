@@ -122,6 +122,33 @@ your own pace before the next minor.
    call the `_impl` function.
 
 ### Added
+- **Calling from C++.** The public half of all five headers now carries C
+  linkage (`extern "C"`) and parses as ISO C++11, so a C++ translation unit
+  includes the headers as-is and links against the implementation compiled
+  as C11 in one C translation unit (the backend adapter lives there too;
+  defining `WOLLIX_IMPLEMENTATION` from C++ is not supported). The
+  documented path is `wlx_<widget>_opt_defaults()`, assign, call the
+  widget's `_impl` entry; README "Using from C++" and API_REFERENCE
+  "Calling from C++" carry the rules, the example and the entry table.
+- **C++ spellings of the literal helpers.** `WLX_RGBA` and every
+  `WLX_SLOT_*` macro expand under `__cplusplus` to a brace-initialised
+  prvalue (`WLX_SLOT_LIT` picks the form per language), with the casts
+  C++11 list-initialisation needs for `int` arguments; the C expansions are
+  unchanged. `WLX_SIZES` stays C-only and documents the named-array form.
+- **`from_defaults` marker.** Every option struct ends with
+  `bool from_defaults`, set by its defaults macro and so by the defaults
+  function and every copy. Under `WLX_DEBUG` a struct that reaches a widget
+  entry with the flag clear (a zero-initialised struct, which holds zeros
+  where the defaults are non-zero) warns once per call site, naming the
+  entry and the defaults function to start from; release builds never read
+  it. SENTINEL.md documents the rule.
+- **C++ gate in `make test`.** `tests/test_cpp_path.cpp` is a C++11 caller
+  over the public headers and the mock backend, linked against the
+  implementation compiled as C11; `CXX` follows `CC` (gcc -> g++, otherwise
+  clang++) so the CI matrix covers both front ends.
+- **MSVC build requirement documented.** `/std:c11 /Zc:preprocessor`
+  (Visual Studio 2019 16.8 or later); the conforming preprocessor is needed
+  for `wlx_layout_begin_s`. A Windows CI leg follows in this cycle.
 - **`wlx_set_style_transform`.** A context-level transform (function plus
   user pointer) that the core applies to the `WLX_Text_Style` immediately
   before every text callback - draw, measure and advances - and nowhere

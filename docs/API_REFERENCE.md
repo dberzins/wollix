@@ -60,11 +60,12 @@ layout library.
 35. [Widget — `wlx_tooltip_for`](#widget--wlx_tooltip_for)
 36. [Compound Widget — `wlx_menu`](#compound-widget--wlx_menu)
 37. [Shared Option Field Macros](#shared-option-field-macros)
-38. [Theme Presets](#theme-presets)
-39. [Backend — Raylib](#backend--raylib)
-40. [Backend — SDL3](#backend--sdl3)
-41. [Backend — WASM](#backend--wasm)
-42. [Performance Diagnostics](#performance-diagnostics)
+38. [Calling from C++](#calling-from-c)
+39. [Theme Presets](#theme-presets)
+40. [Backend — Raylib](#backend--raylib)
+41. [Backend — SDL3](#backend--sdl3)
+42. [Backend — WASM](#backend--wasm)
+43. [Performance Diagnostics](#performance-diagnostics)
 
 ---
 
@@ -3501,6 +3502,114 @@ One function exists per option struct: `slot_style`, `grid`, `grid_auto`,
 `separator`, `progress`, `image`, `toggle`, `radio`, `scroll_panel`,
 `list_clipper`, `split`, `split_next`, `panel` (core) and `editor`
 (`wollix_editor.h`).
+
+Every option struct ends with `bool from_defaults`, set by the macro and so
+by these functions and by every copy of a struct built from either. A
+struct that reaches a widget entry with the flag clear (a zero-initialised
+struct, which holds zeros where the defaults are non-zero) makes a
+`WLX_DEBUG` build warn once per call site, naming the entry and the
+defaults function to start from. Release builds never read the flag.
+
+---
+
+## Calling from C++
+
+Wollix is compiled as C and called from C++. The public half of every
+header carries C linkage (`extern "C"`) and parses as ISO C++11; the
+implementation is compiled as C11 in one C translation unit that the C++
+code links against. Defining `WOLLIX_IMPLEMENTATION` in a C++ translation
+unit is not supported.
+
+**The C translation unit owns the backend adapter.** `wollix_raylib.h`,
+`wollix_sdl3.h` and `wollix_wasm.h` are `static inline` bodies over
+implementation internals and can only be included where
+`WOLLIX_IMPLEMENTATION` is defined (this is true for multi-file C programs
+too). Put `wlx_context_init_<backend>` and the `wlx_begin` call with
+`wlx_process_<backend>_input` behind small C functions the C++ side calls;
+`wlx_end`, `wlx_context_destroy` and everything else in the core are
+callable directly.
+
+**Options come from the defaults functions.** Take
+`wlx_<widget>_opt_defaults()`, assign fields, and call the struct-form
+entry with the call site (the last two arguments feed the `WLX_DEBUG`
+call-site diagnostics; pass `__FILE__, __LINE__`):
+
+```cpp
+WLX_Button_Opt bo = wlx_button_opt_defaults();
+bo.content_align = WLX_CENTER;
+bo.border_width = 0;
+if (wlx_button_impl(ctx, "OK", bo, __FILE__, __LINE__)) { /* ... */ }
+```
+
+Never brace-initialise an option struct (`WLX_Button_Opt o{};`, `= {}`, or
+a C++20 designated initialiser): the defaults are non-zero, so the result is
+zeros, not defaults, and a `WLX_DEBUG` build warns once per call site
+through the `from_defaults` marker (see above). The `.field = value` macros
+(`wlx_button(ctx, "OK", .content_align = WLX_CENTER)`) are the C11 surface
+and are not available from C++.
+
+**Struct-form entries.** One per option-taking call, same name with the
+`_impl` suffix, the option struct by value, then `const char *file, int
+line` where the macro form records a call site:
+
+| Entry | Options |
+|---|---|
+| `wlx_layout_begin_impl(ctx, count, orient, opt, file, line)` | `WLX_Layout_Opt` |
+| `wlx_layout_begin_auto_impl(ctx, orient, slot_px, opt)` | `WLX_Layout_Opt` |
+| `wlx_overlay_begin_impl(ctx, count, rect, opt, file, line)` | `WLX_Overlay_Opt` |
+| `wlx_grid_begin_impl(ctx, rows, cols, opt, file, line)` | `WLX_Grid_Opt` |
+| `wlx_grid_begin_auto_impl(ctx, cols, row_px, opt)` | `WLX_Grid_Auto_Opt` |
+| `wlx_grid_begin_auto_tile_impl(ctx, tile_w, tile_h, opt)` | `WLX_Grid_Auto_Opt` |
+| `wlx_grid_cell_impl(ctx, row, col, opt)` | `WLX_Slot_Style_Opt` |
+| `wlx_grid_cell_style_impl(ctx, opt)` | `WLX_Slot_Style_Opt` |
+| `wlx_slot_style_impl(ctx, opt)` | `WLX_Slot_Style_Opt` |
+| `wlx_widget_impl(ctx, opt, file, line)` | `WLX_Widget_Opt` |
+| `wlx_label_impl(ctx, text, opt, file, line)` | `WLX_Label_Opt` |
+| `wlx_button_impl(ctx, text, opt, file, line)` | `WLX_Button_Opt` |
+| `wlx_checkbox_impl(ctx, text, checked, opt, file, line)` | `WLX_Checkbox_Opt` |
+| `wlx_inputbox_impl(ctx, label, buffer, buffer_size, opt, file, line)` | `WLX_Inputbox_Opt` |
+| `wlx_editor_impl(ctx, label, buffer, buffer_cap, length, opt, file, line)` | `WLX_Editor_Opt` |
+| `wlx_slider_impl(ctx, label, value, opt, file, line)` | `WLX_Slider_Opt` |
+| `wlx_separator_impl(ctx, opt, file, line)` | `WLX_Separator_Opt` |
+| `wlx_progress_impl(ctx, value, opt, file, line)` | `WLX_Progress_Opt` |
+| `wlx_image_impl(ctx, texture, opt, file, line)` | `WLX_Image_Opt` |
+| `wlx_toggle_impl(ctx, label, value, opt, file, line)` | `WLX_Toggle_Opt` |
+| `wlx_radio_impl(ctx, label, active, index, opt, file, line)` | `WLX_Radio_Opt` |
+| `wlx_scroll_panel_begin_impl(ctx, content_height, opt, file, line)` | `WLX_Scroll_Panel_Opt` |
+| `wlx_list_clipper_begin_impl(ctx, item_count, row_height, opt)` | `WLX_List_Clipper_Opt` |
+| `wlx_split_begin_impl(ctx, opt, file, line)` | `WLX_Split_Opt` |
+| `wlx_split_next_impl(ctx, opt, file, line)` | `WLX_Split_Next_Opt` |
+| `wlx_panel_begin_impl(ctx, opt, file, line)` | `WLX_Panel_Opt` |
+| `wlx_dropdown_impl(ctx, label, selected, options, count, opt, file, line)` | `WLX_Dropdown_Opt` |
+| `wlx_tooltip_for_impl(ctx, anchor, text, opt, file, line)` | `WLX_Tooltip_Opt` |
+| `wlx_menu_begin_impl(ctx, open, x, y, opt, file, line)` | `WLX_Menu_Opt` |
+| `wlx_submenu_begin_impl(ctx, open, opt, file, line)` | `WLX_Menu_Opt` |
+| `wlx_menu_button_begin_impl(ctx, label, open, opt, file, line)` | `WLX_Menu_Button_Opt` |
+| `wlx_menu_item_impl(ctx, text, opt, file, line)` | `WLX_Menu_Item_Opt` |
+
+`wlx_get_state_impl(ctx, size, file, line)` and `wlx_split_end_impl(ctx)`
+take no options. The `_end` calls, the interaction and input queries, the
+theme and utility functions are plain functions and need no substitute.
+
+**Literal helpers.** `WLX_RGBA` and every `WLX_SLOT_*` macro expand, under
+`__cplusplus`, to a brace-initialised prvalue with the casts C++11
+list-initialisation needs, so `WLX_SLOT_PX(px)` with an `int` argument is
+fine. `WLX_SIZES` is C-only (an array compound literal has no C++
+expression form): name the array and pass the count and pointer.
+
+```cpp
+static const WLX_Slot_Size sizes[] = { WLX_SLOT_PX(44), WLX_SLOT_FLEX(1) };
+WLX_Layout_Opt lo = wlx_layout_opt_defaults();
+lo.sizes = sizes;
+wlx_layout_begin_impl(ctx, 2, WLX_VERT, lo, __FILE__, __LINE__);
+```
+
+**Build.** The C translation unit needs the override-warning suppression
+(`-Wno-initializer-overrides` on clang, `-Wno-override-init` on gcc) and,
+on MSVC, `/std:c11 /Zc:preprocessor` (Visual Studio 2019 16.8 or later).
+The C++ translation units need nothing beyond the include path. `make
+test` builds and runs `tests/test_cpp_path.cpp`, a C++11 caller over the
+implementation compiled as C11, on both g++ and clang++.
 
 ---
 

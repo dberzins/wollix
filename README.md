@@ -93,7 +93,113 @@ clang -I. -Wno-initializer-overrides -I ~/opt/raylib/include -o hello hello.c \
 The wollix call style deliberately overrides default initializers (that is
 how `.height = 40`-style named options work), so silence the corresponding
 warning: `-Wno-initializer-overrides` on clang (it warns even without
-`-Wextra`), `-Wno-override-init` on gcc (needed with `-Wextra`).
+`-Wextra`), `-Wno-override-init` on gcc (needed with `-Wextra`). On MSVC
+compile the C translation unit with `/std:c11 /Zc:preprocessor` (Visual
+Studio 2019 16.8 or later); the conforming preprocessor is required for
+`wlx_layout_begin_s`, and MSVC has no override warning to silence.
+
+## Using from C++
+
+Wollix is compiled as C and called from C++. Three rules:
+
+1. **The implementation lives in one C translation unit**, together with
+   the backend adapter (the adapters are `static inline` and use
+   implementation internals, so they are only includable there). Defining
+   `WOLLIX_IMPLEMENTATION` in a C++ translation unit is not supported.
+2. **Options come from `wlx_<widget>_opt_defaults()`**, and the call goes
+   through the widget's `_impl` function with the struct and the call
+   site. The one-line `.field = value` macros are the C11 surface; C++ has
+   no compound literals and cannot repeat designators.
+3. **Never brace-initialise an option struct** (`WLX_Button_Opt o{};`,
+   `= {}`, or a C++20 designated initialiser): the defaults are non-zero,
+   so a zeroed struct is not "all defaults" (`width = 0`, `span = 0`,
+   `wrap = false`). `WLX_DEBUG` builds warn once per call site when such a
+   struct reaches a widget, via the `from_defaults` marker every defaults
+   function sets.
+
+The literal helpers (`WLX_SLOT_PX`, `WLX_RGBA`, ...) work unchanged in C++.
+`WLX_SIZES` is C-only: name the array and pass its count instead.
+
+```c
+// wollix_impl.c - compiled as C11
+#include <raylib.h>
+#define WOLLIX_IMPLEMENTATION
+#include "wollix.h"
+#include "wollix_raylib.h"
+#include "wollix_editor.h"
+
+// The platform glue the C++ side cannot reach: adapter init and the
+// per-frame input handler.
+void app_ui_init(WLX_Context *ctx) { wlx_context_init_raylib(ctx); }
+void app_ui_begin(WLX_Context *ctx, WLX_Rect root) {
+    wlx_begin(ctx, root, wlx_process_raylib_input);
+}
+```
+
+```cpp
+// main.cpp - compiled as C++11 or later
+#include <raylib.h>
+#include "wollix.h"
+#include "wollix_editor.h"
+
+extern "C" {
+void app_ui_init(WLX_Context *ctx);
+void app_ui_begin(WLX_Context *ctx, WLX_Rect root);
+}
+
+int main() {
+    InitWindow(800, 600, "Hello wollix from C++");
+    SetTargetFPS(60);
+
+    WLX_Context ctx = {};   // the context may be zeroed; option structs may not
+    app_ui_init(&ctx);
+    float value = 0.5f;
+
+    while (!WindowShouldClose()) {
+        WLX_Rect root = { 0, 0, (float)GetRenderWidth(), (float)GetRenderHeight() };
+        app_ui_begin(&ctx, root);
+        BeginDrawing();
+        ClearBackground(WLX_BACKGROUND_COLOR);
+
+        static const WLX_Slot_Size sizes[] = { WLX_SLOT_PX(48), WLX_SLOT_PX(32) };
+        WLX_Layout_Opt lo = wlx_layout_opt_defaults();
+        lo.sizes = sizes;
+        lo.padding = 12;
+        lo.gap = 8;
+        wlx_layout_begin_impl(&ctx, 2, WLX_VERT, lo, __FILE__, __LINE__);
+
+        WLX_Button_Opt bo = wlx_button_opt_defaults();
+        bo.font_size = 20;
+        bo.content_align = WLX_CENTER;
+        bo.back_color = WLX_RGBA(60, 80, 140, 255);
+        if (wlx_button_impl(&ctx, "Click me", bo, __FILE__, __LINE__)) {
+            value = 0.5f;
+        }
+
+        WLX_Slider_Opt so = wlx_slider_opt_defaults();
+        wlx_slider_impl(&ctx, "Value", &value, so, __FILE__, __LINE__);
+
+        wlx_layout_end(&ctx);
+        wlx_end(&ctx);
+        EndDrawing();
+    }
+
+    wlx_context_destroy(&ctx);
+    CloseWindow();
+    return 0;
+}
+```
+
+```bash
+clang   -std=c11   -Wno-initializer-overrides -I. -I ~/opt/raylib/include -c wollix_impl.c
+clang++ -std=c++11 -I. -I ~/opt/raylib/include -c main.cpp
+clang++ -o hello wollix_impl.o main.o -L ~/opt/raylib/lib -lraylib -lm -lpthread -ldl -lrt -lX11
+```
+
+`make test` compiles this path on every run (`tests/test_cpp_path.cpp`, a
+C++11 caller linked against the implementation compiled as C11). See
+[docs/API_REFERENCE.md](docs/API_REFERENCE.md#calling-from-c) for the
+list of `_impl` entries.
 
 ## Optional short aliases
 
@@ -231,7 +337,7 @@ For build targets, gallery benchmark commands, and output interpretation, see
 
 ```bash
 make                # Build all Raylib demos + the dashboard showcase (default)
-make test           # Build and run the unit test suite
+make test           # Build and run the unit test suite (includes the C++ caller gate)
 make perf-test      # Build and run the unit test suite with WLX_PERF enabled
 make perf-editor    # Run the editor perf gate (frame cost + measure traffic)
 make test-demos     # Build all Raylib demos + the dashboard and verify they compile
