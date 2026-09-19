@@ -74,3 +74,4 @@ session
 tests/test_config_override
 tests/test_defaults_once
 tests/test_undo_disabled
+tests/test_cpp_path
