@@ -81,6 +81,16 @@ static unsigned long long gc_frame_text(WLX_Context *ctx, char *buf, size_t cap,
     return gc_frame_opt(ctx, buf, cap, len, rev, wrap, 10, 0, 0, false, 0.0f, 0, NULL, text);
 }
 
+// The platform command modifier, as the editor resolves it: Cmd on Apple
+// platforms, Ctrl elsewhere.
+static uint32_t gc_command_mod(void) {
+#if defined(__APPLE__)
+    return WLX_MOD_SUPER;
+#else
+    return WLX_MOD_CTRL;
+#endif
+}
+
 static unsigned long long gc_frame_key(WLX_Context *ctx, char *buf, size_t cap,
     size_t *len, uint32_t rev, bool wrap, WLX_Key_Code key, uint32_t mods)
 {
@@ -461,7 +471,7 @@ TEST(geom_select_all_replace_stays_consistent) {
 
     gc_frame(&ctx, buf, sizeof(buf), &len, 1, false);
     gc_frame_click(&ctx, buf, sizeof(buf), &len, 1, false, 30, 25);
-    gc_frame_key(&ctx, buf, sizeof(buf), &len, 1, false, WLX_KEY_A, WLX_MOD_CTRL);
+    gc_frame_key(&ctx, buf, sizeof(buf), &len, 1, false, WLX_KEY_A, gc_command_mod());
     gc_frame_text(&ctx, buf, sizeof(buf), &len, 1, false, "z");
     ASSERT_TRUE(len == 1);
     ASSERT_TRUE(buf[0] == 'z');
