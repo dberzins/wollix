@@ -11,6 +11,20 @@ BASE_CFLAGS += -Wno-initializer-overrides
 DEFAULTS_ONCE_FLAGS = -Werror=initializer-overrides
 endif
 
+# The C++ gate's compiler follows CC (gcc -> g++, anything else -> clang++)
+# so the CI matrix covers both front ends; override CXX to pick another.
+# Its flags are independent of BASE_CFLAGS on purpose: a BASE_CFLAGS
+# override (the warnings-as-errors job) must not leak -std=c11 into a C++
+# compile. -Wno-missing-field-initializers covers the C mock backend's {0}
+# initialisers, which -Wextra flags under C++; the public halves of the
+# headers are held to -Wall -Wextra -Werror.
+ifeq ($(findstring gcc,$(notdir $(CC))),gcc)
+CXX = g++
+else
+CXX = clang++
+endif
+CXX_GATE_FLAGS = -std=c++11 -Wall -Wextra -Werror -Wno-missing-field-initializers
+
 CFLAGS = $(BASE_CFLAGS) -DWLX_DEBUG
 INCLUDES = -I. -I$(HOME)/opt/raylib/include
 LIBS = -L$(HOME)/opt/raylib/lib -lraylib -lGL -lm -ldl -lpthread -lrt -lX11
@@ -175,14 +189,16 @@ HARD_ASSERT_BIN = $(TEST_DIR)/test_hard_assert
 CONFIG_OVERRIDE_BIN = $(TEST_DIR)/test_config_override
 UNDO_DISABLED_BIN = $(TEST_DIR)/test_undo_disabled
 DEFAULTS_ONCE_BIN = $(TEST_DIR)/test_defaults_once
+CPP_PATH_BIN = $(TEST_DIR)/test_cpp_path
 
-test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN)
+test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN) $(CPP_PATH_BIN)
 	./$(TEST_BIN)
 	./$(SINGLE_PASS_BIN)
 	./$(HARD_ASSERT_BIN)
 	./$(CONFIG_OVERRIDE_BIN)
 	./$(UNDO_DISABLED_BIN)
 	./$(DEFAULTS_ONCE_BIN)
+	./$(CPP_PATH_BIN)
 
 $(TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
@@ -221,6 +237,15 @@ $(DEFAULTS_ONCE_BIN): $(TEST_DIR)/test_defaults_once.c $(TEST_DIR)/test_defaults
 	$(CC) -o $@ $(TEST_DIR)/test_defaults_once.o $(TEST_DIR)/test_defaults_once_impl.o -lm
 	rm -f $(TEST_DIR)/test_defaults_once.o $(TEST_DIR)/test_defaults_once_impl.o
 
+# The documented C++ path: a C++11 caller TU over the public halves of the
+# headers and the mock backend, linked against the implementation compiled
+# as C11 in its own TU (the defaults-once implementation TU, reused as is).
+$(CPP_PATH_BIN): $(TEST_DIR)/test_cpp_path.cpp $(TEST_DIR)/test_defaults_once_impl.c $(TEST_DIR)/test_mock_backend.h wollix.h wollix_editor.h
+	$(CXX) $(CXX_GATE_FLAGS) -I. -I$(TEST_DIR) -c -o $(TEST_DIR)/test_cpp_path.o $(TEST_DIR)/test_cpp_path.cpp
+	$(CC) $(BASE_CFLAGS) -I. -c -o $(TEST_DIR)/test_cpp_path_impl.o $(TEST_DIR)/test_defaults_once_impl.c
+	$(CXX) -o $@ $(TEST_DIR)/test_cpp_path.o $(TEST_DIR)/test_cpp_path_impl.o -lm
+	rm -f $(TEST_DIR)/test_cpp_path.o $(TEST_DIR)/test_cpp_path_impl.o
+
 PERF_TEST_BIN = $(TEST_DIR)/test_runner_perf
 
 perf-test: $(PERF_TEST_BIN)
@@ -256,7 +281,7 @@ test-demos: $(DEFAULT_TARGETS) $(DASHBOARD_BIN)
 	@echo "All demos built successfully."
 
 clean:
-	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
+	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN) $(CPP_PATH_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
 	rm -rf $(WASM_SITE_DIR) $(GALLERY_WASM_SITE_DIR)
 
 # Help target
