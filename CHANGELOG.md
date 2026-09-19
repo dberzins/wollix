@@ -171,6 +171,11 @@ your own pace before the next minor.
   preprocessor, the C++ gate under `cl`) on `windows-latest`; the death-check
   binary stays POSIX-only. The test tree and the dashboard theme no longer
   rely on compound literals in static initializers, which MSVC C rejects.
+- **vcpkg overlay port.** `ports/wollix/` (manifest and portfile, header-only,
+  tests and demos off) installs the five headers and the CMake config as
+  `wollix::wollix` through `vcpkg install wollix --overlay-ports=ports`; it is
+  written for the release tag and is the copy submitted to the registry
+  after tagging (`ports/README.md`).
 - **MSVC build requirement documented.** `/std:c11 /Zc:preprocessor`
   (Visual Studio 2019 16.8 or later); the conforming preprocessor is needed
   for `wlx_layout_begin_s`. A Windows CI leg follows in this cycle.
