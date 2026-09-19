@@ -239,6 +239,14 @@
 #include <string.h>
 #include <limits.h>
 
+// The public half is a C surface with C linkage. A C++ translation unit
+// includes it as-is and links against the implementation compiled as C11
+// in one C translation unit; see the "Calling from C++" notes below and
+// wlx_<x>_opt_defaults().
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Linkage qualifier prepended to every public function declaration and definition.
 //
 // By default, WLXDEF expands to nothing (normal external linkage).
@@ -4154,6 +4162,9 @@ WLXDEF WLX_Panel_Opt        wlx_panel_opt_defaults(void);
 #define pop_opacity(ctx) wlx_pop_opacity((ctx))
 #endif // WLX_SHORT_NAMES
 
+#ifdef __cplusplus
+} // extern "C"
+#endif
 
 #endif // WOLLIX_H_
 
@@ -13752,14 +13763,14 @@ static void wlx_inputbox_caret_input(WLX_Context *ctx, const WLX_Inputbox_Opt *o
         .ts = ts, .lines = lines, .line_count = line_count,
         .max_scroll = il->max_scroll, .password = opt->password,
     };
+    WLX_Text_Mouse_Ops mouse_ops = {
+        .user = &mouse_ctx,
+        .hit = wlx_inputbox_mouse_hit,
+        .word_bounds = wlx_inputbox_mouse_word_bounds,
+        .auto_scroll = wlx_inputbox_mouse_auto_scroll,
+    };
     wlx_text_edit_handle_mouse(ctx, &state->caret, text_rect, buf_len,
-        shift, press,
-        &(WLX_Text_Mouse_Ops){
-            .user = &mouse_ctx,
-            .hit = wlx_inputbox_mouse_hit,
-            .word_bounds = wlx_inputbox_mouse_word_bounds,
-            .auto_scroll = wlx_inputbox_mouse_auto_scroll,
-        });
+        shift, press, &mouse_ops);
 
     // HOME/END jump within the visual line under the caret; the
     // command modifier stretches the jump to the whole buffer, and

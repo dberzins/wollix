@@ -14,6 +14,10 @@
 #error "Include wollix.h before wollix_wasm.h"
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ============================================================================
 // wollix_wasm.h - Bare-wasm32 backend adapter for wollix
 //
@@ -711,5 +715,9 @@ static inline void wlx_context_init_wasm(WLX_Context *ctx) {
 }
 
 #undef WLX_WASM_PERF_INC
+
+#ifdef __cplusplus
+} // extern "C"
+#endif
 
 #endif // WOLLIX_WASM_H_

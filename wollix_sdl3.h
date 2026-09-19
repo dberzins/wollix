@@ -20,6 +20,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 static SDL_Renderer *g_wlx_sdl3_renderer = NULL;
 static float g_wlx_sdl3_wheel_delta = 0.0f;
 static float g_wlx_sdl3_wheel_delta_x = 0.0f;
@@ -1769,5 +1773,9 @@ static inline void wlx_context_init_sdl3(WLX_Context *ctx, SDL_Window *window, S
 }
 
 #undef WLX_SDL3_PERF_INC
+
+#ifdef __cplusplus
+} // extern "C"
+#endif
 
 #endif // WOLLIX_SDL3_H_

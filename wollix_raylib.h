@@ -18,6 +18,10 @@
 #error "Include raylib.h before wollix.h when using wollix_raylib.h"
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Capacity of the Raylib backend measurement cache (default 2048).
 // Originally suggested 256 from the analysis estimate of 100-300
 // unique (font, size, spacing, text) tuples per frame; Validation
@@ -830,5 +834,9 @@ static inline void wlx_context_init_raylib(WLX_Context *ctx) {
 }
 
 #undef WLX_RAYLIB_PERF_INC
+
+#ifdef __cplusplus
+} // extern "C"
+#endif
 
 #endif // WOLLIX_RAYLIB_H_

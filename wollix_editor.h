@@ -26,6 +26,10 @@
 #error "Include wollix.h before wollix_editor.h"
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Persistent editor widget state. POD; the zero value is the default state.
 typedef struct {
     WLX_Text_Edit_State caret;
@@ -197,6 +201,10 @@ WLXDEF WLX_Editor_Opt wlx_editor_opt_defaults(void);
 #define wlx_editor(ctx, label, buffer, buffer_cap, length, ...) \
     wlx_editor_impl((ctx), (label), (buffer), (buffer_cap), (length), \
         wlx_default_editor_opt(__VA_ARGS__), __FILE__, __LINE__)
+
+#ifdef __cplusplus
+} // extern "C"
+#endif
 
 #ifdef WOLLIX_IMPLEMENTATION
 
@@ -2076,15 +2084,15 @@ static bool wlx_editor_caret_input(const WLX_Editor_Frame *f, WLX_Editor_Scroll 
             && !gutter_hit && !state->caret.dragging_scrollbar && !state->dragging_hbar
             && wlx_rect_contains(input_rect, mx, my);
         WLX_Editor_Mouse_User mouse_user = { .f = f, .scr = scr };
+        WLX_Text_Mouse_Ops mouse_ops = {
+            .user = &mouse_user,
+            .hit = wlx_editor_mouse_hit,
+            .word_bounds = wlx_editor_mouse_word_bounds,
+            .auto_scroll = wlx_editor_mouse_auto_scroll,
+            .clamp_drag_x = true,
+        };
         if (wlx_text_edit_handle_mouse(ctx, &state->caret, band, doc_len,
-                wlx_mod_down(ctx, WLX_MOD_SHIFT), press,
-                &(WLX_Text_Mouse_Ops){
-                    .user = &mouse_user,
-                    .hit = wlx_editor_mouse_hit,
-                    .word_bounds = wlx_editor_mouse_word_bounds,
-                    .auto_scroll = wlx_editor_mouse_auto_scroll,
-                    .clamp_drag_x = true,
-                })) {
+                wlx_mod_down(ctx, WLX_MOD_SHIFT), press, &mouse_ops)) {
             caret_moved = true;
         }
     } else {
