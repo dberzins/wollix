@@ -24,6 +24,8 @@ TODO.md
 .github/RULES_REGISTRY.md
 
 # build
+build/
+build-*/
 panel
 demos/layout
 demos/text
