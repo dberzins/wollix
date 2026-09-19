@@ -221,27 +221,30 @@ static inline void test_reset_mock_cursor(void) {
 // Mock backend constructor
 // ============================================================================
 
+// Built by assignment rather than as a designated compound literal so the
+// header also compiles as C++ (the C++ caller gate includes it).
 static inline WLX_Backend mock_backend(void) {
-    return (WLX_Backend){
-        .contract_version  = WLX_BACKEND_CONTRACT_VERSION,
-        .user              = NULL,
-        .draw_rect         = noop_draw_rect,
-        .draw_rect_lines   = noop_draw_rect_lines,
-        .draw_rect_rounded       = noop_draw_rect_rounded,
-        .draw_rect_rounded_lines = noop_draw_rect_rounded_lines,
-        .draw_circle             = noop_draw_circle,
-        .draw_ring               = noop_draw_ring,
-        .draw_line               = noop_draw_line,
-        .draw_text         = noop_draw_text,
-        .measure_text      = mock_measure_text,
-        .draw_texture      = noop_draw_texture,
-        .begin_scissor     = noop_begin_scissor,
-        .end_scissor       = noop_end_scissor,
-        .get_frame_time    = noop_get_frame_time,
-        .clipboard_get     = mock_clipboard_get,
-        .clipboard_set     = mock_clipboard_set,
-        .set_cursor        = mock_set_cursor,
-    };
+    WLX_Backend b;
+    memset(&b, 0, sizeof(b));
+    b.contract_version        = WLX_BACKEND_CONTRACT_VERSION;
+    b.user                    = NULL;
+    b.draw_rect               = noop_draw_rect;
+    b.draw_rect_lines         = noop_draw_rect_lines;
+    b.draw_rect_rounded       = noop_draw_rect_rounded;
+    b.draw_rect_rounded_lines = noop_draw_rect_rounded_lines;
+    b.draw_circle             = noop_draw_circle;
+    b.draw_ring               = noop_draw_ring;
+    b.draw_line               = noop_draw_line;
+    b.draw_text               = noop_draw_text;
+    b.measure_text            = mock_measure_text;
+    b.draw_texture            = noop_draw_texture;
+    b.begin_scissor           = noop_begin_scissor;
+    b.end_scissor             = noop_end_scissor;
+    b.get_frame_time          = noop_get_frame_time;
+    b.clipboard_get           = mock_clipboard_get;
+    b.clipboard_set           = mock_clipboard_set;
+    b.set_cursor              = mock_set_cursor;
+    return b;
 }
 
 // ============================================================================
@@ -271,7 +274,8 @@ static Test_Stream _test_stream;
 
 static void _test_stream_push(int kind, WLX_Rect r, float a, float b, WLX_Color c) {
     if (_test_stream.count >= TEST_STREAM_MAX) return;
-    _test_stream.cmds[_test_stream.count++] = (Test_Stream_Cmd){ kind, r, a, b, c };
+    Test_Stream_Cmd cmd = { kind, r, a, b, c };
+    _test_stream.cmds[_test_stream.count++] = cmd;
 }
 static void _ts_rect(WLX_Rect r, WLX_Color c, void *user) {
     (void)user; _test_stream_push(1, r, 0, 0, c); }
@@ -284,7 +288,7 @@ static void _ts_rounded_lines(WLX_Rect r, float ro, int seg, float t, WLX_Color 
 static void _ts_text(const char *text, float x, float y, WLX_Text_Style st, void *user) {
     (void)user;
     (void)text;
-    _test_stream_push(5, (WLX_Rect){ x, y, (float)(text ? strlen(text) : 0), (float)st.font_size }, 0, 0, st.color);
+    _test_stream_push(5, wlx_rect(x, y, (float)(text ? strlen(text) : 0), (float)st.font_size), 0, 0, st.color);
 }
 
 static inline void test_stream_install(WLX_Context *ctx) {

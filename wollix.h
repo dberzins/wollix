@@ -12983,14 +12983,14 @@ static void wlx_text_edit_span_add(WLX_Text_Edit_Span *span, size_t start,
     // edit is expressed in current coordinates. Bytes it touches beyond NE
     // map back through the running delta; the merged current end tracks
     // the new edit's shift of everything at or past it.
-    long run_delta = (long)span->new_end - (long)span->old_end;
-    long edit_delta = (long)new_end - (long)old_end;
+    ptrdiff_t run_delta = (ptrdiff_t)span->new_end - (ptrdiff_t)span->old_end;
+    ptrdiff_t edit_delta = (ptrdiff_t)new_end - (ptrdiff_t)old_end;
     if (start < span->start) span->start = start;
     if (old_end > span->new_end) {
-        size_t mapped = (size_t)((long)old_end - run_delta);
+        size_t mapped = (size_t)((ptrdiff_t)old_end - run_delta);
         if (mapped > span->old_end) span->old_end = mapped;
     }
-    size_t shifted = (size_t)((long)span->new_end + edit_delta);
+    size_t shifted = (size_t)((ptrdiff_t)span->new_end + edit_delta);
     span->new_end = new_end > shifted ? new_end : shifted;
 }
 
