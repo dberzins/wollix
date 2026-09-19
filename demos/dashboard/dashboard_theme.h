@@ -198,47 +198,53 @@ typedef struct {
 // signal red). Glass edges follow the elevation rule: a 0.15 white light-leak on
 // top/left, a darker fall on bottom/right, over a 60-80% dark glass fill.
 
+// Colour initializer for the static token tables. WLX_RGBA is a compound
+// literal, which is an expression, not a constant expression: a static
+// table needs the plain brace form (MSVC C rejects the literal there; gcc
+// and clang accept it as an extension).
+#define DASHBOARD_RGBA_INIT(r, g, b, a) { (r), (g), (b), (a) }
+
 static const Dashboard_Tokens dashboard_tokens_dark = {
     .mode = DASHBOARD_MODE_DARK,
     .color = {
-        .background       = WLX_RGBA( 15,  20,  25, 255),  // background #0f1419
-        .surface          = WLX_RGBA( 27,  32,  37, 255),  // surface-container #1b2025
-        .surface_variant  = WLX_RGBA( 48,  53,  59, 255),  // surface-variant #30353b
-        .field            = WLX_RGBA(  5,   7,  10, 255),  // inset field, darker than the void
-        .field_border     = WLX_RGBA( 26,  36,  47, 255),  // #1a242f input border
-        .outline          = WLX_RGBA(133, 147, 153, 255),  // outline #859399
-        .outline_variant  = WLX_RGBA( 60,  73,  78, 255),  // outline-variant #3c494e
-        .accent           = WLX_RGBA(  0, 209, 255, 255),  // primary-container (electric blue)
-        .accent_strong    = WLX_RGBA( 76, 214, 255, 255),  // surface-tint #4cd6ff (hover/glow)
-        .tertiary         = WLX_RGBA(235, 129,   4, 255),  // #eb8104 industrial orange
-        .on_surface       = WLX_RGBA(222, 227, 234, 255),  // on-surface #dee3ea
-        .on_surface_muted = WLX_RGBA(187, 201, 207, 255),  // on-surface-variant #bbc9cf
-        .on_accent        = WLX_RGBA( 10,  15,  20, 255),  // dark ink #0a0f14 on the accent fill
+        .background       = DASHBOARD_RGBA_INIT( 15,  20,  25, 255),  // background #0f1419
+        .surface          = DASHBOARD_RGBA_INIT( 27,  32,  37, 255),  // surface-container #1b2025
+        .surface_variant  = DASHBOARD_RGBA_INIT( 48,  53,  59, 255),  // surface-variant #30353b
+        .field            = DASHBOARD_RGBA_INIT(  5,   7,  10, 255),  // inset field, darker than the void
+        .field_border     = DASHBOARD_RGBA_INIT( 26,  36,  47, 255),  // #1a242f input border
+        .outline          = DASHBOARD_RGBA_INIT(133, 147, 153, 255),  // outline #859399
+        .outline_variant  = DASHBOARD_RGBA_INIT( 60,  73,  78, 255),  // outline-variant #3c494e
+        .accent           = DASHBOARD_RGBA_INIT(  0, 209, 255, 255),  // primary-container (electric blue)
+        .accent_strong    = DASHBOARD_RGBA_INIT( 76, 214, 255, 255),  // surface-tint #4cd6ff (hover/glow)
+        .tertiary         = DASHBOARD_RGBA_INIT(235, 129,   4, 255),  // #eb8104 industrial orange
+        .on_surface       = DASHBOARD_RGBA_INIT(222, 227, 234, 255),  // on-surface #dee3ea
+        .on_surface_muted = DASHBOARD_RGBA_INIT(187, 201, 207, 255),  // on-surface-variant #bbc9cf
+        .on_accent        = DASHBOARD_RGBA_INIT( 10,  15,  20, 255),  // dark ink #0a0f14 on the accent fill
     },
     .ramp = {
-        .lowest  = WLX_RGBA( 10,  15,  20, 255),  // surface-container-lowest #0a0f14
-        .low     = WLX_RGBA( 23,  28,  33, 255),  // surface-container-low #171c21
-        .base    = WLX_RGBA( 27,  32,  37, 255),  // surface-container #1b2025
-        .high    = WLX_RGBA( 37,  42,  48, 255),  // surface-container-high #252a30
-        .highest = WLX_RGBA( 48,  53,  59, 255),  // surface-container-highest #30353b
+        .lowest  = DASHBOARD_RGBA_INIT( 10,  15,  20, 255),  // surface-container-lowest #0a0f14
+        .low     = DASHBOARD_RGBA_INIT( 23,  28,  33, 255),  // surface-container-low #171c21
+        .base    = DASHBOARD_RGBA_INIT( 27,  32,  37, 255),  // surface-container #1b2025
+        .high    = DASHBOARD_RGBA_INIT( 37,  42,  48, 255),  // surface-container-high #252a30
+        .highest = DASHBOARD_RGBA_INIT( 48,  53,  59, 255),  // surface-container-highest #30353b
     },
     .status = {
-        .success = WLX_RGBA(  0, 179, 110, 255),  // #00b36e clinical mint
-        .warning = WLX_RGBA(235, 129,   4, 255),  // #eb8104 industrial orange
-        .error   = WLX_RGBA(207,  44,  44, 255),  // #cf2c2c signal red
-        .info    = WLX_RGBA(  0, 209, 255, 255),  // primary accent (electric blue)
+        .success = DASHBOARD_RGBA_INIT(  0, 179, 110, 255),  // #00b36e clinical mint
+        .warning = DASHBOARD_RGBA_INIT(235, 129,   4, 255),  // #eb8104 industrial orange
+        .error   = DASHBOARD_RGBA_INIT(207,  44,  44, 255),  // #cf2c2c signal red
+        .info    = DASHBOARD_RGBA_INIT(  0, 209, 255, 255),  // primary accent (electric blue)
     },
     .table = {
-        .header_bg = WLX_RGBA( 37,  42,  48, 255),  // surface-container-high
-        .row_bg    = WLX_RGBA( 27,  32,  37, 255),  // surface-container
-        .zebra_bg  = WLX_RGBA( 23,  28,  33, 255),  // surface-container-low
-        .grid_line = WLX_RGBA(255, 255, 255,  38),  // 1px row/column rules at 15% white
+        .header_bg = DASHBOARD_RGBA_INIT( 37,  42,  48, 255),  // surface-container-high
+        .row_bg    = DASHBOARD_RGBA_INIT( 27,  32,  37, 255),  // surface-container
+        .zebra_bg  = DASHBOARD_RGBA_INIT( 23,  28,  33, 255),  // surface-container-low
+        .grid_line = DASHBOARD_RGBA_INIT(255, 255, 255,  38),  // 1px row/column rules at 15% white
     },
     .glass = {
-        .edge_light = WLX_RGBA(255, 255, 255,  38),  // top/left light leak (0.15)
-        .edge_dark  = WLX_RGBA(  0,   0,   0,  51),   // bottom/right falls to dark
-        .fill       = WLX_RGBA( 26,  36,  47, 179),   // #1a242f dark glass at ~70%
-        .glow       = WLX_RGBA(  0, 209, 255,  13),    // electric-blue focus glow (very low)
+        .edge_light = DASHBOARD_RGBA_INIT(255, 255, 255,  38),  // top/left light leak (0.15)
+        .edge_dark  = DASHBOARD_RGBA_INIT(  0,   0,   0,  51),   // bottom/right falls to dark
+        .fill       = DASHBOARD_RGBA_INIT( 26,  36,  47, 179),   // #1a242f dark glass at ~70%
+        .glow       = DASHBOARD_RGBA_INIT(  0, 209, 255,  13),    // electric-blue focus glow (very low)
     },
     .type = {
         .display     = { DASHBOARD_FAMILY_SANS, 48, DASHBOARD_WEIGHT_BOLD,     56, -1 },
@@ -282,44 +288,44 @@ static const Dashboard_Tokens dashboard_tokens_dark = {
 static const Dashboard_Tokens dashboard_tokens_light = {
     .mode = DASHBOARD_MODE_LIGHT,
     .color = {
-        .background       = WLX_RGBA(247, 249, 255, 255),  // background / surface
-        .surface          = WLX_RGBA(234, 238, 246, 255),  // surface-container
-        .surface_variant  = WLX_RGBA(222, 227, 234, 255),  // surface-variant
-        .field            = WLX_RGBA(255, 255, 255, 255),  // surface-container-lowest
-        .field_border     = WLX_RGBA(187, 201, 207, 255),  // outline-variant
-        .outline          = WLX_RGBA(108, 121, 127, 255),  // outline
-        .outline_variant  = WLX_RGBA(187, 201, 207, 255),  // outline-variant
-        .accent           = WLX_RGBA(  0, 209, 255, 255),  // primary-container (electric blue)
-        .accent_strong    = WLX_RGBA(  0, 103, 127, 255),  // primary (deep, legible on light)
-        .tertiary         = WLX_RGBA(235, 129,   4, 255),  // #eb8104 industrial orange
-        .on_surface       = WLX_RGBA( 23,  28,  33, 255),  // on-surface
-        .on_surface_muted = WLX_RGBA( 60,  73,  78, 255),  // on-surface-variant
-        .on_accent        = WLX_RGBA(  0,  31,  40, 255),  // dark ink on the accent fill
+        .background       = DASHBOARD_RGBA_INIT(247, 249, 255, 255),  // background / surface
+        .surface          = DASHBOARD_RGBA_INIT(234, 238, 246, 255),  // surface-container
+        .surface_variant  = DASHBOARD_RGBA_INIT(222, 227, 234, 255),  // surface-variant
+        .field            = DASHBOARD_RGBA_INIT(255, 255, 255, 255),  // surface-container-lowest
+        .field_border     = DASHBOARD_RGBA_INIT(187, 201, 207, 255),  // outline-variant
+        .outline          = DASHBOARD_RGBA_INIT(108, 121, 127, 255),  // outline
+        .outline_variant  = DASHBOARD_RGBA_INIT(187, 201, 207, 255),  // outline-variant
+        .accent           = DASHBOARD_RGBA_INIT(  0, 209, 255, 255),  // primary-container (electric blue)
+        .accent_strong    = DASHBOARD_RGBA_INIT(  0, 103, 127, 255),  // primary (deep, legible on light)
+        .tertiary         = DASHBOARD_RGBA_INIT(235, 129,   4, 255),  // #eb8104 industrial orange
+        .on_surface       = DASHBOARD_RGBA_INIT( 23,  28,  33, 255),  // on-surface
+        .on_surface_muted = DASHBOARD_RGBA_INIT( 60,  73,  78, 255),  // on-surface-variant
+        .on_accent        = DASHBOARD_RGBA_INIT(  0,  31,  40, 255),  // dark ink on the accent fill
     },
     .ramp = {
-        .lowest  = WLX_RGBA(255, 255, 255, 255),  // surface-container-lowest
-        .low     = WLX_RGBA(240, 244, 251, 255),  // surface-container-low
-        .base    = WLX_RGBA(234, 238, 246, 255),  // surface-container
-        .high    = WLX_RGBA(228, 232, 240, 255),  // surface-container-high
-        .highest = WLX_RGBA(222, 227, 234, 255),  // surface-container-highest
+        .lowest  = DASHBOARD_RGBA_INIT(255, 255, 255, 255),  // surface-container-lowest
+        .low     = DASHBOARD_RGBA_INIT(240, 244, 251, 255),  // surface-container-low
+        .base    = DASHBOARD_RGBA_INIT(234, 238, 246, 255),  // surface-container
+        .high    = DASHBOARD_RGBA_INIT(228, 232, 240, 255),  // surface-container-high
+        .highest = DASHBOARD_RGBA_INIT(222, 227, 234, 255),  // surface-container-highest
     },
     .status = {
-        .success = WLX_RGBA(  0, 179, 110, 255),  // #00b36e clinical mint
-        .warning = WLX_RGBA(235, 129,   4, 255),  // #eb8104 industrial orange
-        .error   = WLX_RGBA(211,  47,  47, 255),  // #d32f2f signal red
-        .info    = WLX_RGBA(  0, 103, 127, 255),  // primary (deep)
+        .success = DASHBOARD_RGBA_INIT(  0, 179, 110, 255),  // #00b36e clinical mint
+        .warning = DASHBOARD_RGBA_INIT(235, 129,   4, 255),  // #eb8104 industrial orange
+        .error   = DASHBOARD_RGBA_INIT(211,  47,  47, 255),  // #d32f2f signal red
+        .info    = DASHBOARD_RGBA_INIT(  0, 103, 127, 255),  // primary (deep)
     },
     .table = {
-        .header_bg = WLX_RGBA(228, 232, 240, 255),  // surface-container-high
-        .row_bg    = WLX_RGBA(255, 255, 255, 255),  // surface-container-lowest
-        .zebra_bg  = WLX_RGBA(240, 244, 251, 255),  // surface-container-low
-        .grid_line = WLX_RGBA(  0,   0,   0,  26),   // 1px row/column rules at 10% black
+        .header_bg = DASHBOARD_RGBA_INIT(228, 232, 240, 255),  // surface-container-high
+        .row_bg    = DASHBOARD_RGBA_INIT(255, 255, 255, 255),  // surface-container-lowest
+        .zebra_bg  = DASHBOARD_RGBA_INIT(240, 244, 251, 255),  // surface-container-low
+        .grid_line = DASHBOARD_RGBA_INIT(  0,   0,   0,  26),   // 1px row/column rules at 10% black
     },
     .glass = {
-        .edge_light = WLX_RGBA(255, 255, 255, 204),  // top/left edge catches light (0.8)
-        .edge_dark  = WLX_RGBA(  0,   0,   0,  13),   // bottom/right edge falls to dark (0.05)
-        .fill       = WLX_RGBA(255, 255, 255, 166),   // semi-transparent white glass
-        .glow       = WLX_RGBA(  0, 209, 255,  38),   // electric-blue accent glow
+        .edge_light = DASHBOARD_RGBA_INIT(255, 255, 255, 204),  // top/left edge catches light (0.8)
+        .edge_dark  = DASHBOARD_RGBA_INIT(  0,   0,   0,  13),   // bottom/right edge falls to dark (0.05)
+        .fill       = DASHBOARD_RGBA_INIT(255, 255, 255, 166),   // semi-transparent white glass
+        .glow       = DASHBOARD_RGBA_INIT(  0, 209, 255,  38),   // electric-blue accent glow
     },
     .type = {
         .display     = { DASHBOARD_FAMILY_SANS, 48, DASHBOARD_WEIGHT_BOLD,     56, -1 },

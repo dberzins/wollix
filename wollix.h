@@ -5296,7 +5296,7 @@ static inline float wlx_intrinsic_text_image_width(WLX_Context *ctx,
         // width an intrinsic can report.
         img_w = (text_w > 0.0f)
             ? wlx_widget_auto_image_size(image_size, image_placement,
-                                         (WLX_Rect){0}, ts.font_size, true)
+                                         (WLX_Rect){0}, (float)ts.font_size, true)
             : ((image_size > 0.0f) ? image_size
                : (texture_src.w > 0.0f) ? texture_src.w : (float)texture.width);
     }
@@ -8731,7 +8731,7 @@ static inline size_t wlx_utf8_encode(uint32_t cp, char *out) {
         return 4;
     }
     // Invalid codepoint -> encode U+FFFD
-    out[0] = (char)0xEF; out[1] = (char)0xBF; out[2] = (char)0xBD;
+    memcpy(out, "\xEF\xBF\xBD", 3);
     return 3;
 }
 
@@ -14631,7 +14631,7 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
 
     WLX_Rect content_rect = WLX_RESOLVE_CONTENT_RECT(ctx, opt, wr);
 
-    float track_h = opt.font_size;
+    float track_h = (float)opt.font_size;
     float thr = ctx->theme->toggle.track_to_height_ratio > 0.0f
                     ? ctx->theme->toggle.track_to_height_ratio
                     : WLX_TOGGLE_TRACK_RATIO_FALLBACK;

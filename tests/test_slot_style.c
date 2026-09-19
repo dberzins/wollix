@@ -91,8 +91,8 @@ TEST(slot_style_no_decoration_no_draw) {
     ss_ctx_init(&ctx, 200, 200);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    static const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
-    static const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
+    const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
+    const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
     wlx_grid_begin(&ctx, 2, 2, .row_sizes = rows, .col_sizes = cols);
         for (int i = 0; i < 4; i++) {
             wlx_widget(&ctx, .back_color = WGT_C);
@@ -113,8 +113,8 @@ TEST(slot_style_grid_uniform_bg) {
     ss_ctx_init(&ctx, 200, 200);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    static const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
-    static const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
+    const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
+    const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
     wlx_grid_begin(&ctx, 2, 2, .row_sizes = rows, .col_sizes = cols,
         .slot_back_color = SLOT_BG);
         for (int i = 0; i < 4; i++) {
@@ -134,8 +134,8 @@ TEST(slot_style_grid_uniform_border) {
     ss_ctx_init(&ctx, 200, 200);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    static const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
-    static const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
+    const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
+    const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
     wlx_grid_begin(&ctx, 2, 2, .row_sizes = rows, .col_sizes = cols,
         .slot_border_color = BORD_C, .slot_border_width = 1.0f);
         for (int i = 0; i < 4; i++) {
@@ -155,8 +155,8 @@ TEST(slot_style_grid_layout_border_only) {
     ss_ctx_init(&ctx, 200, 200);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    static const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
-    static const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
+    const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
+    const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
     wlx_grid_begin(&ctx, 2, 2, .row_sizes = rows, .col_sizes = cols,
         .border_color = GRID_C, .border_width = 1.0f);
         for (int i = 0; i < 4; i++) {
@@ -177,8 +177,8 @@ TEST(slot_style_grid_layout_and_cell_borders) {
     ss_ctx_init(&ctx, 200, 200);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    static const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
-    static const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
+    const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
+    const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
     wlx_grid_begin(&ctx, 2, 2, .row_sizes = rows, .col_sizes = cols,
         .border_color = GRID_C, .border_width = 1.0f,
         .slot_border_color = BORD_C, .slot_border_width = 1.0f);
@@ -200,7 +200,7 @@ TEST(slot_style_linear_uniform) {
     ss_ctx_init(&ctx, 300, 150);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    static const WLX_Slot_Size slots[] = {
+    const WLX_Slot_Size slots[] = {
         WLX_SLOT_PX(50), WLX_SLOT_PX(50), WLX_SLOT_PX(50)
     };
     wlx_layout_begin(&ctx, 3, WLX_VERT, .sizes = slots,
@@ -222,8 +222,8 @@ TEST(slot_style_grid_cell_style) {
     ss_ctx_init(&ctx, 300, 100);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    static const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50) };
-    static const WLX_Slot_Size cols[] = {
+    const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50) };
+    const WLX_Slot_Size cols[] = {
         WLX_SLOT_PX(50), WLX_SLOT_PX(50), WLX_SLOT_PX(50)
     };
     wlx_grid_begin(&ctx, 1, 3, .row_sizes = rows, .col_sizes = cols,
@@ -250,8 +250,8 @@ TEST(slot_style_grid_cell_opt_decoration) {
     ss_ctx_init(&ctx, 300, 100);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    static const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50) };
-    static const WLX_Slot_Size cols[] = {
+    const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50) };
+    const WLX_Slot_Size cols[] = {
         WLX_SLOT_PX(50), WLX_SLOT_PX(50), WLX_SLOT_PX(50)
     };
     wlx_grid_begin(&ctx, 1, 3, .row_sizes = rows, .col_sizes = cols,
@@ -278,7 +278,7 @@ TEST(slot_style_linear_slot_style) {
     ss_ctx_init(&ctx, 300, 150);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    static const WLX_Slot_Size slots[] = {
+    const WLX_Slot_Size slots[] = {
         WLX_SLOT_PX(50), WLX_SLOT_PX(50), WLX_SLOT_PX(50)
     };
     wlx_layout_begin(&ctx, 3, WLX_VERT, .sizes = slots,
@@ -306,8 +306,8 @@ TEST(slot_style_override_consumed_after_one) {
     ss_ctx_init(&ctx, 300, 100);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    static const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50) };
-    static const WLX_Slot_Size cols[] = {
+    const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50) };
+    const WLX_Slot_Size cols[] = {
         WLX_SLOT_PX(50), WLX_SLOT_PX(50), WLX_SLOT_PX(50)
     };
     // No uniform slot decoration — only override for cell 1.
@@ -334,8 +334,8 @@ TEST(slot_style_override_wins_over_uniform) {
     ss_ctx_init(&ctx, 200, 100);
     test_frame_begin(&ctx, 0, 0, false, false);
 
-    static const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50) };
-    static const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
+    const WLX_Slot_Size rows[] = { WLX_SLOT_PX(50) };
+    const WLX_Slot_Size cols[] = { WLX_SLOT_PX(50), WLX_SLOT_PX(50) };
     wlx_grid_begin(&ctx, 1, 2, .row_sizes = rows, .col_sizes = cols,
         .slot_back_color = SLOT_BG);
         // cell (0,0): override — must NOT draw SLOT_BG for this cell
