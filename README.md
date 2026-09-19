@@ -93,7 +93,9 @@ clang -I. -Wno-initializer-overrides -I ~/opt/raylib/include -o hello hello.c \
 The wollix call style deliberately overrides default initializers (that is
 how `.height = 40`-style named options work), so silence the corresponding
 warning: `-Wno-initializer-overrides` on clang (it warns even without
-`-Wextra`), `-Wno-override-init` on gcc (needed with `-Wextra`). On MSVC
+`-Wextra`), `-Wno-override-init` and `-Wno-override-init-side-effects` on
+gcc (the first with `-Wextra`, the second whenever a default that is itself
+a literal, such as a slot size or a colour, is overridden). On MSVC
 compile the C translation unit with `/std:c11 /Zc:preprocessor` (Visual
 Studio 2019 16.8 or later); the conforming preprocessor is required for
 `wlx_layout_begin_s`, and MSVC has no override warning to silence.
@@ -374,8 +376,9 @@ All executables are written to `./demos/`.
 
 The repository is also a CMake package. The target `wollix::wollix` is
 header-only and carries the include path, C11, and the compiler flags the
-option macros need (`-Wno-override-init` on gcc, `-Wno-initializer-overrides`
-on clang, `/Zc:preprocessor` on MSVC), so a consumer sets none of them:
+option macros need (`-Wno-override-init` and
+`-Wno-override-init-side-effects` on gcc, `-Wno-initializer-overrides` on
+clang, `/Zc:preprocessor` on MSVC), so a consumer sets none of them:
 
 ```cmake
 # Installed package (cmake --install / vcpkg):

@@ -122,11 +122,15 @@ your own pace before the next minor.
    call the `_impl` function.
 
 ### Added
-- **Calling from C++.** The public half of all five headers now carries C
-  linkage (`extern "C"`) and parses as ISO C++11, so a C++ translation unit
-  includes the headers as-is and links against the implementation compiled
-  as C11 in one C translation unit (the backend adapter lives there too;
-  defining `WOLLIX_IMPLEMENTATION` from C++ is not supported). The
+- **Calling from C++.** The public halves of `wollix.h` and
+  `wollix_editor.h` carry C linkage (`extern "C"`) and parse as C++11 (one
+  extension, anonymous structs inside a union, that every compiler accepts
+  outside `-pedantic-errors`), so a C++ translation unit includes them as-is
+  and links against the implementation compiled as C11 in one C translation
+  unit. The three backend adapters carry the same guards for uniformity but
+  stay includable only in that C translation unit, since they are
+  `static inline` bodies over implementation internals; defining
+  `WOLLIX_IMPLEMENTATION` from C++ is not supported. The
   documented path is `wlx_<widget>_opt_defaults()`, assign, call the
   widget's `_impl` entry; README "Using from C++" and API_REFERENCE
   "Calling from C++" carry the rules, the example and the entry table.
@@ -148,8 +152,10 @@ your own pace before the next minor.
   clang++) so the CI matrix covers both front ends.
 - **CMake package.** A root `CMakeLists.txt` exports the header-only target
   `wollix::wollix`, which carries the include path, C11 and the compiler
-  flags the option macros need (`-Wno-override-init` gated to C on gcc,
-  `-Wno-initializer-overrides` on clang, `/Zc:preprocessor` on MSVC), for
+  flags the option macros need (`-Wno-override-init` and
+  `-Wno-override-init-side-effects` gated to C on gcc,
+  `-Wno-initializer-overrides` on clang, `/Zc:preprocessor` on MSVC, and
+  `/std:c11` on MSVC where CMake is older than 3.20), for
   `find_package(wollix CONFIG)`, `add_subdirectory` and `FetchContent`. The
   version is read from `WOLLIX_VERSION`; the config file is
   `SameMinorVersion` while the major version is 0. `WOLLIX_BUILD_TESTS`
@@ -178,7 +184,7 @@ your own pace before the next minor.
   after tagging (`ports/README.md`).
 - **MSVC build requirement documented.** `/std:c11 /Zc:preprocessor`
   (Visual Studio 2019 16.8 or later); the conforming preprocessor is needed
-  for `wlx_layout_begin_s`. A Windows CI leg follows in this cycle.
+  for `wlx_layout_begin_s`. The Windows CI leg below proves the set.
 - **`wlx_set_style_transform`.** A context-level transform (function plus
   user pointer) that the core applies to the `WLX_Text_Style` immediately
   before every text callback - draw, measure and advances - and nowhere

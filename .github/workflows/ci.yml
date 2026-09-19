@@ -14,12 +14,24 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        cc: [gcc, clang]
+        include:
+          - cc: gcc
+            cxx: g++
+          - cc: clang
+            cxx: clang++
     steps:
       - uses: actions/checkout@v5
 
       - name: Run tests
         run: make CC=${{ matrix.cc }} test
+
+      # The same binaries through the CMake project, so the consumer surface
+      # is exercised on Linux with both front ends, not only on Windows.
+      - name: Run tests through CMake
+        run: |
+          cmake -B build -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DWOLLIX_BUILD_DEMOS=OFF
+          cmake --build build
+          ctest --test-dir build --output-on-failure
 
   test-sanitizers:
     runs-on: ubuntu-latest
@@ -182,7 +194,8 @@ jobs:
   # Windows proves MSVC (C11 mode, the conforming preprocessor, the C++
   # gate under cl) through the CMake project and CTest; the Makefile is
   # POSIX-only. Tests only, no demos; test_hard_assert is POSIX-only and
-  # the CMake list leaves it out on Windows.
+  # the CMake list leaves it out on Windows. The Debug configuration keeps
+  # assert() live, matching what make test builds.
   test-windows:
     runs-on: windows-latest
     steps:
@@ -195,7 +208,7 @@ jobs:
         run: cmake -B build -DWOLLIX_BUILD_TESTS=ON -DWOLLIX_BUILD_DEMOS=OFF
 
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config Debug
 
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Debug --output-on-failure

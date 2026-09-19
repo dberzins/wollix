@@ -322,6 +322,18 @@ static inline bool test_stream_equal(const Test_Stream *a, const Test_Stream *b)
 // Context initialization
 // ============================================================================
 
+// The editing command modifier for the platform under test, as
+// wlx_mod_command_down resolves it: Cmd on Apple platforms, Ctrl elsewhere.
+// Every chord a suite stages goes through this so a platform is never
+// hard-coded at a call site.
+static inline uint32_t test_command_mod(void) {
+#if defined(__APPLE__)
+    return WLX_MOD_SUPER;
+#else
+    return WLX_MOD_CTRL;
+#endif
+}
+
 // Zero-initialize a WLX_Context, attach mock backend, and set the root rect.
 // Call once before a sequence of test_frame_begin/end pairs.
 static inline void test_ctx_init(WLX_Context *ctx, float w, float h) {

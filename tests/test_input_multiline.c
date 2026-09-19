@@ -18,14 +18,6 @@
 // Fixture
 // ============================================================================
 
-static uint32_t ml_command_mod(void) {
-#if defined(__APPLE__)
-    return WLX_MOD_SUPER;
-#else
-    return WLX_MOD_CTRL;
-#endif
-}
-
 static bool ml_inputbox(WLX_Context *ctx, char *buf, size_t buf_size,
                         bool multiline, bool read_only) {
     bool focused = false;
@@ -137,7 +129,7 @@ TEST(multiline_enter_replaces_selection) {
     char buf[64] = "hello";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_A, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_A, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_ENTER, 0);
     ASSERT_EQ_STR(buf, "\n");
     wlx_context_destroy(&ctx);
@@ -280,7 +272,7 @@ TEST(multiline_down_moves_same_column) {
     char buf[64] = "ABCD\nEFGH";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
@@ -297,7 +289,7 @@ TEST(multiline_up_moves_same_column) {
     char buf[64] = "ABCD\nEFGH";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_LEFT, 0);
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_LEFT, 0);
 
@@ -315,7 +307,7 @@ TEST(multiline_sticky_column_across_short_line) {
     char buf[64] = "ABCDE\nZ\nFGHIJ";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     for (int i = 0; i < 4; i++)
         ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
@@ -334,7 +326,7 @@ TEST(multiline_sticky_column_roundtrip) {
     char buf[64] = "ABCDE\nZ\nFGHIJ";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     for (int i = 0; i < 4; i++)
         ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
@@ -355,7 +347,7 @@ TEST(multiline_up_first_down_last_clamp) {
     char buf[64] = "AB\nCD";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
     // UP on the first line clamps to the line start (ADR_032 Decision 6).
@@ -364,7 +356,7 @@ TEST(multiline_up_first_down_last_clamp) {
     ASSERT_EQ_STR(buf, "XAB\nCD");
 
     // DOWN on the last line clamps to the line end.
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_LEFT, 0);
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "Y");
@@ -378,7 +370,7 @@ TEST(multiline_shift_down_extends_selection) {
     char buf[64] = "AB\nCD";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
 
     // SHIFT+DOWN keeps the anchor at 0 and moves the caret one line down
     // (byte 3), selecting "AB\n"; typing replaces the selection.
@@ -394,7 +386,7 @@ TEST(multiline_horizontal_motion_resets_column) {
     char buf[64] = "ABCD\nE\nFGHI";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     for (int i = 0; i < 4; i++)
         ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
@@ -417,7 +409,7 @@ TEST(multiline_wrapped_soft_line_traversal) {
     char buf[64] = "AAAA BBBB";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 40, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
@@ -480,7 +472,7 @@ TEST(multiline_nowrap_hard_lines_traversal) {
     char buf[64] = "ABCD\nEFGH";
 
     ml_nowrap_frame_mouse(&ctx, buf, sizeof(buf), 380, true, true);
-    ml_nowrap_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_HOME, ml_command_mod());
+    ml_nowrap_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_HOME, test_command_mod());
     ml_nowrap_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_RIGHT, 0);
     ml_nowrap_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_RIGHT, 0);
 

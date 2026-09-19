@@ -15717,7 +15717,8 @@ WLXDEF bool wlx_submenu_begin_impl(WLX_Context *ctx, bool *open,
 WLXDEF bool wlx_menu_item_impl(WLX_Context *ctx, const char *text,
     WLX_Menu_Item_Opt opt, const char *file, int line)
 {
-    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_menu_item", "wlx_menu_item_opt_defaults", file, line);
+    // No from_defaults check: every default of WLX_Menu_Item_Opt is zero,
+    // so a zero-initialised struct is the defaults.
     // An empty stack would index before its first entry (the row-cursor
     // write below would corrupt memory in release builds), so this guard
     // survives NDEBUG.
@@ -15792,7 +15793,8 @@ static inline void wlx_list_clipper_spacer(WLX_Context *ctx, float px) {
 
 WLXDEF WLX_List_Clipper wlx_list_clipper_begin_impl(WLX_Context *ctx, int item_count,
         float row_height, WLX_List_Clipper_Opt opt) {
-    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_list_clipper_begin", "wlx_list_clipper_opt_defaults", NULL, 0);
+    // No from_defaults check: every default of WLX_List_Clipper_Opt is
+    // zero, so a zero-initialised struct is the defaults.
     assert(ctx != NULL);
     assert(ctx->arena.scroll_panels.count > 0 &&
         "wlx_list_clipper_begin must be called inside a scroll panel");
@@ -15894,7 +15896,8 @@ WLXDEF void wlx_split_begin_impl(WLX_Context *ctx, WLX_Split_Opt opt,
 
 WLXDEF void wlx_split_next_impl(WLX_Context *ctx, WLX_Split_Next_Opt opt,
                                  const char *file, int line) {
-    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_split_next", "wlx_split_next_opt_defaults", file, line);
+    // No from_defaults check: every default of WLX_Split_Next_Opt is zero,
+    // so a zero-initialised struct is the defaults.
     WLX_DBG(split_next, ctx);
 
     // Close first pane scroll panel

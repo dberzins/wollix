@@ -18,14 +18,6 @@
 // Fixture
 // ============================================================================
 
-static uint32_t modes_command_mod(void) {
-#if defined(__APPLE__)
-    return WLX_MOD_SUPER;
-#else
-    return WLX_MOD_CTRL;
-#endif
-}
-
 static int _modes_text_draw_count = 0;
 static char _modes_text_drawn[64];
 
@@ -139,13 +131,13 @@ TEST(modes_password_copy_cut_suppressed) {
     char buf[64] = "secret";
 
     modes_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_A, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_A, test_command_mod());
 
     // Neither copy nor cut may export the plaintext; cut must not delete it
     // either.
-    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_C, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_C, test_command_mod());
     ASSERT_EQ_STR("seed", test_get_clipboard());
-    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_X, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_X, test_command_mod());
     ASSERT_EQ_STR("seed", test_get_clipboard());
     ASSERT_EQ_STR(buf, "secret");
     wlx_context_destroy(&ctx);
@@ -158,7 +150,7 @@ TEST(modes_password_paste_and_edit_work) {
     char buf[64] = "ab";
 
     modes_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_V, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_V, test_command_mod());
     ASSERT_EQ_STR(buf, "abXY");
 
     modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_BACKSPACE, 0);
@@ -200,12 +192,12 @@ TEST(modes_readonly_rejects_all_edits) {
     ASSERT_EQ_STR(buf, "AB");
     modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_DELETE, 0);
     ASSERT_EQ_STR(buf, "AB");
-    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_V, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_V, test_command_mod());
     ASSERT_EQ_STR(buf, "AB");
 
     // Cut must neither modify the buffer nor reach the clipboard.
-    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_A, modes_command_mod());
-    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_X, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_A, test_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_X, test_command_mod());
     ASSERT_EQ_STR(buf, "AB");
     ASSERT_EQ_STR("ZZ", test_get_clipboard());
     wlx_context_destroy(&ctx);
@@ -218,8 +210,8 @@ TEST(modes_readonly_allows_selection_and_copy) {
     char buf[64] = "hello";
 
     modes_frame_mouse(&ctx, buf, sizeof(buf), false, true, 380, true, true);
-    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_A, modes_command_mod());
-    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_C, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_A, test_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_C, test_command_mod());
 
     ASSERT_EQ_STR("hello", test_get_clipboard());
     ASSERT_EQ_STR(buf, "hello");
@@ -240,8 +232,8 @@ TEST(modes_password_readonly_combo) {
     // No edits, no clipboard export.
     modes_frame_type(&ctx, buf, sizeof(buf), true, true, "X");
     ASSERT_EQ_STR(buf, "pw");
-    modes_frame_key(&ctx, buf, sizeof(buf), true, true, WLX_KEY_A, modes_command_mod());
-    modes_frame_key(&ctx, buf, sizeof(buf), true, true, WLX_KEY_C, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), true, true, WLX_KEY_A, test_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), true, true, WLX_KEY_C, test_command_mod());
     ASSERT_EQ_STR("seed", test_get_clipboard());
     wlx_context_destroy(&ctx);
 }

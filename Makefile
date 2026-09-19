@@ -4,24 +4,27 @@ CC = clang
 BASE_CFLAGS = -Wall -Wextra -Werror=switch -std=c11 -ggdb
 
 ifeq ($(findstring gcc,$(notdir $(CC))),gcc)
-BASE_CFLAGS += -Wno-override-init
+BASE_CFLAGS += -Wno-override-init -Wno-override-init-side-effects
 DEFAULTS_ONCE_FLAGS = -Werror=override-init
 else
 BASE_CFLAGS += -Wno-initializer-overrides
 DEFAULTS_ONCE_FLAGS = -Werror=initializer-overrides
 endif
 
-# The C++ gate's compiler follows CC (gcc -> g++, anything else -> clang++)
-# so the CI matrix covers both front ends; override CXX to pick another.
-# Its flags are independent of BASE_CFLAGS on purpose: a BASE_CFLAGS
+# The C++ gate's compiler follows CC unless CXX comes from the environment
+# or the command line: a CC that names clang picks clang++, anything else
+# (gcc, cc, a versioned gcc) picks g++, so the CI matrix covers both front
+# ends. Its flags are independent of BASE_CFLAGS on purpose: a BASE_CFLAGS
 # override (the warnings-as-errors job) must not leak -std=c11 into a C++
 # compile. -Wno-missing-field-initializers covers the C mock backend's {0}
 # initialisers, which -Wextra flags under C++; the public halves of the
 # headers are held to -Wall -Wextra -Werror.
-ifeq ($(findstring gcc,$(notdir $(CC))),gcc)
-CXX = g++
-else
+ifeq ($(origin CXX),default)
+ifeq ($(findstring clang,$(notdir $(CC))),clang)
 CXX = clang++
+else
+CXX = g++
+endif
 endif
 CXX_GATE_FLAGS = -std=c++11 -Wall -Wextra -Werror -Wno-missing-field-initializers
 

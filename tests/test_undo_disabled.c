@@ -19,14 +19,6 @@
 #error "WLX_TEXT_UNDO_ENTRIES override was clobbered by wollix.h"
 #endif
 
-static uint32_t command_mod(void) {
-#if defined(__APPLE__)
-    return WLX_MOD_SUPER;
-#else
-    return WLX_MOD_CTRL;
-#endif
-}
-
 static bool last_changed = false;
 
 static void frame(WLX_Context *ctx, char *buf, size_t cap, bool click,
@@ -58,11 +50,11 @@ int main(void) {
     assert(wlx_text_undo_find(&ctx, 1) == NULL);
 
     // The chords are inert: nothing changes, nothing is reported.
-    frame(&ctx, buf, sizeof(buf), false, WLX_KEY_Z, command_mod(), NULL);
+    frame(&ctx, buf, sizeof(buf), false, WLX_KEY_Z, test_command_mod(), NULL);
     assert(strcmp(buf, "ab") == 0);
     assert(!last_changed);
-    frame(&ctx, buf, sizeof(buf), false, WLX_KEY_Z, command_mod() | WLX_MOD_SHIFT, NULL);
-    frame(&ctx, buf, sizeof(buf), false, WLX_KEY_Y, command_mod(), NULL);
+    frame(&ctx, buf, sizeof(buf), false, WLX_KEY_Z, test_command_mod() | WLX_MOD_SHIFT, NULL);
+    frame(&ctx, buf, sizeof(buf), false, WLX_KEY_Y, test_command_mod(), NULL);
     assert(strcmp(buf, "ab") == 0);
     assert(!last_changed);
 

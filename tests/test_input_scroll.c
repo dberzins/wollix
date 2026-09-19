@@ -26,14 +26,6 @@
 // Fixture
 // ============================================================================
 
-static uint32_t sc_command_mod(void) {
-#if defined(__APPLE__)
-    return WLX_MOD_SUPER;
-#else
-    return WLX_MOD_CTRL;
-#endif
-}
-
 #define SC_TEN_LINES "l0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9"
 
 static bool sc_inputbox(WLX_Context *ctx, char *buf, size_t buf_size) {
@@ -107,11 +99,11 @@ TEST(scroll_follows_ctrl_end_and_home) {
 
     // Ctrl+END jumps to the buffer end on the last line; the view follows
     // to the bottom: content 100 - band 52 = 48.
-    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, sc_command_mod());
+    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, test_command_mod());
     ASSERT_EQ_INT(48, (int)st->scroll_y);
 
     // Ctrl+HOME jumps back to offset 0; the view follows to the top.
-    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_HOME, sc_command_mod());
+    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_HOME, test_command_mod());
     ASSERT_EQ_INT(0, (int)st->scroll_y);
     wlx_context_destroy(&ctx);
 }
@@ -122,7 +114,7 @@ TEST(scroll_enter_at_bottom_keeps_following) {
     char buf[128] = SC_TEN_LINES;
 
     sc_frame_mouse(&ctx, buf, sizeof(buf), 200, 30, true, true);
-    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, sc_command_mod());
+    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, test_command_mod());
     WLX_Inputbox_State *st = sc_state(&ctx);
     ASSERT_TRUE(st != NULL);
     ASSERT_EQ_INT(48, (int)st->scroll_y);
@@ -140,7 +132,7 @@ TEST(scroll_up_down_across_band_edges) {
     char buf[128] = SC_TEN_LINES;
 
     sc_frame_mouse(&ctx, buf, sizeof(buf), 200, 30, true, true);
-    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, sc_command_mod());
+    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, test_command_mod());
     WLX_Inputbox_State *st = sc_state(&ctx);
     ASSERT_TRUE(st != NULL);
     ASSERT_EQ_INT(48, (int)st->scroll_y);
@@ -174,7 +166,7 @@ TEST(scroll_paste_follows_caret) {
     // pasted "H\n" (line index 10, band 100..110 in content space); the
     // minimal follow puts that band at the bottom: 110 - 52 = 58.
     test_set_clipboard("A\nB\nC\nD\nE\nF\nG\nH\n");
-    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, sc_command_mod());
+    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, test_command_mod());
     ASSERT_EQ_INT(58, (int)st->scroll_y);
     wlx_context_destroy(&ctx);
 }
@@ -233,7 +225,7 @@ TEST(scroll_wheel_away_then_keypress_follows_back) {
     char buf[128] = SC_TEN_LINES;
 
     sc_frame_mouse(&ctx, buf, sizeof(buf), 200, 30, true, true);
-    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, sc_command_mod());
+    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, test_command_mod());
     WLX_Inputbox_State *st = sc_state(&ctx);
     ASSERT_TRUE(st != NULL);
     ASSERT_EQ_INT(48, (int)st->scroll_y);
@@ -404,7 +396,7 @@ TEST(scroll_content_fits_never_scrolls) {
     WLX_Inputbox_State *st = sc_state(&ctx);
     ASSERT_TRUE(st != NULL);
 
-    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, sc_command_mod());
+    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, test_command_mod());
     ASSERT_EQ_INT(0, (int)st->scroll_y);
     sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_DOWN, 0);
     ASSERT_EQ_INT(0, (int)st->scroll_y);
@@ -437,9 +429,9 @@ TEST(scroll_geometry_past_old_unit_cap) {
     WLX_Inputbox_State *st = sc_state(&ctx);
     ASSERT_TRUE(st != NULL);
 
-    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, sc_command_mod());
+    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, test_command_mod());
     ASSERT_EQ_INT(548, (int)st->scroll_y);
-    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_HOME, sc_command_mod());
+    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_HOME, test_command_mod());
     ASSERT_EQ_INT(0, (int)st->scroll_y);
     wlx_context_destroy(&ctx);
 }
@@ -466,7 +458,7 @@ TEST(scroll_freeze_at_multiline_cap_is_bounded) {
     WLX_Inputbox_State *st = sc_state(&ctx);
     ASSERT_TRUE(st != NULL);
 
-    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, sc_command_mod());
+    sc_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_END, test_command_mod());
     ASSERT_EQ_INT(4048, (int)st->scroll_y);
     wlx_context_destroy(&ctx);
 }

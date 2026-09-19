@@ -7,7 +7,7 @@
 // geometry.
 //
 // Reuses ev_state / ev_index / ev_fill_lines / _ev_capture* from
-// test_editor_view.c and ec_command_mod from test_editor_caret.c (same
+// test_editor_view.c and test_command_mod from test_mock_backend.h (same
 // translation unit). Frame helpers are local: state identity is the
 // call-site, so a test must drive all its frames from one helper.
 
@@ -132,7 +132,7 @@ TEST(edit_backspace_delete_codepoint_and_word) {
     ASSERT_TRUE(memcmp(buf, "alpha ", 6) == 0);
 
     // Forward deletes from the document start.
-    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, ec_command_mod());
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, test_command_mod());
     ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_DELETE, 0);
     ASSERT_EQ_INT(5, (long)len);
     ASSERT_TRUE(memcmp(buf, "lpha ", 5) == 0);
@@ -218,7 +218,7 @@ TEST(edit_select_all_replace_whole_document) {
 
     bool keys[WLX_KEY_COUNT] = {0};
     keys[WLX_KEY_A] = true;
-    ed_frame_ex(&ctx, buf, sizeof(buf), &len, 0, 200, 50, false, false, WLX_KEY_A, ec_command_mod(), NULL);
+    ed_frame_ex(&ctx, buf, sizeof(buf), &len, 0, 200, 50, false, false, WLX_KEY_A, test_command_mod(), NULL);
     ed_type(&ctx, buf, sizeof(buf), &len, "z");
 
     WLX_Editor_Line_Index *idx = ev_index(&ctx);
@@ -245,7 +245,7 @@ TEST(edit_paste_multiline_block) {
     ed_click(&ctx, buf, sizeof(buf), &len, 14, 9); // caret at 1
 
     test_set_clipboard("one\ntwo\nthree");
-    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_V, ec_command_mod());
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_V, test_command_mod());
 
     WLX_Editor_State *st = ev_state(&ctx);
     WLX_Editor_Line_Index *idx = ev_index(&ctx);
@@ -274,7 +274,7 @@ TEST(edit_cut_across_window_boundary) {
     st->caret.selection_anchor = 8;
     st->caret.cursor_pos = 120;
     test_set_clipboard("");
-    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_X, ec_command_mod());
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_X, test_command_mod());
 
     ASSERT_EQ_INT(112, (long)strlen(test_get_clipboard()));
     ASSERT_TRUE(memcmp(test_get_clipboard(), "l02\n", 4) == 0);
@@ -306,7 +306,7 @@ TEST(edit_read_only_rejects_mutations_allows_copy) {
     st->caret.selection_anchor = 0;
     st->caret.cursor_pos = 6;
     test_set_clipboard("");
-    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_C, ec_command_mod());
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_C, test_command_mod());
     ASSERT_EQ_STR(test_get_clipboard(), "secret");
 
     ed_read_only = false;

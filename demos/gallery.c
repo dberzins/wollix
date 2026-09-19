@@ -922,7 +922,7 @@ static void section_label(WLX_Context *ctx, Gallery_State *st) {
 
         // Show alignments in a 3x2 grid. Tall rows make TOP/BOTTOM
         // alignment visually distinct from one another.
-        static const WLX_Slot_Size align_rows[] = { WLX_SLOT_PX(60), WLX_SLOT_PX(60), WLX_SLOT_PX(60) };
+        const WLX_Slot_Size align_rows[] = { WLX_SLOT_PX(60), WLX_SLOT_PX(60), WLX_SLOT_PX(60) };
         wlx_grid_begin(ctx, 3, 3, .padding = 0, .padding_top = 4, .gap = 4, .row_sizes = align_rows);
             const char *align_names[] = { "TOP_LEFT", "TOP_CENTER", "TOP_RIGHT",
                                            "LEFT", "CENTER", "RIGHT",

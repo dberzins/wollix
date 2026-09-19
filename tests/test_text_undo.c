@@ -28,14 +28,6 @@
 // between frames.
 // ============================================================================
 
-static uint32_t tu_command_mod(void) {
-#if defined(__APPLE__)
-    return WLX_MOD_SUPER;
-#else
-    return WLX_MOD_CTRL;
-#endif
-}
-
 static bool tu_password = false;
 static bool tu_multiline = false;
 static bool tu_read_only = false;
@@ -146,8 +138,8 @@ static WLX_Inputbox_State *tu_state(WLX_Context *ctx) {
     return NULL;
 }
 
-static uint32_t tu_undo_mod(void) { return tu_command_mod(); }
-static uint32_t tu_redo_mod(void) { return tu_command_mod() | WLX_MOD_SHIFT; }
+static uint32_t tu_undo_mod(void) { return test_command_mod(); }
+static uint32_t tu_redo_mod(void) { return test_command_mod() | WLX_MOD_SHIFT; }
 
 // ============================================================================
 // Recording
@@ -405,9 +397,9 @@ TEST(undo_journal_evicts_by_bytes_and_admits_an_oversize_step) {
     tu_focus(&ctx, buf, sizeof(buf));
     const int cycles = 140;
     for (int i = 0; i < cycles; i++) {
-        tu_key(&ctx, buf, sizeof(buf), WLX_KEY_V, tu_command_mod());
+        tu_key(&ctx, buf, sizeof(buf), WLX_KEY_V, test_command_mod());
         ASSERT_EQ_INT(2048, (int)strlen(buf));
-        tu_keys2(&ctx, buf, sizeof(buf), WLX_KEY_A, WLX_KEY_BACKSPACE, tu_command_mod());
+        tu_keys2(&ctx, buf, sizeof(buf), WLX_KEY_A, WLX_KEY_BACKSPACE, test_command_mod());
         ASSERT_EQ_STR(buf, "");
     }
     WLX_Text_Undo_Journal *j = tu_journal(&ctx);
@@ -434,7 +426,7 @@ TEST(undo_journal_evicts_by_bytes_and_admits_an_oversize_step) {
     ASSERT_EQ_INT((long)(big + 1), (long)strlen(doc));
     ASSERT_EQ_INT(1, (int)j->undo.count);
     memcpy(snap, doc, big + 1);
-    tu_keys2(&ctx, doc, big + 64, WLX_KEY_A, WLX_KEY_BACKSPACE, tu_command_mod());
+    tu_keys2(&ctx, doc, big + 64, WLX_KEY_A, WLX_KEY_BACKSPACE, test_command_mod());
     ASSERT_EQ_STR(doc, "");
     ASSERT_EQ_INT(1, (int)j->undo.count);
     ASSERT_EQ_INT(0, (int)j->undo.entries[0].start);
@@ -609,7 +601,7 @@ TEST(undo_enter_paste_and_cut_are_single_steps) {
     // Paste stands alone between two typing runs.
     test_set_clipboard("XY");
     tu_type(&ctx, buf, sizeof(buf), "a");
-    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_V, tu_command_mod());
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_V, test_command_mod());
     tu_type(&ctx, buf, sizeof(buf), "b");
     ASSERT_EQ_STR(buf, "aXYb");
     tu_key(&ctx, buf, sizeof(buf), WLX_KEY_Z, tu_undo_mod());
@@ -623,7 +615,7 @@ TEST(undo_enter_paste_and_cut_are_single_steps) {
     tu_type(&ctx, buf, sizeof(buf), "abcd");
     tu_key(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, WLX_MOD_SHIFT);
     tu_key(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, WLX_MOD_SHIFT);  // [2,4)
-    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_X, tu_command_mod());
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_X, test_command_mod());
     ASSERT_EQ_STR(buf, "ab");
     ASSERT_EQ_STR("cd", test_get_clipboard());
     tu_key(&ctx, buf, sizeof(buf), WLX_KEY_Z, tu_undo_mod());
@@ -1041,8 +1033,8 @@ static void tue_edit_classes_case(bool wrap) {
 
     // A multi-line paste at the document start.
     test_set_clipboard("one\ntwo\n");
-    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, tu_command_mod());
-    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_V, tu_command_mod());
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, test_command_mod());
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_V, test_command_mod());
     ASSERT_TRUE(tue_undo_redo_roundtrip(&ctx, buf, sizeof(buf), &len,
         "alpha\nbeta\ngamma!\n\t", "one\ntwo\nalpha\nbeta\ngamma!\n\t"));
 
@@ -1051,7 +1043,7 @@ static void tue_edit_classes_case(bool wrap) {
     for (int i = 0; i < 7; i++) {
         tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_RIGHT, WLX_MOD_SHIFT);
     }
-    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_X, tu_command_mod());
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_X, test_command_mod());
     ASSERT_EQ_STR("alpha\nb", test_get_clipboard());
     ASSERT_TRUE(tue_undo_redo_roundtrip(&ctx, buf, sizeof(buf), &len,
         "one\ntwo\nalpha\nbeta\ngamma!\n\t", "one\ntwo\neta\ngamma!\n\t"));
@@ -1061,7 +1053,7 @@ static void tue_edit_classes_case(bool wrap) {
     tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_Z, tu_redo_mod());
 
     // Select-all replaced by one keystroke, and back.
-    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_A, tu_command_mod());
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_A, test_command_mod());
     tue_type(&ctx, buf, sizeof(buf), &len, "z");
     ASSERT_TRUE(tue_undo_redo_roundtrip(&ctx, buf, sizeof(buf), &len,
         "one\ntwo\neta\ngamma!\n\t", "z"));
@@ -1090,7 +1082,7 @@ TEST(undo_editor_wrapped_bottom_anchor_survives_replay_before_it) {
 
     // Land the view on the bottom anchor, then edit at the top and back.
     tue_focus(&ctx, buf, sizeof(buf), &len);
-    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, tu_command_mod());
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, test_command_mod());
     tue_idle(&ctx, buf, sizeof(buf), &len);
     WLX_Editor_State *st = ev_state(&ctx);
     ASSERT_TRUE(st != NULL);
@@ -1098,7 +1090,7 @@ TEST(undo_editor_wrapped_bottom_anchor_survives_replay_before_it) {
     size_t anchor_off = st->bottom_start_off;
     ASSERT_TRUE(anchor_off > 0);
 
-    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, tu_command_mod());
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, test_command_mod());
     tue_type(&ctx, buf, sizeof(buf), &len, "xy");
     ASSERT_TRUE(st->bottom_valid);
     ASSERT_EQ_INT((long)(anchor_off + 2), (long)st->bottom_start_off);
@@ -1122,12 +1114,12 @@ TEST(undo_editor_caret_follow_brings_restored_caret_into_view) {
     size_t len = ev_fill_lines(buf, sizeof(buf), 60);
 
     tue_focus(&ctx, buf, sizeof(buf), &len);
-    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, tu_command_mod());
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, test_command_mod());
     tue_type(&ctx, buf, sizeof(buf), &len, "q");
     WLX_Editor_State *st = ev_state(&ctx);
     ASSERT_TRUE(st != NULL);
     ASSERT_TRUE(st->first_line > 40);
-    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, tu_command_mod());
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, test_command_mod());
     tue_idle(&ctx, buf, sizeof(buf), &len);
     ASSERT_EQ_INT(0, (int)st->first_line);
 
@@ -1187,7 +1179,7 @@ TEST(undo_editor_oversize_delete_is_undoable) {
     tue_type(&ctx, buf, big + 64, &len, "y");    // an older step to evict
     memcpy(snap, buf, len);
     size_t snap_len = len;
-    tue_key(&ctx, buf, big + 64, &len, WLX_KEY_A, tu_command_mod());
+    tue_key(&ctx, buf, big + 64, &len, WLX_KEY_A, test_command_mod());
     tue_key(&ctx, buf, big + 64, &len, WLX_KEY_DELETE, 0);
     ASSERT_EQ_INT(0, (int)len);
     WLX_Text_Undo_Journal *j = tue_journal(&ctx);
@@ -1275,11 +1267,11 @@ static bool tup_op(WLX_Context *ctx, bool editor, char *buf, size_t cap, size_t 
     case 15: key = WLX_KEY_TAB; if (!editor) key = WLX_KEY_HOME; break;
     case 16:
         test_set_clipboard(clips[tup_next(seed) % 4]);
-        key = WLX_KEY_V; mods = tu_command_mod();
+        key = WLX_KEY_V; mods = test_command_mod();
         break;
-    case 17: key = WLX_KEY_X; mods = tu_command_mod(); break;
+    case 17: key = WLX_KEY_X; mods = test_command_mod(); break;
     case 18: key = WLX_KEY_BACKSPACE; mods = WLX_MOD_CTRL; break;
-    default: key = WLX_KEY_A; mods = tu_command_mod(); break;
+    default: key = WLX_KEY_A; mods = test_command_mod(); break;
     }
     if (editor) {
         tue_frame_ex(ctx, buf, cap, len, 200, 50, false, false, key, mods, text);

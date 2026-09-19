@@ -9,15 +9,6 @@
 // 400x100 context, content_padding 4, border 0, font_size 10 -> band
 // {9,4,383,92} before strips, line_h 10, mock char width 5.
 
-// Command modifier for editing shortcuts (CTRL here; SUPER on Apple).
-static uint32_t ec_command_mod(void) {
-#if defined(__APPLE__)
-    return WLX_MOD_SUPER;
-#else
-    return WLX_MOD_CTRL;
-#endif
-}
-
 static bool ec_frame_key_mod(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
                              WLX_Key_Code key, uint32_t mods) {
     bool keys_pressed[WLX_KEY_COUNT] = {0};
@@ -206,10 +197,10 @@ TEST(caret_arrows_word_home_end_vocabulary) {
     ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_DOWN, 0);
     ASSERT_EQ_INT((long)len, (long)st->caret.cursor_pos); // DOWN on last line -> end
 
-    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, ec_command_mod());
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, test_command_mod());
     ASSERT_EQ_INT(0, (long)st->caret.cursor_pos); // Ctrl+HOME -> document start
 
-    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, ec_command_mod());
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, test_command_mod());
     ASSERT_EQ_INT((long)len, (long)st->caret.cursor_pos); // Ctrl+END -> document end
 
     ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_UP, 0);
@@ -336,7 +327,7 @@ TEST(caret_ctrl_a_selects_all) {
     bool keys_pressed[WLX_KEY_COUNT] = {0};
     keys_pressed[WLX_KEY_A] = true;
     ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 200, 50, false, false, 0.0f,
-        ec_command_mod(), keys_pressed);
+        test_command_mod(), keys_pressed);
 
     WLX_Editor_State *st = ev_state(&ctx);
     ASSERT_TRUE(st != NULL);
@@ -411,7 +402,7 @@ TEST(caret_ctrl_a_snaps_view_back_to_parked_caret) {
 
     // Focus, caret to the document end (the view follows to the bottom).
     ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 20, 50, true, true, 0.0f, 0, NULL);
-    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, ec_command_mod());
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, test_command_mod());
     ASSERT_EQ_INT((long)len, (long)st->caret.cursor_pos);
     size_t bottom_line = st->first_line;
     ASSERT_TRUE(bottom_line > 0);
@@ -422,7 +413,7 @@ TEST(caret_ctrl_a_snaps_view_back_to_parked_caret) {
 
     // Select-all changes only the anchor (the caret is already at the end);
     // caret-follow must still snap the view back to the caret.
-    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_A, ec_command_mod());
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_A, test_command_mod());
     ASSERT_EQ_INT(0, (long)st->caret.selection_anchor);
     ASSERT_EQ_INT((long)len, (long)st->caret.cursor_pos);
     ASSERT_EQ_INT((long)bottom_line, (long)st->first_line);

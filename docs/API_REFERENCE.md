@@ -3522,11 +3522,14 @@ defaults function to start from. Release builds never read the flag.
 
 ## Calling from C++
 
-Wollix is compiled as C and called from C++. The public half of every
-header carries C linkage (`extern "C"`) and parses as ISO C++11; the
-implementation is compiled as C11 in one C translation unit that the C++
-code links against. Defining `WOLLIX_IMPLEMENTATION` in a C++ translation
-unit is not supported.
+Wollix is compiled as C and called from C++. The public halves of
+`wollix.h` and `wollix_editor.h` carry C linkage (`extern "C"`) and parse
+as C++11 with one extension every compiler accepts (anonymous structs
+inside a union; `-pedantic-errors` rejects it); the implementation is
+compiled as C11 in one C translation unit that the C++ code links against.
+The three adapter headers carry the same guards but are not includable
+from C++ (next paragraph). Defining `WOLLIX_IMPLEMENTATION` in a C++
+translation unit is not supported.
 
 **The C translation unit owns the backend adapter.** `wollix_raylib.h`,
 `wollix_sdl3.h` and `wollix_wasm.h` are `static inline` bodies over
@@ -3615,9 +3618,11 @@ wlx_layout_begin_impl(ctx, 2, WLX_VERT, lo, __FILE__, __LINE__);
 **Build.** The C translation unit needs the override-warning suppression
 (`-Wno-initializer-overrides` on clang, `-Wno-override-init` on gcc) and,
 on MSVC, `/std:c11 /Zc:preprocessor` (Visual Studio 2019 16.8 or later).
-The C++ translation units need nothing beyond the include path. `make
-test` builds and runs `tests/test_cpp_path.cpp`, a C++11 caller over the
-implementation compiled as C11, on both g++ and clang++.
+The C++ translation units need nothing beyond the include path (and no
+`-pedantic-errors`, for the anonymous structs above). `make test` builds
+and runs `tests/test_cpp_path.cpp`, a C++11 caller over the implementation
+compiled as C11, on both g++ and clang++; the Windows CI leg runs it
+under `cl`.
 
 ---
 

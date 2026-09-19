@@ -700,16 +700,6 @@ TEST(input_cursor_move_left_insert) {
 // Navigation: arrow repeat, word motion, HOME/END
 // ============================================================================
 
-// The editing command modifier resolved for the platform under test, matching
-// wlx_mod_command_down().
-static uint32_t command_modifier(void) {
-#if defined(__APPLE__)
-    return WLX_MOD_SUPER;
-#else
-    return WLX_MOD_CTRL;
-#endif
-}
-
 // Helper: run one frame with a single key pressed while modifier bits are held.
 static void frame_key_with_mods(WLX_Context *ctx, char *buf, size_t buf_size,
                                 WLX_Key_Code key, uint32_t mods) {
@@ -831,12 +821,12 @@ TEST(input_command_home_end_whole_buffer) {
     frame_focus_click(&ctx, buf, sizeof(buf));
 
     // Command+HOME jumps to the buffer start even from another visual line.
-    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_HOME, command_modifier());
+    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_HOME, test_command_mod());
     frame_type_text(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "XAB\nCD");
 
     // Command+END jumps to the buffer end.
-    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_END, command_modifier());
+    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_END, test_command_mod());
     frame_type_text(&ctx, buf, sizeof(buf), "Y");
     ASSERT_EQ_STR(buf, "XAB\nCDY");
     wlx_context_destroy(&ctx);

@@ -127,6 +127,10 @@ reaches a widget entry with the flag clear warns once per call site through
 the debug warning callback, naming the entry and the defaults function to
 start from; release builds never read the flag. The flag is public: setting
 it by hand silences the warning for a struct assembled field by field.
+Three option structs have no non-zero default at all (`WLX_Menu_Item_Opt`,
+`WLX_List_Clipper_Opt`, `WLX_Split_Next_Opt`); they carry the field like
+every other but their entries do not check it, since a zeroed struct is
+their defaults.
 
 ```c
 WLX_Button_Opt o = wlx_button_opt_defaults();   // from_defaults = true

@@ -24,8 +24,10 @@ option(WOLLIX_BUILD_DEMOS "Build the Raylib and SDL3 demos when those libraries 
 # ----------------------------------------------------------------------------
 # The consumer target: header-only, C11, plus the compile options the option
 # macros need on every translation unit that includes wollix.h.
-#   - gcc:   -Wno-override-init is a C-only flag (g++ rejects it), so it is
-#            gated to C compiles.
+#   - gcc:   -Wno-override-init (an override under -Wextra) and
+#            -Wno-override-init-side-effects (overriding a default that is
+#            itself a compound literal, on by default) are C-only flags that
+#            g++ rejects, so both are gated to C compiles.
 #   - clang: -Winitializer-overrides is on by default in C and C++.
 #   - MSVC:  /Zc:preprocessor, the conforming preprocessor, is required for
 #            wlx_layout_begin_s (it forwards __VA_ARGS__ into a second macro).
@@ -37,11 +39,17 @@ target_include_directories(wollix INTERFACE
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(wollix INTERFACE c_std_11)
 target_compile_options(wollix INTERFACE
-  $<$<COMPILE_LANG_AND_ID:C,GNU>:-Wno-override-init>
+  $<$<COMPILE_LANG_AND_ID:C,GNU>:-Wno-override-init;-Wno-override-init-side-effects>
   $<$<COMPILE_LANG_AND_ID:C,Clang,AppleClang>:-Wno-initializer-overrides>
   $<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang>:-Wno-initializer-overrides>
   $<$<COMPILE_LANG_AND_ID:C,MSVC>:/Zc:preprocessor>
   $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/Zc:preprocessor>)
+# CMake maps the c_std_11 feature to /std:c11 for MSVC from 3.20; older
+# CMake records the feature without a flag, so the switch is added by hand
+# there (the installed config does the same for find_package consumers).
+if(MSVC AND CMAKE_VERSION VERSION_LESS 3.20)
+  target_compile_options(wollix INTERFACE $<$<COMPILE_LANG_AND_ID:C,MSVC>:/std:c11>)
+endif()
 
 # ----------------------------------------------------------------------------
 # Install and export: find_package(wollix CONFIG) yields wollix::wollix.
