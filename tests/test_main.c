@@ -253,6 +253,7 @@
 // stitching continuity, tab restart at the origin, END and far-offset
 // editing, and line-start origins for near content.
 #include "test_editor_windowed_origin.c"
+#include "test_opt_defaults_marker.c"
 
 int main(void) {
     RUN_SUITE(layout_math);
@@ -335,5 +336,6 @@ int main(void) {
     RUN_SUITE(dropdown);
     RUN_SUITE(tooltip);
     RUN_SUITE(menu);
+    RUN_SUITE(opt_defaults_marker);
     return test_summary();
 }

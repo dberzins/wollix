@@ -2114,6 +2114,17 @@ static inline bool wlx_layout_slot_is_content(const WLX_Context *ctx, const WLX_
   #define WLX_DBG(fn, ...) ((void)0)
 #endif
 
+// Option structs built from their defaults macro or defaults function carry
+// from_defaults = true. A zero-initialised struct reaching a widget entry
+// holds zeros where the defaults are non-zero; under WLX_DEBUG the entry
+// warns once per call site (entries without a call site key on their name).
+#ifdef WLX_DEBUG
+  #define WLX_DBG_OPT_DEFAULTS(ctx, opt, entry, defaults_fn, file, line) \
+      wlx_dbg_opt_defaults((ctx), (opt).from_defaults, (entry), (defaults_fn), (file), (line))
+#else
+  #define WLX_DBG_OPT_DEFAULTS(ctx, opt, entry, defaults_fn, file, line) ((void)0)
+#endif
+
 #ifdef WLX_PERF
     #define WLX_PERF_HOOK(fn, ...) wlx_perf_##fn(__VA_ARGS__)
 #else
@@ -2579,6 +2590,7 @@ typedef struct {
     // child's hit zone is intersected with it, as with a scroll panel
     // viewport. Defaults false.
     bool clip;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Layout_Opt;
 
 typedef struct {
@@ -2587,10 +2599,11 @@ typedef struct {
     WLX_Color back_color;
     WLX_Color border_color;
     float     border_width;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Slot_Style_Opt;
 
 #define wlx_default_slot_style_opt(...) \
-    (WLX_Slot_Style_Opt){ .row_span = 1, .col_span = 1, \
+    (WLX_Slot_Style_Opt){ .from_defaults = true, .row_span = 1, .col_span = 1, \
         .back_color = {0}, .border_color = {0}, .border_width = 0, \
         __VA_ARGS__ }
 
@@ -2602,10 +2615,11 @@ typedef struct {
     WLX_SLOT_DECOR_FIELDS;
     // Scope ID: when non-NULL, scopes all descendants for the grid body.
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Grid_Opt;
 
 #define wlx_default_grid_opt(...) \
-    (WLX_Grid_Opt){ \
+    (WLX_Grid_Opt){ .from_defaults = true, \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         .row_sizes = NULL, .col_sizes = NULL, \
         WLX_CONTAINER_DECOR_DEFAULTS, \
@@ -2620,10 +2634,11 @@ typedef struct {
     WLX_SLOT_DECOR_FIELDS;
     // Scope ID: when non-NULL, scopes all descendants for the grid body.
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Grid_Auto_Opt;
 
 #define wlx_default_grid_auto_opt(...) \
-    (WLX_Grid_Auto_Opt){ \
+    (WLX_Grid_Auto_Opt){ .from_defaults = true, \
         WLX_LAYOUT_SLOT_DEFAULTS, .col_sizes = NULL, \
         WLX_CONTAINER_DECOR_DEFAULTS, \
         WLX_SLOT_DECOR_DEFAULTS, \
@@ -2632,7 +2647,7 @@ typedef struct {
 
 
 #define wlx_default_layout_opt(...) \
-    (WLX_Layout_Opt) { \
+    (WLX_Layout_Opt) { .from_defaults = true, \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         .sizes = NULL, \
         WLX_CONTAINER_DECOR_DEFAULTS, \
@@ -2660,10 +2675,11 @@ typedef struct {
     float roundness;
     int rounded_segments;
     WLX_CONTENT_PADDING_FIELDS;  // body inset
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Overlay_Opt;
 
 #define wlx_default_overlay_opt(...) \
-    (WLX_Overlay_Opt) { \
+    (WLX_Overlay_Opt) { .from_defaults = true, \
         .orient = WLX_VERT, \
         .clip = true, \
         __VA_ARGS__ \
@@ -2892,10 +2908,11 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Widget_Opt;
 
 #define wlx_default_widget_opt(...) \
-    (WLX_Widget_Opt) { \
+    (WLX_Widget_Opt) { .from_defaults = true, \
         /* Placement */ \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
@@ -2977,11 +2994,12 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Label_Opt;
 
 
 #define wlx_default_label_opt(...) \
-    (WLX_Label_Opt) { \
+    (WLX_Label_Opt) { .from_defaults = true, \
         /* Placement */ \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
@@ -3058,10 +3076,11 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Button_Opt;
 
 #define wlx_default_button_opt(...) \
-    (WLX_Button_Opt) { \
+    (WLX_Button_Opt) { .from_defaults = true, \
         /* Placement */ \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
@@ -3141,10 +3160,11 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Dropdown_Opt;
 
 #define wlx_default_dropdown_opt(...) \
-    (WLX_Dropdown_Opt) { \
+    (WLX_Dropdown_Opt) { .from_defaults = true, \
         /* Placement */ \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
@@ -3222,10 +3242,11 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Tooltip_Opt;
 
 #define wlx_default_tooltip_opt(...) \
-    (WLX_Tooltip_Opt) { \
+    (WLX_Tooltip_Opt) { .from_defaults = true, \
         .delay = WLX_UNSET, \
         .offset_x = 12, \
         .offset_y = 18, \
@@ -3276,10 +3297,11 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Menu_Opt;
 
 #define wlx_default_menu_opt(...) \
-    (WLX_Menu_Opt) { \
+    (WLX_Menu_Opt) { .from_defaults = true, \
         .width = WLX_UNSET, \
         .row_height = 0, \
         .item_padding = WLX_UNSET, \
@@ -3300,10 +3322,11 @@ typedef struct {
     WLX_WIDGET_STATE_FIELDS;
     WLX_Color front_color;   // {0} -> menu front_color
     bool keep_open;          // clicking does not close the menu (submenu triggers, checkable items)
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Menu_Item_Opt;
 
 #define wlx_default_menu_item_opt(...) \
-    (WLX_Menu_Item_Opt) { \
+    (WLX_Menu_Item_Opt) { .from_defaults = true, \
         WLX_WIDGET_STATE_DEFAULTS, \
         .front_color = {0}, \
         .keep_open = false, \
@@ -3382,10 +3405,11 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Menu_Button_Opt;
 
 #define wlx_default_menu_button_opt(...) \
-    (WLX_Menu_Button_Opt) { \
+    (WLX_Menu_Button_Opt) { .from_defaults = true, \
         /* Placement */ \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
@@ -3493,10 +3517,11 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Checkbox_Opt;
 
 #define wlx_default_checkbox_opt(...) \
-    (WLX_Checkbox_Opt) { \
+    (WLX_Checkbox_Opt) { .from_defaults = true, \
         /* Placement */ \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
@@ -3595,10 +3620,11 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Inputbox_Opt;
 
 #define wlx_default_inputbox_opt(...) \
-    (WLX_Inputbox_Opt) { \
+    (WLX_Inputbox_Opt) { .from_defaults = true, \
         /* Placement */ \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
@@ -3682,11 +3708,12 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Slider_Opt;
 
 
 #define wlx_default_slider_opt(...) \
-    (WLX_Slider_Opt) { \
+    (WLX_Slider_Opt) { .from_defaults = true, \
         /* Placement */ \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
@@ -3725,10 +3752,11 @@ typedef struct {
     WLX_Color back_color;
     float     thickness;
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Separator_Opt;
 
 #define wlx_default_separator_opt(...) \
-    (WLX_Separator_Opt) { \
+    (WLX_Separator_Opt) { .from_defaults = true, \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         WLX_WIDGET_SIZING_DEFAULTS, \
         .back_color = {0}, \
@@ -3756,10 +3784,11 @@ typedef struct {
     WLX_CONTENT_PADDING_FIELDS;
 
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Progress_Opt;
 
 #define wlx_default_progress_opt(...) \
-    (WLX_Progress_Opt) { \
+    (WLX_Progress_Opt) { .from_defaults = true, \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         WLX_WIDGET_SIZING_DEFAULTS, \
         .track_color = {0}, \
@@ -3789,10 +3818,11 @@ typedef struct {
     WLX_Rect        src;     // src.w <= 0 -> full texture
 
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Image_Opt;
 
 #define wlx_default_image_opt(...) \
-    (WLX_Image_Opt) { \
+    (WLX_Image_Opt) { .from_defaults = true, \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         WLX_WIDGET_SIZING_DEFAULTS, \
         .scale = WLX_IMAGE_SCALE_STRETCH, \
@@ -3827,10 +3857,11 @@ typedef struct {
     WLX_CONTENT_PADDING_FIELDS;
 
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Toggle_Opt;
 
 #define wlx_default_toggle_opt(...) \
-    (WLX_Toggle_Opt) { \
+    (WLX_Toggle_Opt) { .from_defaults = true, \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         WLX_WIDGET_SIZING_DEFAULTS, \
         WLX_WIDGET_STATE_DEFAULTS, \
@@ -3870,10 +3901,11 @@ typedef struct {
     WLX_CONTENT_PADDING_FIELDS;
 
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Radio_Opt;
 
 #define wlx_default_radio_opt(...) \
-    (WLX_Radio_Opt) { \
+    (WLX_Radio_Opt) { .from_defaults = true, \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         WLX_WIDGET_SIZING_DEFAULTS, \
         WLX_WIDGET_STATE_DEFAULTS, \
@@ -3913,10 +3945,11 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Scroll_Panel_Opt;
 
 #define wlx_default_scroll_panel_opt(...) \
-    (WLX_Scroll_Panel_Opt) { \
+    (WLX_Scroll_Panel_Opt) { .from_defaults = true, \
         /* Placement */ \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
@@ -3965,6 +3998,7 @@ typedef struct {
     const float *item_offsets;  // variable height: prefix sums, length item_count+1,
                                 // monotonic with [0]==0. NULL selects fixed pitch.
     float        overscan;      // extra pixels built above/below the viewport
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_List_Clipper_Opt;
 
 typedef struct {
@@ -3979,7 +4013,7 @@ typedef struct {
 } WLX_List_Clipper;
 
 #define wlx_default_list_clipper_opt(...) \
-    (WLX_List_Clipper_Opt){ .id = NULL, .item_offsets = NULL, .overscan = 0.0f, __VA_ARGS__ }
+    (WLX_List_Clipper_Opt){ .from_defaults = true, .id = NULL, .item_offsets = NULL, .overscan = 0.0f, __VA_ARGS__ }
 
 // Total content height for a list. Pass the result to wlx_scroll_panel_begin so
 // the panel height and the clipper spacers agree exactly. item_offsets may be
@@ -4011,10 +4045,11 @@ typedef struct {
     WLX_Color second_back_color;    // second pane scroll panel bg (default: theme)
     // Scope ID: when non-NULL, scopes all descendants for the split body.
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Split_Opt;
 
 #define wlx_default_split_opt(...) \
-    (WLX_Split_Opt){ \
+    (WLX_Split_Opt){ .from_defaults = true, \
         .first_size       = WLX_SLOT_PX(280), \
         .second_size      = WLX_SLOT_FLEX(1), \
         .fill_size        = WLX_SLOT_FLEX(1), \
@@ -4027,10 +4062,11 @@ typedef struct {
 
 typedef struct {
     WLX_Color back_color;  // override second pane bg color
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Split_Next_Opt;
 
 #define wlx_default_split_next_opt(...) \
-    (WLX_Split_Next_Opt){ \
+    (WLX_Split_Next_Opt){ .from_defaults = true, \
         .back_color = {0}, \
         __VA_ARGS__ \
     }
@@ -4078,10 +4114,11 @@ typedef struct {
 
     // Scope ID: when non-NULL, scopes all descendants for the panel body.
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Panel_Opt;
 
 #define wlx_default_panel_opt(...) \
-    (WLX_Panel_Opt){ \
+    (WLX_Panel_Opt){ .from_defaults = true, \
         .title            = NULL, \
         .title_font_size  = 0, \
         .title_height     = 0, \
@@ -4209,6 +4246,8 @@ static inline void wlx_dbg_init(WLX_Context *ctx);
 static inline void wlx_dbg_destroy(WLX_Context *ctx);
 static inline void wlx_dbg_warn(WLX_Context *ctx, const char *file, int line, const char *fmt, ...);
 static inline bool wlx_dbg_warn_once(WLX_Context *ctx, const char *file, int line, const char *fmt, ...);
+static inline void wlx_dbg_opt_defaults(WLX_Context *ctx, bool from_defaults, const char *entry,
+    const char *defaults_fn, const char *file, int line);
 static inline void wlx_dbg_frame_begin(WLX_Context *ctx);
 static inline void wlx_dbg_interaction_id(WLX_Context *ctx, size_t base, const char *file, int line);
 static inline void wlx_dbg_layout_begin(WLX_Context *ctx, int vb_force,
@@ -7432,6 +7471,7 @@ static inline void wlx_write_content_measurements(WLX_Context *ctx, WLX_Layout *
 
 WLXDEF void wlx_layout_begin_impl(WLX_Context *ctx, size_t count, WLX_Orient orient, WLX_Layout_Opt opt,
                                    const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_layout_begin", "wlx_layout_opt_defaults", file, line);
     WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), file, line);
 
     WLX_Layout l = wlx_create_layout(ctx, frame.rect, count, orient, opt.gap);
@@ -7497,6 +7537,7 @@ WLXDEF void wlx_layout_begin_impl(WLX_Context *ctx, size_t count, WLX_Orient ori
 WLXDEF void wlx_overlay_begin_impl(WLX_Context *ctx, size_t count, WLX_Rect rect,
     WLX_Overlay_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_overlay_begin", "wlx_overlay_opt_defaults", file, line);
     bool pushed = wlx_scope_push(ctx, opt.id);
 
 #ifdef WLX_DEBUG
@@ -7608,6 +7649,7 @@ WLXDEF void wlx_overlay_end(WLX_Context *ctx)
 // widget or nested layout_begin call.  slot_px controls the fixed pixel size
 // of every slot along the layout axis.
 WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, float slot_px, WLX_Layout_Opt opt) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_layout_begin_auto", "wlx_layout_opt_defaults", NULL, 0);
     WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), NULL, 0);
 
     WLX_Layout l = wlx_create_layout_auto(ctx, frame.rect, orient, slot_px);
@@ -7625,6 +7667,7 @@ WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, floa
 
 WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_Grid_Opt opt,
                                 const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_begin", "wlx_grid_opt_defaults", file, line);
     WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), file, line);
 
     // --- CONTENT row pre-resolution ---
@@ -7669,6 +7712,7 @@ WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_
 }
 
 WLXDEF void wlx_grid_begin_auto_impl(WLX_Context *ctx, size_t cols, float row_px, WLX_Grid_Auto_Opt opt) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_begin_auto", "wlx_grid_auto_opt_defaults", NULL, 0);
     WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), NULL, 0);
 
     WLX_Layout l = wlx_create_grid_auto(ctx, frame.rect, cols, row_px, opt.col_sizes, opt.gap);
@@ -7680,6 +7724,7 @@ WLXDEF void wlx_grid_begin_auto_impl(WLX_Context *ctx, size_t cols, float row_px
 }
 
 WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float tile_h, WLX_Grid_Auto_Opt opt) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_begin_auto_tile", "wlx_grid_auto_opt_defaults", NULL, 0);
     assert(tile_w > 0.0f && "tile width must be positive");
     assert(tile_h > 0.0f && "tile height must be positive");
 
@@ -8002,6 +8047,7 @@ WLXDEF void wlx_grid_auto_row_px(WLX_Context *ctx, float px) {
 }
 
 WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Style_Opt opt) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_cell", "wlx_slot_style_opt_defaults", NULL, 0);
     assert(ctx != NULL);
     assert(ctx->arena.layouts.count > 0 && "grid_cell() called outside a layout");
 
@@ -8031,6 +8077,7 @@ WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Styl
 }
 
 WLXDEF void wlx_slot_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_slot_style", "wlx_slot_style_opt_defaults", NULL, 0);
     assert(ctx != NULL);
     assert(ctx->arena.layouts.count > 0 && "wlx_slot_style() called outside a layout");
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
@@ -8041,6 +8088,7 @@ WLXDEF void wlx_slot_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt) {
 }
 
 WLXDEF void wlx_grid_cell_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_cell_style", "wlx_slot_style_opt_defaults", NULL, 0);
     assert(ctx != NULL);
     assert(ctx->arena.layouts.count > 0 && "wlx_grid_cell_style() called outside a layout");
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
@@ -8540,6 +8588,7 @@ static void wlx_resolve_opt_widget(const WLX_Context *ctx, WLX_Widget_Opt *opt);
 
 WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_widget", "wlx_widget_opt_defaults", file, line);
     wlx_resolve_opt_widget(ctx, &opt);
 
     // Prologue: compute widget frame and interaction state
@@ -11648,6 +11697,7 @@ static void wlx_resolve_opt_label(const WLX_Context *ctx, WLX_Label_Opt *opt) {
 
 WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_label", "wlx_label_opt_defaults", file, line);
 #ifdef WLX_DEBUG
     int _wlx_label_user_font_size = opt.font_size;
 #endif
@@ -12126,6 +12176,7 @@ static WLX_Interaction wlx_button_face(WLX_Context *ctx,
 
 WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_button", "wlx_button_opt_defaults", file, line);
     wlx_resolve_opt_button(ctx, &opt);
 
     size_t text_len = (text != NULL) ? strlen(text) : 0;
@@ -12213,6 +12264,7 @@ static void wlx_resolve_opt_checkbox(const WLX_Context *ctx, WLX_Checkbox_Opt *o
 
 WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked, WLX_Checkbox_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_checkbox", "wlx_checkbox_opt_defaults", file, line);
     wlx_resolve_opt_checkbox(ctx, &opt);
 
     size_t text_len = (text != NULL) ? strlen(text) : 0;
@@ -14000,6 +14052,7 @@ static void wlx_inputbox_draw_content(WLX_Context *ctx, const WLX_Inputbox_Opt *
 WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_size,
     WLX_Inputbox_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_inputbox", "wlx_inputbox_opt_defaults", file, line);
     assert(ctx != NULL);
     assert(buffer != NULL && "inputbox buffer must not be NULL");
     WLX_HARD_ASSERT(buffer_size >= 2, "buffer_size must hold at least 1 char + null terminator");
@@ -14140,6 +14193,7 @@ static void wlx_resolve_opt_slider(const WLX_Context *ctx, WLX_Slider_Opt *opt) 
 }
 
 WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, WLX_Slider_Opt opt, const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_slider", "wlx_slider_opt_defaults", file, line);
     assert(ctx != NULL);
     assert(value != NULL && "slider value pointer must not be NULL");
     wlx_resolve_opt_slider(ctx, &opt);
@@ -14312,6 +14366,7 @@ static void wlx_resolve_opt_separator(const WLX_Context *ctx, WLX_Separator_Opt 
 
 WLXDEF void wlx_separator_impl(WLX_Context *ctx, WLX_Separator_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_separator", "wlx_separator_opt_defaults", file, line);
     wlx_resolve_opt_separator(ctx, &opt);
 
     WLX_Widget_Layout wly = WLX_WIDGET_LAYOUT(opt);
@@ -14405,6 +14460,7 @@ static void wlx_resolve_opt_progress(const WLX_Context *ctx, WLX_Progress_Opt *o
 }
 
 WLXDEF void wlx_progress_impl(WLX_Context *ctx, float value, WLX_Progress_Opt opt, const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_progress", "wlx_progress_opt_defaults", file, line);
     assert(ctx != NULL);
 
     wlx_resolve_opt_progress(ctx, &opt);
@@ -14488,6 +14544,7 @@ static void wlx_resolve_opt_image(const WLX_Context *ctx, WLX_Image_Opt *opt) {
 }
 
 WLXDEF void wlx_image_impl(WLX_Context *ctx, WLX_Texture texture, WLX_Image_Opt opt, const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_image", "wlx_image_opt_defaults", file, line);
     assert(ctx != NULL);
 
     wlx_resolve_opt_image(ctx, &opt);
@@ -14549,6 +14606,7 @@ static void wlx_resolve_opt_toggle(const WLX_Context *ctx, WLX_Toggle_Opt *opt) 
 }
 
 WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WLX_Toggle_Opt opt, const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_toggle", "wlx_toggle_opt_defaults", file, line);
     assert(ctx != NULL);
     assert(value != NULL && "toggle value pointer must not be NULL");
 
@@ -14663,6 +14721,7 @@ static void wlx_resolve_opt_radio(const WLX_Context *ctx, WLX_Radio_Opt *opt) {
 }
 
 WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int index, WLX_Radio_Opt opt, const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_radio", "wlx_radio_opt_defaults", file, line);
     assert(ctx != NULL);
     assert(active != NULL && "radio active pointer must not be NULL");
 
@@ -14960,6 +15019,7 @@ static inline WLX_Scroll_Panel_Frame wlx_scroll_panel_frame_begin(
 }
 
 WLXDEF void wlx_scroll_panel_begin_impl(WLX_Context *ctx, float content_height, WLX_Scroll_Panel_Opt opt, const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_scroll_panel_begin", "wlx_scroll_panel_opt_defaults", file, line);
     // Prologue: resolve opt, rects, state, contribute to parent, push scroll panel stack.
     WLX_Scroll_Panel_Frame frame = wlx_scroll_panel_frame_begin(ctx, content_height, &opt, file, line);
 
@@ -15183,6 +15243,7 @@ WLXDEF bool wlx_dropdown_impl(WLX_Context *ctx, const char *label,
     int *selected, const char **options, size_t count,
     WLX_Dropdown_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_dropdown", "wlx_dropdown_opt_defaults", file, line);
     assert(selected != NULL && "wlx_dropdown: selected must not be NULL");
     assert((count == 0 || options != NULL) && "wlx_dropdown: options must not be NULL");
     wlx_resolve_opt_dropdown(ctx, &opt);
@@ -15312,6 +15373,7 @@ static void wlx_resolve_opt_tooltip(const WLX_Context *ctx, WLX_Tooltip_Opt *opt
 WLXDEF bool wlx_tooltip_for_impl(WLX_Context *ctx, WLX_Rect anchor,
     const char *text, WLX_Tooltip_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_tooltip_for", "wlx_tooltip_opt_defaults", file, line);
     wlx_resolve_opt_tooltip(ctx, &opt);
 
     bool scope_pushed = wlx_scope_push(ctx, opt.id);
@@ -15482,6 +15544,7 @@ static bool wlx_menu_frame_push(WLX_Context *ctx, bool *open,
 WLXDEF bool wlx_menu_begin_impl(WLX_Context *ctx, bool *open, float x, float y,
     WLX_Menu_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_menu_begin", "wlx_menu_opt_defaults", file, line);
     assert(open != NULL && "wlx_menu_begin: open must not be NULL");
     wlx_resolve_opt_menu(ctx, &opt);
 
@@ -15525,6 +15588,7 @@ static void wlx_resolve_opt_menu_button(const WLX_Context *ctx, WLX_Menu_Button_
 WLXDEF bool wlx_menu_button_begin_impl(WLX_Context *ctx, const char *label,
     bool *open, WLX_Menu_Button_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_menu_button_begin", "wlx_menu_button_opt_defaults", file, line);
     assert(open != NULL && "wlx_menu_button_begin: open must not be NULL");
     wlx_resolve_opt_menu_button(ctx, &opt);
 
@@ -15614,6 +15678,7 @@ static void wlx_resolve_opt_submenu(const WLX_Menu_Frame *parent, WLX_Menu_Opt *
 WLXDEF bool wlx_submenu_begin_impl(WLX_Context *ctx, bool *open,
     WLX_Menu_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_submenu_begin", "wlx_menu_opt_defaults", file, line);
     assert(open != NULL && "wlx_submenu_begin: open must not be NULL");
     // An empty stack would index before its first entry (out-of-bounds
     // read of the parent frame in release builds), so this guard survives
@@ -15652,6 +15717,7 @@ WLXDEF bool wlx_submenu_begin_impl(WLX_Context *ctx, bool *open,
 WLXDEF bool wlx_menu_item_impl(WLX_Context *ctx, const char *text,
     WLX_Menu_Item_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_menu_item", "wlx_menu_item_opt_defaults", file, line);
     // An empty stack would index before its first entry (the row-cursor
     // write below would corrupt memory in release builds), so this guard
     // survives NDEBUG.
@@ -15726,6 +15792,7 @@ static inline void wlx_list_clipper_spacer(WLX_Context *ctx, float px) {
 
 WLXDEF WLX_List_Clipper wlx_list_clipper_begin_impl(WLX_Context *ctx, int item_count,
         float row_height, WLX_List_Clipper_Opt opt) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_list_clipper_begin", "wlx_list_clipper_opt_defaults", NULL, 0);
     assert(ctx != NULL);
     assert(ctx->arena.scroll_panels.count > 0 &&
         "wlx_list_clipper_begin must be called inside a scroll panel");
@@ -15798,6 +15865,7 @@ WLXDEF float wlx_list_clipper_item_height(const WLX_List_Clipper *clip, int i) {
 
 WLXDEF void wlx_split_begin_impl(WLX_Context *ctx, WLX_Split_Opt opt,
                                   const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_split_begin", "wlx_split_opt_defaults", file, line);
     WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING_EX(ctx, opt, WLX_SPLIT_CONTENT_PADDING);
 
     WLX_DBG(split_begin, ctx);
@@ -15826,6 +15894,7 @@ WLXDEF void wlx_split_begin_impl(WLX_Context *ctx, WLX_Split_Opt opt,
 
 WLXDEF void wlx_split_next_impl(WLX_Context *ctx, WLX_Split_Next_Opt opt,
                                  const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_split_next", "wlx_split_next_opt_defaults", file, line);
     WLX_DBG(split_next, ctx);
 
     // Close first pane scroll panel
@@ -15856,6 +15925,7 @@ WLXDEF void wlx_split_end_impl(WLX_Context *ctx) {
 
 WLXDEF void wlx_panel_begin_impl(WLX_Context *ctx, WLX_Panel_Opt opt,
                                   const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_panel_begin", "wlx_panel_opt_defaults", file, line);
     // Resolve sentinel defaults
     if (opt.title_font_size <= 0) opt.title_font_size = 18;
     if (opt.title_height <= 0)    opt.title_height = 32;
@@ -16451,6 +16521,22 @@ static inline bool wlx_dbg_warn_once(WLX_Context *ctx, const char *file, int lin
         fprintf(stderr, "wollix [DEBUG] %s:%d: %s\n", file, line, buf);
     }
     return true;
+}
+
+// An option struct that was not built from its defaults macro or defaults
+// function reached a widget entry: a zero-initialised struct carries zeros
+// where the defaults are non-zero (width, span, wrap, the sentinels). Warns
+// once per call site; entries that carry no call site key on their name.
+static inline void wlx_dbg_opt_defaults(WLX_Context *ctx, bool from_defaults, const char *entry,
+                                        const char *defaults_fn, const char *file, int line) {
+    if (from_defaults) return;
+    if (file == NULL) {
+        file = entry;
+        line = 0;
+    }
+    wlx_dbg_warn_once(ctx, file, line,
+        "%s: option struct not built from its defaults (a zero-initialised "
+        "struct is not the defaults); start from %s()", entry, defaults_fn);
 }
 
 static inline void wlx_dbg_frame_begin(WLX_Context *ctx) {

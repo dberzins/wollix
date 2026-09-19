@@ -159,10 +159,11 @@ typedef struct {
 
     // Explicit string ID (NULL = auto from call-site)
     const char *id;
+    bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Editor_Opt;
 
 #define wlx_default_editor_opt(...) \
-    (WLX_Editor_Opt) { \
+    (WLX_Editor_Opt) { .from_defaults = true, \
         /* Placement */ \
         WLX_LAYOUT_SLOT_DEFAULTS, \
         /* Sizing */ \
@@ -2128,6 +2129,7 @@ static void wlx_resolve_opt_editor(const WLX_Context *ctx, WLX_Editor_Opt *opt) 
 WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, size_t buffer_cap,
     size_t *length, WLX_Editor_Opt opt, const char *file, int line)
 {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_editor", "wlx_editor_opt_defaults", file, line);
     assert(ctx != NULL);
     assert(buffer != NULL && "editor buffer must not be NULL");
     assert(length != NULL && "editor length pointer must not be NULL");

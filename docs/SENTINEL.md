@@ -111,6 +111,31 @@ wlx_layout_begin(ctx, 3, WLX_VERT, .roundness = 0.3f, .back_color = bg);
 
 ---
 
+## Zero is not the defaults: the `from_defaults` marker
+
+Because the defaults are non-zero (`span = 1`, `wrap`, `WLX_UNSET` on every
+Rule U field), a zero-initialised option struct is not "all defaults": it
+carries zeros where the rules above expect a sentinel or a literal. This is
+the one mistake the option macros cannot make and a struct built by hand
+can, in C (`WLX_Button_Opt o = {0};`) and in C++ (`WLX_Button_Opt o{};` or
+a C++20 designated initialiser, which zeroes every field it does not name).
+
+Every option struct therefore ends with `bool from_defaults`, set to `true`
+by its `wlx_default_<x>_opt` macro and so by `wlx_<x>_opt_defaults()` and by
+every copy of a struct built from either. Under `WLX_DEBUG`, a struct that
+reaches a widget entry with the flag clear warns once per call site through
+the debug warning callback, naming the entry and the defaults function to
+start from; release builds never read the flag. The flag is public: setting
+it by hand silences the warning for a struct assembled field by field.
+
+```c
+WLX_Button_Opt o = wlx_button_opt_defaults();   // from_defaults = true
+o.content_align = WLX_CENTER;
+wlx_button_impl(ctx, "OK", o, __FILE__, __LINE__);
+```
+
+---
+
 ## Request tokens
 
 Two negative constants are explicit values that request a behaviour. They
