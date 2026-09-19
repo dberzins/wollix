@@ -191,6 +191,8 @@ UNDO_DISABLED_BIN = $(TEST_DIR)/test_undo_disabled
 DEFAULTS_ONCE_BIN = $(TEST_DIR)/test_defaults_once
 CPP_PATH_BIN = $(TEST_DIR)/test_cpp_path
 
+# One list, mirrored by the CMake test list in CMakeLists.txt: a binary added
+# here is added there in the same commit, and vice versa.
 test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN) $(CPP_PATH_BIN)
 	./$(TEST_BIN)
 	./$(SINGLE_PASS_BIN)

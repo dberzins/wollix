@@ -365,6 +365,38 @@ make editor         # → demos/editor (100 KB / 10 MB generated docs, W toggles
 
 All executables are written to `./demos/`.
 
+### Using CMake
+
+The repository is also a CMake package. The target `wollix::wollix` is
+header-only and carries the include path, C11, and the compiler flags the
+option macros need (`-Wno-override-init` on gcc, `-Wno-initializer-overrides`
+on clang, `/Zc:preprocessor` on MSVC), so a consumer sets none of them:
+
+```cmake
+# Installed package (cmake --install / vcpkg):
+find_package(wollix CONFIG REQUIRED)
+# ...or vendored, as a subdirectory or through FetchContent:
+add_subdirectory(third_party/wollix)
+
+add_executable(app main.c)   # one C TU defines WOLLIX_IMPLEMENTATION
+target_link_libraries(app PRIVATE wollix::wollix)
+```
+
+The library's own tests and demos are options that default on only when
+Wollix is the top-level project:
+
+```bash
+cmake -B build                       # tests on; demos when Raylib / SDL3 are found
+cmake --build build
+ctest --test-dir build --output-on-failure
+cmake --install build --prefix /some/prefix
+```
+
+Raylib is found as a CMake package or as a plain install (`-DWOLLIX_RAYLIB_DIR=~/opt/raylib`);
+SDL3 and SDL3_ttf as CMake packages (`-DCMAKE_PREFIX_PATH="~/opt/sdl3;~/opt/sdl3_ttf"`).
+The Makefile remains the developer tool for the perf gates and the WASM
+sites; CI runs both.
+
 ## Contributing
 
 Wollix is experimental and the API is not yet stable — **code contributions

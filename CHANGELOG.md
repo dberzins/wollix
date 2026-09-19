@@ -146,6 +146,26 @@ your own pace before the next minor.
   over the public headers and the mock backend, linked against the
   implementation compiled as C11; `CXX` follows `CC` (gcc -> g++, otherwise
   clang++) so the CI matrix covers both front ends.
+- **CMake package.** A root `CMakeLists.txt` exports the header-only target
+  `wollix::wollix`, which carries the include path, C11 and the compiler
+  flags the option macros need (`-Wno-override-init` gated to C on gcc,
+  `-Wno-initializer-overrides` on clang, `/Zc:preprocessor` on MSVC), for
+  `find_package(wollix CONFIG)`, `add_subdirectory` and `FetchContent`. The
+  version is read from `WOLLIX_VERSION`; the config file is
+  `SameMinorVersion` while the major version is 0. `WOLLIX_BUILD_TESTS`
+  registers the `make test` binaries with CTest and `WOLLIX_BUILD_DEMOS`
+  builds the Raylib and SDL3 demos when found; both default on only when
+  Wollix is the top-level project. The Makefile stays the developer tool
+  and CI runs both (README "Using CMake", CONTRIBUTING "Building and
+  tests").
+- **Test tree builds where VLAs and `<unistd.h>` do not.** The dashboard
+  table's row-size array is a fixed buffer with a documented row cap, and
+  the test harness probes the terminal with `_isatty` under `_WIN32`.
+- **`ASAN_DETECT_LEAKS`.** `make test-asan` takes the leak-detection switch
+  as a variable (default on) so hosts without LeakSanitizer keep the
+  address and undefined-behaviour checks.
+- **macOS CI leg.** `test-macos` runs the unit suite, the warnings-as-errors
+  set and the sanitizer runner on `macos-latest`.
 - **MSVC build requirement documented.** `/std:c11 /Zc:preprocessor`
   (Visual Studio 2019 16.8 or later); the conforming preprocessor is needed
   for `wlx_layout_begin_s`. A Windows CI leg follows in this cycle.
