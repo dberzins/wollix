@@ -705,6 +705,31 @@ WLXDEF WLX_Backend wlx_backend_from_v1(const WLX_Backend_V1 *v1);
 // be pure in (style, user) and return a style the backend can render.
 typedef WLX_Text_Style (*WLX_Style_Transform_Fn)(WLX_Text_Style style, void *user);
 
+// Per-span colour (syntax highlighting): one span of a text widget's
+// document and where it starts, asked by the widget at draw time for the
+// visible records only, walking each record from its first byte. offset
+// is a text unit boundary inside the hard line [line_start, line_next).
+typedef struct {
+    const char *text;    // the document
+    size_t length;       // its length
+    size_t line;         // hard line index of the span, 0-based
+    size_t line_start;   // the hard line's first byte
+    size_t line_next;    // the next hard line's first byte, or length
+    size_t offset;       // the span starts here
+    size_t limit;        // the visible record's end; nothing past it draws this call
+} WLX_Text_Span_Query;
+
+// Return the colour of the bytes from q->offset and set *span_end past the
+// span's last byte (greater than q->offset, at most q->length; it arrives
+// preset to q->limit). A zero colour means the widget's front_color. The
+// core clips *span_end to q->limit and snaps it forward to a text unit
+// boundary, so a grapheme cluster never draws in two colours; an end that
+// does not advance is an application bug (asserted under WLX_DEBUG,
+// advanced one unit in release). Colours are asked every frame and never
+// retained: the application owns the tokenizer and its state.
+typedef WLX_Color (*WLX_Text_Span_Color_Fn)(const WLX_Text_Span_Query *q,
+                                            size_t *span_end, void *user);
+
 // ============================================================================
 // Public enums
 // ============================================================================
@@ -12903,6 +12928,203 @@ static void wlx_text_draw_selection(WLX_Context *ctx, WLX_Rect band, const char 
         wlx_draw_rect(ctx, (WLX_Rect){ line->origin_x + lead_w, line->origin_y, span_w, line->line_h }, color);
     }
     wlx_scissor_scope_end(ctx, sc);
+}
+
+// ---------------------------------------------------------------------------
+// Record piece drawer: tab boundaries and colour spans
+// ---------------------------------------------------------------------------
+//
+// Draws one visible record as pieces cut at two boundary sets: the tab
+// boundaries of tab expansion and the edges of the colour spans an
+// optional callback names. Per record the cheapest authoritative tier
+// wins:
+//
+//   1. no tab and no interior span edge -> one draw call for the run
+//   2. a covering entry validates every
+//      tab boundary                     -> pieces drawn at the stored
+//                                          advances (zero backend measures)
+//   3. otherwise                        -> per-piece measure + draw
+//
+// Piece x replays in the record-relative frame both wrap modes share. A
+// passive consumer: reads the entry the caller found, never moves a
+// measure origin, retains nothing. With no callback the record is one
+// span in the record's colour, which is exactly the tab walk.
+//
+// A callback's answer is enforced here, in this order: the end is clipped
+// to the document and to the record's visible end, snapped forward to a
+// text unit boundary (a grapheme cluster never draws in two colours), and
+// advanced one unit when it does not progress. A zero colour draws in the
+// record's style colour; a non-zero colour takes the theme's disabled
+// shift and the widget's effective opacity, the two transforms the
+// widget's own colours went through.
+
+// An answer that does not advance or points past the document is an
+// application bug: asserted under WLX_DEBUG, clamped in release. A test
+// that exercises the clamp pre-defines the macro.
+#ifndef WLX_TEXT_SPAN_ASSERT
+  #ifdef WLX_DEBUG
+    #define WLX_TEXT_SPAN_ASSERT(cond) assert(cond)
+  #else
+    #define WLX_TEXT_SPAN_ASSERT(cond) ((void)0)
+  #endif
+#endif
+
+typedef struct {
+    WLX_Context *ctx;
+    const char *text;
+    size_t len;
+    const WLX_Text_Line_Record *line;
+    WLX_Text_Style ts;                  // the record's style; ts.color is the base colour
+    float tab_advance;
+    const WLX_Text_Geom_Entry *entry;   // the covering entry, or NULL to measure
+    size_t line_index;                  // hard line facts the query carries
+    size_t line_start;
+    size_t line_next;
+    WLX_Text_Span_Color_Fn span_color;  // NULL -> one span in the base colour
+    void *span_user;
+    const WLX_Theme *theme;
+    bool disabled;
+    float opacity;                      // the widget's effective opacity
+} WLX_Text_Span_Draw_Args;
+
+static inline WLX_Color wlx_text_span_piece_color(const WLX_Text_Span_Draw_Args *a, WLX_Color c) {
+    if (wlx_color_is_zero(c)) return a->ts.color;
+    if (a->disabled && a->theme != NULL && !wlx_is_float_unset(a->theme->disabled_brightness))
+        c = wlx_color_brightness(c, a->theme->disabled_brightness);
+    return wlx_color_apply_opacity(c, a->opacity);
+}
+
+// Record-relative x at `to` by the measuring rule from `x` at `from`:
+// segment measures between tabs, next-tab-stop rounding at each tab.
+static float wlx_text_span_measure_to(const WLX_Text_Span_Draw_Args *a,
+    size_t from, size_t to, float x, bool has_tab)
+{
+    float w = 0.0f, h = 0.0f;
+    if (!has_tab) {
+        wlx_measure_text_range(a->ctx, a->text, a->len, from, to, a->ts, &w, &h);
+        return x + w;
+    }
+    size_t p = from;
+    WLX_Text_Tab_Seg seg;
+    while (wlx_text_tab_seg_next(a->text, to, &p, &seg)) {
+        if (seg.end > seg.start) {
+            wlx_measure_text_range(a->ctx, a->text, a->len, seg.start, seg.end, a->ts, &w, &h);
+            x += w;
+        }
+        if (seg.tab_after) x = wlx_tab_stop_next(x, a->tab_advance);
+    }
+    return x;
+}
+
+static WLX_EXTENSION_USED void wlx_text_draw_record_spans(const WLX_Text_Span_Draw_Args *a)
+{
+    WLX_Context *ctx = a->ctx;
+    const WLX_Text_Line_Record *line = a->line;
+    const char *text = a->text;
+    size_t len = a->len;
+    const WLX_Text_Geom_Entry *e = a->entry;
+    size_t vs = line->visible_start;
+    size_t ve = line->visible_end;
+    if (vs >= ve) return;
+
+    // Tab presence: definitive from a covering entry's first-tab fact
+    // (absent when the line's first measured tab is missing or at/after
+    // the record's end; a first tab before the record start, an earlier
+    // wrapped row, leaves presence unknown and the segment walk below
+    // degenerates to whole pieces), else a byte scan.
+    bool has_tab = false;
+    if (a->tab_advance > 0.0f) {
+        if (e != NULL) {
+            has_tab = wlx_text_pen_has_tab(wlx_text_geom_first_tab_abs(e), ve);
+        } else {
+            for (size_t b = vs; b < ve; b++) {
+                if (text[b] == '\t') { has_tab = true; break; }
+            }
+        }
+    }
+    // Every tab's unit boundary must be a stored unit end before the
+    // stored advances place anything; a mismatch measures the record.
+    bool replay = e != NULL;
+    if (replay && has_tab) {
+        for (size_t b = vs; b < ve && replay; b++) {
+            if (text[b] == '\t'
+                && wlx_text_geom_unit_index(e, b + 1 - e->line_start) == SIZE_MAX)
+                replay = false;
+        }
+    }
+
+    float x = 0.0f;
+    size_t pos = vs;
+    while (pos < ve) {
+        WLX_Color color = {0};
+        size_t end = ve;
+        if (a->span_color != NULL) {
+            WLX_Text_Span_Query q = {
+                .text = text, .length = len, .line = a->line_index,
+                .line_start = a->line_start, .line_next = a->line_next,
+                .offset = pos, .limit = ve,
+            };
+            size_t raw_end = ve;
+            color = a->span_color(&q, &raw_end, a->span_user);
+            WLX_TEXT_SPAN_ASSERT(raw_end > pos && raw_end <= len
+                && "span_color: the span end must advance past the offset and stay inside the document");
+            end = raw_end;
+            if (end > len) end = len;
+            if (end > ve) end = ve;
+            if (!wlx_text_unit_boundary(text, len, end)) {
+                end = wlx_text_unit_next(text, len, end);
+                if (end > ve) end = ve;
+            }
+            if (end <= pos) {
+                end = wlx_text_unit_next(text, len, pos);
+                if (end > ve) end = ve;
+                if (end <= pos) break;
+            }
+        }
+
+        WLX_Text_Style pts = a->ts;
+        pts.color = wlx_text_span_piece_color(a, color);
+        float span_x = x;
+        if (!has_tab) {
+            wlx_draw_text_range(ctx, text, len, pos, end, line->origin_x + x, line->origin_y, pts);
+        } else {
+            // A tab is a single-byte unit, so the advance at its unit end
+            // is the following segment's tab-stop start in the record's
+            // frame; the validation above proved every tab's boundary.
+            size_t p = pos;
+            WLX_Text_Tab_Seg seg;
+            while (wlx_text_tab_seg_next(text, end, &p, &seg)) {
+                if (seg.end > seg.start) {
+                    wlx_draw_text_range(ctx, text, len, seg.start, seg.end,
+                        line->origin_x + x, line->origin_y, pts);
+                    if (!replay) {
+                        float seg_w = 0.0f, seg_h = 0.0f;
+                        wlx_measure_text_range(ctx, text, len, seg.start, seg.end, a->ts, &seg_w, &seg_h);
+                        x += seg_w;
+                    }
+                }
+                if (seg.tab_after) {
+                    if (replay) wlx_text_geom_advance_at(e, seg.end + 1 - e->line_start, &x);
+                    else x = wlx_tab_stop_next(x, a->tab_advance);
+                }
+            }
+        }
+        if (end >= ve) break;
+        // x at the span end for the next span: a stored unit end under
+        // replay (the end is a unit boundary of the same predicate that
+        // produced the entry's unit ends, so a miss is a defect), else the
+        // measuring rule from the span's start.
+        if (replay) {
+            if (!wlx_text_geom_advance_at(e, end - e->line_start, &x)) {
+                WLX_TEXT_SPAN_ASSERT(false && "span edge is not a stored unit end");
+                x = wlx_text_span_measure_to(a, pos, end, span_x, has_tab);
+                replay = false;
+            }
+        } else if (!has_tab) {
+            x = wlx_text_span_measure_to(a, pos, end, span_x, false);
+        }
+        pos = end;
+    }
 }
 
 // Password-mask offset mapping: the display text carries one byte per

@@ -5,6 +5,10 @@
 // Disable the wlx_image empty-texture assert so test_image can exercise the
 // safe no-op fallback path without aborting the runner.
 #define WLX_IMAGE_ASSERT_TEXTURE_VALID(tex) ((void)(tex))
+// The span-colour contract check counts instead of aborting, so the suite
+// can exercise the release clamp and pin that the check fired.
+static int test_span_assert_hits = 0;
+#define WLX_TEXT_SPAN_ASSERT(cond) do { if (!(cond)) test_span_assert_hits++; } while (0)
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
 #include "wollix_editor.h"
@@ -255,6 +259,13 @@
 // stitching continuity, tab restart at the origin, END and far-offset
 // editing, and line-start origins for near content.
 #include "test_editor_windowed_origin.c"
+
+// wlx_editor per-span colour: no-callback identity pins on the tab walk,
+// pieces at stored advances, span-end clipping / snapping / progress, the
+// colour treatment, visible-records-only queries, geometry and measure
+// traffic identical with the hook on and off. Reuses the ev_*, ew_* and
+// wo_* fixtures, so it follows test_editor_windowed_origin.c.
+#include "test_editor_span_color.c"
 #include "test_opt_defaults_marker.c"
 
 int main(void) {
@@ -331,6 +342,7 @@ int main(void) {
     RUN_SUITE(editor_geom_cache);
     RUN_SUITE(advances_parity);
     RUN_SUITE(editor_windowed_origin);
+    RUN_SUITE(editor_span_color);
     RUN_SUITE(frame_time);
     RUN_SUITE(focus_release);
     RUN_SUITE(cursor_shape);

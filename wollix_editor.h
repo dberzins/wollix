@@ -133,6 +133,13 @@ typedef struct {
     WLX_Color cursor_color;
     WLX_Color selection_color;   // {0} -> theme->input.selection
 
+    // Optional per-span colour (syntax highlighting): asked at draw time
+    // for the visible records only, never retained; NULL = one colour.
+    // The application owns the tokenizer and its state. Span colours take
+    // the widget's disabled shift and opacity like front_color.
+    WLX_Text_Span_Color_Fn span_color;
+    void *span_color_user;
+
     // Optional out-param: receives this frame's focus state.
     bool *out_focused;
 
@@ -180,6 +187,8 @@ typedef struct {
         .border_focus_color = {0}, \
         .cursor_color = {0}, \
         .selection_color = {0}, \
+        .span_color = NULL, \
+        .span_color_user = NULL, \
         .out_focused = NULL, \
         .read_only = false, \
         .show_scrollbar = true, \
@@ -836,20 +845,13 @@ static size_t wlx_editor_wrap_hit(const WLX_Text_Build_Inputs *inputs,
     return wlx_editor_wrap_offset_at_row_x(inputs, idx, hl, hr, content_x);
 }
 
-// Draw the window records, tab-aware, clipped to the band (window
-// content routinely overflows it on both axes). Per visible record
-// the cheapest authoritative tier wins:
-//
-//   1. no tab in the record        -> one draw call for the whole run
-//   2. a covering entry validates
-//      every tab boundary          -> segments drawn at the stored
-//                                     advances (zero backend measures)
-//   3. otherwise                   -> per-segment measure + draw
-//
-// Tab presence resolves from a covering entry's first-tab fact when
-// one is authoritative, else a byte scan; segment x replays in the
-// record-relative frame both modes share. A passive consumer: reads
-// via find only, never moves a measure origin.
+// Draw the window records clipped to the band (window content routinely
+// overflows it on both axes): each visible record goes to the core's
+// record piece drawer, which cuts it at tab boundaries and at the edges
+// of the optional colour spans and places the pieces from the stored
+// advances of the covering entry found here (measuring only without
+// one). A passive consumer: reads via find only, never moves a measure
+// origin, retains no colour.
 static void wlx_editor_draw_window(const WLX_Editor_Frame *f,
     const WLX_Text_Line_Record *lines, size_t count)
 {
@@ -857,12 +859,16 @@ static void wlx_editor_draw_window(const WLX_Editor_Frame *f,
     WLX_Rect band = f->eb.band;
     const char *doc = f->doc;
     size_t len = f->doc_len;
-    WLX_Text_Style ts = f->ts;
-    float tab_advance = f->tab_advance;
     const WLX_Editor_Line_Index *idx = f->idx;
     WLX_Text_Geom_Store *geom = f->geom;
     if (lines == NULL || count == 0 || len == 0) return;
 
+    WLX_Text_Span_Draw_Args args = {
+        .ctx = ctx, .text = doc, .len = len, .ts = f->ts,
+        .tab_advance = f->tab_advance,
+        .span_color = f->opt->span_color, .span_user = f->opt->span_color_user,
+        .theme = ctx->theme, .disabled = f->opt->disabled, .opacity = f->opt->opacity,
+    };
     WLX_Scissor_Scope sc = wlx_scissor_scope_begin(ctx, band);
     for (size_t i = 0; i < count; i++) {
         const WLX_Text_Line_Record *line = &lines[i];
@@ -872,79 +878,22 @@ static void wlx_editor_draw_window(const WLX_Editor_Frame *f,
         // Covering entry: must span the record's range within its measured
         // span ([origin_rel, scan_rel)) or its tab answer and advances are
         // not authoritative for this record.
-        WLX_Text_Geom_Entry *e = NULL;
-        if (geom != NULL && idx != NULL && idx->count > 0) {
+        args.line = line;
+        args.entry = NULL;
+        args.line_index = 0;
+        args.line_start = 0;
+        args.line_next = len;
+        if (idx != NULL && idx->count > 0) {
             size_t li = wlx_editor_index_line_of(idx, line->visible_start);
-            e = wlx_text_geom_covering(geom, line->visible_start,
-                line->visible_end, wlx_editor_line_next(idx, li, len));
-        }
-
-        bool has_tab = false;
-        if (tab_advance > 0.0f) {
-            if (e != NULL) {
-                // Definitive absence when the line's first measured tab is
-                // missing or at/after the record's end. A first tab before
-                // the record start (an earlier wrapped row) leaves presence
-                // unknown; the replay walk below resolves it and
-                // degenerates to the single-run draw on a tab-free record.
-                has_tab = wlx_text_pen_has_tab(wlx_text_geom_first_tab_abs(e),
-                    line->visible_end);
-            } else {
-                for (size_t b = line->visible_start; b < line->visible_end; b++) {
-                    if (doc[b] == '\t') { has_tab = true; break; }
-                }
+            args.line_index = li;
+            args.line_start = idx->offsets[li];
+            args.line_next = wlx_editor_line_next(idx, li, len);
+            if (geom != NULL) {
+                args.entry = wlx_text_geom_covering(geom, line->visible_start,
+                    line->visible_end, args.line_next);
             }
         }
-        if (!has_tab) {
-            wlx_draw_text_range(ctx, doc, len, line->visible_start, line->visible_end,
-                line->origin_x, line->origin_y, ts);
-            continue;
-        }
-
-        bool replay = e != NULL;
-        if (replay) {
-            // Every segment's leading boundary must be a measured unit end
-            // before anything draws; a mismatch falls back wholesale.
-            for (size_t b = line->visible_start; b < line->visible_end && replay; b++) {
-                if (doc[b] == '\t' && wlx_text_geom_unit_index(e,
-                        b + 1 - e->line_start) == SIZE_MAX)
-                    replay = false;
-            }
-        }
-        if (replay) {
-            // Segment x from the stored advances: a tab is a single-byte
-            // unit, so the advance at its unit end is the following
-            // segment's tab-stop start in the record's frame.
-            size_t pos = line->visible_start;
-            float x = 0.0f;
-            WLX_Text_Tab_Seg seg;
-            while (wlx_text_tab_seg_next(doc, line->visible_end, &pos, &seg)) {
-                if (seg.end > seg.start) {
-                    wlx_draw_text_range(ctx, doc, len, seg.start, seg.end,
-                        line->origin_x + x, line->origin_y, ts);
-                }
-                if (seg.tab_after) {
-                    // The validation loop above proved every tab's unit
-                    // boundary, so this lookup cannot miss.
-                    wlx_text_geom_advance_at(e, seg.end + 1 - e->line_start, &x);
-                }
-            }
-            continue;
-        }
-
-        float x = 0.0f;
-        size_t pos = line->visible_start;
-        WLX_Text_Tab_Seg seg;
-        while (wlx_text_tab_seg_next(doc, line->visible_end, &pos, &seg)) {
-            if (seg.end > seg.start) {
-                float seg_w = 0.0f, seg_h = 0.0f;
-                wlx_measure_text_range(ctx, doc, len, seg.start, seg.end, ts, &seg_w, &seg_h);
-                wlx_draw_text_range(ctx, doc, len, seg.start, seg.end,
-                    line->origin_x + x, line->origin_y, ts);
-                x += seg_w;
-            }
-            if (seg.tab_after) x = wlx_tab_stop_next(x, tab_advance);
-        }
+        wlx_text_draw_record_spans(&args);
     }
     wlx_scissor_scope_end(ctx, sc);
 }
