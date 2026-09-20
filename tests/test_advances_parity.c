@@ -223,7 +223,8 @@ static size_t ap_gen_corpus(char *buf, size_t cap) {
         "short zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
         "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz after an over-wide word\n"
         "            \n"
-        "ends with a space \n";
+        "ends with a space \n"
+        "clusters " GR_EACUTE " " GR_FLAG " " GR_FAMILY " " GR_HEART " tail\n";
     size_t off = sizeof(head) - 1;
     if (off >= cap) return 0;
     memcpy(buf, head, off);
@@ -517,7 +518,91 @@ TEST(advances_cold_build_batches_measure_traffic) {
     ap_pair_destroy(&p);
 }
 
+// A line of 300 ZWJ families (5400 bytes, 300 units; corpus macro from
+// test_grapheme.c, same TU) crosses the advances chunk cap: every stored
+// unit end on both paths is a family boundary, so no chunk splice falls
+// inside a family, and the paths keep answering identical caret x and hit
+// tests across it.
+TEST(advances_cluster_units_never_split_at_chunk) {
+    AP_Pair p;
+    ap_pair_init(&p, 400, 120);
+    static char buf_a[8192], buf_b[8192];
+    size_t len = 0;
+    memcpy(buf_a, "head\n", 5);
+    len = 5;
+    for (int i = 0; i < 300; i++) { memcpy(buf_a + len, GR_FAMILY, 18); len += 18; }
+    memcpy(buf_a + len, "\ntail", 5);
+    len += 5;
+    memcpy(buf_b, buf_a, len);
+    size_t len_a = len, len_b = len;
+
+    // Wrapped: the store builds the whole line's rows, so the entry holds
+    // all 300 units across two advances chunks; four families (360 px)
+    // fit the 383 px band per row.
+    ap_step(&p, buf_a, buf_b, sizeof(buf_a), &len_a, &len_b, true,
+        0, 0, false, 0.0f, 0, NULL, NULL);
+    ap_step(&p, buf_a, buf_b, sizeof(buf_a), &len_a, &len_b, true,
+        0, 0, false, 0.0f, 0, NULL, NULL);
+
+    WLX_Editor_Line_Index *ia = ap_index(&p.fallback);
+    WLX_Editor_Line_Index *ib = ap_index(&p.advances);
+    ASSERT_TRUE(ia != NULL && ib != NULL);
+    ASSERT_EQ_INT(3, (long)ib->count);
+    size_t start = ib->offsets[1];
+    size_t next = ib->offsets[2];
+    ASSERT_EQ_INT(5, (long)start);
+    ASSERT_EQ_INT(5 + 5400 + 1, (long)next);
+
+    for (int which = 0; which < 2; which++) {
+        WLX_Editor_Line_Index *idx = which == 0 ? ia : ib;
+        WLX_Text_Geom_Entry *e = NULL;
+        for (size_t i = 0; i < idx->geom.count; i++) {
+            if (idx->geom.entries[i].used && idx->geom.entries[i].line_start == start)
+                e = &idx->geom.entries[i];
+        }
+        ASSERT_TRUE(e != NULL);
+        ASSERT_EQ_INT(300, (long)e->units);
+        ASSERT_TRUE(e->units > (size_t)WLX_TEXT_ADVANCES_CHUNK);
+        for (size_t u = 0; u < e->units; u++)
+            ASSERT_EQ_INT(0, (long)(e->unit_ends[u] % 18));
+        ASSERT_EQ_INT(75, (long)e->rows);
+        for (size_t r = 0; r + 1 < e->rows; r++)
+            ASSERT_EQ_INT(4, (long)(e->row_units[r + 1] - e->row_units[r]));
+    }
+
+    // Unwrapped: caret x and hit tests agree between the paths across the
+    // line and answer boundaries only.
+    ap_step(&p, buf_a, buf_b, sizeof(buf_a), &len_a, &len_b, false,
+        0, 0, false, 0.0f, 0, NULL, NULL);
+    ap_step(&p, buf_a, buf_b, sizeof(buf_a), &len_a, &len_b, false,
+        0, 0, false, 0.0f, 0, NULL, NULL);
+    ia = ap_index(&p.fallback);
+    ib = ap_index(&p.advances);
+    ASSERT_TRUE(ia != NULL && ib != NULL);
+    WLX_Text_Style ts = { .font = 0, .font_size = 10,
+        .color = {255, 255, 255, 255}, .spacing = 0 };
+    float tab_advance = ia->geom.env.tab_advance;
+    float line_h = ia->geom.env.line_h;
+    for (size_t caret = start; caret <= next; caret += 6) {
+        float xa = wlx_editor_caret_x(&p.fallback, buf_a, len_a, ts,
+            tab_advance, &ia->geom, next, start, caret, true);
+        float xb = wlx_editor_caret_x(&p.advances, buf_b, len_b, ts,
+            tab_advance, &ib->geom, next, start, caret, true);
+        ASSERT_EQ_F(xa, xb, 0.0f);
+    }
+    for (float x = -7.0f; x < 27500.0f; x += 97.0f) {
+        size_t oa = wlx_editor_offset_at_x(&p.fallback, buf_a, len_a, ts,
+            line_h, tab_advance, ia, &ia->geom, 1, 30000.0f, 0.0f, x);
+        size_t ob = wlx_editor_offset_at_x(&p.advances, buf_b, len_b, ts,
+            line_h, tab_advance, ib, &ib->geom, 1, 30000.0f, 0.0f, x);
+        ASSERT_EQ_INT((long)oa, (long)ob);
+        ASSERT_TRUE(wlx_text_unit_boundary(buf_a, len_a, oa));
+    }
+    ap_pair_destroy(&p);
+}
+
 SUITE(advances_parity) {
+    RUN_TEST(advances_cluster_units_never_split_at_chunk);
     RUN_TEST(advances_records_match_fallback_across_widths);
     RUN_TEST(advances_wrap_rows_match_fallback);
     RUN_TEST(advances_caret_x_and_hit_tests_match_fallback);

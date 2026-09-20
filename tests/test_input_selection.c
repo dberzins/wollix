@@ -376,7 +376,77 @@ TEST(sel_highlight_rect_geometry) {
 // Suite
 // ============================================================================
 
+// ============================================================================
+// Grapheme clusters (corpus macros from test_grapheme.c, same TU)
+// ============================================================================
+
+TEST(sel_cluster_keys_step_whole) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "ab" GR_FAMILY "c";
+
+    // Left twice from the end steps over "c" and the whole family.
+    sel_frame_focus_at_end(&ctx, buf, sizeof(buf));
+    sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, 0);
+    sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, 0);
+    sel_frame_type(&ctx, buf, sizeof(buf), "X");
+    ASSERT_EQ_STR(buf, "abX" GR_FAMILY "c");
+
+    // Right steps over the family; two Backspaces then remove "Y" and the
+    // family whole.
+    sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_RIGHT, 0);
+    sel_frame_type(&ctx, buf, sizeof(buf), "Y");
+    ASSERT_EQ_STR(buf, "abX" GR_FAMILY "Yc");
+    sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE, 0);
+    sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_STR(buf, "abXc");
+
+    // Delete at a flag's start removes both indicators.
+    sel_frame_type(&ctx, buf, sizeof(buf), GR_FLAG);
+    ASSERT_EQ_STR(buf, "abX" GR_FLAG "c");
+    sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, 0);
+    sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_DELETE, 0);
+    ASSERT_EQ_STR(buf, "abXc");
+    wlx_context_destroy(&ctx);
+}
+
+TEST(sel_cluster_drag_selects_whole) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "ab" GR_FAMILY "cd";
+
+    // Press at boundary 1 and drag to a point past the family's midpoint
+    // (its span is content x 10..100): the selection ends at 20, never
+    // inside the family, so Backspace removes "b" and the family.
+    sel_frame_mouse(&ctx, buf, sizeof(buf), SEL_BOUNDARY_X(1), true, true);
+    sel_frame_mouse(&ctx, buf, sizeof(buf), 100, true, false);
+    sel_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_STR(buf, "acd");
+    wlx_context_destroy(&ctx);
+}
+
+TEST(sel_offset_at_point_cluster_boundaries) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Rect rect = {0, 0, 200, 100};
+    WLX_Text_Style ts = { .font_size = 10 };
+    const char *text = "ab" GR_FAMILY "cd";
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    // The family spans x 10..100 (midpoint 55): every x resolves to its
+    // start or its end, never to an offset inside it.
+    for (int x = 10; x <= 102; x++) {
+        size_t off = wlx_text_offset_at_point(&ctx, rect, text, 22, ts, WLX_TOP_LEFT, false, (float)x, 5.0f);
+        ASSERT_EQ_INT((long)(x < 55 ? 2 : 20), (long)off);
+    }
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(input_selection) {
+    RUN_TEST(sel_cluster_keys_step_whole);
+    RUN_TEST(sel_cluster_drag_selects_whole);
+    RUN_TEST(sel_offset_at_point_cluster_boundaries);
     // Keyboard selection
     RUN_TEST(sel_shift_arrow_extends_and_typing_replaces);
     RUN_TEST(sel_backspace_deletes_selection);

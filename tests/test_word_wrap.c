@@ -468,7 +468,29 @@ TEST(ww_strict_rows_fit_width) {
     wlx_context_destroy(&ctx);
 }
 
+TEST(ww_cluster_rows_cut_at_units) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 200);
+    WLX_Text_Line_Record recs[WW_MAX_RECS];
+    // Two ZWJ families (18 bytes, 90 px each; corpus macro from
+    // test_grapheme.c, same TU) after "aaaa ": the first overflows and cuts
+    // the row at the space, then each family stands on a row of its own (a
+    // first unit wider than the row) and never breaks inside. The display
+    // and strict rules agree because no whitespace overflows.
+    const char *text = "aaaa " GR_FAMILY GR_FAMILY " b";
+    for (int strict = 0; strict < 2; strict++) {
+        size_t n = ww_build_opt(&ctx, text, 50, true, strict == 1, 0, 0, recs, WW_MAX_RECS);
+        ASSERT_EQ_INT((int)n, 4);
+        ww_assert_row(&recs[0], 0, 5, 25.0f, 20.0f);
+        ww_assert_row(&recs[1], 5, 23, 90.0f, 90.0f);
+        ww_assert_row(&recs[2], 23, 41, 90.0f, 90.0f);
+        ww_assert_row(&recs[3], 41, 43, 10.0f, 10.0f);
+    }
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(word_wrap) {
+    RUN_TEST(ww_cluster_rows_cut_at_units);
     RUN_TEST(ww_cut_at_last_space);
     RUN_TEST(ww_long_word_breaks_mid_word);
     RUN_TEST(ww_memo_tracks_latest_space);

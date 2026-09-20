@@ -640,7 +640,88 @@ TEST(origin_near_content_keeps_line_start_origins) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Grapheme clusters (corpus macros from test_grapheme.c, same TU)
+// ============================================================================
+
+// 44 ZWJ families (18 bytes, 90 px each) at bytes 4900..5692 of the giant
+// line, placed so a budget of units measured from the first far jump's
+// origin ends just past them. The far jump (20000 px) lands an exact
+// origin in the 'a' prefix; the next view (28500 px) exhausts the budget
+// short of the view with the families inside the measured coverage, so
+// the origin stitches exactly onto family boundary 5674 and the
+// stored-advance hit test resolves a point inside the family after it to
+// its edges; a retreat (27500 px) then walks the origin back through the
+// families onto an 'a' boundary. Every origin and every stored unit end
+// is a unit boundary throughout. The retreat's origin x is the documented
+// average-advance estimate, so exactness is pinned only before it.
+TEST(origin_moves_land_on_cluster_boundaries) {
+    for (int adv = 0; adv < 2; adv++) {
+        WLX_Context ctx;
+        wo_ctx_init(&ctx, adv == 1);
+        static char buf[8200];
+        size_t len = wo_fill_giant(buf, sizeof(buf));
+        enum { FAM_START = 4900, FAM_COUNT = 44 };
+        for (int i = 0; i < FAM_COUNT; i++) memcpy(buf + FAM_START + i * 18, GR_FAMILY, 18);
+
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        WLX_Editor_State *st = wo_state(&ctx);
+        ASSERT_TRUE(st != NULL);
+
+        // Far jump through 'a' only: exact, short of the families.
+        st->scroll_x = 20000.0f;
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        WLX_Text_Geom_Entry *e = wo_entry(&ctx, 0);
+        ASSERT_TRUE(e != NULL);
+        ASSERT_TRUE(e->origin_rel > 0 && e->origin_rel < FAM_START);
+        ASSERT_TRUE(wlx_text_unit_boundary(buf, len, e->origin_rel));
+        wo_assert_origin_exact(&ctx, 0);
+
+        // Stitch inside coverage onto family boundary 5674.
+        st->scroll_x = 28500.0f;
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        e = wo_entry(&ctx, 0);
+        ASSERT_TRUE(e != NULL);
+        ASSERT_EQ_INT(5674, (long)e->origin_rel);
+        wo_assert_origin_exact(&ctx, 0);
+        ASSERT_TRUE(e->units > 2);
+        for (size_t u = 0; u < e->units; u++)
+            ASSERT_TRUE(wlx_text_unit_boundary(buf, len, e->unit_ends[u]));
+        // The family right after the origin, through the stored advances:
+        // 35 px in resolves to its start, 55 px in to its end.
+        size_t off = 0;
+        ASSERT_TRUE(wlx_text_geom_offset_at_x(e, e->origin_rel,
+            (size_t)e->unit_ends[e->units - 1], 35.0f, &off));
+        ASSERT_EQ_INT(5674, (long)off);
+        ASSERT_TRUE(wlx_text_geom_offset_at_x(e, e->origin_rel,
+            (size_t)e->unit_ends[e->units - 1], 55.0f, &off));
+        ASSERT_EQ_INT(5692, (long)off);
+        // Round trips past the origin's back margin stay exact.
+        for (size_t b = 5720; b <= 5740; b += 20) {
+            float x = wo_caret_x(&ctx, buf, len, b);
+            ASSERT_EQ_F(WO_UNIT_W_ * (float)b, x, 0.01f);
+            ASSERT_EQ_INT((long)b, (long)wo_offset_at_x(&ctx, buf, len, st->scroll_x, x + 0.1f));
+        }
+
+        // Retreat through the families onto an 'a' boundary short of them.
+        st->scroll_x = 27500.0f;
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        e = wo_entry(&ctx, 0);
+        ASSERT_TRUE(e != NULL);
+        ASSERT_TRUE(e->origin_rel < FAM_START);
+        ASSERT_TRUE(wlx_text_unit_boundary(buf, len, e->origin_rel));
+        for (size_t u = 0; u < e->units; u++)
+            ASSERT_TRUE(wlx_text_unit_boundary(buf, len, e->unit_ends[u]));
+        wlx_context_destroy(&ctx);
+    }
+}
+
 SUITE(editor_windowed_origin) {
+    RUN_TEST(origin_moves_land_on_cluster_boundaries);
     RUN_TEST(origin_deep_view_caret_hit_draw_agree);
     RUN_TEST(origin_selection_highlight_clamps_at_seam);
     RUN_TEST(origin_held_view_and_small_wheel_never_reanchor);

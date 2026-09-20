@@ -1387,7 +1387,63 @@ TEST(undo_property_textarea_sequences_round_trip) {
     tup_run(false, 0x0badf00du, 150);
 }
 
+// ============================================================================
+// Grapheme clusters (corpus macros from test_grapheme.c, same TU)
+// ============================================================================
+
+TEST(undo_cluster_deletes_are_whole_and_coalesce) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    tu_reset_fixture();
+    char buf[64] = "";
+    const char *full = "ab" GR_FAMILY "c";
+
+    tu_focus(&ctx, buf, sizeof(buf));
+    tu_type(&ctx, buf, sizeof(buf), "ab");
+    tu_type(&ctx, buf, sizeof(buf), GR_FAMILY);
+    tu_type(&ctx, buf, sizeof(buf), "c");
+    ASSERT_EQ_STR(buf, full);
+    WLX_Text_Undo_Journal *j = tu_journal(&ctx);
+    ASSERT_TRUE(j != NULL);
+    ASSERT_EQ_INT(1, (int)j->undo.count);
+    ASSERT_EQ_INT(21, (int)j->undo.entries[0].inserted_len);
+
+    // Two Backspaces remove "c" and then the whole family, coalesced into
+    // one step of 19 removed bytes; undo and redo move all of them.
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE, 0);
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_STR(buf, "ab");
+    ASSERT_EQ_INT(2, (int)j->undo.count);
+    ASSERT_EQ_INT(2, (int)j->undo.entries[1].start);
+    ASSERT_EQ_INT(19, (int)j->undo.entries[1].removed_len);
+    ASSERT_TRUE(memcmp(j->undo.arena + j->undo.entries[1].arena_off, GR_FAMILY "c", 19) == 0);
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_Z, tu_undo_mod());
+    ASSERT_EQ_STR(buf, full);
+    ASSERT_EQ_INT(21, (int)tu_state(&ctx)->caret.cursor_pos);
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_Z, tu_redo_mod());
+    ASSERT_EQ_STR(buf, "ab");
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_Z, tu_undo_mod());
+    ASSERT_EQ_STR(buf, full);
+
+    // Delete at the family's start removes it whole (18 bytes in the
+    // entry); undo restores it and the caret before it.
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_HOME, 0);
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_RIGHT, 0);
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_RIGHT, 0);
+    ASSERT_EQ_INT(2, (int)tu_state(&ctx)->caret.cursor_pos);
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_DELETE, 0);
+    ASSERT_EQ_STR(buf, "abc");
+    ASSERT_EQ_INT(18, (int)j->undo.entries[j->undo.count - 1].removed_len);
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_Z, tu_undo_mod());
+    ASSERT_EQ_STR(buf, full);
+    ASSERT_EQ_INT(2, (int)tu_state(&ctx)->caret.cursor_pos);
+    ASSERT_TRUE(tu_stack_consistent(&j->undo));
+    ASSERT_TRUE(tu_stack_consistent(&j->redo));
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(text_undo) {
+    RUN_TEST(undo_cluster_deletes_are_whole_and_coalesce);
     RUN_TEST(undo_journal_records_one_entry_per_primitive);
     RUN_TEST(undo_journal_keeps_removed_bytes_and_caret_pairs);
     RUN_TEST(undo_journal_insert_records_bytes_after_utf8_backoff);

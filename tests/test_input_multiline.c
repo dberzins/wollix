@@ -563,7 +563,63 @@ TEST(multiline_nowrap_hard_lines_traversal) {
 // Suite
 // ============================================================================
 
+// ============================================================================
+// Grapheme clusters (corpus macros from test_grapheme.c, same TU)
+// ============================================================================
+
+TEST(multiline_cluster_vertical_motion_and_backspace) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "ab" GR_FAMILY "c\nxyz";
+
+    // From the end of "xyz" (x 15) UP aims inside the family's 10..100 px
+    // span and lands on its start (byte 2); DOWN returns to the latched
+    // column.
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, test_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_UP, 0);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
+    ASSERT_EQ_STR(buf, "ab" GR_FAMILY "c\nxyzX");
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_UP, 0);
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, "Y");
+    ASSERT_EQ_STR(buf, "abY" GR_FAMILY "c\nxyzX");
+
+    // Backspace at the end of line 0 removes "c", then the family whole.
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, 0);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_BACKSPACE, 0);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_STR(buf, "abY\nxyzX");
+    wlx_context_destroy(&ctx);
+}
+
+TEST(multiline_wrapped_caret_inside_after_cluster_at_row_end) {
+    WLX_Context ctx;
+    // Band [9, 135): 25 bytes fill the first soft line, so the typed
+    // family (18 bytes, 90 px) does not fit and opens the next soft line,
+    // and the caret after it is drawn inside the band.
+    test_ctx_init(&ctx, 143, 300);
+    ctx.backend.draw_line = _ml_capture_draw_line;
+    char buf[64] = "AAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 140, true, true);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, test_command_mod());
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, GR_FAMILY);
+    ASSERT_EQ_STR(buf, "AAAAAAAAAAAAAAAAAAAAAAAAA" GR_FAMILY);
+
+    _ml_line_count = 0;
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 200, false, false);
+    ASSERT_TRUE(_ml_line_count >= 1);
+    for (int i = 0; i < _ml_line_count; i++) {
+        ASSERT_TRUE(_ml_lines[i].x >= 4.0f);
+        ASSERT_TRUE(_ml_lines[i].x < 135.0f);
+    }
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(input_multiline) {
+    RUN_TEST(multiline_cluster_vertical_motion_and_backspace);
+    RUN_TEST(multiline_wrapped_caret_inside_after_cluster_at_row_end);
     RUN_TEST(multiline_enter_inserts_newline_keeps_focus);
     RUN_TEST(multiline_enter_autorepeat_inserts_again);
     RUN_TEST(multiline_enter_replaces_selection);

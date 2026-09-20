@@ -748,7 +748,107 @@ TEST(geom_store_stays_bounded_under_full_document_scroll) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Grapheme clusters (corpus macros from test_grapheme.c, same TU)
+// ============================================================================
+
+// A decomposed accent, a flag and a ZWJ family between words; a line of
+// ten families wider than the band; a plain line; a heart with a variation
+// selector and a skin-toned thumbs-up; an unterminated line ending in a
+// Cyrillic mark.
+static size_t gc_fill_clusters(char *buf, size_t cap) {
+    size_t off = 0;
+    gc_put(buf, cap, &off, "ab " GR_EACUTE " " GR_FLAG " " GR_FAMILY " tail\n");
+    for (int i = 0; i < 10; i++) gc_put(buf, cap, &off, GR_FAMILY);
+    gc_put(buf, cap, &off, " x\n");
+    gc_put(buf, cap, &off, "plain\n");
+    gc_put(buf, cap, &off, GR_HEART GR_THUMBS "\n");
+    gc_put(buf, cap, &off, "end " GR_CYR);
+    return off;
+}
+
+// Every stored unit end of every used entry is a unit boundary of the
+// document: the store never keys geometry inside a cluster.
+static void gc_assert_unit_ends_are_boundaries(WLX_Context *ctx, const char *doc, size_t len) {
+    WLX_Editor_Line_Index *idx = gc_index(ctx);
+    ASSERT_TRUE(idx != NULL);
+    size_t checked = 0;
+    for (size_t i = 0; i < idx->geom.count; i++) {
+        WLX_Text_Geom_Entry *e = &idx->geom.entries[i];
+        if (!e->used) continue;
+        for (size_t u = 0; u < e->units; u++) {
+            ASSERT_TRUE(wlx_text_unit_boundary(doc, len, e->line_start + e->unit_ends[u]));
+            checked++;
+        }
+    }
+    ASSERT_TRUE(checked > 0);
+}
+
+TEST(geom_cluster_units_match_measuring_build_both_modes) {
+    WLX_Context ctx;
+    gc_ctx_init(&ctx, 400, 100);
+    static char buf[1024];
+    size_t len = gc_fill_clusters(buf, sizeof(buf));
+    ASSERT_TRUE(len > 200);
+
+    // Wrapped: store and scan agree row for row, every row edge is a unit
+    // boundary, and the ten-family line wraps four families (72 bytes,
+    // 360 px) per row inside the 383 px band.
+    gc_frame(&ctx, buf, sizeof(buf), &len, 1, true);
+    gc_frame(&ctx, buf, sizeof(buf), &len, 1, true);
+    WLX_Editor_Line_Index *idx = gc_index(&ctx);
+    ASSERT_TRUE(idx != NULL);
+    ASSERT_EQ_INT(5, (long)idx->count);
+    WLX_Text_Style ts = { .font = 0, .font_size = 10, .color = {255,255,255,255}, .spacing = 0 };
+    WLX_Text_Build_Inputs base = wlx_editor_wrap_build_inputs(&ctx, buf, len, ts,
+        idx->geom.env.band_w, idx->geom.env.line_h, idx->geom.env.tab_advance);
+    WLX_Text_Build_Inputs with_geom = base;
+    with_geom.geom = &idx->geom;
+    for (size_t line = 0; line < idx->count; line++) {
+        WLX_Text_Line_Record ra[32], rb[32];
+        size_t na = gc_stream_line(&with_geom, idx, line, ra, 32);
+        size_t nb = gc_stream_line(&base, idx, line, rb, 32);
+        ASSERT_EQ_INT((long)nb, (long)na);
+        for (size_t r = 0; r < na; r++) {
+            gc_assert_records_equal(&ra[r], &rb[r]);
+            ASSERT_TRUE(wlx_text_unit_boundary(buf, len, ra[r].visible_start));
+            ASSERT_TRUE(wlx_text_unit_boundary(buf, len, ra[r].visible_end));
+        }
+        if (line == 1) {
+            ASSERT_EQ_INT(3, (long)na);
+            ASSERT_EQ_INT(72, (long)(ra[0].visible_end - ra[0].visible_start));
+            ASSERT_EQ_INT(72, (long)(ra[1].visible_end - ra[1].visible_start));
+        }
+    }
+    gc_assert_unit_ends_are_boundaries(&ctx, buf, len);
+
+    // Unwrapped: the linear equivalence at a wide virtual width, and the
+    // stored-advance hit test on line 0 answers boundaries only; the
+    // family there spans content x 80..170 (midpoint 125).
+    gc_frame(&ctx, buf, sizeof(buf), &len, 1, false);
+    gc_frame(&ctx, buf, sizeof(buf), &len, 1, false);
+    gc_assert_linear_equivalence(&ctx, buf, len, 1000.0f);
+    gc_assert_unit_ends_are_boundaries(&ctx, buf, len);
+    idx = gc_index(&ctx);
+    ASSERT_TRUE(idx != NULL);
+    for (float x = -3.0f; x < 260.0f; x += 1.0f) {
+        size_t off = wlx_editor_offset_at_x(&ctx, buf, len, ts, idx->geom.env.line_h,
+            idx->geom.env.tab_advance, idx, &idx->geom, 0, 1000.0f, 0.0f, x);
+        ASSERT_TRUE(wlx_text_unit_boundary(buf, len, off));
+    }
+    size_t fam = 3 + 3 + 1 + 8 + 1;
+    ASSERT_EQ_INT((long)fam, (long)wlx_editor_offset_at_x(&ctx, buf, len, ts,
+        idx->geom.env.line_h, idx->geom.env.tab_advance, idx, &idx->geom, 0,
+        1000.0f, 0.0f, 5.0f * (float)fam + 44.0f));
+    ASSERT_EQ_INT((long)(fam + 18), (long)wlx_editor_offset_at_x(&ctx, buf, len, ts,
+        idx->geom.env.line_h, idx->geom.env.tab_advance, idx, &idx->geom, 0,
+        1000.0f, 0.0f, 5.0f * (float)fam + 46.0f));
+    gc_assert_store_keys_valid(&ctx, len);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(editor_geom_cache) {
+    RUN_TEST(geom_cluster_units_match_measuring_build_both_modes);
     RUN_TEST(geom_linear_records_match_measuring_build_across_reach);
     RUN_TEST(geom_linear_budget_cap_matches_measuring_build);
     RUN_TEST(geom_wrap_rows_match_measuring_build);

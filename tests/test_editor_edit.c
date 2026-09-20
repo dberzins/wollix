@@ -434,7 +434,108 @@ TEST(edit_tab_key_inserts_and_segments_draw_at_stops) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Grapheme clusters (corpus macros from test_grapheme.c, same TU)
+// ============================================================================
+
+TEST(edit_cluster_keys_step_and_delete_whole) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+
+    char buf[64];
+    size_t len = 0;
+    ed_frame(&ctx, buf, sizeof(buf), &len);
+    ed_click(&ctx, buf, sizeof(buf), &len, 200, 9);   // focus, caret at 0
+    WLX_Editor_State *st = ev_state(&ctx);
+    ASSERT_TRUE(st != NULL);
+
+    // Typed one cluster per frame: "ab" + family + "c" = 21 bytes.
+    ed_type(&ctx, buf, sizeof(buf), &len, "ab");
+    ed_type(&ctx, buf, sizeof(buf), &len, GR_FAMILY);
+    ed_type(&ctx, buf, sizeof(buf), &len, "c");
+    ASSERT_EQ_INT(21, (long)len);
+    ASSERT_EQ_INT(21, (long)st->caret.cursor_pos);
+
+    // Left and Right step over the family as one unit.
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, 0);
+    ASSERT_EQ_INT(20, (long)st->caret.cursor_pos);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, 0);
+    ASSERT_EQ_INT(2, (long)st->caret.cursor_pos);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, 0);
+    ASSERT_EQ_INT(1, (long)st->caret.cursor_pos);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_RIGHT, 0);
+    ASSERT_EQ_INT(2, (long)st->caret.cursor_pos);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_RIGHT, 0);
+    ASSERT_EQ_INT(20, (long)st->caret.cursor_pos);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_RIGHT, 0);
+    ASSERT_EQ_INT(21, (long)st->caret.cursor_pos);
+
+    // Backspace removes "c", then the whole family.
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_INT(20, (long)len);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_INT(2, (long)len);
+    ASSERT_TRUE(memcmp(buf, "ab", 2) == 0);
+    ASSERT_EQ_INT(2, (long)st->caret.cursor_pos);
+
+    // Delete at the family's start removes it whole.
+    ed_type(&ctx, buf, sizeof(buf), &len, GR_FAMILY);
+    ed_type(&ctx, buf, sizeof(buf), &len, "c");
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, 0);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, 0);
+    ASSERT_EQ_INT(2, (long)st->caret.cursor_pos);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_DELETE, 0);
+    ASSERT_EQ_INT(3, (long)len);
+    ASSERT_TRUE(memcmp(buf, "abc", 3) == 0);
+
+    // Shift+Left twice from the end selects "c" and the family; Backspace
+    // removes the selection.
+    ed_type(&ctx, buf, sizeof(buf), &len, GR_FAMILY);      // "ab" + family + "c"
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, 0);
+    ASSERT_EQ_INT(21, (long)st->caret.cursor_pos);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, WLX_MOD_SHIFT);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, WLX_MOD_SHIFT);
+    ASSERT_EQ_INT(2, (long)st->caret.cursor_pos);
+    ASSERT_EQ_INT(21, (long)st->caret.selection_anchor);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_INT(2, (long)len);
+
+    // A word delete takes the family as part of its word (the separator
+    // class is ASCII whitespace, unchanged).
+    ed_type(&ctx, buf, sizeof(buf), &len, " ");
+    ed_type(&ctx, buf, sizeof(buf), &len, GR_FAMILY);
+    ASSERT_EQ_INT(21, (long)len);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_BACKSPACE, WLX_MOD_CTRL);
+    ASSERT_EQ_INT(3, (long)len);
+    ASSERT_TRUE(memcmp(buf, "ab ", 3) == 0);
+
+    // A flag and a decomposed accent step and delete the same way.
+    ed_type(&ctx, buf, sizeof(buf), &len, GR_FLAG);
+    ed_type(&ctx, buf, sizeof(buf), &len, GR_EACUTE);
+    ASSERT_EQ_INT(14, (long)len);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, 0);
+    ASSERT_EQ_INT(11, (long)st->caret.cursor_pos);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, 0);
+    ASSERT_EQ_INT(3, (long)st->caret.cursor_pos);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, 0);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_INT(11, (long)len);
+    ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_INT(3, (long)len);
+
+    // An app-set offset inside a cluster reads back at the cluster's start
+    // after one frame.
+    ed_type(&ctx, buf, sizeof(buf), &len, GR_FAMILY);
+    st->caret.cursor_pos = 10;
+    st->caret.selection_anchor = 10;
+    ed_frame(&ctx, buf, sizeof(buf), &len);
+    ASSERT_EQ_INT(3, (long)st->caret.cursor_pos);
+    ASSERT_EQ_INT(3, (long)st->caret.selection_anchor);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(editor_edit) {
+    RUN_TEST(edit_cluster_keys_step_and_delete_whole);
     RUN_TEST(edit_typing_inserts_at_caret_and_rebuilds);
     RUN_TEST(edit_enter_inserts_newline_and_grows_index);
     RUN_TEST(edit_backspace_delete_codepoint_and_word);

@@ -242,7 +242,45 @@ TEST(modes_password_readonly_combo) {
 // Suite
 // ============================================================================
 
+// The mask counts text units: one char per grapheme cluster (corpus macros
+// from test_grapheme.c, same TU), matching one Backspace per mask char, and
+// clicks between mask chars map to the cluster boundaries.
+TEST(modes_password_masks_one_char_per_cluster) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend.draw_text = modes_capture_draw_text;
+    // "a" + a ZWJ family (18 bytes, five codepoints) + "b": three units.
+    char buf[64] = "a" GR_FAMILY "b";
+
+    modes_reset_text_capture();
+    modes_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
+    ASSERT_EQ_STR(_modes_text_drawn, "***");
+
+    // Backspace removes "b", then the family as one mask char.
+    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_STR(_modes_text_drawn, "**");
+    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_STR(_modes_text_drawn, "*");
+    ASSERT_EQ_STR(buf, "a");
+    wlx_context_destroy(&ctx);
+
+    // A click between the second and third mask chars (x 20: display
+    // boundary 2 at 19) maps to the plaintext offset after the family; one
+    // between the first two (x 15) to the offset before it.
+    WLX_Context ctx2;
+    test_ctx_init(&ctx2, 400, 300);
+    char buf2[64] = "a" GR_FAMILY "b";
+    modes_frame_mouse(&ctx2, buf2, sizeof(buf2), true, false, 20, true, true);
+    modes_frame_type(&ctx2, buf2, sizeof(buf2), true, false, "X");
+    ASSERT_EQ_STR(buf2, "a" GR_FAMILY "Xb");
+    modes_frame_mouse(&ctx2, buf2, sizeof(buf2), true, false, 15, true, true);
+    modes_frame_type(&ctx2, buf2, sizeof(buf2), true, false, "Y");
+    ASSERT_EQ_STR(buf2, "aY" GR_FAMILY "Xb");
+    wlx_context_destroy(&ctx2);
+}
+
 SUITE(input_modes) {
+    RUN_TEST(modes_password_masks_one_char_per_cluster);
     RUN_TEST(modes_password_masks_display_keeps_buffer);
     RUN_TEST(modes_password_masks_one_char_per_codepoint);
     RUN_TEST(modes_password_copy_cut_suppressed);

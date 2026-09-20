@@ -525,7 +525,55 @@ TEST(caret_scrollbar_press_excluded) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Grapheme clusters (corpus macros from test_grapheme.c, same TU)
+// ============================================================================
+
+TEST(caret_cluster_click_and_vertical_motion_land_on_boundaries) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+
+    // Line 0: "ab" + family + "c" (21 bytes; the family is one 90 px unit
+    // spanning content x 10..100, midpoint 55); line 1: "xyz".
+    char buf[64];
+    memcpy(buf, "ab" GR_FAMILY "c\nxyz", 25);
+    size_t len = 25;
+    ev_frame(&ctx, buf, sizeof(buf), &len, 0);
+    ev_frame(&ctx, buf, sizeof(buf), &len, 0);
+    WLX_Editor_State *st = ev_state(&ctx);
+    WLX_Editor_Line_Index *idx = ev_index(&ctx);
+    ASSERT_TRUE(st != NULL && idx != NULL);
+
+    // The hit test a click resolves through, swept across the family and
+    // its neighbours: only 2 or 20 come back, split at the midpoint.
+    WLX_Text_Style ts = { .font_size = 10 };
+    for (float cx = 8.0f; cx <= 102.0f; cx += 1.0f) {
+        size_t off = wlx_editor_offset_at_x(&ctx, buf, len, ts, idx->geom.env.line_h,
+            idx->geom.env.tab_advance, idx, &idx->geom, 0, 1000.0f, 0.0f, cx);
+        size_t want = cx < 55.0f ? 2 : 20;
+        ASSERT_EQ_INT((long)want, (long)off);
+    }
+    // Two real clicks, one on each side of the midpoint (screen x is
+    // content x + 9; each resolves elsewhere than the last, so no
+    // double-click forms).
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 40, 9, true, true, 0.0f, 0, NULL);
+    ASSERT_EQ_INT(2, (long)st->caret.cursor_pos);
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 100, 9, true, true, 0.0f, 0, NULL);
+    ASSERT_EQ_INT(20, (long)st->caret.cursor_pos);
+
+    // Up from the end of "xyz" (x 15) aims inside the family and lands on
+    // its start; Down returns to the latched column.
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 200, 19, true, true, 0.0f, 0, NULL);
+    ASSERT_EQ_INT(25, (long)st->caret.cursor_pos);
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_UP, 0);
+    ASSERT_EQ_INT(2, (long)st->caret.cursor_pos);
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_DOWN, 0);
+    ASSERT_EQ_INT(25, (long)st->caret.cursor_pos);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(editor_caret) {
+    RUN_TEST(caret_cluster_click_and_vertical_motion_land_on_boundaries);
     RUN_TEST(caret_click_places_in_scrolled_window);
     RUN_TEST(caret_click_places_in_horizontally_scrolled_window);
     RUN_TEST(caret_multi_click_word_then_select_all);
