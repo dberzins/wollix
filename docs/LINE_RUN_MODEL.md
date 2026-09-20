@@ -202,8 +202,9 @@ advances** — the measured width of the line prefix ending at each unit:
    opportunity. A non-whitespace unit that overflows cuts the row back
    to that opportunity (`CUT`), so the next row starts on the word;
    without one the row ends at the last unit that fit, inside the word.
-   Whitespace that overflows is accepted anyway and hangs past the
-   width; the row ends with the run (Section 7).
+   Whitespace that overflows depends on the build: display builds accept
+   it anyway and it hangs past the width (the row ends with the run);
+   editable builds cut or reject it like any other unit (Section 7).
 
 One step, as a flow:
 
@@ -316,17 +317,29 @@ at its latest **break opportunity** — after the last whitespace unit
 (space or tab) that fit — and the next record continues from there, so
 rows end at word boundaries. A word wider than the row breaks inside
 the word, at the last unit that fit. Whitespace that overflows the width
-**hangs**: it stays on the row it follows, measured past the width, so
-no row after a wrap break starts with whitespace and a word that fit is
-never moved to the next row. On such a row (one another row of the same
-line follows) `advance_w` is the **ink extent** — the advance at the
-row's last non-whitespace unit — while `measured_w` keeps the full
-extent; alignment (Section 8) and the overflow scissor test read
-`advance_w`. Rows ended by a separator, the text end or the unit budget
-keep `advance_w == measured_w`, trailing whitespace included.
-Opportunities are whitespace only: no ideographic break-anywhere class
-and no hyphenation (Section 16). Used by multiline inputbox, textarea
-and wrapped label content.
+is placed by the build's whitespace mode (`wrap_strict_ws` on the build
+inputs):
+
+- **Display builds** (labels, buttons, captions; the flag off): the
+  whitespace **hangs** — it stays on the row it follows, measured past
+  the width, so no row after a wrap break starts with whitespace and a
+  word that fit is never moved to the next row.
+- **Editable builds** (multiline inputbox, textarea, the editor's
+  wrapped mode; the flag on): the whitespace is treated like any
+  overflowing unit — the row cuts at its latest break opportunity, so
+  the word before the whitespace moves down with it, or with no earlier
+  opportunity the whitespace opens the next row at column zero. Every
+  row then measures within the width (except a first unit wider than
+  it), a row may start with whitespace, and a caret inside trailing
+  whitespace always stands on a row inside the width.
+
+On a row another row of the same line follows, `advance_w` is the **ink
+extent** — the advance at the row's last non-whitespace unit — while
+`measured_w` keeps the full extent; alignment (Section 8) and the
+overflow scissor test read `advance_w`. Rows ended by a separator, the
+text end or the unit budget keep `advance_w == measured_w`, trailing
+whitespace included. Opportunities are whitespace only: no ideographic
+break-anywhere class and no hyphenation (Section 16).
 
 **No-wrap mode** (`wrap = false`): a line that reaches the rect width is
 width-truncated. What happens next depends on the flavor:
@@ -647,10 +660,11 @@ Guaranteed by the model (and locked by tests):
   same records, the same retained advances, and the same measure
   origin.
 - Wrapped rows end at word boundaries: after the latest space or tab
-  that fit, with overflowing whitespace hanging on its row; a word wider
-  than the row breaks inside it. The retained store's row table and the
-  measuring scan make the same decision (the equivalence and parity
-  suites run spaced prose in wrap mode).
+  that fit, with overflowing whitespace hanging on its row in display
+  builds and never in editable builds, where every row fits the width; a
+  word wider than the row breaks inside it. The retained store's row
+  table and the measuring scan make the same decision (the equivalence
+  and parity suites run spaced prose in wrap mode).
 - Kerning and run metrics are exact within a measured run: fit
   decisions use whole-run metrics (whole-prefix measures, or advance
   arrays from the same shaped pass the draw uses), never summed glyph

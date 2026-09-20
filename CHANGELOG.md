@@ -262,18 +262,25 @@ your own pace before the next minor.
   buttons and captions with `.wrap`, the textarea, the multiline inputbox
   and the editor's wrapped mode - now ends a row after the last space or
   tab that fits instead of at the last codepoint that fits; a word wider
-  than the row still breaks inside it. Whitespace that overflows the width
-  hangs on the row it follows, so no row after a wrap break starts with
-  whitespace and a word that fit is never moved. A wrapped row's alignment
-  width (the record's `advance_w`) is its ink extent without that trailing
-  whitespace, so centred and right-aligned wrapped rows sit on their
-  glyphs, and hanging whitespace opens no scissor. The same input produces
-  different rows than 0.8.0, and the CONTENT height of a wrapped label
-  containing spaces can grow by a row. Opportunities are whitespace only:
-  no ideographic break-anywhere or hyphen classes yet. The retained editor
-  geometry and the measuring scan share the rule (`tests/test_word_wrap.c`;
-  the equivalence, parity and re-entrancy suites run spaced prose in wrap
-  mode); the editor perf gate holds unamended. (ADR_047)
+  than the row still breaks inside it. In display text (labels, buttons,
+  captions) whitespace that overflows the width hangs on the row it
+  follows, so no row after a wrap break starts with whitespace and a word
+  that fit is never moved; in editable text (the textarea, the multiline
+  inputbox and the editor's wrapped mode) an overflowing space or tab is
+  cut or rejected like any other unit - the word before it moves down with
+  it, or the whitespace opens the next row at column zero - so every row
+  fits the field and a caret inside trailing whitespace is always drawn. A
+  wrapped row's alignment width (the record's `advance_w`) is its ink
+  extent without trailing whitespace, so centred and right-aligned wrapped
+  rows sit on their glyphs, and hanging whitespace opens no scissor. The
+  same input produces different rows than 0.8.0, and the CONTENT height of
+  a wrapped label containing spaces can grow by a row. Opportunities are
+  whitespace only: no ideographic break-anywhere or hyphen classes yet. The
+  retained editor geometry and the measuring scan share the rule
+  (`tests/test_word_wrap.c`; the equivalence, parity and re-entrancy suites
+  run spaced prose in wrap mode; caret-visibility pins in
+  `tests/test_input_multiline.c` and `tests/test_editor_wrap.c`); the
+  editor perf gate holds unamended. (ADR_047)
 - SENTINEL.md is rewritten around the two unset rules, the literal
   defaults, the request tokens and the container exception; the
   `wollix.h` option-field comment block states the same rules in short.

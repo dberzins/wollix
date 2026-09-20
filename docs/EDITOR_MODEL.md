@@ -385,10 +385,14 @@ The anchor, the rows, and the band:
   the view scrolled back up through them.
 - Rows end at word boundaries
   ([LINE_RUN_MODEL.md §7](LINE_RUN_MODEL.md#7-wrap-and-no-wrap-modes)):
-  a row cuts after the latest space or tab that fit, a word wider than
-  the band breaks inside it, and overflowing whitespace hangs on its
-  row. The break offset therefore follows a space, and a row's trailing
-  whitespace stays out of its alignment width.
+  a row cuts after the latest space or tab that fit, and a word wider
+  than the band breaks inside it. The editor builds in the editable
+  whitespace mode: a space or tab that does not fit never hangs past the
+  band — the row cuts at the previous space (the word before the
+  whitespace moves down with it) or, with no earlier space, the
+  whitespace opens the next row at column zero. Every row fits the band,
+  a row may start with whitespace, and a row's trailing whitespace stays
+  out of its alignment width.
 - Vertical caret motion and hit-tests resolve through on-demand wrapped
   row records of the specific lines involved. A caret offset exactly at
   a wrap break belongs to the row it **starts** (rows that end their
@@ -396,7 +400,8 @@ The anchor, the rows, and the band:
   affinity, DOWN aiming at column zero could never cross a break. So the
   caret after a row's trailing space sits at column zero of the next
   row, and a click right of a row's last glyph lands there too; a caret
-  between two hanging spaces is drawn past the band edge and clipped.
+  inside trailing whitespace is always on a row inside the band and is
+  always drawn.
 - Horizontal machinery is dormant: `scroll_x` pins to zero, the
   horizontal bar never shows, Shift+wheel is not consumed.
 - Tab stops restart at each row's start (the natural consequence of the

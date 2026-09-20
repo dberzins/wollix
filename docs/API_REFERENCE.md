@@ -2594,7 +2594,11 @@ enclosing scroll panel), a draggable scrollbar appears while overflowing
 (`.show_scrollbar`), and drag-selecting past the band edge auto-scrolls.
 The buffer stays one byte buffer, but when `wrap` is enabled the visible
 text and cursor are laid out over fitted visual lines using the same
-line/run measurement path as labels and buttons. Multiline geometry runs on
+line/run measurement path as labels and buttons, with one difference for
+edited text: a space or tab that does not fit the row never hangs past the
+field - the row breaks at the previous whitespace (the word before it moves
+down) or the whitespace opens the next row - so the caret always stays
+inside the field. Multiline geometry runs on
 its own budget (`WLX_INPUTBOX_MULTILINE_MAX_UNITS` 4096 /
 `WLX_INPUTBOX_MULTILINE_MAX_LINES` 512, compile-time overridable); past it
 the caret pins to the last built line while the buffer keeps accepting

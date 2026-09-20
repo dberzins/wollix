@@ -24,7 +24,7 @@ regions (file order):
 |---|---|---|
 | UTF-8 text units and newline policy | `wlx_utf8_*` (decode/encode, word classes, the `wlx_utf8_next` order-keeping adapter), `wlx_text_unit_next` (the single stepping entry: codepoint or one-byte fallback), `wlx_text_utf8_sequence_at`, `wlx_text_newline_at` + `wlx_text_at_line_break` (forward grammar), `wlx_text_separator_before` (the one backward reading), `wlx_text_hard_line_start_at`, `wlx_text_normalize_cursor_offset` | Text-unit stepping, separator grammar (LF / CRLF / lone CR) with exactly one encoding per direction, boundary snapping |
 | Budgets, policy constants, and build types | `WLX_TEXT_RUN_MAX_*`, `WLX_EDITOR_MAX_LINE_UNITS`, `WLX_TEXT_GEOM_*` constants, `WLX_Text_Line_Record`, `WLX_Text_Build_Inputs` / `_Cursor` / `_Step`, `WLX_Wrap_Row_Memo` | The record type every geometry consumer reads ("layout lines"), the build configuration struct, the work caps |
-| Measurement primitives | `WLX_Text_Measure_Args` (the measurement environment, passed by const pointer), `wlx_measure_text_range`, `wlx_text_measure_prefix_tabs` / `_known`, `wlx_text_pen_has_tab` (the canonical first-tab precheck), `WLX_Text_Tab_Seg` / `wlx_text_tab_seg_next` (the shared tab-segment iterator for measure and segmented draw), `wlx_text_fit_step`, `wlx_text_wrap_ws_at` + `WLX_Text_Wrap_Break` + `wlx_text_wrap_fit_step` (the wrapped rows' word-boundary rule over the row's break state, adding the `CUT` verdict), `wlx_text_measure_advances_batch`, `wlx_text_unit_fetch` (the one measuring fetch entry: batch or per-unit arm) | Tab-aware prefix measurement, the shared fit decision and its wrap-mode layer, the batched cumulative-advance fill over the optional backend callback |
+| Measurement primitives | `WLX_Text_Measure_Args` (the measurement environment, passed by const pointer), `wlx_measure_text_range`, `wlx_text_measure_prefix_tabs` / `_known`, `wlx_text_pen_has_tab` (the canonical first-tab precheck), `WLX_Text_Tab_Seg` / `wlx_text_tab_seg_next` (the shared tab-segment iterator for measure and segmented draw), `wlx_text_fit_step`, `wlx_text_wrap_ws_at` + `WLX_Text_Wrap_Break` + `wlx_text_wrap_fit_step` (the wrapped rows' word-boundary rule over the row's break state, adding the `CUT` verdict; overflowing whitespace hangs in display builds and cuts or rejects in editable builds, `wrap_strict_ws`), `wlx_text_measure_advances_batch`, `wlx_text_unit_fetch` (the one measuring fetch entry: batch or per-unit arm) | Tab-aware prefix measurement, the shared fit decision and its wrap-mode layer, the batched cumulative-advance fill over the optional backend callback |
 | Retained editor line geometry | `wlx_text_geom_*` family in four bannered tiers — pure store (`clear`, `env_check`, `edit_shift`, `find`, `find_containing`, `acquire`, `push_unit`, `drop`, `store_free`, the `origin_abs`/`advance_at`/`first_tab_*` reads; never touches ctx), measurement driver over the unit fetch (`extend`, `ensure_width`, `ensure_offset`, `ensure_wrap`), origin policy (`snap_origin`, `set_origin`, `window_linear`, `ensure_caret`, `avg_advance`; the sole view reader), and consumer queries (`x_at` carrying the anchored/passive policy and the far-gap bound, `offset_at_x`, `covering`, `rows_of`) plus replay (`replay_linear`, `wrap_step`) | The editor's per-hard-line cache of cumulative unit advances (plus row tables under wrap) — the "shaped-line cache"; consumers read the queries, never entry fields |
 | The build kernel | `wlx_text_build_step`, `wlx_text_build_lines_from`, `wlx_text_build_lines` | The resumable greedy fitter: one step = one line record, fitting cumulative advances from one of three sources (below) |
 | Alignment, emission, and from-lines consumers | `wlx_text_align_lines`, `wlx_text_emit_lines`, `wlx_text_resolve_cursor_from_lines`, `wlx_text_offset_at_point_from_lines`, `wlx_text_word_bounds`, `wlx_text_draw_selection`, the entry surface: `WLX_Text_Prepare_Opt` (options struct, zero-init = defaults), `wlx_text_prepare_lines_slice` (the one prepare core), `WLX_Text_Prepared` / `wlx_text_prepare` (stack aggregate for prepare-then-consume sites), `wlx_draw_text_fitted_slice` + the NUL adapter `wlx_draw_text_fitted`, `wlx_text_line_scratch`; `wlx_editor_line_next` sits here beside `wlx_editor_index_line_of` | Every geometry answer (caret, hit test, selection, word bounds) and every draw, all reading the same record arrays |
@@ -139,9 +139,13 @@ always written in their qualified forms.
   tab) a wrapped row may end at; the row's **break state**
   (`WLX_Text_Wrap_Break`) remembers the latest one as the **memo** the
   `CUT` verdict rewinds to.
-- **hanging whitespace** — whitespace accepted past the fit width on
-  the row it follows, so the next row opens on a glyph; measured, drawn
-  as nothing, outside the ink extent.
+- **hanging whitespace** — in display builds, whitespace accepted past
+  the fit width on the row it follows, so the next row opens on a glyph;
+  measured, drawn as nothing, outside the ink extent.
+- **strict whitespace** — the editable builds' mode (`wrap_strict_ws`:
+  editor, textarea, multiline inputbox): overflowing whitespace cuts
+  the row at the memo or opens the next row, never hangs, so every row
+  fits the width and a caret in trailing whitespace stays inside.
 - **ink extent** — a wrapped row's advance at its last non-whitespace
   unit, carried in the record's `advance_w` on rows another row
   follows; alignment and the scissor test read it, `measured_w` keeps
@@ -298,9 +302,9 @@ deserves extra review care.
    (`wlx_text_geom_replay_linear`, `wlx_text_geom_ensure_wrap` /
    `wrap_step`) and the measuring scans in `wlx_text_build_step` must
    make identical fit decisions: same `wlx_text_fit_step`, same wrap
-   rule (`wlx_text_wrap_fit_step` over the row's break state, and the
-   same ink extent read back from the kept units), same budget caps,
-   same first-unit-always-accepted rule. Locked by the geom-cache
+   rule (`wlx_text_wrap_fit_step` over the row's break state in the
+   same whitespace mode, and the same ink extent read back from the
+   kept units), same budget caps, same first-unit-always-accepted rule. Locked by the geom-cache
    equivalence suite (including its spaced-prose case), the
    advances-parity frame streams, and `WLX_DEBUG` cross-asserts.
 2. **One geometry source.** Caret, hit test, selection, word bounds,
