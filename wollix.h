@@ -11904,9 +11904,9 @@ static inline void wlx_text_edit_tick_click_clock(WLX_Context *ctx, WLX_Text_Edi
         st->last_click_time = WLX_TEXT_MULTI_CLICK_CLOCK_CAP;
 }
 
-// Password mask capacity: at most this many codepoints (one mask byte each)
-// are rendered; longer plaintext keeps editing correctly but the visible
-// mask stops growing.
+// Password mask capacity: at most this many text units (one mask byte
+// each) are rendered; longer plaintext keeps editing correctly but the
+// visible mask stops growing.
 #ifndef WLX_INPUTBOX_MASK_MAX
 #define WLX_INPUTBOX_MASK_MAX 256
 #endif
@@ -12906,15 +12906,16 @@ static void wlx_text_draw_selection(WLX_Context *ctx, WLX_Rect band, const char 
 }
 
 // Password-mask offset mapping: the display text carries one byte per
-// plaintext codepoint, so display offsets are codepoint indices. Both
-// directions are the identity when the field is not masked.
+// plaintext unit (grapheme cluster), so display offsets are unit indices
+// and one mask char answers to one Backspace. Both directions are the
+// identity when the field is not masked.
 static size_t wlx_inputbox_display_offset(const char *buffer, size_t buf_len, size_t plain_off, bool password) {
     if (!password) return plain_off;
     if (plain_off > buf_len) plain_off = buf_len;
     size_t count = 0;
     size_t off = 0;
     while (off < plain_off) {
-        off = wlx_utf8_next(buffer, off, buf_len);
+        off = wlx_text_unit_next(buffer, buf_len, off);
         count++;
     }
     return count;
@@ -12924,7 +12925,7 @@ static size_t wlx_inputbox_plain_offset(const char *buffer, size_t buf_len, size
     if (!password) return disp_off;
     size_t off = 0;
     while (disp_off > 0 && off < buf_len) {
-        off = wlx_utf8_next(buffer, off, buf_len);
+        off = wlx_text_unit_next(buffer, buf_len, off);
         disp_off--;
     }
     return off;
@@ -14019,10 +14020,11 @@ static WLX_Inputbox_Band wlx_inputbox_resolve_band(WLX_Context *ctx,
         .h = text_h
     };
 
-    // Password mode renders a mask (one byte per plaintext codepoint)
-    // while the buffer keeps the plaintext. Every geometry query below
-    // (hit test, line bounds, caret, highlight, draw) runs on the display
-    // text; offsets map between the domains via the codepoint index.
+    // Password mode renders a mask (one byte per plaintext unit, a
+    // grapheme cluster) while the buffer keeps the plaintext. Every
+    // geometry query below (hit test, line bounds, caret, highlight,
+    // draw) runs on the display text; offsets map between the domains
+    // via the unit index.
     size_t buf_len = strlen(buffer);
     const char *disp_text = buffer;
     size_t disp_len = buf_len;
@@ -14031,7 +14033,7 @@ static WLX_Inputbox_Band wlx_inputbox_resolve_band(WLX_Context *ctx,
         size_t mask_off = 0;
         while (mask_off < buf_len && disp_len < mask_cap - 1) {
             mask_buf[disp_len++] = '*';
-            mask_off = wlx_utf8_next(buffer, mask_off, buf_len);
+            mask_off = wlx_text_unit_next(buffer, buf_len, mask_off);
         }
         mask_buf[disp_len] = '\0';
         disp_text = mask_buf;
