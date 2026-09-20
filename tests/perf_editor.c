@@ -12,7 +12,10 @@
 // scroll, typing, END on the giant line, and the giant-line envelope:
 // wheel and steady cost at ~6,000 px vs ~600,000 px of horizontal depth).
 // Traffic counts are exact and machine-independent, so their bounds are
-// tight where the wall-clock bounds must stay generous.
+// tight where the wall-clock bounds must stay generous. Each traffic
+// workload also runs with every word a colour span through the editor's
+// span-colour hook, against the same bounds: colouring places pieces
+// from the stored advances and must cost no measure.
 
 #define _POSIX_C_SOURCE 199309L
 
@@ -66,6 +69,29 @@ static size_t gen_doc(char *buf, size_t cap, size_t target_lines) {
     return off;
 }
 
+// Every-word colouring for the highlighted passes: a span ends at the next
+// whitespace transition from the offset, words alternate two colours by
+// the parity of their start, whitespace draws in the base colour. O(span)
+// per call and stateless, so a highlighted pass measures the drawer's
+// cost and nothing of a tokenizer's.
+static bool hl_is_ws(char c) { return c == ' ' || c == '\t'; }
+
+static WLX_Color hl_span_color(const WLX_Text_Span_Query *q, size_t *span_end, void *user) {
+    (void)user;
+    bool ws = hl_is_ws(q->text[q->offset]);
+    size_t p = q->offset;
+    while (p < q->limit && hl_is_ws(q->text[p]) == ws) p++;
+    *span_end = p;
+    WLX_Color zero = {0};
+    WLX_Color a = { 200, 80, 80, 255 };
+    WLX_Color b = { 80, 200, 80, 255 };
+    if (ws) return zero;
+    return (q->offset & 2) ? a : b;
+}
+
+// Frames pass hl_span_color to the editor while set.
+static bool g_highlight;
+
 typedef struct {
     double first_frame_ms; // includes the initial index build
     double idle_avg_ms;
@@ -80,7 +106,8 @@ static void run_frame_input(WLX_Context *ctx, char *buf, size_t cap, size_t *len
         NULL, NULL, NULL, 0, text);
     wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
     (void)wlx_editor_impl(ctx, NULL, buf, cap, len,
-        wlx_default_editor_opt(.font_size = 16, .wrap = wrap), "perf_editor", 1);
+        wlx_default_editor_opt(.font_size = 16, .wrap = wrap,
+            .span_color = g_highlight ? hl_span_color : NULL), "perf_editor", 1);
     wlx_layout_end(ctx);
     test_frame_end(ctx);
 }
@@ -90,10 +117,12 @@ static void run_frame(WLX_Context *ctx, char *buf, size_t cap, size_t *len, floa
     run_frame_input(ctx, buf, cap, len, wheel, false, NULL, wrap);
 }
 
-static Perf_Result run_case(char *buf, size_t cap, size_t *len, int frames, bool wrap) {
+static Perf_Result run_case(char *buf, size_t cap, size_t *len, int frames, bool wrap,
+                            bool highlighted) {
     Perf_Result r = {0};
     WLX_Context ctx;
     test_ctx_init(&ctx, 800, 600);
+    g_highlight = highlighted;
 
     double t0 = now_ms();
     run_frame(&ctx, buf, cap, len, 0.0f, wrap);
@@ -133,6 +162,7 @@ static Perf_Result run_case(char *buf, size_t cap, size_t *len, int frames, bool
     }
 
     wlx_context_destroy(&ctx);
+    g_highlight = false;
     return r;
 }
 
@@ -234,6 +264,7 @@ typedef struct {
     unsigned long long calls;
     unsigned long long bytes;
     size_t maxlen;
+    unsigned long long cmds;  // commands the frame recorded (text pieces grow it)
 } Traffic;
 
 // One depth probe of the giant-line envelope: the view parked at a given
@@ -265,11 +296,13 @@ static Traffic traffic_frame(WLX_Context *ctx, char *buf, size_t cap, size_t *le
         NULL, mods, text);
     wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
     (void)wlx_editor_impl(ctx, NULL, buf, cap, len,
-        wlx_default_editor_opt(.font_size = 16, .wrap = wrap),
+        wlx_default_editor_opt(.font_size = 16, .wrap = wrap,
+            .span_color = g_highlight ? hl_span_color : NULL),
         "perf_editor_traffic", 1);
     wlx_layout_end(ctx);
+    unsigned long long cmds = ctx->arena.commands.count;
     test_frame_end(ctx);
-    return (Traffic){ g_tm_calls, g_tm_bytes, g_tm_maxlen };
+    return (Traffic){ g_tm_calls, g_tm_bytes, g_tm_maxlen, cmds };
 }
 
 static float traffic_scroll_x(WLX_Context *ctx) {
@@ -332,13 +365,14 @@ typedef struct {
 
 static Traffic_Result run_traffic_case(const char *name, char *buf, size_t cap,
                                        size_t *len, bool wrap, bool with_end,
-                                       bool advances) {
+                                       bool advances, bool highlighted) {
     Traffic_Result tr = {0};
     tr.name = name;
     WLX_Context ctx;
     test_ctx_init(&ctx, 800, 600);
     ctx.backend.measure_text_slice = traffic_measure_slice;
     if (advances) ctx.backend.measure_text_advances = traffic_measure_advances;
+    g_highlight = highlighted;
 
     tr.cold = traffic_frame(&ctx, buf, cap, len, wrap, false, 0.0f, 0, -1, NULL);
     for (int i = 0; i < 6; i++) {
@@ -382,14 +416,16 @@ static Traffic_Result run_traffic_case(const char *name, char *buf, size_t cap,
         tr.deep = traffic_depth_probe(&ctx, buf, cap, len, 600000.0f);
     }
     wlx_context_destroy(&ctx);
+    g_highlight = false;
     return tr;
 }
 
 static void traffic_print(const Traffic_Result *tr) {
-    printf("%-14s cold %llu/%llu  idle %llu/%llu  vscroll %llu/%llu  typing %llu/%llu\n",
+    printf("%-14s cold %llu/%llu  idle %llu/%llu  vscroll %llu/%llu  typing %llu/%llu  idle-cmds %llu\n",
         tr->name,
         tr->cold.calls, tr->cold.bytes, tr->idle.calls, tr->idle.bytes,
-        tr->vscroll.calls, tr->vscroll.bytes, tr->typing.calls, tr->typing.bytes);
+        tr->vscroll.calls, tr->vscroll.bytes, tr->typing.calls, tr->typing.bytes,
+        tr->idle.cmds);
     if (tr->has_hscroll) {
         printf("%-14s hscroll-sweep %llu/%llu  hscroll-steady %llu/%llu at scroll_x %.0f px\n", "",
             tr->hscroll_sweep.calls, tr->hscroll_sweep.bytes,
@@ -459,6 +495,78 @@ static int traffic_check(const char *doc, const char *phase, Traffic t,
     return 0;
 }
 
+// Bounds are the 2026-07-13 retained-geometry capture plus ~15% (stage 0
+// baselines in parentheses). Steady frames replay retained line geometry
+// and stop measuring: idle and post-sweep frames issue only the frame's
+// reference measure; typing re-measures the edited line; vertical scroll
+// the entering lines. Cold frames still measure everything once; a
+// wrapped cold frame also counts the rows of the band of lines at the
+// document end (the bottom anchor behind the thumb's range end), retained
+// from then on. Giant-wrap steady frames carry the band-resolve overflow
+// row probe, which deliberately measures outside the store at the
+// pre-strip width - the recorded residual. The highlighted twins of each
+// workload are checked against the same bounds: colour pieces are placed
+// from the stored advances, so colouring costs no measure.
+static int traffic_check_fallback(const Traffic_Result *nw, const Traffic_Result *w,
+                                  const Traffic_Result *gnw, const Traffic_Result *gw) {
+    int failures = 0;
+    failures += traffic_check(nw->name, "cold", nw->cold, 4400, 422000);
+    failures += traffic_check(nw->name, "idle", nw->idle, 2, 2);            // (3821/366721)
+    failures += traffic_check(nw->name, "vscroll", nw->vscroll, 225, 21100); // (3821/366721)
+    failures += traffic_check(nw->name, "typing", nw->typing, 12, 40);       // (3826/366733)
+    failures += traffic_check(nw->name, "hscroll-steady", nw->hscroll_steady, 2, 2); // (8336/1748030)
+    failures += traffic_check(w->name, "cold", w->cold, 6320, 296300);       // 2026-09-06: 5490/257589
+    failures += traffic_check(w->name, "idle", w->idle, 2, 2);                 // (3459/162025)
+    failures += traffic_check(w->name, "vscroll", w->vscroll, 2, 2);           // (3538/165937)
+    failures += traffic_check(w->name, "typing", w->typing, 505, 23000);       // (3929/184867)
+    failures += traffic_check(gnw->name, "cold", gnw->cold, 224, 21600);
+    failures += traffic_check(gnw->name, "idle", gnw->idle, 2, 2);             // (194/18722)
+    failures += traffic_check(gnw->name, "vscroll", gnw->vscroll, 2, 2);       // (194/18722)
+    failures += traffic_check(gnw->name, "typing", gnw->typing, 224, 21600);
+    failures += traffic_check(gnw->name, "hscroll-steady", gnw->hscroll_steady, 2, 2); // (570/161603)
+    failures += traffic_check(gnw->name, "end-frame", gnw->end_frame, 600, 156000);    // (1027/526849)
+    failures += traffic_check(gnw->name, "idle-after-end", gnw->idle_after_end, 2, 2); // (1026/525825)
+    failures += traffic_check(gw->name, "cold", gw->cold, 2380, 114200);
+    failures += traffic_check(gw->name, "idle", gw->idle, 1195, 57100);          // (3103/148831)
+    failures += traffic_check(gw->name, "vscroll", gw->vscroll, 1195, 57100);    // (3103/148831)
+    failures += traffic_check(gw->name, "typing", gw->typing, 2380, 114200);     // (3298/158343)
+    failures += traffic_check(nw->name, "hscroll-sweep", nw->hscroll_sweep, 5300, 1589000);
+    failures += traffic_check(gnw->name, "hscroll-sweep", gnw->hscroll_sweep, 466, 165000);
+    return failures;
+}
+
+// Advances-pass bounds: the 2026-07-13 batched capture plus ~15%. Cold
+// builds fill whole chunks per line (one call per tab-segment chunk plus
+// the reference measure); steady frames match the fallback pass; typing
+// and reach extension collapse to chunk counts; the giant-wrap
+// band-resolve row probe walks O(rows) batched calls.
+static int traffic_check_advances(const Traffic_Result *nw, const Traffic_Result *w,
+                                  const Traffic_Result *gnw, const Traffic_Result *gw) {
+    int failures = 0;
+    failures += traffic_check(nw->name, "cold", nw->cold, 25, 5900);          // (21/5121)
+    failures += traffic_check(nw->name, "idle", nw->idle, 2, 2);
+    failures += traffic_check(nw->name, "vscroll", nw->vscroll, 3, 300);      // (2/257)
+    failures += traffic_check(nw->name, "typing", nw->typing, 3, 5);          // (2/4)
+    failures += traffic_check(nw->name, "hscroll-sweep", nw->hscroll_sweep, 58, 3800); // (50/3241)
+    failures += traffic_check(nw->name, "hscroll-steady", nw->hscroll_steady, 2, 2);
+    failures += traffic_check(w->name, "cold", w->cold, 75, 13600);         // 2026-09-06: 65/11813
+    failures += traffic_check(w->name, "idle", w->idle, 2, 2);
+    failures += traffic_check(w->name, "vscroll", w->vscroll, 2, 2);
+    failures += traffic_check(w->name, "typing", w->typing, 7, 1100);        // (6/951)
+    failures += traffic_check(gnw->name, "cold", gnw->cold, 3, 300);           // (2/257)
+    failures += traffic_check(gnw->name, "idle", gnw->idle, 2, 2);
+    failures += traffic_check(gnw->name, "vscroll", gnw->vscroll, 2, 2);
+    failures += traffic_check(gnw->name, "typing", gnw->typing, 3, 300);       // (2/257)
+    failures += traffic_check(gnw->name, "hscroll-sweep", gnw->hscroll_sweep, 37, 650); // (32/542)
+    failures += traffic_check(gnw->name, "end-frame", gnw->end_frame, 5, 600); // (2/257)
+    failures += traffic_check(gnw->name, "idle-after-end", gnw->idle_after_end, 2, 2);
+    failures += traffic_check(gw->name, "cold", gw->cold, 27, 5900);          // (23/5057)
+    failures += traffic_check(gw->name, "idle", gw->idle, 14, 2950);          // (12/2529)
+    failures += traffic_check(gw->name, "vscroll", gw->vscroll, 14, 2950);
+    failures += traffic_check(gw->name, "typing", gw->typing, 27, 5900);      // (23/5057)
+    return failures;
+}
+
 int main(void) {
     const int frames = 300;
     int failures = 0;
@@ -477,37 +585,47 @@ int main(void) {
     printf("small doc: %zu lines, %zu bytes\n", small_lines, small_len);
     printf("large doc: %zu lines, %zu bytes\n", large_lines, large_len);
 
-    Perf_Result rs = run_case(small, small_cap, &small_len, frames, false);
-    Perf_Result rl = run_case(large, large_cap, &large_len, frames, false);
+    Perf_Result rs = run_case(small, small_cap, &small_len, frames, false, false);
+    Perf_Result rl = run_case(large, large_cap, &large_len, frames, false, false);
 
     // Wrapped mode over the same documents, then a pathological document
     // that is one multi-megabyte hard line: the per-line unit budget must
     // bound its frame cost.
     small_len = gen_doc(small, small_cap, small_lines);
     large_len = gen_doc(large, large_cap, large_lines);
-    Perf_Result ws = run_case(small, small_cap, &small_len, frames, true);
-    Perf_Result wl = run_case(large, large_cap, &large_len, frames, true);
+    Perf_Result ws = run_case(small, small_cap, &small_len, frames, true, false);
+    Perf_Result wl = run_case(large, large_cap, &large_len, frames, true, false);
 
     size_t mega_len = large_cap - 65;
     memset(large, 'm', mega_len);
     large[mega_len] = '\0';
-    Perf_Result wm = run_case(large, large_cap, &mega_len, frames, true);
+    Perf_Result wm = run_case(large, large_cap, &mega_len, frames, true, false);
 
-    printf("\n%-22s %12s %12s %12s %12s %12s\n", "",
-        "100KB", "10MB/1Mln", "wrap 100KB", "wrap 10MB", "wrap 1line");
-    printf("%-22s %10.3fms %10.3fms %10.3fms %10.3fms %10.3fms  (includes index build)\n",
+    // Every word a colour span on the 100 KB document: the pieces come from
+    // the stored advances, so the cost is the extra draw commands alone.
+    // Printed beside the plain column, not gated.
+    small_len = gen_doc(small, small_cap, small_lines);
+    Perf_Result hs = run_case(small, small_cap, &small_len, frames, false, true);
+
+    printf("\n%-22s %12s %12s %12s %12s %12s %12s\n", "",
+        "100KB", "10MB/1Mln", "wrap 100KB", "wrap 10MB", "wrap 1line", "100KB hl");
+    printf("%-22s %10.3fms %10.3fms %10.3fms %10.3fms %10.3fms %10.3fms  (includes index build)\n",
         "first frame", rs.first_frame_ms, rl.first_frame_ms,
-        ws.first_frame_ms, wl.first_frame_ms, wm.first_frame_ms);
-    printf("%-22s %10.4fms %10.4fms %10.4fms %10.4fms %10.4fms\n", "idle frame avg",
-        rs.idle_avg_ms, rl.idle_avg_ms, ws.idle_avg_ms, wl.idle_avg_ms, wm.idle_avg_ms);
-    printf("%-22s %10.4fms %10.4fms %10.4fms %10.4fms %10.4fms\n", "scroll frame avg",
-        rs.scroll_avg_ms, rl.scroll_avg_ms, ws.scroll_avg_ms, wl.scroll_avg_ms, wm.scroll_avg_ms);
-    printf("%-22s %10.4fms %10.4fms %10.4fms %10.4fms %10.4fms  (keystroke at offset 0)\n",
+        ws.first_frame_ms, wl.first_frame_ms, wm.first_frame_ms, hs.first_frame_ms);
+    printf("%-22s %10.4fms %10.4fms %10.4fms %10.4fms %10.4fms %10.4fms\n", "idle frame avg",
+        rs.idle_avg_ms, rl.idle_avg_ms, ws.idle_avg_ms, wl.idle_avg_ms, wm.idle_avg_ms,
+        hs.idle_avg_ms);
+    printf("%-22s %10.4fms %10.4fms %10.4fms %10.4fms %10.4fms %10.4fms\n", "scroll frame avg",
+        rs.scroll_avg_ms, rl.scroll_avg_ms, ws.scroll_avg_ms, wl.scroll_avg_ms, wm.scroll_avg_ms,
+        hs.scroll_avg_ms);
+    printf("%-22s %10.4fms %10.4fms %10.4fms %10.4fms %10.4fms %10.4fms  (keystroke at offset 0)\n",
         "edit frame avg",
-        rs.edit_avg_ms, rl.edit_avg_ms, ws.edit_avg_ms, wl.edit_avg_ms, wm.edit_avg_ms);
-    printf("%-22s %11u %12u %12u %12u %12u\n", "rebuilds after idle",
+        rs.edit_avg_ms, rl.edit_avg_ms, ws.edit_avg_ms, wl.edit_avg_ms, wm.edit_avg_ms,
+        hs.edit_avg_ms);
+    printf("%-22s %11u %12u %12u %12u %12u %12u\n", "rebuilds after idle",
         rs.rebuilds_after_idle, rl.rebuilds_after_idle,
-        ws.rebuilds_after_idle, wl.rebuilds_after_idle, wm.rebuilds_after_idle);
+        ws.rebuilds_after_idle, wl.rebuilds_after_idle, wm.rebuilds_after_idle,
+        hs.rebuilds_after_idle);
 
     // Structural gates. Idle frames must not rebuild the index (that is the
     // only O(document) step in the frame path), and steady-state frame cost
@@ -583,12 +701,12 @@ int main(void) {
         prose_len, giant_len);
     printf("measure traffic per frame (calls/bytes):\n");
 
-    Traffic_Result tp_nw = run_traffic_case("prose no-wrap", prose, prose_cap, &prose_len, false, false, false);
+    Traffic_Result tp_nw = run_traffic_case("prose no-wrap", prose, prose_cap, &prose_len, false, false, false, false);
     prose_len = gen_prose(prose, prose_cap);
-    Traffic_Result tp_w = run_traffic_case("prose wrap", prose, prose_cap, &prose_len, true, false, false);
-    Traffic_Result tg_nw = run_traffic_case("giant no-wrap", giant, giant_cap, &giant_len, false, true, false);
+    Traffic_Result tp_w = run_traffic_case("prose wrap", prose, prose_cap, &prose_len, true, false, false, false);
+    Traffic_Result tg_nw = run_traffic_case("giant no-wrap", giant, giant_cap, &giant_len, false, true, false, false);
     giant_len = gen_giant(giant, giant_cap);
-    Traffic_Result tg_w = run_traffic_case("giant wrap", giant, giant_cap, &giant_len, true, false, false);
+    Traffic_Result tg_w = run_traffic_case("giant wrap", giant, giant_cap, &giant_len, true, false, false, false);
 
     traffic_print(&tp_nw);
     traffic_print(&tp_w);
@@ -601,83 +719,64 @@ int main(void) {
     printf("with measure_text_advances installed:\n");
     prose_len = gen_prose(prose, prose_cap);
     giant_len = gen_giant(giant, giant_cap);
-    Traffic_Result ta_nw = run_traffic_case("prose nw +adv", prose, prose_cap, &prose_len, false, false, true);
+    Traffic_Result ta_nw = run_traffic_case("prose nw +adv", prose, prose_cap, &prose_len, false, false, true, false);
     prose_len = gen_prose(prose, prose_cap);
-    Traffic_Result ta_w = run_traffic_case("prose wr +adv", prose, prose_cap, &prose_len, true, false, true);
-    Traffic_Result ta_gnw = run_traffic_case("giant nw +adv", giant, giant_cap, &giant_len, false, true, true);
+    Traffic_Result ta_w = run_traffic_case("prose wr +adv", prose, prose_cap, &prose_len, true, false, true, false);
+    Traffic_Result ta_gnw = run_traffic_case("giant nw +adv", giant, giant_cap, &giant_len, false, true, true, false);
     giant_len = gen_giant(giant, giant_cap);
-    Traffic_Result ta_gw = run_traffic_case("giant wr +adv", giant, giant_cap, &giant_len, true, false, true);
+    Traffic_Result ta_gw = run_traffic_case("giant wr +adv", giant, giant_cap, &giant_len, true, false, true, false);
 
     traffic_print(&ta_nw);
     traffic_print(&ta_w);
     traffic_print(&ta_gnw);
     traffic_print(&ta_gw);
 
-    // Bounds are the 2026-07-13 retained-geometry capture plus ~15%
-    // (stage 0 baselines in parentheses). Steady frames replay retained
-    // line geometry and stop measuring: idle and post-sweep frames issue
-    // only the frame's reference measure; typing re-measures the edited
-    // line; vertical scroll the entering lines. Cold frames still measure
-    // everything once; a wrapped cold frame also counts the rows of the
-    // band of lines at the document end (the bottom anchor behind the
-    // thumb's range end), retained from then on. Giant-wrap steady frames
-    // carry the band-resolve overflow row probe, which deliberately
-    // measures outside the store at the pre-strip width - the recorded
-    // residual.
-    failures += traffic_check("prose no-wrap", "cold", tp_nw.cold, 4400, 422000);
-    failures += traffic_check("prose no-wrap", "idle", tp_nw.idle, 2, 2);            // (3821/366721)
-    failures += traffic_check("prose no-wrap", "vscroll", tp_nw.vscroll, 225, 21100); // (3821/366721)
-    failures += traffic_check("prose no-wrap", "typing", tp_nw.typing, 12, 40);       // (3826/366733)
-    failures += traffic_check("prose no-wrap", "hscroll-steady", tp_nw.hscroll_steady, 2, 2); // (8336/1748030)
-    failures += traffic_check("prose wrap", "cold", tp_w.cold, 6320, 296300);       // 2026-09-06: 5490/257589
-    failures += traffic_check("prose wrap", "idle", tp_w.idle, 2, 2);                 // (3459/162025)
-    failures += traffic_check("prose wrap", "vscroll", tp_w.vscroll, 2, 2);           // (3538/165937)
-    failures += traffic_check("prose wrap", "typing", tp_w.typing, 505, 23000);       // (3929/184867)
-    failures += traffic_check("giant no-wrap", "cold", tg_nw.cold, 224, 21600);
-    failures += traffic_check("giant no-wrap", "idle", tg_nw.idle, 2, 2);             // (194/18722)
-    failures += traffic_check("giant no-wrap", "vscroll", tg_nw.vscroll, 2, 2);       // (194/18722)
-    failures += traffic_check("giant no-wrap", "typing", tg_nw.typing, 224, 21600);
-    failures += traffic_check("giant no-wrap", "hscroll-steady", tg_nw.hscroll_steady, 2, 2); // (570/161603)
-    failures += traffic_check("giant no-wrap", "end-frame", tg_nw.end_frame, 600, 156000);    // (1027/526849)
-    failures += traffic_check("giant no-wrap", "idle-after-end", tg_nw.idle_after_end, 2, 2); // (1026/525825)
-    failures += traffic_check("giant wrap", "cold", tg_w.cold, 2380, 114200);
-    failures += traffic_check("giant wrap", "idle", tg_w.idle, 1195, 57100);          // (3103/148831)
-    failures += traffic_check("giant wrap", "vscroll", tg_w.vscroll, 1195, 57100);    // (3103/148831)
-    failures += traffic_check("giant wrap", "typing", tg_w.typing, 2380, 114200);     // (3298/158343)
-    failures += traffic_check("prose no-wrap", "hscroll-sweep", tp_nw.hscroll_sweep, 5300, 1589000);
-    failures += traffic_check("giant no-wrap", "hscroll-sweep", tg_nw.hscroll_sweep, 466, 165000);
+    // Third and fourth passes: every word a colour span, on both
+    // measurement paths. The bounds are the unhighlighted twins' - pieces
+    // are placed from the stored advances, so colouring costs no measure;
+    // only the command count (printed) grows with the pieces.
+    printf("with every word a colour span (span_color):\n");
+    prose_len = gen_prose(prose, prose_cap);
+    giant_len = gen_giant(giant, giant_cap);
+    Traffic_Result th_nw = run_traffic_case("prose nw hl", prose, prose_cap, &prose_len, false, false, false, true);
+    prose_len = gen_prose(prose, prose_cap);
+    Traffic_Result th_w = run_traffic_case("prose wr hl", prose, prose_cap, &prose_len, true, false, false, true);
+    Traffic_Result th_gnw = run_traffic_case("giant nw hl", giant, giant_cap, &giant_len, false, true, false, true);
+    giant_len = gen_giant(giant, giant_cap);
+    Traffic_Result th_gw = run_traffic_case("giant wr hl", giant, giant_cap, &giant_len, true, false, false, true);
 
-    // Advances-pass bounds: the 2026-07-13 batched capture plus ~15%.
-    // Cold builds fill whole chunks per line (one call per tab-segment
-    // chunk plus the reference measure); steady frames match the fallback
-    // pass; typing and reach extension collapse to chunk counts; the
-    // giant-wrap band-resolve row probe walks O(rows) batched calls.
-    failures += traffic_check("prose nw +adv", "cold", ta_nw.cold, 25, 5900);          // (21/5121)
-    failures += traffic_check("prose nw +adv", "idle", ta_nw.idle, 2, 2);
-    failures += traffic_check("prose nw +adv", "vscroll", ta_nw.vscroll, 3, 300);      // (2/257)
-    failures += traffic_check("prose nw +adv", "typing", ta_nw.typing, 3, 5);          // (2/4)
-    failures += traffic_check("prose nw +adv", "hscroll-sweep", ta_nw.hscroll_sweep, 58, 3800); // (50/3241)
-    failures += traffic_check("prose nw +adv", "hscroll-steady", ta_nw.hscroll_steady, 2, 2);
-    failures += traffic_check("prose wr +adv", "cold", ta_w.cold, 75, 13600);         // 2026-09-06: 65/11813
-    failures += traffic_check("prose wr +adv", "idle", ta_w.idle, 2, 2);
-    failures += traffic_check("prose wr +adv", "vscroll", ta_w.vscroll, 2, 2);
-    failures += traffic_check("prose wr +adv", "typing", ta_w.typing, 7, 1100);        // (6/951)
-    failures += traffic_check("giant nw +adv", "cold", ta_gnw.cold, 3, 300);           // (2/257)
-    failures += traffic_check("giant nw +adv", "idle", ta_gnw.idle, 2, 2);
-    failures += traffic_check("giant nw +adv", "vscroll", ta_gnw.vscroll, 2, 2);
-    failures += traffic_check("giant nw +adv", "typing", ta_gnw.typing, 3, 300);       // (2/257)
-    failures += traffic_check("giant nw +adv", "hscroll-sweep", ta_gnw.hscroll_sweep, 37, 650); // (32/542)
-    failures += traffic_check("giant nw +adv", "end-frame", ta_gnw.end_frame, 5, 600); // (2/257)
-    failures += traffic_check("giant nw +adv", "idle-after-end", ta_gnw.idle_after_end, 2, 2);
-    failures += traffic_check("giant wr +adv", "cold", ta_gw.cold, 27, 5900);          // (23/5057)
-    failures += traffic_check("giant wr +adv", "idle", ta_gw.idle, 14, 2950);          // (12/2529)
-    failures += traffic_check("giant wr +adv", "vscroll", ta_gw.vscroll, 14, 2950);
-    failures += traffic_check("giant wr +adv", "typing", ta_gw.typing, 27, 5900);      // (23/5057)
+    traffic_print(&th_nw);
+    traffic_print(&th_w);
+    traffic_print(&th_gnw);
+    traffic_print(&th_gw);
 
-    // Giant-line envelope on both measurement paths: END reaches the
-    // line's true end and parked-depth cost is scroll_x-independent.
+    printf("with every word a colour span and measure_text_advances installed:\n");
+    prose_len = gen_prose(prose, prose_cap);
+    giant_len = gen_giant(giant, giant_cap);
+    Traffic_Result tha_nw = run_traffic_case("prose nw +adv hl", prose, prose_cap, &prose_len, false, false, true, true);
+    prose_len = gen_prose(prose, prose_cap);
+    Traffic_Result tha_w = run_traffic_case("prose wr +adv hl", prose, prose_cap, &prose_len, true, false, true, true);
+    Traffic_Result tha_gnw = run_traffic_case("giant nw +adv hl", giant, giant_cap, &giant_len, false, true, true, true);
+    giant_len = gen_giant(giant, giant_cap);
+    Traffic_Result tha_gw = run_traffic_case("giant wr +adv hl", giant, giant_cap, &giant_len, true, false, true, true);
+
+    traffic_print(&tha_nw);
+    traffic_print(&tha_w);
+    traffic_print(&tha_gnw);
+    traffic_print(&tha_gw);
+
+    failures += traffic_check_fallback(&tp_nw, &tp_w, &tg_nw, &tg_w);
+    failures += traffic_check_advances(&ta_nw, &ta_w, &ta_gnw, &ta_gw);
+    failures += traffic_check_fallback(&th_nw, &th_w, &th_gnw, &th_gw);
+    failures += traffic_check_advances(&tha_nw, &tha_w, &tha_gnw, &tha_gw);
+
+    // Giant-line envelope on both measurement paths, plain and coloured:
+    // END reaches the line's true end and parked-depth cost is
+    // scroll_x-independent.
     failures += envelope_check("giant no-wrap", &tg_nw);
     failures += envelope_check("giant nw +adv", &ta_gnw);
+    failures += envelope_check("giant nw hl", &th_gnw);
+    failures += envelope_check("giant nw +adv hl", &tha_gnw);
 
     // Reach extension through the callback must beat per-unit whole-prefix
     // measuring by an order of magnitude in bytes, not merely dent it.
@@ -687,6 +786,14 @@ int main(void) {
     }
     if (ta_gnw.hscroll_sweep.bytes * 10 > tg_nw.hscroll_sweep.bytes) {
         fprintf(stderr, "FAIL: giant h-scroll sweep bytes did not drop 10x with advances\n");
+        failures++;
+    }
+    if (tha_nw.hscroll_sweep.bytes * 10 > th_nw.hscroll_sweep.bytes) {
+        fprintf(stderr, "FAIL: coloured prose h-scroll sweep bytes did not drop 10x with advances\n");
+        failures++;
+    }
+    if (tha_gnw.hscroll_sweep.bytes * 10 > th_gnw.hscroll_sweep.bytes) {
+        fprintf(stderr, "FAIL: coloured giant h-scroll sweep bytes did not drop 10x with advances\n");
         failures++;
     }
 

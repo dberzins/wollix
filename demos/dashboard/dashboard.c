@@ -72,6 +72,7 @@
 #include "dashboard_effects.h"
 #include "dashboard_components.h"
 #include "dashboard_icons.h"
+#include "dashboard_syntax.h"
 
 #define WINDOW_WIDTH 1280
 #define WINDOW_HEIGHT 800
@@ -2135,6 +2136,10 @@ static void section_editor(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 // The editor: mono face, exact vertical scrollbar (approximate
                 // while wrapped), horizontal scrolling into the long lines when
                 // unwrapped and band-wide rows when wrapped, tab stops, gutter.
+                // The sample document is C source and gets the syntax colours
+                // (dashboard_syntax.h); the generated and prose documents stay
+                // in one colour.
+                bool syntax = st->editor_doc == DASHBOARD_EDITOR_DOC_SAMPLE;
                 if (wlx_editor(ctx, NULL, g_dashboard_editor_buf, DASHBOARD_EDITOR_CAP,
                         &st->editor_len, .id = "ed-editor",
                         .content_padding = 6, .font = mono_font, .font_size = mono_px,
@@ -2144,6 +2149,8 @@ static void section_editor(WLX_Context *ctx, const Dashboard_Tokens *tk,
                         .line_numbers = st->editor_line_numbers,
                         .read_only = st->editor_read_only,
                         .wrap = st->editor_wrap,
+                        .span_color = syntax ? dashboard_syntax_span : NULL,
+                        .span_color_user = (void *)tk,
                         .revision = st->editor_revision)) {
                     st->editor_lines = dashboard_editor_count_lines(
                         g_dashboard_editor_buf, st->editor_len);
