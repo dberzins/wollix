@@ -491,6 +491,41 @@ static WLX_Text_Style scale_for_raylib(WLX_Text_Style s, void *user) {
 wlx_set_style_transform(ctx, scale_for_raylib, NULL);
 ```
 
+### Per-span colour (`WLX_Text_Span_Color_Fn`)
+
+```c
+typedef struct {
+    const char *text;    // the document
+    size_t length;       // its length
+    size_t line;         // hard line index of the span, 0-based
+    size_t line_start;   // the hard line's first byte
+    size_t line_next;    // the next hard line's first byte, or length
+    size_t offset;       // the span starts here (a text unit boundary)
+    size_t limit;        // the visible record's end; nothing past it draws this call
+} WLX_Text_Span_Query;
+
+typedef WLX_Color (*WLX_Text_Span_Color_Fn)(const WLX_Text_Span_Query *q,
+                                            size_t *span_end, void *user);
+```
+
+The callback type behind `wlx_editor`'s `.span_color` / `.span_color_user`
+(syntax highlighting). A text widget asks it at draw time, for the visible
+records only, walking each record from its first byte: return the colour
+of the bytes from `q->offset` and set `*span_end` past the span's last
+byte (greater than `q->offset`, at most `q->length`; it arrives preset to
+`q->limit`). A zero colour means the widget's `front_color`. The core
+clips the end to `q->limit`, snaps it forward to a text unit boundary so
+a grapheme cluster never draws in two colours, and advances one unit when
+it does not progress (an assertion under `WLX_DEBUG`). A non-zero colour
+takes the widget's disabled shift and effective opacity like its own
+colours; the context's style transform still applies afterwards, at the
+boundary. Colours are asked every frame and never retained; the
+application owns the tokenizer and its state. Pieces are placed from the
+retained advances, so geometry is unchanged and steady frames measure
+nothing more; a kerning pair across a colour edge is lost in the drawn
+glyphs (zero on monospace fonts). See `docs/EDITOR_MODEL.md` §11 and
+`docs/WIDGETS.md` "Per-span colour".
+
 ### In-tree adapter capabilities
 
 Which optional callbacks each shipped adapter wires (required callbacks
@@ -2776,6 +2811,7 @@ mode toggles.
 | `border_focus_color` | `WLX_Color` | `{0}` | Focused border. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Caret. `{0}` = theme `input.cursor` |
 | `selection_color` | `WLX_Color` | `{0}` | Selection fill. `{0}` = theme `input.selection`, then translucent accent |
+| `span_color` / `span_color_user` | `WLX_Text_Span_Color_Fn` / `void *` | `NULL` | Per-span colour callback (syntax highlighting): asked at draw time for the visible records only, never retained; zero colour = `front_color`; span colours take the disabled shift and opacity. See "Per-span colour" in the text section |
 | `out_focused` | `bool *` | `NULL` | Receives this frame's focus state |
 | `read_only` | `bool` | `false` | Rejects mutations; focus, caret, selection, copy keep working |
 | `show_scrollbar` | `bool` | `true` | Draggable scrollbars while overflowing (vertical exact unwrapped / approximate wrapped, horizontal approximate) |

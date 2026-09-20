@@ -28,7 +28,8 @@ The dashboard is the primary Wollix showcase. Try the live demo:
     F-keys, keyboard focus traversal (Tab ring, Enter/Space activation,
     focus ring), and an optional backend cursor-shape callback
 - Windowed text editor extension ([wollix_editor.h](wollix_editor.h)):
-    document-scale editing at O(viewport) frame cost up to 10 MB / 1M lines
+    document-scale editing at O(viewport) frame cost up to 10 MB / 1M lines,
+    with a per-span colour hook for syntax highlighting (tokenizer app-side)
 - Undo/redo in every text widget (inputbox, textarea, editor): a bounded
     per-widget journal with typing-run coalescing and exact caret restore
 - Container decoration: per-side borders, per-corner rounding, vertical

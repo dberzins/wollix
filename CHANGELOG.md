@@ -122,6 +122,27 @@ your own pace before the next minor.
    call the `_impl` function.
 
 ### Added
+- **Per-span colour on the editor (syntax highlighting).** `wlx_editor`
+  gains `.span_color` / `.span_color_user`: a callback
+  (`WLX_Text_Span_Color_Fn` over a `WLX_Text_Span_Query`) that names the
+  colour of the span starting at a byte offset, asked at draw time for the
+  visible records only and never retained - the application owns the
+  tokenizer and its state. The core clips every answered end to the
+  document and the record, snaps it forward to a grapheme-cluster boundary
+  (a cluster never draws in two colours) and advances one unit when it does
+  not progress (an assertion under `WLX_DEBUG`); a zero colour draws in
+  `front_color`, and any other colour takes the widget's disabled shift and
+  opacity like its own colours. Pieces are placed from the retained
+  advances, so caret, hit-test, selection and wrap are unchanged and steady
+  frames measure nothing more (`make perf-editor` runs every workload
+  coloured against the plain bounds); the one approximation is that a
+  kerning pair across a colour edge is lost in the drawn glyphs, zero on
+  monospace fonts and of the same class as a tab stop. The editor's tab
+  walk and the new span edges are one core routine, the record piece
+  drawer, beside the selection band. The dashboard's editor colours its C
+  sample document through a demo-local tokenizer
+  (`demos/dashboard/dashboard_syntax.h`). Not part of the breaking group;
+  the fields are additive.
 - **Calling from C++.** The public halves of `wollix.h` and
   `wollix_editor.h` carry C linkage (`extern "C"`) and parse as C++11 (one
   extension, anonymous structs inside a union, that every compiler accepts

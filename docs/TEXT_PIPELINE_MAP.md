@@ -27,7 +27,7 @@ regions (file order):
 | Measurement primitives | `WLX_Text_Measure_Args` (the measurement environment, passed by const pointer), `wlx_measure_text_range`, `wlx_text_measure_prefix_tabs` / `_known`, `wlx_text_pen_has_tab` (the canonical first-tab precheck), `WLX_Text_Tab_Seg` / `wlx_text_tab_seg_next` (the shared tab-segment iterator for measure and segmented draw), `wlx_text_fit_step`, `wlx_text_wrap_ws_at` + `WLX_Text_Wrap_Break` + `wlx_text_wrap_fit_step` (the wrapped rows' word-boundary rule over the row's break state, adding the `CUT` verdict; overflowing whitespace hangs in display builds and cuts or rejects in editable builds, `wrap_strict_ws`), `wlx_text_measure_advances_batch`, `wlx_text_unit_fetch` (the one measuring fetch entry: batch or per-unit arm) | Tab-aware prefix measurement, the shared fit decision and its wrap-mode layer, the batched cumulative-advance fill over the optional backend callback |
 | Retained editor line geometry | `wlx_text_geom_*` family in four bannered tiers — pure store (`clear`, `env_check`, `edit_shift`, `find`, `find_containing`, `acquire`, `push_unit`, `drop`, `store_free`, the `origin_abs`/`advance_at`/`first_tab_*` reads; never touches ctx), measurement driver over the unit fetch (`extend`, `ensure_width`, `ensure_offset`, `ensure_wrap`), origin policy (`snap_origin`, `set_origin`, `window_linear`, `ensure_caret`, `avg_advance`; the sole view reader), and consumer queries (`x_at` carrying the anchored/passive policy and the far-gap bound, `offset_at_x`, `covering`, `rows_of`) plus replay (`replay_linear`, `wrap_step`) | The editor's per-hard-line cache of cumulative unit advances (plus row tables under wrap) — the "shaped-line cache"; consumers read the queries, never entry fields |
 | The build kernel | `wlx_text_build_step`, `wlx_text_build_lines_from`, `wlx_text_build_lines` | The resumable greedy fitter: one step = one line record, fitting cumulative advances from one of three sources (below) |
-| Alignment, emission, and from-lines consumers | `wlx_text_align_lines`, `wlx_text_emit_lines`, `wlx_text_resolve_cursor_from_lines`, `wlx_text_offset_at_point_from_lines`, `wlx_text_word_bounds`, `wlx_text_draw_selection`, the entry surface: `WLX_Text_Prepare_Opt` (options struct, zero-init = defaults), `wlx_text_prepare_lines_slice` (the one prepare core), `WLX_Text_Prepared` / `wlx_text_prepare` (stack aggregate for prepare-then-consume sites), `wlx_draw_text_fitted_slice` + the NUL adapter `wlx_draw_text_fitted`, `wlx_text_line_scratch`; `wlx_editor_line_next` sits here beside `wlx_editor_index_line_of` | Every geometry answer (caret, hit test, selection, word bounds) and every draw, all reading the same record arrays |
+| Alignment, emission, and from-lines consumers | `wlx_text_align_lines`, `wlx_text_emit_lines`, `wlx_text_resolve_cursor_from_lines`, `wlx_text_offset_at_point_from_lines`, `wlx_text_word_bounds`, `wlx_text_draw_selection`, `wlx_text_draw_record_spans` (the record piece drawer: tab boundaries plus the span-colour callback's edges, pieces from the stored advances of the caller's covering entry), the entry surface: `WLX_Text_Prepare_Opt` (options struct, zero-init = defaults), `wlx_text_prepare_lines_slice` (the one prepare core), `WLX_Text_Prepared` / `wlx_text_prepare` (stack aggregate for prepare-then-consume sites), `wlx_draw_text_fitted_slice` + the NUL adapter `wlx_draw_text_fitted`, `wlx_text_line_scratch`; `wlx_editor_line_next` sits here beside `wlx_editor_index_line_of` | Every geometry answer (caret, hit test, selection, word bounds) and every draw, all reading the same record arrays |
 
 `wollix_editor.h` consumes all six through the companion-header
 contract; its own regions are the line index, the wrap row family,
@@ -256,7 +256,11 @@ hit-testing).
 18. Window build (wrapped or linear) — produces the frame's records;
     the wrapped build's bottom clamp may rewrite the anchor and the
     final `scroll_y` (the one sanctioned mid-build write).
-19. Selection draw, text draw, gutter draw.
+19. Selection draw, text draw, gutter draw. The text draw hands each
+    visible record to `wlx_text_draw_record_spans` with the covering
+    entry it found; the span-colour callback (`.span_color`) is asked
+    there and nowhere else — after every geometry consumer above — and
+    its answers are never retained.
 20. Carets and scrollbars (`wlx_editor_draw_carets_and_bars`).
 21. Epilogue: widget frame end.
 
@@ -382,6 +386,17 @@ deserves extra review care.
     are visible (window band height and the wrap overflow probe use
     pre-strip geometry), preventing bar-visibility feedback. Locked
     by the bar-stability tests in the view suite.
+16. **Colour never touches geometry.** The span-colour callback is
+    consulted only in the draw phase, after every geometry consumer,
+    and its answers are never retained; caret, hit-test, selection,
+    wrap and measure traffic are identical with the hook on and off,
+    and a `NULL` callback draws byte-for-byte what the tab walk drew.
+    Every piece edge is a text unit boundary (the core snaps the
+    answer before any lookup), so on a covering entry every piece's x
+    is a stored advance. Locked by the identity pins and the
+    with/without-hook equivalence tests in the span-colour suite, and
+    by the coloured rows of `make perf-editor` against the plain
+    bounds.
 
 ---
 

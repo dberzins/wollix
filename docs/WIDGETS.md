@@ -1372,6 +1372,7 @@ if (wlx_editor(ctx, NULL, doc, doc_cap, &doc_len, .revision = doc_rev,
 |-------|------|---------|-------------|
 | `content_padding` (+ per-side) | `float` | `10` | Outer inset, as on `wlx_inputbox`. |
 | `border_color` / `border_focus_color` / `cursor_color` / `selection_color` | `WLX_Color` | `{0}` | Chrome colors with the same theme fallbacks as `wlx_inputbox`. |
+| `span_color` / `span_color_user` | `WLX_Text_Span_Color_Fn` / `void *` | `NULL` | Per-span colour callback (syntax highlighting), asked at draw time for the visible records only and never retained; a zero colour is `front_color`. See "Per-span colour" below. |
 | `out_focused` | `bool *` | `NULL` | Receives this frame's focus state. |
 | `read_only` | `bool` | `false` | Rejects all edits while focus, caret, selection, and copy keep working. |
 | `wrap` | `bool` | `false` | Wrapped mode: hard lines break into rows at the band width, at word boundaries (after the last space or tab that fits; inside a word only when it is wider than the band; an overflowing space or tab never hangs - the row cuts at the previous whitespace or the whitespace opens the next row, so the caret always stays inside the band). Horizontal scrolling disappears (nothing overflows sideways); vertical motion, hit-tests, and caret-follow work in visual rows; the vertical thumb becomes an approximation (see below). Toggleable at runtime — caret and selection are byte offsets and survive the switch. |
@@ -1382,6 +1383,64 @@ if (wlx_editor(ctx, NULL, doc, doc_cap, &doc_len, .revision = doc_rev,
 
 All shared placement, sizing, typography, and color fields also apply. Text
 is always top-left anchored; `content_align` places only the label.
+
+### Per-span colour
+
+`.span_color` names the colour of consecutive spans of the document, one
+call per span, for the visible records only:
+
+```c
+typedef WLX_Color (*WLX_Text_Span_Color_Fn)(const WLX_Text_Span_Query *q,
+                                            size_t *span_end, void *user);
+```
+
+`q` carries the document (`text`, `length`), the hard line the span is on
+(`line`, `line_start`, `line_next`), the span's start (`offset`, always a
+grapheme-cluster boundary) and the visible record's end (`limit`). Return
+the colour of the bytes from `offset` and set `*span_end` past the span's
+last byte (it arrives preset to `limit`). The editor walks each record
+from its first byte through the answered ends, so every byte is asked
+about once per frame and the offsets within a record strictly increase.
+
+What the core guarantees about the answer: an end past the record or the
+document is clipped; an end inside a cluster snaps forward to the
+cluster's end, so no cluster draws in two colours; an end that does not
+advance is an application bug — asserted under `WLX_DEBUG`, advanced one
+unit in release. A zero colour draws in the widget's `front_color`; any
+other colour takes the widget's disabled shift and opacity exactly as
+`front_color` does.
+
+Geometry is untouched: caret, hit-test, selection and wrap are the same
+with the hook on and off, and pieces are placed from the retained
+advances, so colouring costs no extra measure. The one approximation is
+that a kerning pair across a colour edge is lost in the drawn glyphs
+(zero on monospace fonts). Nothing is retained between frames — the
+tokenizer and its state are the application's; the query's `line` and
+`line_start` let a line-oriented tokenizer keep a per-line cache. A
+minimal callback that greys out `//` comments:
+
+```c
+static WLX_Color comment_spans(const WLX_Text_Span_Query *q, size_t *span_end, void *user) {
+    const WLX_Color *muted = user;
+    // The line's first "//", if any: from there to the line's end is a
+    // comment, everything before it is the widget's front_color.
+    size_t p = q->line_start;
+    while (p + 1 < q->line_next && !(q->text[p] == '/' && q->text[p + 1] == '/')) p++;
+    bool found = p + 1 < q->line_next;
+    if (found && q->offset >= p) { *span_end = q->line_next; return *muted; }
+    *span_end = found ? p : q->limit;   // ends past the record are clipped
+    return (WLX_Color){0};
+}
+
+static WLX_Color muted = { 120, 130, 140, 255 };
+wlx_editor(ctx, NULL, buf, cap, &len,
+    .span_color = comment_spans, .span_color_user = &muted);
+```
+
+The dashboard's editor colours its C sample document this way through a
+small demo-local tokenizer (`demos/dashboard/dashboard_syntax.h`). The
+mechanics — the record piece drawer, its tiers and the seam — are in
+[EDITOR_MODEL.md §11](EDITOR_MODEL.md#11-per-span-colour).
 
 ### Editing and navigation vocabulary
 

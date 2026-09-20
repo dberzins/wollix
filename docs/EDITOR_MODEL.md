@@ -34,6 +34,7 @@ invariant registry contributors must preserve, see
 8. [Tab Expansion](#8-tab-expansion)
 9. [Performance](#9-performance)
 10. [Configuration](#10-configuration)
+11. [Per-Span Colour](#11-per-span-colour)
 
 ---
 
@@ -498,3 +499,108 @@ the inputbox, textarea and editor alike; the semantics are in
 The retained geometry store (Section 4) is sized from the viewport —
 about twice the window's line count, minimum 16 entries — and is not an
 exposed knob.
+
+---
+
+## 11. Per-Span Colour
+
+The editor draws one `WLX_Text_Style`, so by default every record is
+one colour. `.span_color` (with `.span_color_user`) is the hook for
+syntax highlighting: a callback that names the colour of the **span**
+starting at a byte offset, asked at draw time for the visible records
+only. Colour is the only thing it changes — no font, size, spacing or
+background, no geometry, no retained state.
+
+### The query and the answer
+
+```c
+typedef struct {
+    const char *text;    // the document
+    size_t length;       // its length
+    size_t line;         // hard line index of the span, 0-based
+    size_t line_start;   // the hard line's first byte
+    size_t line_next;    // the next hard line's first byte, or length
+    size_t offset;       // the span starts here (a text unit boundary)
+    size_t limit;        // the visible record's end
+} WLX_Text_Span_Query;
+
+typedef WLX_Color (*WLX_Text_Span_Color_Fn)(const WLX_Text_Span_Query *q,
+                                            size_t *span_end, void *user);
+```
+
+For each visible record the editor asks at the record's first byte,
+then at each answered end, until the record is covered: every byte of a
+visible record is asked about exactly once per frame and the offsets
+asked within one record strictly increase. The callback returns the
+colour of the bytes from `offset` and sets `*span_end` past the span's
+last byte; it arrives preset to `limit`, so an untouched end means "to
+the record's end". A zero colour means the widget's `front_color`.
+
+The core enforces every answer, in this order: the end is clipped to
+the document, then to the record's `limit`; an end that is not a text
+unit boundary snaps **forward** to the next one (`wlx_text_unit_next`),
+so a grapheme cluster never draws in two colours; an end at or before
+`offset` advances one unit. The first two are legitimate (a token
+continues past the record, the tokenizer thinks in bytes); the last is
+an application bug, asserted under `WLX_DEBUG` and clamped in release.
+Snapping changes only which colour a cluster's bytes draw in — byte
+offsets stay exact everywhere, as in the rest of the pipeline.
+
+A non-zero colour takes the two transforms the widget's own colours
+went through, in the same order: the theme's disabled brightness shift
+when the widget is disabled, then the widget's effective opacity. A
+faded or disabled editor therefore dims its tokens with its text. The
+context's style transform (`wlx_set_style_transform`) still applies
+afterwards, at the backend boundary, to every piece.
+
+### Where it runs: the record piece drawer
+
+The hook is consulted in the draw phase, after every geometry consumer
+of the frame (window build, caret, hit-test, selection, scroll) has
+run. The window draw hands each visible record to one core routine,
+the record piece drawer, which cuts the record at two boundary sets —
+the tab boundaries of Section 8 and the span edges — and draws the
+pieces. Per record the cheapest authoritative tier wins:
+
+1. no tab and no interior span edge: one draw call for the run;
+2. a covering retained entry (Section 4) validates every tab boundary:
+   pieces placed from the **stored advances**, zero backend measures —
+   a span edge is a unit boundary of the same predicate that produced
+   the entry's unit ends, so its x is always stored;
+3. otherwise: per-piece measure, tab stops by the next-stop rule.
+
+Piece x replays in the record-relative frame both wrap modes share, so
+a span crossing a wrapped row boundary is simply asked again at the
+next row's start, and a record entering a giant line at the windowed
+origin (Section 6) queries from that origin. With no callback the
+drawer is one span in the record's colour: exactly the tab walk, pinned
+byte-identical by the suite.
+
+Nothing is retained: colours are asked every frame, are not part of
+the retained store's environment, and a colour change invalidates
+nothing. The application owns the tokenizer and its state — block
+comments, strings, per-line start states — and any cache; `line` and
+`line_start` are in the query so a line-oriented tokenizer can key one.
+The dashboard's tokenizer (`demos/dashboard/dashboard_syntax.h`) shows
+the stateless form: it re-tokenizes the hard line from `line_start` up
+to `offset` on every query, which is cheap on short lines.
+
+### The seam
+
+Pieces are separate backend runs. A kerning or shaping pair across a
+colour edge is therefore lost in the drawn glyphs, while the caret and
+hit geometry stay on the whole-run stored advances — a sub-pixel
+offset between a glyph and the caret at a span edge on a proportional
+font, zero on the monospace fonts code editors use. It is an x-space
+approximation of the class already documented for tab stops (Section
+8) and the advances chunk splice; byte offsets are never approximate.
+
+### Cost
+
+Colouring costs no measure: `make perf-editor` runs every traffic
+workload a second time with every word a span, against the plain
+workloads' bounds, and every count matches. What grows is the command
+count — rows times pieces — and, on the native backends, the number of
+distinct cached runs (one per distinct piece instead of one per row;
+token runs repeat heavily in source code, and the dashboard's sample
+document sits at a hundred entries against caches of thousands).
