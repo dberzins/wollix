@@ -103,28 +103,51 @@ kept on UTF-8 boundaries (see next section).
 
 ## 3. Text Units and UTF-8 Policy
 
-The build walks the slice in **text units**. A text unit is:
+The build walks the slice in **text units**. A text unit is an
+*approximated extended grapheme cluster*: one or more whole UTF-8
+codepoints joined by four rules, or one byte as the fallback for
+malformed input. The rules, a four-rule approximation of UAX #29 decided
+by one boundary predicate (`wlx_text_unit_boundary`):
 
-- one whole UTF-8 codepoint, when the bytes at the current offset form a
-  valid 2-4 byte sequence fully contained in the slice, or
-- one byte, as a fallback for ASCII and malformed input.
+1. a codepoint in the *Extend* set joins the unit before it — the
+   combining-mark blocks (U+0300-036F, U+0483-0489, U+1AB0-1AFF,
+   U+1DC0-1DFF, U+20D0-20FF, U+FE20-FE2F), ZWNJ and ZWJ (U+200C-200D),
+   the variation selectors (U+FE00-FE0F, U+E0100-E01EF), the emoji
+   modifiers (U+1F3FB-1F3FF) and the tag characters (U+E0020-E007F);
+2. a pictographic codepoint (U+2600-27BF, U+1F000-1FAFF) joins a ZWJ
+   before it, so ZWJ emoji sequences are one unit;
+3. regional indicators (U+1F1E6-1F1FF) pair up, so a flag is one unit
+   and a run of them splits in twos;
+4. a control (C0, DEL, C1), a malformed byte, the text start and the text
+   end never join on either side.
 
-This policy has two consequences:
+Every Extend range lies inside Unicode's `Grapheme_Extend` property, so a
+join the model makes is one UAX #29 makes too; what it leaves split is
+listed in Section 16. Both steppers — `wlx_text_unit_next` forward and
+`wlx_text_unit_prev` backward — derive from the same predicate, so they
+are exact inverses over valid and malformed input alike; the ASCII path
+decides with one byte compare.
+
+This policy has three consequences:
 
 1. **Malformed input cannot stall or crash layout.** Invalid bytes are
    consumed one at a time and measured as whatever the backend renders
    for them. Layout always makes forward progress.
-2. **No split point ever lands inside a valid multibyte sequence.** Line
-   breaks, truncation boundaries, caret offsets, and edit points are all
+2. **No split point ever lands inside a valid multibyte sequence or a
+   cluster.** Line breaks, truncation boundaries, caret offsets, edit
+   points, the measure origin and the advances-chunk splice are all
    normalized to unit boundaries. A public cursor offset that arrives
-   mid-sequence is snapped back to the start of its codepoint.
+   inside a cluster is snapped back to the cluster's start; an insert
+   truncated by the buffer capacity drops a partial cluster rather than
+   landing it.
+3. **One Backspace, one caret step, one mask char per cluster.** A
+   decomposed accent, a flag or a ZWJ family is deleted whole, stepped
+   over whole and masked as one `*` in a password field, on every
+   backend — including unshaped ones that draw the cluster as its parts.
 
 Text units are also the currency of the run budgets (Section 11): caps
 are expressed in units, not bytes, so a budget means the same thing for
-ASCII and multibyte text.
-
-The model works on codepoints, not grapheme clusters. See Section 16 for
-what that implies.
+ASCII, multibyte and cluster-dense text.
 
 ---
 
@@ -672,13 +695,22 @@ Guaranteed by the model (and locked by tests):
   advances chunk splice, or a windowed-origin re-entry seam — the
   documented seam classes, all confined to x-space; byte offsets are
   exact everywhere.
+- Grapheme clusters are never split: the text unit is the four-rule
+  cluster of Section 3, so caret motion, deletes, hit tests, wrapping,
+  the measure origin, the chunk splice and the password mask all rest on
+  cluster boundaries, and the forward and backward steppers are exact
+  inverses (ADR_048; `tests/test_grapheme.c` and the cluster cases of the
+  editing, geometry, undo and parity suites).
 
 Not attempted (deliberately, until evidence demands more):
 
-- **Grapheme clusters.** The unit is the codepoint. Combining marks,
-  ZWJ emoji sequences, and other multi-codepoint clusters can be split by
-  caret motion or wrapping. Fine for Latin-script UI text and code; not a
-  full text-editing model.
+- **Grapheme clusters beyond the four rules.** Hangul jamo composition,
+  spacing marks and prepends (the Indic vowel signs), conjuncts and the
+  marks of scripts outside the Extend blocks of Section 3 still split per
+  codepoint, as every cluster did before; a ZWJ after a non-pictographic
+  base followed by an emoji joins where UAX #29 would break. The full
+  `Grapheme_Extend` table and the remaining rules are additions behind
+  the one predicate when evidence asks for them.
 - **Complex-script shaping and bidi.** Runs are passed to the backend
   as-is, left to right. Contextual shaping across a break point is not
   reconsidered, and right-to-left text is not reordered.

@@ -22,7 +22,7 @@ regions (file order):
 
 | Region | Key names | Role |
 |---|---|---|
-| UTF-8 text units and newline policy | `wlx_utf8_*` (decode/encode, word classes, the `wlx_utf8_next` order-keeping adapter), `wlx_text_unit_next` (the single stepping entry: codepoint or one-byte fallback), `wlx_text_utf8_sequence_at`, `wlx_text_newline_at` + `wlx_text_at_line_break` (forward grammar), `wlx_text_separator_before` (the one backward reading), `wlx_text_hard_line_start_at`, `wlx_text_normalize_cursor_offset` | Text-unit stepping, separator grammar (LF / CRLF / lone CR) with exactly one encoding per direction, boundary snapping |
+| UTF-8 text units and newline policy | `wlx_utf8_*` (decode/encode, word classes; codepoint-level on purpose), `wlx_text_codepoint_next` / `_prev` (the codepoint steps, malformed bytes one byte), `wlx_text_extend_ranges` + `wlx_text_unit_boundary` (the one boundary predicate: the four-rule grapheme cluster), `wlx_text_unit_next` / `wlx_text_unit_prev` (the two stepping entries derived from it, exact inverses), `wlx_text_utf8_sequence_at`, `wlx_text_newline_at` + `wlx_text_at_line_break` (forward grammar), `wlx_text_separator_before` (the one backward reading), `wlx_text_hard_line_start_at`, `wlx_text_normalize_cursor_offset` | Text-unit stepping by grapheme cluster, separator grammar (LF / CRLF / lone CR) with exactly one encoding per direction, boundary snapping |
 | Budgets, policy constants, and build types | `WLX_TEXT_RUN_MAX_*`, `WLX_EDITOR_MAX_LINE_UNITS`, `WLX_TEXT_GEOM_*` constants, `WLX_Text_Line_Record`, `WLX_Text_Build_Inputs` / `_Cursor` / `_Step`, `WLX_Wrap_Row_Memo` | The record type every geometry consumer reads ("layout lines"), the build configuration struct, the work caps |
 | Measurement primitives | `WLX_Text_Measure_Args` (the measurement environment, passed by const pointer), `wlx_measure_text_range`, `wlx_text_measure_prefix_tabs` / `_known`, `wlx_text_pen_has_tab` (the canonical first-tab precheck), `WLX_Text_Tab_Seg` / `wlx_text_tab_seg_next` (the shared tab-segment iterator for measure and segmented draw), `wlx_text_fit_step`, `wlx_text_wrap_ws_at` + `WLX_Text_Wrap_Break` + `wlx_text_wrap_fit_step` (the wrapped rows' word-boundary rule over the row's break state, adding the `CUT` verdict; overflowing whitespace hangs in display builds and cuts or rejects in editable builds, `wrap_strict_ws`), `wlx_text_measure_advances_batch`, `wlx_text_unit_fetch` (the one measuring fetch entry: batch or per-unit arm) | Tab-aware prefix measurement, the shared fit decision and its wrap-mode layer, the batched cumulative-advance fill over the optional backend callback |
 | Retained editor line geometry | `wlx_text_geom_*` family in four bannered tiers — pure store (`clear`, `env_check`, `edit_shift`, `find`, `find_containing`, `acquire`, `push_unit`, `drop`, `store_free`, the `origin_abs`/`advance_at`/`first_tab_*` reads; never touches ctx), measurement driver over the unit fetch (`extend`, `ensure_width`, `ensure_offset`, `ensure_wrap`), origin policy (`snap_origin`, `set_origin`, `window_linear`, `ensure_caret`, `avg_advance`; the sole view reader), and consumer queries (`x_at` carrying the anchored/passive policy and the far-gap bound, `offset_at_x`, `covering`, `rows_of`) plus replay (`replay_linear`, `wrap_step`) | The editor's per-hard-line cache of cumulative unit advances (plus row tables under wrap) — the "shaped-line cache"; consumers read the queries, never entry fields |
@@ -89,14 +89,16 @@ cannot progress returns 0 and each caller applies its own fail-over
 pre-step, not a fetch arm.
 
 This is the same boundary mature layout stacks name the advance-array
-contract; the cluster map degrades to codepoint units by documented
-scope (LINE_RUN_MODEL.md section 3 and 16).
+contract; the core's cluster map is the four-rule grapheme approximation
+of LINE_RUN_MODEL.md section 3, degrading to codepoint units only for the
+residual classes of section 16.
 
 ### Vocabulary crosswalk
 
 | Industry term (systems using it) | Wollix realization |
 |---|---|
 | Advance provider / advance-array contract (HarfBuzz consumers, DirectWrite) | The three cumulative-advance sources selected by `wlx_text_build_step` |
+| Cluster map / grapheme segmentation (UAX #29) | `wlx_text_unit_boundary`, the four-rule approximation every unit end comes from; the backend's cluster-snap rule (below) covers only ligatures and clusters beyond it |
 | Cluster-snap rule | `measure_text_advances` contract: advance at, or snapped to the cluster edge after, each requested unit end |
 | Shaped-line cache, width-independent (cosmic-text `ShapeLine`) | `WLX_Text_Geom_Entry` advances + `unit_ends` per hard line |
 | Per-width layout cache (cosmic-text `LayoutLine`) | The entry's row table under wrap; validity keyed by `WLX_Text_Geom_Env` |
@@ -174,6 +176,10 @@ always written in their qualified forms.
 - **sticky** — monotone until explicitly reset: the **max-seen width**
   behind the horizontal thumb, and the caret's **sticky column** for
   vertical motion.
+- **unit boundary predicate** — `wlx_text_unit_boundary`, the one
+  decision of where a text unit (an approximated grapheme cluster) ends;
+  both steppers derive from it, so forward and backward walks visit the
+  same boundaries and no consumer needs a private stepping rule.
 - **guard / probe** — the cheap staleness checks (length, revision,
   boundary-byte probe) that catch external document mutation.
 - **traffic** — backend measure calls/bytes; "costs traffic, never

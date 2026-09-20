@@ -68,6 +68,14 @@ Fitted text is measured and drawn as whole visible lines/runs. Horizontal
 alignment is applied per visual line, and wrapped inputbox cursors use the
 same fitted line layout.
 
+Text units are grapheme clusters on every backend: an approximated
+extended grapheme cluster (combining marks, ZWJ sequences, variation
+selectors and regional-indicator pairs join) is what the caret steps
+over, Backspace and Delete remove, hit tests resolve to and wrapping never
+splits. An unshaped backend (Raylib, the SDL3 debug font) draws a ZWJ
+sequence as its parts and a combining mark beside its base, yet the caret
+still steps over the whole cluster and one Backspace removes all of it.
+
 Text spacing is backend-dependent. Raylib honors nonzero `.spacing` in both
 draw and measure. SDL3 custom-font spacing remains gated in this slice: the
 installed SDL_ttf exposes `TTF_SetFontCharSpacing`, but the backend still
@@ -1033,7 +1041,7 @@ if (wlx_inputbox(ctx, "Name:", name, sizeof(name), .height = 40)) {
 | `border_focus_color` | `WLX_Color` | `{0}` | Border color when focused. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Blinking cursor color. `{0}` = theme `input.cursor` |
 | `selection_color` | `WLX_Color` | `{0}` | Selection highlight fill. `{0}` = theme `input.selection`, then translucent accent. |
-| `password` | `bool` | `false` | Masked field: one `*` per codepoint is rendered while the buffer keeps the plaintext. Forces `wrap = false`; copy/cut are suppressed. |
+| `password` | `bool` | `false` | Masked field: one `*` per grapheme cluster is rendered (one Backspace per `*`) while the buffer keeps the plaintext. Forces `wrap = false`; copy/cut are suppressed. |
 | `read_only` | `bool` | `false` | Rejects all edits while focus, selection, caret, and copy keep working. Distinct from `disabled` (no interaction lockout, no dimming). |
 | `multiline` | `bool` | `false` | Enter inserts a newline and keeps focus; UP/DOWN move the caret by visual line with a sticky column; overflowing content scrolls internally. Excluded by `password`. See [Multiline mode](#multiline-mode). |
 | `show_scrollbar` | `bool` | `true` | Draw a draggable vertical scrollbar while multiline content overflows the field. `false` keeps wheel and caret-follow scrolling without the affordance. Inert outside multiline overflow. |
@@ -1061,15 +1069,18 @@ to shift the input rect, not the internal text offset.
 
 ### Editing, selection, and clipboard
 
-All editing is UTF-8 codepoint safe (deletes, caret motion, selection
-boundaries, and paste truncation never split a multibyte sequence). The
-**command modifier** below is Cmd on Apple platforms and Ctrl elsewhere
+All editing is grapheme-cluster safe: deletes, caret motion, selection
+boundaries, hit tests and paste truncation never split a multibyte
+sequence or a cluster (combining marks, ZWJ sequences, variation selectors
+and regional-indicator pairs join their base; a decomposed accent, a flag
+or a ZWJ family is one caret step and one Backspace). The **command
+modifier** below is Cmd on Apple platforms and Ctrl elsewhere
 (`wlx_mod_command_down`).
 
 | Input | Action |
 |-------|--------|
-| BACKSPACE / DELETE | Delete backward / forward by codepoint; repeats while held |
-| LEFT / RIGHT | Move caret by codepoint; repeats while held |
+| BACKSPACE / DELETE | Delete backward / forward by grapheme cluster; repeats while held |
+| LEFT / RIGHT | Move caret by grapheme cluster; repeats while held |
 | Ctrl/Alt + LEFT / RIGHT | Move caret by word |
 | HOME / END | Jump to the start / end of the caret's **visual line** (follows wrapping) |
 | command + HOME / END | Jump to the buffer start / end |
@@ -1085,7 +1096,7 @@ boundaries, and paste truncation never split a multibyte sequence). The
 Typing, paste, BACKSPACE, and DELETE replace a live selection. Copying an
 empty selection is a no-op. Paste bypasses the 32-byte per-frame text ring, so
 arbitrarily long clipboard content lands in one frame, truncated to
-`buffer_size` on a codepoint boundary. The highlight renders in
+`buffer_size` on a cluster boundary. The highlight renders in
 `selection_color` behind the text, per visual line.
 
 Backend notes: clipboard support comes from the optional
@@ -1127,8 +1138,8 @@ is described in [UNDO_MODEL.md](UNDO_MODEL.md).
 
 ### Password and read-only modes
 
-`.password = true` renders one `*` per plaintext codepoint while the buffer
-keeps the real text; the field is forced single-line and copy/cut are
+`.password = true` renders one `*` per plaintext grapheme cluster (so one
+Backspace removes one `*`) while the buffer keeps the real text; the field is forced single-line and copy/cut are
 suppressed so the plaintext can never leave the widget. Editing, paste, caret
 placement, and selection still work — all geometry runs on the masked display
 text and maps back to plaintext byte offsets.
@@ -1202,7 +1213,8 @@ wlx_textarea(ctx, "Notes:", notes, sizeof(notes), .height = 120);
 Current limits: the field is **caller-sized** (`.height`) and does not grow
 with content. Multiline geometry (caret, hit-test, selection, scroll, draw)
 covers at most `WLX_INPUTBOX_MULTILINE_MAX_LINES` (512) visual lines and
-`WLX_INPUTBOX_MULTILINE_MAX_UNITS` (4096) measured codepoints per field —
+`WLX_INPUTBOX_MULTILINE_MAX_UNITS` (4096) measured text units (grapheme
+clusters) per field —
 roughly 4 KB of prose; both are compile-time overridable (`#define` before
 including `wollix.h`). Past the budget, text still appends to the buffer but
 the caret pins to the end of the last built line and the view cannot scroll
@@ -1328,9 +1340,9 @@ bool wlx_editor(WLX_Context *ctx, const char *label, char *buffer,
 
 - `*length` is authoritative in and out; the widget never reads past it and
   writes the new length back after edits.
-- Inserts truncate at `buffer_cap` on a UTF-8 boundary, so only whole
-  codepoints land; a full buffer rejects input rather than splitting a
-  codepoint.
+- Inserts truncate at `buffer_cap` on a text-unit boundary of the
+  inserted slice, so only whole grapheme clusters land; a full buffer
+  rejects input rather than splitting a cluster.
 - The widget maintains a trailing NUL **opportunistically** when
   `*length < buffer_cap`; the NUL is a convenience, not part of the
   contract.
@@ -1440,7 +1452,8 @@ position — clicking there places the caret at the next row's start.
   measure per character. These are asserted bounds in
   `make perf-editor`, not tendencies.
 - `WLX_EDITOR_MAX_LINE_UNITS` (`#ifndef`-overridable, default 1024
-  codepoints) is a **per-record safety cap, not a reach limit**.
+  text units, i.e. grapheme clusters) is a **per-record safety cap, not
+  a reach limit**.
   Unwrapped, a line longer than the budget is measured from a window
   near the view, so giant single-line documents (minified code, log
   lines) are editable end-to-end: END on a 300 KB line lands on its
@@ -1459,7 +1472,7 @@ position — clicking there places the caret at the next row's start.
   minified-content workloads that must stay wrapped.
 - Clipboard: Raylib and SDL3 round-trip multi-MB transfers uncapped
   (measured at 10 MB); paste is bounded by `buffer_cap`, truncating on a
-  UTF-8 boundary.
+  text-unit (grapheme cluster) boundary.
 
 ---
 

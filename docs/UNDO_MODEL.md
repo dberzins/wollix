@@ -158,8 +158,8 @@ steps may coalesce (section 6) and marks replayed entries.
 |---|---|---|
 | `WLX_TEXT_UNDO_CLS_NONE` | transaction start, before any path ran | - |
 | `WLX_TEXT_UNDO_CLS_TYPING` | text-input inserts (and the selection delete that precedes them) | yes: consecutive inserts at the run's end |
-| `WLX_TEXT_UNDO_CLS_BACKSPACE` | codepoint Backspace | yes: consecutive deletes ending at the run's start |
-| `WLX_TEXT_UNDO_CLS_DELETE` | codepoint forward Delete | yes: consecutive deletes at the run's start |
+| `WLX_TEXT_UNDO_CLS_BACKSPACE` | unit (grapheme cluster) Backspace | yes: consecutive deletes ending at the run's start |
+| `WLX_TEXT_UNDO_CLS_DELETE` | unit (grapheme cluster) forward Delete | yes: consecutive deletes at the run's start |
 | `WLX_TEXT_UNDO_CLS_SELECTION` | Backspace or Delete on a live selection | no |
 | `WLX_TEXT_UNDO_CLS_WORD_DELETE` | Ctrl/Alt+Backspace, Ctrl/Alt+Delete | no |
 | `WLX_TEXT_UNDO_CLS_NEWLINE` | Enter | no |
@@ -340,8 +340,9 @@ flowchart TD
 Three details worth knowing:
 
 - **The transaction start pair is the before-state.** A Backspace parks
-  the anchor at the previous codepoint and deletes the range, so the
-  primitive's own caret pair at that moment is a one-codepoint selection.
+  the anchor at the previous unit (a grapheme cluster, possibly many
+  bytes) and deletes the range, so the primitive's own caret pair at that
+  moment is a one-unit selection.
   The record uses the pair the transaction started from instead, and undo
   restores a collapsed caret, not a phantom selection. Later records in the
   same transaction (the insert after a selection delete) use the live pair,
@@ -383,7 +384,7 @@ wlx_text_edit_handle_keys(ctx, st, buffer, buffer_cap, length, caps, span, undo)
 Each bracketed path calls `wlx_text_undo_set_class` before its primitive
 calls. The class is per path, not per key: Backspace on a live selection
 is `SELECTION`, a word delete is `WORD_DELETE`, and only the plain
-codepoint delete is `BACKSPACE`.
+unit delete is `BACKSPACE`.
 
 Every primitive call inside a transaction records under the transaction's
 `txn_group`, so a frame that runs two primitives makes a two-entry step:
@@ -396,7 +397,7 @@ Every primitive call inside a transaction records under the transaction's
 | Enter over a selection | delete, insert | 2 | yes |
 | cut | delete | 1 | yes |
 | Backspace on a selection | delete | 1 | yes |
-| Backspace on a codepoint | delete (anchor parked) | 1 | yes |
+| Backspace on a unit (cluster) | delete (anchor parked) | 1 | yes |
 | undo of a two-entry step | delete + insert per entry | 2 to 4 mirror entries | yes (same id) |
 
 The `group` id comes from `next_group`, a per-journal counter that only

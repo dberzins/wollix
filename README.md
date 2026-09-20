@@ -257,10 +257,13 @@ built-in 8×8 debug font. The Raylib backend uses its default font.
 **Limitations:** Wollix provides real TTF font rendering, not a full typography
 engine. Normal fitted widget text is measured and drawn as whole visible
 lines/runs, so backend-native spacing and kerning can participate when the
-backend supports them. Wrapping remains a greedy UTF-8 codepoint-boundary
-model, explicit `\n`, `\r\n`, and `\r` create visual line breaks, and Wollix
-does not provide grapheme-aware cursoring, complex-script shaping, or
-bidirectional text.
+backend supports them. Wrapping is a greedy fitter that breaks at whitespace,
+explicit `\n`, `\r\n`, and `\r` create visual line breaks, and caret motion,
+deletes and hit tests step by grapheme cluster under a four-rule
+approximation (combining marks, ZWJ sequences, variation selectors and
+regional-indicator pairs). Wollix does not provide Hangul jamo composition,
+the segmentation of Indic and other scripts that need full UAX #29 or
+shaping, or bidirectional text.
 
 **Text entry** targets ASCII and European keyboard layouts: there is no
 input-method (IME) or composition support, so no inline preedit is drawn,

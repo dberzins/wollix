@@ -421,10 +421,11 @@ falls back to per-unit prefix measures for the rest. The run
 expansion is active (the core splits at tabs and applies next-tab-stop
 rounding between segments itself). `unit_ends` is strictly increasing
 with `unit_ends[unit_count - 1] == len`; the core derives the unit
-policy (UTF-8 codepoints, malformed bytes as one-byte units), so a
-backend never re-implements it — it walks its own glyph or cluster
-geometry and reports the advance at (or snapped to the nearest cluster
-edge after) each requested byte end. Reported advances should be
+policy (approximated grapheme clusters: combining marks, ZWJ sequences,
+variation selectors and regional-indicator pairs join; malformed bytes
+are one-byte units), so a backend never re-implements it — it walks its
+own glyph or cluster geometry and reports the advance at (or snapped to
+the nearest cluster edge after) each requested byte end. Reported advances should be
 non-decreasing; the core clamps regardless. Requests are capped at
 `WLX_TEXT_ADVANCES_CHUNK` units (default 256, `#ifndef`-overridable);
 consecutive chunks of one line are spliced by adding the previous
@@ -2604,11 +2605,15 @@ its own budget (`WLX_INPUTBOX_MULTILINE_MAX_UNITS` 4096 /
 the caret pins to the last built line while the buffer keeps accepting
 text.
 
-Editing model (all mutations and offsets are UTF-8 codepoint safe):
+Editing model (all mutations and offsets are grapheme-cluster safe: the
+text unit is an approximated extended grapheme cluster — combining marks,
+ZWJ sequences, variation selectors and regional-indicator pairs join — so
+no caret, selection edge, delete or truncation ever lands inside one):
 
-- **Deletion** — BACKSPACE deletes backward, DELETE forward; both repeat
-  while held (OS auto-repeat via `keys_repeated`).
-- **Navigation** — LEFT/RIGHT move by codepoint (repeat while held);
+- **Deletion** — BACKSPACE deletes the cluster before the caret, DELETE
+  the one at it; both repeat while held (OS auto-repeat via
+  `keys_repeated`).
+- **Navigation** — LEFT/RIGHT move by cluster (repeat while held);
   Ctrl/Alt+LEFT/RIGHT move by word; HOME/END jump within the caret's visual
   line; command+HOME/END jump to the buffer start/end. In multiline mode
   UP/DOWN move to the adjacent visual line (hard and soft breaks alike) at a
@@ -2623,7 +2628,8 @@ Editing model (all mutations and offsets are UTF-8 codepoint safe):
 - **Clipboard** — command+C copy, command+X cut, command+V paste, command+A
   select all, where the command modifier is Cmd on Apple platforms and Ctrl
   elsewhere (`wlx_mod_command_down`). Paste is not limited by the 32-byte
-  per-frame text ring and truncates to `buffer_size` on a codepoint boundary.
+  per-frame text ring and truncates to `buffer_size` on a cluster boundary
+  (a partial cluster never lands).
   On the bare-WASM backend the clipboard is a best-effort cached string:
   copy/cut update the browser clipboard asynchronously, and cross-app content
   arrives only after a browser paste gesture refreshes the cache.
@@ -2661,7 +2667,7 @@ Editing model (all mutations and offsets are UTF-8 codepoint safe):
 | `border_focus_color` | `WLX_Color` | `{0}` | Focused border. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Blinking cursor. `{0}` = theme `input.cursor` |
 | `selection_color` | `WLX_Color` | `{0}` | Selection highlight fill. `{0}` = theme `input.selection`, then translucent accent |
-| `password` | `bool` | `false` | Masked field: renders one `*` per codepoint while the buffer keeps the plaintext; forces `wrap = false` and suppresses copy/cut |
+| `password` | `bool` | `false` | Masked field: renders one `*` per grapheme cluster (one Backspace per `*`) while the buffer keeps the plaintext; forces `wrap = false` and suppresses copy/cut |
 | `read_only` | `bool` | `false` | Rejects every mutation (typing, delete, cut, paste) while focus, selection, caret, and copy keep working. Distinct from `disabled`: no interaction lockout, no dimming |
 | `multiline` | `bool` | `false` | Enter inserts a newline and keeps focus (Escape/click-away blurs); UP/DOWN move by visual line with a sticky column; overflow scrolls internally with caret-follow and wheel. Forced off by `password`; composes with `read_only` (insert rejected, focus kept) |
 | `show_scrollbar` | `bool` | `true` | Draggable vertical scrollbar while multiline content overflows; `false` keeps wheel/caret-follow scrolling without the affordance. Inert outside multiline overflow |
@@ -4001,7 +4007,9 @@ The optional `WLX_Backend.measure_text_advances` callback
 run — reusing the retained cache entry when present, creating a transient
 one on miss — and walks its cluster geometry (`TTF_GetTextSubString` /
 `TTF_GetNextTextSubString`) to fill unit-end advances, snapping unit ends
-that fall inside a cluster to the cluster's trailing edge. It registers
+that fall inside a shaped cluster to the cluster's trailing edge (with the
+core's grapheme-cluster units only ligatures and clusters beyond the
+core's four-rule approximation reach the snap). It registers
 only when SDL_ttf >= 3.3.0 (the same floor as the font-variant machinery);
 older builds stay on the per-unit measure fallback with no behavior change.
 Plain content matches whole-prefix measures within 1px glyph-placement

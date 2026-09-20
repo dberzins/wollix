@@ -281,6 +281,32 @@ your own pace before the next minor.
   run spaced prose in wrap mode; caret-visibility pins in
   `tests/test_input_multiline.c` and `tests/test_editor_wrap.c`); the
   editor perf gate holds unamended. (ADR_047)
+- **Text units are grapheme clusters.** Caret motion (LEFT/RIGHT, the
+  UP/DOWN landing column, clicks and drags), BACKSPACE and DELETE, hit
+  tests, wrapping, the password mask and the editor's retained geometry
+  step by an approximated extended grapheme cluster instead of a
+  codepoint: combining marks, ZWNJ/ZWJ, variation selectors, emoji
+  modifiers and tags join the unit before them, a pictographic joins a
+  ZWJ before it, regional indicators pair up, and controls and malformed
+  bytes never join. One Backspace after a ZWJ family, a flag or a
+  decomposed accent removes the whole cluster; the caret never rests
+  inside one (an app-set offset inside a cluster floors to its start);
+  no wrap row, advances chunk or measure origin splits one; a paste
+  truncated by the buffer capacity drops a partial cluster rather than
+  landing it. Deleting a combining mark alone is no longer possible
+  through a widget (an application editing the buffer still can). On an
+  unshaped backend (Raylib, the SDL3 debug font) a ZWJ sequence draws as
+  its parts and deletes as one. The unit-counted caps
+  (`WLX_TEXT_RUN_MAX_UNITS`, `WLX_EDITOR_MAX_LINE_UNITS`,
+  `WLX_INPUTBOX_MULTILINE_MAX_UNITS`, `WLX_TEXT_ADVANCES_CHUNK`,
+  `WLX_INPUTBOX_MASK_MAX`) count clusters. The `measure_text_advances`
+  contract's unit-policy sentence is reworded; no signature, field,
+  version or adapter changes. Hangul jamo composition, spacing marks,
+  prepends and conjuncts stay per codepoint; the `wlx_utf8_*` helpers
+  keep their codepoint meaning. (`tests/test_grapheme.c`; cluster cases
+  in the editing, caret, inputbox, multiline, password, undo, geometry,
+  parity, re-entrancy, word-wrap and windowed-origin suites; the editor
+  perf gate reads back identical measure traffic.) (ADR_048)
 - SENTINEL.md is rewritten around the two unset rules, the literal
   defaults, the request tokens and the container exception; the
   `wollix.h` option-field comment block states the same rules in short.

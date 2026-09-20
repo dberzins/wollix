@@ -59,6 +59,14 @@ depth, and caret position. The sections below are the additions that
 make that possible; none of them changed the record model or the
 behavior of any other widget.
 
+Every offset the editor holds — caret, anchor, hit-test result, measure
+origin, stored unit end — is a byte offset on a text-unit boundary, and
+a text unit is the approximated grapheme cluster of
+[LINE_RUN_MODEL.md §3](LINE_RUN_MODEL.md#3-text-units-and-utf-8-policy):
+caret motion, Backspace and Delete, clicks, drags and the vertical
+sticky column never land inside a combining sequence, a ZWJ emoji or a
+flag, and one Backspace removes the whole cluster.
+
 The pieces and who feeds whom:
 
 ```mermaid
@@ -249,9 +257,14 @@ measured from mid-line origins.
   it, and records with origin zero reproduce the un-windowed records
   exactly). Beyond that, the origin advances so the measured window
   covers `[scroll_x - back_margin, scroll_x + 2 * band width]`
-  (back margin: half a band). Origins snap to a unit boundary,
-  preferring the edge just after a space within a small backscan
-  (`WLX_EDITOR_ORIGIN_BACKSCAN`, default 64 bytes).
+  (back margin: half a band). Origins snap to a unit boundary (a
+  grapheme cluster edge, never inside a cluster), preferring the edge
+  just after a space within a small backscan
+  (`WLX_EDITOR_ORIGIN_BACKSCAN`, default 64 bytes). The gap estimate that
+  places a far-jumped origin in x prices each unit at the entry's
+  average advance, so a jump across a run of wide clusters (emoji) lands
+  short in x while the offset stays exact — the same documented estimate
+  class as the average-advance thumb.
 - **One origin per window.** Each retained entry freezes its origin
   offset and the origin's absolute x; fit, caret, hit test, selection,
   and draw all compute `x = origin_x + advances[unit]` from the same
