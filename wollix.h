@@ -9334,12 +9334,17 @@ static bool wlx_text_measure_prefix_tabs(WLX_Context *ctx, const char *text, siz
 // One fit decision of the line scan, shared by every measuring walk and
 // every replay: a record's first unit is always accepted (records never
 // go empty), an accepted non-fitting unit ends the record, and a later
-// non-fitting unit is rejected to start the next row/record. Replay
-// correctness depends on every site sharing this exact triple.
+// non-fitting unit is rejected to start the next row/record. Wrapped
+// rows layer the word-boundary rule on top through
+// wlx_text_wrap_fit_step, which adds the fourth verdict. Replay
+// correctness depends on every site sharing this exact quadruple.
 typedef enum {
     WLX_TEXT_FIT_ACCEPT,      // unit joins the record; scan continues
     WLX_TEXT_FIT_ACCEPT_END,  // unit joins the record; record ends
-    WLX_TEXT_FIT_REJECT       // unit belongs to the next record/row
+    WLX_TEXT_FIT_REJECT,      // unit belongs to the next record/row
+    WLX_TEXT_FIT_CUT          // wrap only: the row ends at its break memo;
+                              // the units after the memo belong to the
+                              // next row
 } WLX_Text_Fit;
 
 static inline WLX_Text_Fit wlx_text_fit_step(float advance_w, float fit_w,
@@ -9347,6 +9352,79 @@ static inline WLX_Text_Fit wlx_text_fit_step(float advance_w, float fit_w,
 {
     if (advance_w <= fit_w) return WLX_TEXT_FIT_ACCEPT;
     return record_units == 0 ? WLX_TEXT_FIT_ACCEPT_END : WLX_TEXT_FIT_REJECT;
+}
+
+// Wrap whitespace: the units a wrapped row may break after - a space or
+// a tab. The one definition of the class; a later break-opportunity
+// class (ideographic break-anywhere, hyphen, soft hyphen) extends this
+// function and nothing else. Separators never reach the fitter, so CR
+// and LF are not members. One byte suffices: both members are ASCII and
+// a unit starts on a codepoint boundary, so no multibyte sequence can
+// begin with either.
+static inline bool wlx_text_wrap_ws_at(const char *text, size_t length, size_t pos) {
+    return pos < length && (text[pos] == ' ' || text[pos] == '\t');
+}
+
+// Break state of one wrapped row, reset at every row start: the row as
+// it stood at its latest break opportunity (the memo - the whitespace
+// unit's end, cumulative advance and height, the row's unit count
+// through it, and the ink extent at that moment), the running ink
+// extent (the advance at the last accepted non-whitespace unit), and
+// whether an overflowing whitespace run is hanging past the fit width.
+// O(1) per row; the walk never rescans a byte to find a cut.
+typedef struct {
+    bool   has_memo;
+    size_t memo_end;
+    float  memo_adv;
+    float  memo_h;
+    size_t memo_units;
+    float  memo_content_adv;
+    float  content_adv;
+    bool   hanging;
+} WLX_Text_Wrap_Break;
+
+static inline void wlx_text_wrap_break_reset(WLX_Text_Wrap_Break *b) {
+    wlx_zero_struct(*b);
+}
+
+// The wrapped row's fit decision: the base verdict for the unit ending
+// at unit_end with cumulative advance advance_w, then the word-boundary
+// rule over the row's break state:
+//   - whitespace that fits is accepted and becomes the memo;
+//   - whitespace that does not fit is accepted anyway (it hangs) and
+//     the row ends with the run - the next non-whitespace unit is
+//     rejected;
+//   - a non-whitespace unit that does not fit cuts the row at the memo
+//     when there is one, else is rejected as in plain fitting;
+//   - a first unit that does not fit still ends the row alone.
+// Both wrapped walks (the measuring scan and the retained-store build)
+// call this and apply the rewind on CUT to their own state, so replay
+// and scan keep making identical decisions.
+static inline WLX_Text_Fit wlx_text_wrap_fit_step(WLX_Text_Wrap_Break *b, bool ws,
+    size_t unit_end, float advance_w, float height, float fit_w, size_t row_units)
+{
+    WLX_Text_Fit base = wlx_text_fit_step(advance_w, fit_w, row_units);
+    if (ws) {
+        if (base == WLX_TEXT_FIT_REJECT) {
+            b->hanging = true;
+            return WLX_TEXT_FIT_ACCEPT;
+        }
+        if (base == WLX_TEXT_FIT_ACCEPT) {
+            b->has_memo = true;
+            b->memo_end = unit_end;
+            b->memo_adv = advance_w;
+            b->memo_h = height;
+            b->memo_units = row_units + 1;
+            b->memo_content_adv = b->content_adv;
+        }
+        return base;
+    }
+    if (b->hanging) return WLX_TEXT_FIT_REJECT;
+    if (base == WLX_TEXT_FIT_REJECT) {
+        return b->has_memo ? WLX_TEXT_FIT_CUT : WLX_TEXT_FIT_REJECT;
+    }
+    b->content_adv = advance_w;
+    return base;
 }
 
 // Fill cumulative unit advances for the next stretch of one record
@@ -10395,7 +10473,9 @@ static bool wlx_text_geom_replay_linear(const WLX_Text_Build_Inputs *inputs,
 //         unit loop     fit each unit: ACCEPT stores it with its
 //                       row-relative advance; REJECT discards the
 //                       batch remainder and opens the next row at
-//                       that unit
+//                       that unit; CUT drops the stored units past
+//                       the row's break memo and opens the next row
+//                       at the memo
 static bool wlx_text_geom_ensure_wrap(const WLX_Text_Build_Inputs *inputs,
     WLX_Text_Geom_Entry *e)
 {
@@ -10433,9 +10513,12 @@ static bool wlx_text_geom_ensure_wrap(const WLX_Text_Build_Inputs *inputs,
         e->row_units[e->rows++] = (uint32_t)e->units;
 
         size_t pos = row_start;
+        size_t row_first_unit = e->units;
         size_t row_units_count = 0;
         float row_x = 0.0f;
         bool row_done = false;
+        WLX_Text_Wrap_Break wb;
+        wlx_text_wrap_break_reset(&wb);
         while (!row_done) {
             if (pos >= length || wlx_text_at_line_break(text, length, pos)) {
                 row_start = length; // line text exhausted; outer loop ends
@@ -10450,8 +10533,23 @@ static bool wlx_text_geom_ensure_wrap(const WLX_Text_Build_Inputs *inputs,
                 advs, heights, &first_tab);
             if (n == 0) return false; // abort to the measuring build
             for (size_t i = 0; i < n; i++) {
-                WLX_Text_Fit fit = wlx_text_fit_step(advs[i], inputs->rect.w,
-                    row_units_count);
+                WLX_Text_Fit fit = wlx_text_wrap_fit_step(&wb,
+                    wlx_text_wrap_ws_at(text, length, pos), ends[i], advs[i],
+                    heights[i], inputs->rect.w, row_units_count);
+                if (fit == WLX_TEXT_FIT_CUT) {
+                    // Cut at the latest break opportunity: the units stored
+                    // past the memo are dropped and the next row opens at
+                    // the memo, where they are re-measured.
+                    size_t keep = row_first_unit + wb.memo_units;
+                    line_units -= e->units - keep;
+                    e->units = keep;
+                    row_start = line_start + e->unit_ends[keep - 1];
+#ifdef WLX_DEBUG
+                    assert(row_start == wb.memo_end && "wrap cut: row start off the memo");
+#endif
+                    row_done = true;
+                    break;
+                }
                 if (fit == WLX_TEXT_FIT_REJECT) {
                     // Rejected: the unit belongs to the next row and will be
                     // re-measured from that row's start.
@@ -10482,10 +10580,16 @@ static bool wlx_text_geom_ensure_wrap(const WLX_Text_Build_Inputs *inputs,
 
 // Replay one wrapped row's scan outcome from a retained entry. The row is
 // located by its byte start; a mid-line entry miss (evicted mid-stream)
-// returns false and the caller's measuring scan takes over.
+// returns false and the caller's measuring scan takes over. row_continues
+// reports a row another row of the same line follows, and ink_w its ink
+// extent - the advance at its last non-whitespace unit, read back over
+// the trailing whitespace the scan kept (hanging, or before a cut) - so
+// the replayed record aligns exactly as the scanned one; the line's last
+// row keeps its measured extent.
 static bool wlx_text_geom_wrap_step(const WLX_Text_Build_Inputs *inputs,
     WLX_Text_Build_Cursor *cursor, size_t source_offset, size_t *visible_end,
-    float *measured_w, float *measured_h, size_t *scan_unit_count)
+    float *measured_w, float *measured_h, size_t *scan_unit_count,
+    float *ink_w, bool *row_continues)
 {
     size_t line_next = inputs->known_line_next;
     if (line_next <= source_offset || line_next > inputs->length) return false;
@@ -10521,6 +10625,19 @@ static bool wlx_text_geom_wrap_step(const WLX_Text_Build_Inputs *inputs,
     *measured_w = e->advances[hi - 1];
     *measured_h = e->heights[hi - 1];
     *scan_unit_count = hi - lo;
+    *row_continues = row + 1 < e->rows;
+    *ink_w = *measured_w;
+    if (*row_continues) {
+        *ink_w = 0.0f;
+        for (size_t i = hi; i > lo; i--) {
+            size_t unit_start_rel = i - 1 == lo ? rel : (size_t)e->unit_ends[i - 2];
+            if (!wlx_text_wrap_ws_at(inputs->text, inputs->length,
+                    e->line_start + unit_start_rel)) {
+                *ink_w = e->advances[i - 1];
+                break;
+            }
+        }
+    }
     // Backfill the build cursor's first-tab fact, but only as far as
     // the replayed range would itself have discovered it: later prefix
     // prechecks see the same overestimate-safe fact the measuring scan
@@ -10538,8 +10655,9 @@ static bool wlx_text_geom_wrap_step(const WLX_Text_Build_Inputs *inputs,
 // The build kernel. One step produces one line record by greedy fitting
 // over cumulative unit advances drawn from one of three sources - the
 // retained-store replay, the backend's batched advances callback, or the
-// per-unit prefix measure - all sharing wlx_text_fit_step so replayed
-// and measured builds make identical fit decisions.
+// per-unit prefix measure - all sharing wlx_text_fit_step (and, for
+// wrapped rows, the word-boundary rule of wlx_text_wrap_fit_step) so
+// replayed and measured builds make identical fit decisions.
 // ----------------------------------------------------------------------------
 
 // Produce the next line record at source_offset (a hard line start or
@@ -10634,6 +10752,16 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
     // land in the store for the frames that follow. The separator and
     // tail-skip logic after the scan is shared by both paths.
     bool geom_replayed = false;
+    // Wrapped rows: the break state of the row being scanned, the ink
+    // extent of the row (its measured width without the trailing
+    // whitespace a cut or a hanging run leaves on it), and whether the
+    // row ended by overflow with a further row of the same line to
+    // follow - the one case where advance_w is the ink extent.
+    WLX_Text_Wrap_Break wb;
+    wlx_text_wrap_break_reset(&wb);
+    float ink_w = 0.0f;
+    bool wrap_overflow = false;
+    bool wrap_cut = false;
     if (inputs->geom != NULL && inputs->truncate_continue && length > 0) {
         if (!inputs->wrap) {
             if (inputs->known_line_next > source_offset
@@ -10653,7 +10781,8 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
             }
         } else {
             geom_replayed = wlx_text_geom_wrap_step(inputs, cursor, source_offset,
-                &visible_end, &measured_w, &measured_h, &scan_unit_count);
+                &visible_end, &measured_w, &measured_h, &scan_unit_count,
+                &ink_w, &wrap_overflow);
         }
     }
     if (geom_replayed) have_line = true;
@@ -10697,8 +10826,22 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
         if (n == 0) { batch_rec = false; continue; }
         bool overflow = false;
         for (size_t i = 0; i < n; i++) {
-            WLX_Text_Fit fit = wlx_text_fit_step(advs[i], inputs->rect.w,
-                scan_unit_count);
+            WLX_Text_Fit fit = inputs->wrap
+                ? wlx_text_wrap_fit_step(&wb, wlx_text_wrap_ws_at(text, length, scan_pos),
+                    ends[i], advs[i], heights[i], inputs->rect.w, scan_unit_count)
+                : wlx_text_fit_step(advs[i], inputs->rect.w, scan_unit_count);
+            if (fit == WLX_TEXT_FIT_CUT) {
+                // Rewind the row to its latest break opportunity; the units
+                // past it are re-fetched from the next row's start.
+                visible_end = wb.memo_end;
+                measured_w = wb.memo_adv;
+                measured_h = wb.memo_h;
+                scan_unit_count = wb.memo_units;
+                scan_pos = wb.memo_end;
+                wrap_cut = true;
+                overflow = true;
+                break;
+            }
             if (fit == WLX_TEXT_FIT_REJECT) { overflow = true; break; }
             visible_end = ends[i];
             measured_w = advs[i];
@@ -10708,7 +10851,10 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
             scan_unit_count++;
             if (fit == WLX_TEXT_FIT_ACCEPT_END) { overflow = true; break; }
         }
-        if (overflow) break;
+        if (overflow) { wrap_overflow = inputs->wrap; break; }
+    }
+    if (!geom_replayed && inputs->wrap) {
+        ink_w = wrap_cut ? wb.memo_content_adv : wb.content_adv;
     }
 
     if (!have_line) return step;
@@ -10782,6 +10928,19 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
     if (skip_tail_to_eof) {
         step.line.source_end = length;
         step.next_offset = length;
+    }
+    // A wrap-ended row - one that overflowed and whose hard line goes on
+    // in the next row - aligns and clips by its ink extent: the trailing
+    // whitespace it keeps, hanging or before a cut, stays out of
+    // advance_w. Every other row keeps advance_w equal to measured_w.
+    if (inputs->wrap && wrap_overflow && !ended_by_newline
+        && step.next_offset == visible_end && visible_end < length) {
+        step.line.advance_w = ink_w;
+#ifdef WLX_DEBUG
+        assert(ink_w <= measured_w && "wrap: ink extent past the measured extent");
+        assert((!wrap_cut || wlx_text_wrap_ws_at(text, length, visible_end - 1))
+            && "wrap cut: row does not end after whitespace");
+#endif
     }
     step.append_trailing_empty_line = ended_by_newline && step.next_offset == length;
     step.stop_after_line = !inputs->wrap && !ended_by_newline && step.next_offset < length;
@@ -10888,7 +11047,9 @@ static bool wlx_text_lines_need_scissor(WLX_Rect rect, const WLX_Text_Line_Recor
         if (!(line_bottom > rect.y && line_top < rect.y + rect.h)) continue;
 
         if (line->origin_x < rect.x) return true;
-        if (line->origin_x + line->measured_w > rect.x + rect.w) return true;
+        // The ink extent decides: whitespace hanging past the rect on a
+        // wrapped row draws nothing and needs no scissor.
+        if (line->origin_x + line->advance_w > rect.x + rect.w) return true;
         if (line_top < rect.y) return true;
         if (line_bottom > rect.y + rect.h) return true;
     }

@@ -99,6 +99,7 @@
 
 // Two-pass text layout regression (kerning mock)
 #include "test_text_layout.c"
+#include "test_word_wrap.c"
 
 // Text spacing opt-in API: default natural spacing and explicit propagation
 #include "test_text_spacing.c"
@@ -293,6 +294,7 @@ int main(void) {
     RUN_SUITE(wasm_pool);
     RUN_SUITE(dyn_offsets);
     RUN_SUITE(text_layout);
+    RUN_SUITE(word_wrap);
     RUN_SUITE(text_spacing);
     RUN_SUITE(widget_wrapper);
     RUN_SUITE(container_scope);
