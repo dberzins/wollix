@@ -61,7 +61,7 @@ Used by `label`, `button`, `checkbox`, `inputbox`, `toggle`, and `radio`.
 | `font` | `WLX_Font` | `WLX_FONT_DEFAULT` | Font handle. `0` = backend default / theme font |
 | `font_size` | `int` | `0` | Font size in pixels. `0` = use theme default |
 | `content_align` | `WLX_Align` | `WLX_LEFT` | Text alignment within the widget rect. `align` is the deprecated pre-0.9 name (same storage, removed in the first minor after 0.9) |
-| `wrap` | `bool` | varies | Enable fitted multi-line wrapping for long text. Width wrapping stays greedy at UTF-8 codepoint boundaries; explicit `\n`, `\r\n`, and `\r` always break lines |
+| `wrap` | `bool` | varies | Enable fitted multi-line wrapping for long text. Width wrapping breaks at word boundaries: after the last space or tab that fits the row, inside a word only when it is wider than the row, with overflowing whitespace hanging on its row and left out of the row's alignment width; explicit `\n`, `\r\n`, and `\r` always break lines |
 | `spacing` | `int` | `0` | Opt-in extra tracking. `0` = natural backend spacing |
 
 Fitted text is measured and drawn as whole visible lines/runs. Horizontal
@@ -1362,7 +1362,7 @@ if (wlx_editor(ctx, NULL, doc, doc_cap, &doc_len, .revision = doc_rev,
 | `border_color` / `border_focus_color` / `cursor_color` / `selection_color` | `WLX_Color` | `{0}` | Chrome colors with the same theme fallbacks as `wlx_inputbox`. |
 | `out_focused` | `bool *` | `NULL` | Receives this frame's focus state. |
 | `read_only` | `bool` | `false` | Rejects all edits while focus, caret, selection, and copy keep working. |
-| `wrap` | `bool` | `false` | Wrapped mode: hard lines break into rows at the band width (per text unit — no word-boundary backtracking). Horizontal scrolling disappears (nothing overflows sideways); vertical motion, hit-tests, and caret-follow work in visual rows; the vertical thumb becomes an approximation (see below). Toggleable at runtime — caret and selection are byte offsets and survive the switch. |
+| `wrap` | `bool` | `false` | Wrapped mode: hard lines break into rows at the band width, at word boundaries (after the last space or tab that fits; inside a word only when it is wider than the band; overflowing whitespace hangs on its row). Horizontal scrolling disappears (nothing overflows sideways); vertical motion, hit-tests, and caret-follow work in visual rows; the vertical thumb becomes an approximation (see below). Toggleable at runtime — caret and selection are byte offsets and survive the switch. |
 | `show_scrollbar` | `bool` | `true` | Draw draggable scrollbars while content overflows. The vertical thumb is **exact** (from the line count) when unwrapped and an approximation under `.wrap`; the horizontal one is proportional to the widest line seen so far (see below). |
 | `line_numbers` | `bool` | `false` | Line-number gutter on the leading edge, sized by the digit count of the line total. Gutter presses never touch caret, selection, or focus. |
 | `tab_columns` | `int` | `4` | Tab-stop width in space-advance columns: each `\t` advances to the next multiple of `tab_columns * space_advance` in measure, hit-test, caret, selection, and draw. Under `.wrap` the tab grid restarts at each visual row's start, so a tab-heavy wrapped line renders differently than its unwrapped self at the same offset. |

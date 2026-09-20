@@ -2450,9 +2450,11 @@ prefer [`wlx_image`](#widget--wlx_image). Mode is selected by the inputs:
 | `vertical_metric` | `WLX_Vertical_Metric` | `WLX_VMETRIC_LINE_HEIGHT` | Vertical centering basis. `WLX_VMETRIC_LINE_HEIGHT` centers using the backend's reported line height. `WLX_VMETRIC_FONT_SIZE` centers using the font size (em box), giving consistent cap-height placement across backends whose line heights differ from the font size. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
-Wrapped fitted labels break greedily at UTF-8 codepoint boundaries, honor
-explicit `\n`, `\r\n`, and `\r` separators, and emit one backend text draw per
-visible line. Labels are non-interactive: hover modulates only the optional
+Wrapped fitted labels break at word boundaries — after the last space or tab
+that fits the row, inside a word only when it is wider than the row, with
+overflowing whitespace hanging on its row and left out of the row's alignment
+width — honor explicit `\n`, `\r\n`, and `\r` separators, and emit one backend
+text draw per visible line. Labels are non-interactive: hover modulates only the optional
 background, never the texture tint, and labels never consume clicks from
 other widgets.
 

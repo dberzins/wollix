@@ -383,11 +383,20 @@ The anchor, the rows, and the band:
   A range ending at `line_count * line_h - band.h` under wrap would sit
   lines above the real end, parking the thumb at the track end while
   the view scrolled back up through them.
+- Rows end at word boundaries
+  ([LINE_RUN_MODEL.md §7](LINE_RUN_MODEL.md#7-wrap-and-no-wrap-modes)):
+  a row cuts after the latest space or tab that fit, a word wider than
+  the band breaks inside it, and overflowing whitespace hangs on its
+  row. The break offset therefore follows a space, and a row's trailing
+  whitespace stays out of its alignment width.
 - Vertical caret motion and hit-tests resolve through on-demand wrapped
   row records of the specific lines involved. A caret offset exactly at
   a wrap break belongs to the row it **starts** (rows that end their
   hard line keep separator and frozen-tail coverage) — with the opposite
-  affinity, DOWN aiming at column zero could never cross a break.
+  affinity, DOWN aiming at column zero could never cross a break. So the
+  caret after a row's trailing space sits at column zero of the next
+  row, and a click right of a row's last glyph lands there too; a caret
+  between two hanging spaces is drawn past the band edge and clipped.
 - Horizontal machinery is dormant: `scroll_x` pins to zero, the
   horizontal bar never shows, Shift+wheel is not consumed.
 - Tab stops restart at each row's start (the natural consequence of the

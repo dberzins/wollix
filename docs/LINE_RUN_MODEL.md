@@ -197,6 +197,13 @@ advances** — the measured width of the line prefix ending at each unit:
    width, or when the unit budget runs out. The first unit of a line is
    always accepted even if it alone overflows, so progress is guaranteed
    and a too-narrow rect still shows something.
+4. In wrap mode the walk also carries the row's **break state**: the
+   latest whitespace unit (space or tab) it accepted is the row's break
+   opportunity. A non-whitespace unit that overflows cuts the row back
+   to that opportunity (`CUT`), so the next row starts on the word;
+   without one the row ends at the last unit that fit, inside the word.
+   Whitespace that overflows is accepted anyway and hangs past the
+   width; the row ends with the run (Section 7).
 
 One step, as a flow:
 
@@ -207,10 +214,11 @@ flowchart TD
     nl -- "no" --> stop{"text end, separator, or unit budget reached?"}
     stop -- "yes" --> done["record ends"]
     stop -- "no" --> fetch["fetch next unit advances - wlx_text_unit_fetch, batched or per-unit arm"]
-    fetch --> fit{"wlx_text_fit_step per unit"}
+    fetch --> fit{"wlx_text_fit_step per unit - under wrap, wlx_text_wrap_fit_step over the row's break state"}
     fit -- "ACCEPT: prefix fits, keep walking" --> stop
     fit -- "ACCEPT_END: first unit alone overflows" --> done
     fit -- "REJECT: unit starts the next record" --> done
+    fit -- "CUT (wrap): rewind to the break opportunity; the next row starts there" --> done
     done --> tail["separator / truncated-tail epilogue"]
     empty --> next["one line record + next offset"]
     tail --> next
@@ -304,10 +312,21 @@ flowchart TD
 ```
 
 **Wrap mode** (`wrap = true`): a line that reaches the rect width breaks
-at the last unit that fit, and the next record continues from the break
-offset. Wrapping is **per text unit** — there is no word-boundary
-backtracking; a long word breaks mid-word. Used by multiline inputbox and
-textarea content.
+at its latest **break opportunity** — after the last whitespace unit
+(space or tab) that fit — and the next record continues from there, so
+rows end at word boundaries. A word wider than the row breaks inside
+the word, at the last unit that fit. Whitespace that overflows the width
+**hangs**: it stays on the row it follows, measured past the width, so
+no row after a wrap break starts with whitespace and a word that fit is
+never moved to the next row. On such a row (one another row of the same
+line follows) `advance_w` is the **ink extent** — the advance at the
+row's last non-whitespace unit — while `measured_w` keeps the full
+extent; alignment (Section 8) and the overflow scissor test read
+`advance_w`. Rows ended by a separator, the text end or the unit budget
+keep `advance_w == measured_w`, trailing whitespace included.
+Opportunities are whitespace only: no ideographic break-anywhere class
+and no hyphenation (Section 16). Used by multiline inputbox, textarea
+and wrapped label content.
 
 **No-wrap mode** (`wrap = false`): a line that reaches the rect width is
 width-truncated. What happens next depends on the flavor:
@@ -627,6 +646,11 @@ Guaranteed by the model (and locked by tests):
 - Caret, hit test, selection, and draw agree, because they consume the
   same records, the same retained advances, and the same measure
   origin.
+- Wrapped rows end at word boundaries: after the latest space or tab
+  that fit, with overflowing whitespace hanging on its row; a word wider
+  than the row breaks inside it. The retained store's row table and the
+  measuring scan make the same decision (the equivalence and parity
+  suites run spaced prose in wrap mode).
 - Kerning and run metrics are exact within a measured run: fit
   decisions use whole-run metrics (whole-prefix measures, or advance
   arrays from the same shaped pass the draw uses), never summed glyph
@@ -644,13 +668,18 @@ Not attempted (deliberately, until evidence demands more):
 - **Complex-script shaping and bidi.** Runs are passed to the backend
   as-is, left to right. Contextual shaping across a break point is not
   reconsidered, and right-to-left text is not reordered.
-- **Word wrap.** Wrapping breaks at unit granularity, not word
-  boundaries.
+- **Break opportunities beyond whitespace.** Word wrap breaks after
+  spaces and tabs only: no ideographic break-anywhere class (a CJK run
+  on a row that holds an earlier space moves whole to the next row; a
+  CJK-only line breaks per unit, which is correct for it), no hyphen or
+  soft-hyphen breaks. The classifier is one function, so each class is
+  an addition when evidence asks for it.
 - **Per-span styling.** A build has one `WLX_Text_Style`; there is no
   rich-text run model.
 
-These boundaries come from ADR_008 (first-pass scope) and ADR_034
-(editor scope); richer typography is future ADR territory.
+These boundaries come from ADR_008 (first-pass scope), ADR_034 (editor
+scope) and ADR_047 (word-wrap scope); richer typography is future ADR
+territory.
 
 ---
 
