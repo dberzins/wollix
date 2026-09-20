@@ -17,6 +17,7 @@
 #include "test_slot_redistribute.c"
 #include "test_color.c"
 #include "test_utf8.c"
+#include "test_grapheme.c"
 #include "test_core_utils.c"
 #include "test_sub_arena.c"
 
@@ -261,6 +262,7 @@ int main(void) {
     RUN_SUITE(slot_redistribute);
     RUN_SUITE(color);
     RUN_SUITE(utf8);
+    RUN_SUITE(grapheme);
     RUN_SUITE(core_utils);
     RUN_SUITE(sub_arena);
     RUN_SUITE(grid);

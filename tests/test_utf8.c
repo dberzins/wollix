@@ -277,9 +277,11 @@ TEST(utf8_next_truncated_sequence_at_end) {
     ASSERT_EQ_INT(3, wlx_utf8_next("\x41\x42\xE2", 2, 3));
 }
 
-TEST(text_unit_next_agrees_with_utf8_next) {
-    // The two steppers are one family: identical results on valid,
-    // malformed, and boundary input (parameter order differs).
+TEST(text_unit_next_agrees_with_utf8_next_on_codepoints) {
+    // On isolated codepoints the unit stepper and the codepoint stepper
+    // agree, valid, malformed and boundary input alike (parameter order
+    // differs); they part only where a codepoint joins the one before it,
+    // which is the unit stepper's job (test_grapheme.c).
     const char *cases[] = { "\xC3\x41", "\x80\x41", ("A\xC3\xB6" "B"), "\xFF\xFE", "" };
     for (size_t c = 0; c < wlx_array_len(cases); c++) {
         const char *s = cases[c];
@@ -289,6 +291,11 @@ TEST(text_unit_next_agrees_with_utf8_next) {
                 (int)wlx_utf8_next(s, pos, len));
         }
     }
+    // e + U+0301: the codepoint step stops after the e, the unit step
+    // carries the mark with it.
+    const char *ea = "e\xCC\x81";
+    ASSERT_EQ_INT(1, (int)wlx_utf8_next(ea, 0, 3));
+    ASSERT_EQ_INT(3, (int)wlx_text_unit_next(ea, 3, 0));
 }
 
 // ============================================================================
@@ -360,7 +367,7 @@ SUITE(utf8) {
     RUN_TEST(utf8_next_malformed_lead_steps_one_byte);
     RUN_TEST(utf8_next_malformed_continuation_steps_one_byte);
     RUN_TEST(utf8_next_truncated_sequence_at_end);
-    RUN_TEST(text_unit_next_agrees_with_utf8_next);
+    RUN_TEST(text_unit_next_agrees_with_utf8_next_on_codepoints);
 
     // round-trip
     RUN_TEST(utf8_roundtrip);

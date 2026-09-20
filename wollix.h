@@ -611,10 +611,12 @@ typedef struct {
     // when tab expansion is active (the core splits at tabs and applies
     // next-tab-stop rounding between segments itself). unit_ends is
     // strictly increasing with unit_ends[unit_count - 1] == len; the core
-    // derives the unit policy (UTF-8 codepoints, malformed bytes as
-    // one-byte units), so backends never re-implement it - they walk their
-    // own glyph/cluster geometry and report the advance at (or snapped to
-    // the nearest cluster edge after) each requested byte end. Reported
+    // derives the unit policy (approximated grapheme clusters: combining
+    // marks, ZWJ sequences, variation selectors and regional-indicator
+    // pairs; malformed bytes as one-byte units), so backends never
+    // re-implement it - they walk their own glyph/cluster geometry and
+    // report the advance at (or snapped to the nearest cluster edge after)
+    // each requested byte end. Reported
     // advances should be non-decreasing; the core clamps regardless.
     //
     // Runs are capped at WLX_TEXT_ADVANCES_CHUNK units. Consecutive chunks
@@ -8786,12 +8788,11 @@ static inline bool wlx_text_utf8_sequence_at(const char *text, size_t length, si
     return true;
 }
 
-// Next unit boundary after pos: one whole codepoint when a valid
+// Next codepoint boundary after pos: one whole codepoint when a valid
 // multibyte sequence lies fully in range, else one byte so malformed
-// input still makes progress; clamps at the text end. The single
-// stepping entry - layout walks and caret/edit motion all step through
-// it, so they agree over invalid bytes.
-static inline size_t wlx_text_unit_next(const char *text, size_t length, size_t pos) {
+// input still makes progress; clamps at the text end. The text unit
+// (wlx_text_unit_next, a grapheme cluster) is built on this step.
+static inline size_t wlx_text_codepoint_next(const char *text, size_t length, size_t pos) {
     if (pos >= length) return length;
     size_t char_len = 1;
     size_t seq_len = 0;
@@ -8799,13 +8800,30 @@ static inline size_t wlx_text_unit_next(const char *text, size_t length, size_t 
     return pos + char_len > length ? length : pos + char_len;
 }
 
+// Previous codepoint boundary before pos: the start of the valid
+// sequence ending exactly at pos, else one byte back, so the two
+// codepoint steps are exact inverses over valid and malformed input
+// alike. pos is clamped to the text end.
+static inline size_t wlx_text_codepoint_prev(const char *text, size_t length, size_t pos) {
+    if (pos == 0) return 0;
+    if (pos > length) pos = length;
+    size_t back = 1;
+    while (back < 4 && back < pos
+        && wlx_text_utf8_is_continuation((unsigned char)text[pos - back])) back++;
+    size_t seq_len = 0;
+    if (wlx_text_utf8_sequence_at(text, length, pos - back, &seq_len) && seq_len == back)
+        return pos - back;
+    return pos - 1;
+}
+
 // Move byte position forward to the next codepoint boundary.
 // Returns new byte position (len if already at end). Keeps the
 // historical (s, pos, len) parameter order; steps exactly like
-// wlx_text_unit_next, including the one-byte fallback on malformed
-// bytes.
+// wlx_text_codepoint_next, including the one-byte fallback on
+// malformed bytes. Codepoint-level on purpose: the text unit is the
+// grapheme cluster (wlx_text_unit_next).
 static inline size_t wlx_utf8_next(const char *s, size_t byte_pos, size_t len) {
-    return wlx_text_unit_next(s, len, byte_pos);
+    return wlx_text_codepoint_next(s, len, byte_pos);
 }
 
 // Byte class used by word-wise cursor motion: whitespace separates words;
@@ -9070,6 +9088,153 @@ static inline bool wlx_text_range_is_utf8_safe(const char *text, size_t length, 
     return wlx_text_utf8_boundary(text, length, start) && wlx_text_utf8_boundary(text, length, end);
 }
 
+// ============================================================================
+// Text units: approximated grapheme clusters
+// ============================================================================
+//
+// The text unit - the currency of caret motion, deletes, hit-tests, the
+// fit and wrap steps, the geometry store and the unit budgets - is the
+// grapheme cluster under a four-rule approximation of UAX #29:
+//   1. a codepoint in the Extend set below (combining marks, ZWNJ, ZWJ,
+//      variation selectors, emoji modifiers, tags) joins the unit before
+//      it (GB9);
+//   2. a pictographic codepoint joins a ZWJ before it (GB11, without the
+//      check that the ZWJ itself follows a pictographic - the one
+//      recorded over-join);
+//   3. regional indicators join in pairs (GB12/GB13);
+//   4. a control (C0, DEL, C1), a malformed byte, the text start and the
+//      text end never join on either side (GB4/GB5).
+// Hangul jamo composition, spacing marks, prepends and conjuncts are not
+// attempted: those clusters split per codepoint, as every cluster did
+// before this rule. One predicate decides every boundary and both
+// steppers derive from it, so wlx_text_unit_next and wlx_text_unit_prev
+// are exact inverses on valid and malformed input alike.
+
+// Grapheme_Cluster_Break=Extend (U+200D: ZWJ) block-level ranges,
+// Unicode 16.0. Every range lies inside the property, so a join made
+// here is one UAX #29 makes too; the property's remaining ranges (other
+// scripts' marks) are the documented gap. Sorted, closed intervals.
+static const uint32_t wlx_text_extend_ranges[][2] = {
+    { 0x0300u, 0x036Fu },   // Combining Diacritical Marks
+    { 0x0483u, 0x0489u },   // Cyrillic combining marks
+    { 0x1AB0u, 0x1AFFu },   // Combining Diacritical Marks Extended
+    { 0x1DC0u, 0x1DFFu },   // Combining Diacritical Marks Supplement
+    { 0x200Cu, 0x200Du },   // ZWNJ, ZWJ
+    { 0x20D0u, 0x20FFu },   // Combining Diacritical Marks for Symbols
+    { 0xFE00u, 0xFE0Fu },   // Variation Selectors
+    { 0xFE20u, 0xFE2Fu },   // Combining Half Marks
+    { 0x1F3FBu, 0x1F3FFu }, // Emoji modifiers (skin tones)
+    { 0xE0020u, 0xE007Fu }, // Tags
+    { 0xE0100u, 0xE01EFu }, // Variation Selectors Supplement
+};
+
+static inline bool wlx_text_cp_is_extend(uint32_t cp) {
+    for (size_t i = 0; i < wlx_array_len(wlx_text_extend_ranges); i++) {
+        if (cp < wlx_text_extend_ranges[i][0]) return false;
+        if (cp <= wlx_text_extend_ranges[i][1]) return true;
+    }
+    return false;
+}
+
+// Extended_Pictographic, approximated by the two blocks that hold the
+// emoji a picker emits: the right-hand test of the ZWJ rule.
+static inline bool wlx_text_cp_is_pictographic(uint32_t cp) {
+    return (cp >= 0x2600u && cp <= 0x27BFu) || (cp >= 0x1F000u && cp <= 0x1FAFFu);
+}
+
+static inline bool wlx_text_cp_is_regional_indicator(uint32_t cp) {
+    return cp >= 0x1F1E6u && cp <= 0x1F1FFu;
+}
+
+// C0 controls, DEL and C1 controls: never part of a multi-codepoint unit.
+static inline bool wlx_text_cp_is_control(uint32_t cp) {
+    return cp < 0x20u || (cp >= 0x7Fu && cp <= 0x9Fu);
+}
+
+// Lead bytes under which a joining codepoint can start: every codepoint
+// the three join rules test on their right-hand side encodes under one
+// of these, so any other lead (and every ASCII byte) is a boundary with
+// no decode.
+static inline bool wlx_text_unit_lead_may_join(unsigned char lead) {
+    switch (lead) {
+    case 0xCCu: case 0xCDu: case 0xD2u: case 0xE1u:
+    case 0xE2u: case 0xEFu: case 0xF0u: case 0xF3u:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Number of consecutive regional indicators ending exactly at pos,
+// matched on the encoded form F0 9F 87 A6..BF without decoding.
+static inline size_t wlx_text_ri_run_before(const char *text, size_t pos) {
+    const unsigned char *b = (const unsigned char *)text;
+    size_t n = 0;
+    while (pos >= 4 && b[pos - 4] == 0xF0u && b[pos - 3] == 0x9Fu && b[pos - 2] == 0x87u
+        && b[pos - 1] >= 0xA6u && b[pos - 1] <= 0xBFu) {
+        n++;
+        pos -= 4;
+    }
+    return n;
+}
+
+// True when pos is a text-unit boundary. Offsets inside a UTF-8 sequence
+// are not; 0 and the text end always are. Everything else is decided by
+// the codepoint at pos (n) and the one ending there (p) under the four
+// rules above; the ASCII and non-joining-lead fast path decides with one
+// byte compare and no decode.
+static inline bool wlx_text_unit_boundary(const char *text, size_t length, size_t pos) {
+    if (text == NULL || pos == 0 || pos >= length) return true;
+    if (!wlx_text_utf8_boundary(text, length, pos)) return false;
+    if (!wlx_text_unit_lead_may_join((unsigned char)text[pos])) return true;
+    size_t n_len = 0;
+    if (!wlx_text_utf8_sequence_at(text, length, pos, &n_len)) return true;
+    uint32_t n = 0;
+    wlx_utf8_decode(text + pos, &n);
+
+    size_t p_start = wlx_text_codepoint_prev(text, length, pos);
+    uint32_t p = 0;
+    unsigned char p_lead = (unsigned char)text[p_start];
+    if (p_lead < 0x80u) {
+        p = p_lead;
+    } else {
+        size_t p_len = 0;
+        if (!wlx_text_utf8_sequence_at(text, length, p_start, &p_len) || p_start + p_len != pos)
+            return true;
+        wlx_utf8_decode(text + p_start, &p);
+    }
+    if (wlx_text_cp_is_control(p)) return true;
+
+    if (wlx_text_cp_is_extend(n)) return false;
+    if (p == 0x200Du && wlx_text_cp_is_pictographic(n)) return false;
+    if (wlx_text_cp_is_regional_indicator(p) && wlx_text_cp_is_regional_indicator(n)
+        && (wlx_text_ri_run_before(text, pos) & 1u) == 1u) return false;
+    return true;
+}
+
+// Next unit boundary after pos, clamped at the text end. The single
+// stepping entry - layout walks and caret/edit motion all step through
+// it (and through wlx_text_unit_prev backward), so they agree over
+// every input, malformed bytes included.
+static inline size_t wlx_text_unit_next(const char *text, size_t length, size_t pos) {
+    if (pos >= length) return length;
+    size_t next = wlx_text_codepoint_next(text, length, pos);
+    while (next < length && !wlx_text_unit_boundary(text, length, next))
+        next = wlx_text_codepoint_next(text, length, next);
+    return next;
+}
+
+// Previous unit boundary before pos, floored at 0: the exact inverse of
+// wlx_text_unit_next.
+static inline size_t wlx_text_unit_prev(const char *text, size_t length, size_t pos) {
+    if (pos == 0) return 0;
+    if (pos > length) pos = length;
+    size_t prev = wlx_text_codepoint_prev(text, length, pos);
+    while (prev > 0 && !wlx_text_unit_boundary(text, length, prev))
+        prev = wlx_text_codepoint_prev(text, length, prev);
+    return prev;
+}
+
 static inline bool wlx_measure_text_range(WLX_Context *ctx, const char *text, size_t length, size_t start, size_t end,
     WLX_Text_Style style, float *out_w, float *out_h) {
     if (out_w) *out_w = 0.0f;
@@ -9105,15 +9270,14 @@ static inline bool wlx_draw_text_range(WLX_Context *ctx, const char *text, size_
     return true;
 }
 
+// Floor a caret offset to the unit boundary at or below it (clamped to
+// the text end): an app-set or replayed offset inside a cluster snaps
+// to the cluster's start, never into it.
 static inline size_t wlx_text_normalize_cursor_offset(const char *text, size_t length, size_t cursor_offset) {
     if (text == NULL) return 0;
     if (cursor_offset > length) cursor_offset = length;
-    while (cursor_offset > 0 && !wlx_text_utf8_boundary(text, length, cursor_offset)) {
-        size_t prev = wlx_utf8_prev(text, cursor_offset);
-        if (prev >= cursor_offset) break;
-        cursor_offset = prev;
-    }
-    if (cursor_offset > length) cursor_offset = length;
+    if (!wlx_text_unit_boundary(text, length, cursor_offset))
+        cursor_offset = wlx_text_unit_prev(text, length, cursor_offset);
     return cursor_offset;
 }
 
@@ -10031,35 +10195,44 @@ static size_t wlx_text_geom_units_fwd(const char *text, size_t length,
 }
 
 // Walk up to n text units backward from off, flooring at the line start.
-// Steps land on UTF-8 lead bytes; malformed sequences may group
-// differently than the forward walk, which only shifts an origin
-// candidate, never a stored offset. *out_steps receives the units taken.
-static size_t wlx_text_geom_units_back(const char *text, size_t off,
+// The exact inverse of the forward walk: every step lands on a unit
+// boundary the forward walk would have stepped from, malformed bytes
+// included. *out_steps receives the units taken.
+static size_t wlx_text_geom_units_back(const char *text, size_t length, size_t off,
     size_t floor_off, size_t n, size_t *out_steps)
 {
     size_t steps = 0;
     while (steps < n && off > floor_off) {
-        off--;
-        while (off > floor_off && ((unsigned char)text[off] & 0xC0) == 0x80) off--;
+        size_t prev = wlx_text_unit_prev(text, length, off);
+        if (prev < floor_off) { off = floor_off; break; }
+        off = prev;
         steps++;
     }
+#ifdef WLX_DEBUG
+    assert((off == floor_off || wlx_text_unit_boundary(text, length, off))
+        && "geom units back: landed inside a unit");
+#endif
     if (out_steps) *out_steps = steps;
     return off;
 }
 
-// Snap an origin candidate to the boundary just after a space within the
-// backscan window, else to the candidate's own UTF-8 lead byte.
-static size_t wlx_text_geom_snap_origin(const char *text, size_t line_start,
+// Snap an origin candidate to the unit boundary just after a space
+// within the backscan window, else to the unit boundary at or below the
+// candidate (a space carrying a combining mark is one unit, so "after
+// the space" must also be a unit boundary).
+static size_t wlx_text_geom_snap_origin(const char *text, size_t length, size_t line_start,
     size_t candidate)
 {
     size_t lo = candidate > (size_t)WLX_EDITOR_ORIGIN_BACKSCAN
         ? candidate - (size_t)WLX_EDITOR_ORIGIN_BACKSCAN : 0;
     if (lo < line_start) lo = line_start;
     for (size_t p = candidate; p > lo; p--) {
-        if (text[p - 1] == ' ') return p;
+        if (text[p - 1] == ' ' && wlx_text_unit_boundary(text, length, p)) return p;
     }
-    while (candidate > line_start
-        && ((unsigned char)text[candidate] & 0xC0) == 0x80) candidate--;
+    if (candidate > line_start && !wlx_text_unit_boundary(text, length, candidate)) {
+        size_t prev = wlx_text_unit_prev(text, length, candidate);
+        candidate = prev > line_start ? prev : line_start;
+    }
     return candidate;
 }
 
@@ -10168,9 +10341,9 @@ static void wlx_text_geom_window_linear(const WLX_Text_Build_Inputs *inputs,
             float ua = wlx_text_geom_avg_advance(inputs->geom, e, inputs->line_h);
             size_t back_n = (size_t)((e->origin_x - target_x) / ua) + 1;
             size_t steps = 0;
-            size_t cand = wlx_text_geom_units_back(text,
+            size_t cand = wlx_text_geom_units_back(text, length,
                 line_start + e->origin_rel, line_start, back_n, &steps);
-            size_t snapped = wlx_text_geom_snap_origin(text, line_start, cand);
+            size_t snapped = wlx_text_geom_snap_origin(text, length, line_start, cand);
             // Snap distance in bytes ~ units: deliberate inside the x estimate.
             float est = e->origin_x - ua * ((float)steps + (float)(cand - snapped));
             if (snapped <= line_start) {
@@ -10239,7 +10412,7 @@ static void wlx_text_geom_window_linear(const WLX_Text_Build_Inputs *inputs,
                 size_t back_n = (size_t)WLX_EDITOR_MAX_LINE_UNITS
                     / WLX_TEXT_GEOM_ANCHOR_HEADROOM_DIV;
                 size_t back_steps = 0;
-                cand = wlx_text_geom_units_back(text, cand,
+                cand = wlx_text_geom_units_back(text, length, cand,
                     line_start + e->scan_rel, back_n, &back_steps);
                 est_x -= ua * (float)back_steps;
             }
@@ -10251,11 +10424,11 @@ static void wlx_text_geom_window_linear(const WLX_Text_Build_Inputs *inputs,
                 // estimate itself, floored at the measured coverage.
                 size_t over = (size_t)((est_x - view_x) / ua) + 2;
                 size_t back_steps = 0;
-                cand = wlx_text_geom_units_back(text, cand,
+                cand = wlx_text_geom_units_back(text, length, cand,
                     line_start + e->scan_rel, over, &back_steps);
                 est_x -= ua * (float)back_steps;
             }
-            size_t snapped = wlx_text_geom_snap_origin(text, line_start, cand);
+            size_t snapped = wlx_text_geom_snap_origin(text, length, line_start, cand);
             // Snap distance in bytes ~ units: deliberate inside the x estimate.
             est_x -= ua * (float)(cand - snapped);
             if (snapped > line_start + e->origin_rel) new_rel = snapped - line_start;
@@ -10295,9 +10468,9 @@ static WLX_EXTENSION_USED void wlx_text_geom_ensure_caret(const WLX_Text_Measure
     if (offset_rel < e->origin_rel) {
         // Retreat: the offset is behind the origin.
         size_t steps = 0;
-        size_t cand = wlx_text_geom_units_back(text, line_start + offset_rel,
+        size_t cand = wlx_text_geom_units_back(text, length, line_start + offset_rel,
             line_start, budget / WLX_TEXT_GEOM_ANCHOR_HEADROOM_DIV, &steps);
-        cand = wlx_text_geom_snap_origin(text, line_start, cand);
+        cand = wlx_text_geom_snap_origin(text, length, line_start, cand);
         float ua = wlx_text_geom_avg_advance(s, e, line_h);
         size_t gap = wlx_text_geom_units_between(text, length, cand,
             line_start + e->origin_rel, WLX_TEXT_GEOM_FAR_GAP_BUDGETS * budget);
@@ -10324,10 +10497,10 @@ static WLX_EXTENSION_USED void wlx_text_geom_ensure_caret(const WLX_Text_Measure
                 float cov_right = e->units > 0
                     ? e->origin_x + e->advances[e->units - 1] : e->origin_x;
                 size_t steps = 0;
-                size_t cand = wlx_text_geom_units_back(text,
+                size_t cand = wlx_text_geom_units_back(text, length,
                     line_start + offset_rel, line_start + cov_end,
                     budget / WLX_TEXT_GEOM_ANCHOR_HEADROOM_DIV, &steps);
-                cand = wlx_text_geom_snap_origin(text, line_start, cand);
+                cand = wlx_text_geom_snap_origin(text, length, line_start, cand);
                 if (cand > line_start + e->origin_rel) {
                     size_t gap = wlx_text_geom_units_between(text, length,
                         line_start + cov_end, cand, WLX_TEXT_GEOM_FAR_GAP_BUDGETS * budget);
@@ -13209,17 +13382,17 @@ static bool wlx_text_edit_delete_selection(char *buffer, size_t *length, size_t 
 }
 
 // Insert a byte slice at the caret into a length-explicit buffer bounded by
-// buffer_cap, truncating on a UTF-8 boundary so only whole codepoints land.
-// No NUL is read or written. The insert is journaled by position and length
-// only (the bytes live in the document). Returns the number of bytes
-// inserted.
+// buffer_cap, truncating on a unit boundary of the slice so only whole
+// units (grapheme clusters) land. No NUL is read or written. The insert is
+// journaled by position and length only (the bytes live in the document).
+// Returns the number of bytes inserted.
 static size_t wlx_text_edit_insert(char *buffer, size_t buffer_cap, size_t *length,
     size_t *cursor, size_t *anchor, const char *text, size_t len,
     WLX_Text_Edit_Span *span, WLX_Text_Undo_Journal *undo)
 {
     size_t room = buffer_cap > *length ? buffer_cap - *length : 0;
     size_t ins = len < room ? len : room;
-    while (ins > 0 && !wlx_text_utf8_boundary(text, len, ins)) ins--;
+    while (ins > 0 && !wlx_text_unit_boundary(text, len, ins)) ins--;
     if (ins == 0) return 0;
 
     wlx_text_undo_record(undo, *cursor, NULL, 0, ins, *cursor, *anchor);
@@ -13325,7 +13498,8 @@ static inline bool wlx_text_undo_apply(WLX_Text_Undo_Journal *j, bool redo,
 
 // Capability gates for the shared text-edit key vocabulary. The zero value
 // is the most permissive single-line editable field: mutations allowed,
-// plain-codepoint deletes, no newline or tab inserts, clipboard open.
+// plain unit deletes (one grapheme cluster), no newline or tab inserts,
+// clipboard open.
 typedef struct {
     bool read_only;       // reject every mutation; navigation/selection/copy live
     bool allow_newline;   // multiline inputbox, editor
@@ -13485,9 +13659,10 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
         }
     }
 
-    // Backspace: the selection, else the word or codepoint before the caret
-    // (word deletes reuse the range delete by parking the anchor). Actuated
-    // on press and OS auto-repeat so holding the key keeps deleting.
+    // Backspace: the selection, else the word or unit (grapheme cluster)
+    // before the caret (word deletes reuse the range delete by parking the
+    // anchor). Actuated on press and OS auto-repeat so holding the key
+    // keeps deleting.
     if (!caps.read_only && wlx_is_key_actuated(ctx, WLX_KEY_BACKSPACE)) {
         wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_SELECTION);
         if (wlx_text_edit_delete_selection(buffer, length,
@@ -13497,7 +13672,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
             bool word = caps.word_delete && word_motion;
             size_t prev_pos = word
                 ? wlx_utf8_word_prev(buffer, st->cursor_pos)
-                : wlx_utf8_prev(buffer, st->cursor_pos);
+                : wlx_text_unit_prev(buffer, *length, st->cursor_pos);
             if (prev_pos < st->cursor_pos) {
                 wlx_text_undo_set_class(undo, word
                     ? WLX_TEXT_UNDO_CLS_WORD_DELETE : WLX_TEXT_UNDO_CLS_BACKSPACE);
@@ -13510,8 +13685,9 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
         }
     }
 
-    // Delete: the selection, else the word or codepoint at the caret
-    // (forward delete: the caret stays put, following bytes shift left).
+    // Delete: the selection, else the word or unit (grapheme cluster) at
+    // the caret (forward delete: the caret stays put, following bytes
+    // shift left).
     if (!caps.read_only && wlx_is_key_actuated(ctx, WLX_KEY_DELETE)) {
         wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_SELECTION);
         if (wlx_text_edit_delete_selection(buffer, length,
@@ -13521,7 +13697,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
             bool word = caps.word_delete && word_motion;
             size_t next_pos = word
                 ? wlx_utf8_word_next(buffer, st->cursor_pos, *length)
-                : wlx_utf8_next(buffer, st->cursor_pos, *length);
+                : wlx_text_unit_next(buffer, *length, st->cursor_pos);
             if (next_pos > st->cursor_pos) {
                 wlx_text_undo_set_class(undo, word
                     ? WLX_TEXT_UNDO_CLS_WORD_DELETE : WLX_TEXT_UNDO_CLS_DELETE);
@@ -13535,7 +13711,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     }
 
     // LEFT: collapse a live selection to its start, else move the caret
-    // left by one codepoint or word.
+    // left by one unit (grapheme cluster) or word.
     if (wlx_is_key_actuated(ctx, WLX_KEY_LEFT)) {
         if (!shift && wlx_text_edit_has_selection(st)) {
             st->cursor_pos = wlx_text_edit_selection_min(st);
@@ -13544,7 +13720,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
         } else if (st->cursor_pos > 0) {
             size_t next_pos = word_motion
                 ? wlx_utf8_word_prev(buffer, st->cursor_pos)
-                : wlx_utf8_prev(buffer, st->cursor_pos);
+                : wlx_text_unit_prev(buffer, *length, st->cursor_pos);
             if (next_pos != st->cursor_pos) {
                 st->cursor_pos = next_pos;
                 if (!shift) st->selection_anchor = next_pos;
@@ -13554,7 +13730,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     }
 
     // RIGHT: collapse a live selection to its end, else move the caret
-    // right by one codepoint or word.
+    // right by one unit (grapheme cluster) or word.
     if (wlx_is_key_actuated(ctx, WLX_KEY_RIGHT)) {
         if (!shift && wlx_text_edit_has_selection(st)) {
             st->cursor_pos = wlx_text_edit_selection_max(st);
@@ -13563,7 +13739,7 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
         } else if (st->cursor_pos < *length) {
             size_t next_pos = word_motion
                 ? wlx_utf8_word_next(buffer, st->cursor_pos, *length)
-                : wlx_utf8_next(buffer, st->cursor_pos, *length);
+                : wlx_text_unit_next(buffer, *length, st->cursor_pos);
             if (next_pos != st->cursor_pos) {
                 st->cursor_pos = next_pos;
                 if (!shift) st->selection_anchor = next_pos;
@@ -13576,6 +13752,11 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     if (normalized != st->cursor_pos) moved = true;
     st->cursor_pos = normalized;
     st->selection_anchor = wlx_text_normalize_cursor_offset(buffer, *length, st->selection_anchor);
+#ifdef WLX_DEBUG
+    assert(wlx_text_unit_boundary(buffer, *length, st->cursor_pos)
+        && wlx_text_unit_boundary(buffer, *length, st->selection_anchor)
+        && "text edit: caret pair off a unit boundary");
+#endif
     if (moved || text_changed) {
         st->cursor_blink_time = 0.0f;
         // Every caret change here is horizontal (motion, edit, select-all),
