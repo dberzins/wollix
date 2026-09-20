@@ -301,6 +301,102 @@ TEST(geom_wrap_rows_match_measuring_build) {
     wlx_context_destroy(&ctx);
 }
 
+static void gc_put(char *buf, size_t cap, size_t *off, const char *s) {
+    size_t n = strlen(s);
+    if (*off + n + 1 > cap) return;
+    memcpy(buf + *off, s, n);
+    *off += n;
+    buf[*off] = '\0';
+}
+
+static void gc_put_rep(char *buf, size_t cap, size_t *off, char c, size_t n) {
+    for (size_t i = 0; i < n && *off + 2 <= cap; i++) buf[(*off)++] = c;
+    buf[*off] = '\0';
+}
+
+// Prose for the word-boundary rule: doubled spaces, a token ending exactly
+// at the 373 px band followed by a space (the space hangs), the same one
+// unit longer, tabs between words, a word wider than the band, a line of
+// spaces only, a spaces-only line wider than the band, a trailing space
+// before a newline, and an unterminated last line that wraps.
+static size_t gc_fill_prose(char *buf, size_t cap) {
+    size_t off = 0;
+    gc_put(buf, cap, &off, "prose  with  doubled  spaces  between  every  word  of  a  line  "
+        "that  wraps  past  the  band  twice  over  and  keeps  going  on  and  on\n");
+    gc_put_rep(buf, cap, &off, 'x', 74);
+    gc_put(buf, cap, &off, " tail after the hanging space\n");
+    gc_put_rep(buf, cap, &off, 'y', 76);
+    gc_put(buf, cap, &off, " tail after the cut\n");
+    gc_put(buf, cap, &off, "tab\tseparated\twords\tin\ta\tline\tthat\tgoes\ton\tlong\tenough\t"
+        "to\twrap\tat\ta\ttab\tstop\tsomewhere\tpast\tthe\tband\twidth\tfor\tsure\n");
+    gc_put(buf, cap, &off, "short ");
+    gc_put_rep(buf, cap, &off, 'z', 100);
+    gc_put(buf, cap, &off, " after the over-wide word\n");
+    gc_put(buf, cap, &off, "          \n");
+    gc_put_rep(buf, cap, &off, ' ', 80);
+    gc_put(buf, cap, &off, "\n");
+    gc_put(buf, cap, &off, "ends with a space \n");
+    gc_put(buf, cap, &off, "no newline at the end of this last spaced prose line that also "
+        "wraps around the band width at least once more before it stops");
+    return off;
+}
+
+TEST(geom_wrap_rows_match_measuring_build_on_prose) {
+    WLX_Context ctx;
+    gc_ctx_init(&ctx, 400, 100);
+    static char buf[2048];
+    size_t len = gc_fill_prose(buf, sizeof(buf));
+    ASSERT_TRUE(len > 600);
+
+    gc_frame(&ctx, buf, sizeof(buf), &len, 1, true);
+    gc_frame(&ctx, buf, sizeof(buf), &len, 1, true);
+
+    WLX_Editor_Line_Index *idx = gc_index(&ctx);
+    ASSERT_TRUE(idx != NULL);
+    ASSERT_EQ_INT(9, (long)idx->count);
+    WLX_Text_Style ts = { .font = 0, .font_size = 10, .color = {255,255,255,255}, .spacing = 0 };
+    WLX_Text_Build_Inputs base = wlx_editor_wrap_build_inputs(&ctx, buf, len, ts,
+        idx->geom.env.band_w, idx->geom.env.line_h, idx->geom.env.tab_advance);
+    WLX_Text_Build_Inputs with_geom = base;
+    with_geom.geom = &idx->geom;
+
+    for (size_t line = 0; line < idx->count; line++) {
+        WLX_Text_Line_Record ra[64], rb[64];
+        size_t na = gc_stream_line(&with_geom, idx, line, ra, 64);
+        size_t nb = gc_stream_line(&base, idx, line, rb, 64);
+        ASSERT_EQ_INT((long)nb, (long)na);
+        for (size_t r = 0; r < na; r++) {
+            gc_assert_records_equal(&ra[r], &rb[r]);
+            // Every row but a line's last ends after whitespace or inside
+            // an over-wide word, never before whitespace; its ink extent
+            // never exceeds its measured extent.
+            if (r + 1 < na) {
+                ASSERT_TRUE(ra[r].advance_w <= ra[r].measured_w);
+                ASSERT_FALSE(buf[ra[r].visible_end] == ' ' || buf[ra[r].visible_end] == '\t');
+            }
+        }
+    }
+    // The 74-byte token fills the band and its space hangs: the first row
+    // of line 1 is the token plus the space, measured past the band.
+    {
+        WLX_Text_Line_Record r[64];
+        size_t n = gc_stream_line(&with_geom, idx, 1, r, 64);
+        ASSERT_TRUE(n >= 2);
+        ASSERT_EQ_INT((long)(r[0].visible_end - r[0].visible_start), 75);
+        ASSERT_TRUE(r[0].measured_w > idx->geom.env.band_w);
+        ASSERT_EQ_F(r[0].advance_w, 370.0f, 0.01f);
+    }
+    // The spaces-only line wider than the band hangs whole on one row.
+    {
+        WLX_Text_Line_Record r[64];
+        size_t n = gc_stream_line(&with_geom, idx, 6, r, 64);
+        ASSERT_EQ_INT(1, (long)n);
+        ASSERT_EQ_F(r[0].measured_w, 400.0f, 0.01f);
+    }
+    gc_assert_store_keys_valid(&ctx, len);
+    wlx_context_destroy(&ctx);
+}
+
 // ============================================================================
 // Steady-state traffic
 // ============================================================================
@@ -649,6 +745,7 @@ SUITE(editor_geom_cache) {
     RUN_TEST(geom_linear_records_match_measuring_build_across_reach);
     RUN_TEST(geom_linear_budget_cap_matches_measuring_build);
     RUN_TEST(geom_wrap_rows_match_measuring_build);
+    RUN_TEST(geom_wrap_rows_match_measuring_build_on_prose);
     RUN_TEST(geom_idle_frames_measure_nothing_beyond_reference);
     RUN_TEST(geom_tabbed_draw_replays_segments_from_store);
     RUN_TEST(geom_steady_frames_allocate_and_grow_nothing);

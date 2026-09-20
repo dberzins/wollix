@@ -446,13 +446,17 @@ TEST(editor_wrap_build_from_hard_line_start_yields_tail) {
     // The shared corpora plus tab-bearing text; the narrow widths force
     // multi-row wrapping (7 px: one 5 px unit per row, multibyte units
     // over-wide on their own row).
-    const char *corpora[EP_CORPUS_COUNT_ + 1];
+    const char *corpora[EP_CORPUS_COUNT_ + 2];
     for (size_t c = 0; c < EP_CORPUS_COUNT_; c++) corpora[c] = ep_corpora[c];
     corpora[EP_CORPUS_COUNT_] = "a\tbb\tccc\nx\ty";
+    // Spaced prose: doubled spaces, an over-wide word, a tab, a
+    // spaces-only line and a trailing space, so word cuts and hanging
+    // whitespace re-enter identically too.
+    corpora[EP_CORPUS_COUNT_ + 1] = "so  many  spaces\nshort zzzzzzzzzzzzz after\ntab\tstop x\n   \nend ";
     float widths[3] = { 1000.0f, 20.0f, 7.0f };
 
     test_frame_begin(&ctx, 0, 0, false, false);
-    for (size_t c = 0; c < EP_CORPUS_COUNT_ + 1; c++) {
+    for (size_t c = 0; c < EP_CORPUS_COUNT_ + 2; c++) {
         const char *text = corpora[c];
         size_t length = strlen(text);
 

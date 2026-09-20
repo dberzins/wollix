@@ -215,7 +215,15 @@ static size_t ap_gen_corpus(char *buf, size_t cap) {
         "\t\tleading and doubled\ttabs\n"
         "utf8 \xC3\xA9\xC3\xA9 mixed \xE4\xB8\xAD\xE6\x96\x87 tail\n"
         "bad \xFF\xFE bytes \x80 stray \xE2\x82 truncated\n"
-        "crlf line\r\n";
+        "crlf line\r\n"
+        "prose  with  doubled  spaces  between  words  that  wrap  around  the  "
+        "band  more  than  once  over  and  over  again  until  the  line  ends\n"
+        "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+        " tail after a token that fills the band\n"
+        "short zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+        "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz after an over-wide word\n"
+        "            \n"
+        "ends with a space \n";
     size_t off = sizeof(head) - 1;
     if (off >= cap) return 0;
     memcpy(buf, head, off);

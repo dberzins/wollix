@@ -421,6 +421,29 @@ TEST(multiline_wrapped_soft_line_traversal) {
     wlx_context_destroy(&ctx);
 }
 
+TEST(multiline_wrapped_overwide_word_breaks_inside) {
+    WLX_Context ctx;
+    // Same 5-char band: "AA BBBBBBBB" wraps to "AA " / "BBBBB" / "BBB" -
+    // the cut after the space, then the over-wide word broken inside.
+    test_ctx_init(&ctx, 43, 300);
+    char buf[64] = "AA BBBBBBBB";
+
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 40, true, true);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
+
+    // Column 1 of "AA "; DOWN lands at column 1 of "BBBBB" (byte 4).
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
+    ASSERT_EQ_STR(buf, "AA BXBBBBBBB");
+    // Rows are now "AA " / "BXBBB" / "BBBB"; column 2 of the second soft
+    // line lands at column 2 of the third (byte 10).
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, "Y");
+    ASSERT_EQ_STR(buf, "AA BXBBBBBYBB");
+    wlx_context_destroy(&ctx);
+}
+
 // Stable call site + drivers for the wrap = false variant: hard newlines must
 // still split visual lines, so UP/DOWN traverse them (assumption check from
 // the multiline design: line records split on hard breaks regardless of wrap).
@@ -505,5 +528,6 @@ SUITE(input_multiline) {
     RUN_TEST(multiline_shift_down_extends_selection);
     RUN_TEST(multiline_horizontal_motion_resets_column);
     RUN_TEST(multiline_wrapped_soft_line_traversal);
+    RUN_TEST(multiline_wrapped_overwide_word_breaks_inside);
     RUN_TEST(multiline_nowrap_hard_lines_traversal);
 }

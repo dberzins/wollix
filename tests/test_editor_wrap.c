@@ -878,6 +878,123 @@ TEST(editor_wrap_caret_col0_draws_at_row_start) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Word-boundary rows: caret affinity at a cut, motion across it, counts
+// ============================================================================
+
+// Fill buf with a prose line of n_tokens "wNN " tokens (4 bytes each; 18
+// fill a 373 px row, so rows are 72 bytes and every cut lands after a
+// space), a newline, "xy", a newline, then extra short lines so the
+// document overflows vertically and the strip narrows the band.
+static size_t ew_fill_prose(char *buf, size_t cap, size_t n_tokens, size_t extra_lines) {
+    size_t off = 0;
+    for (size_t i = 0; i < n_tokens && off + 5 < cap; i++)
+        off += (size_t)snprintf(buf + off, cap - off, "w%02zu ", i % 100);
+    buf[off++] = '\n';
+    buf[off++] = 'x';
+    buf[off++] = 'y';
+    buf[off++] = '\n';
+    for (size_t i = 0; i < extra_lines && off + 4 < cap; i++) {
+        buf[off++] = 'l';
+        buf[off++] = (char)('0' + (i / 10) % 10);
+        buf[off++] = (char)('0' + i % 10);
+        buf[off++] = '\n';
+    }
+    buf[off] = '\0';
+    return off;
+}
+
+TEST(editor_wrap_vertical_motion_keeps_column_across_word_break) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+    static char buf[512];
+    size_t len = ew_fill_prose(buf, sizeof(buf), 40, 20);
+    ew_frame(&ctx, buf, sizeof(buf), &len, 0);
+    WLX_Editor_State *state = ev_state(&ctx);
+    ASSERT_TRUE(state != NULL);
+
+    // Click on row 0, column 2.
+    ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 20, 8, true, true, 0.0f);
+    ASSERT_EQ_INT(2, (long)state->caret.cursor_pos);
+    ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 20, 8, false, false, 0.0f);
+
+    // Rows are 72 bytes (18 tokens, cut after the 18th space): DOWN keeps
+    // column 2 across each cut, UP returns.
+    ew_frame_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_DOWN, 0);
+    ASSERT_EQ_INT(74, (long)state->caret.cursor_pos);
+    ew_frame_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_DOWN, 0);
+    ASSERT_EQ_INT(146, (long)state->caret.cursor_pos);
+    ew_frame_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_UP, 0);
+    ASSERT_EQ_INT(74, (long)state->caret.cursor_pos);
+    ew_frame_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_UP, 0);
+    ASSERT_EQ_INT(2, (long)state->caret.cursor_pos);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(editor_wrap_click_past_row_end_lands_on_next_row_start) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+    ctx.backend.draw_line = _ew_capture_draw_line;
+    static char buf[512];
+    size_t len = ew_fill_prose(buf, sizeof(buf), 40, 20);
+    ew_frame(&ctx, buf, sizeof(buf), &len, 0);
+    WLX_Editor_State *state = ev_state(&ctx);
+    ASSERT_TRUE(state != NULL);
+
+    // Click right of row 0's last glyph (content x 362, past the cut's
+    // trailing space at 355..360): the break offset 72, which belongs to
+    // the row it starts.
+    ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 371, 8, true, true, 0.0f);
+    ASSERT_EQ_INT(72, (long)state->caret.cursor_pos);
+    ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 371, 8, false, false, 0.0f);
+
+    // The caret draws at row 1's start, inside the band, not past row 0's
+    // hanging space.
+    _ew_line_count = 0;
+    ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 200, 50, false, false, 0.0f);
+    ASSERT_TRUE(_ew_line_count >= 1);
+    for (int i = 0; i < _ew_line_count; i++) {
+        ASSERT_TRUE(_ew_lines[i].x < 60.0f);
+        ASSERT_TRUE(_ew_lines[i].y0 >= 13.0f);
+    }
+    wlx_context_destroy(&ctx);
+}
+
+TEST(editor_wrap_row_counts_agree_with_and_without_store_on_prose) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+    static char buf[512];
+    size_t len = ew_fill_prose(buf, sizeof(buf), 40, 20);
+    ew_frame(&ctx, buf, sizeof(buf), &len, 0);
+    ew_frame(&ctx, buf, sizeof(buf), &len, 0);
+    WLX_Editor_State *state = ev_state(&ctx);
+    WLX_Editor_Line_Index *idx = ev_index(&ctx);
+    ASSERT_TRUE(state != NULL && idx != NULL);
+
+    WLX_Text_Style ts = { .font = 0, .font_size = 10, .color = {255,255,255,255}, .spacing = 0 };
+    WLX_Text_Build_Inputs base = wlx_editor_wrap_build_inputs(&ctx, buf, len, ts,
+        idx->geom.env.band_w, idx->geom.env.line_h, idx->geom.env.tab_advance);
+    WLX_Text_Build_Inputs with_geom = base;
+    with_geom.geom = &idx->geom;
+    for (size_t line = 0; line < idx->count; line++) {
+        size_t start = idx->offsets[line];
+        size_t next = line + 1 < idx->count ? idx->offsets[line + 1] : len;
+        size_t ra = wlx_editor_wrap_row_count(&with_geom, start, next);
+        size_t rb = wlx_editor_wrap_row_count(&base, start, next);
+        ASSERT_EQ_INT((long)rb, (long)ra);
+        if (line == 0) ASSERT_EQ_INT(3, (long)ra);
+    }
+
+    // Wheel to the end: the anchor stays a valid (line, row) pair.
+    for (int i = 0; i < 12; i++) ew_frame_wheel(&ctx, buf, sizeof(buf), &len, 0, -10.0f);
+    ASSERT_TRUE(state->first_line < idx->count);
+    size_t first_next = state->first_line + 1 < idx->count
+        ? idx->offsets[state->first_line + 1] : len;
+    ASSERT_TRUE(state->first_row
+        < wlx_editor_wrap_row_count(&with_geom, idx->offsets[state->first_line], first_next));
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(editor_wrap) {
     RUN_TEST(editor_wrap_draws_band_wide_rows);
     RUN_TEST(editor_wrap_wheel_scrolls_rows_not_lines);
@@ -901,4 +1018,7 @@ SUITE(editor_wrap) {
     RUN_TEST(editor_wrap_select_all_replace_clamps_anchor);
     RUN_TEST(editor_wrap_toggle_preserves_caret_and_selection);
     RUN_TEST(editor_wrap_caret_col0_draws_at_row_start);
+    RUN_TEST(editor_wrap_vertical_motion_keeps_column_across_word_break);
+    RUN_TEST(editor_wrap_click_past_row_end_lands_on_next_row_start);
+    RUN_TEST(editor_wrap_row_counts_agree_with_and_without_store_on_prose);
 }
