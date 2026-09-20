@@ -8967,6 +8967,13 @@ typedef struct WLX_Text_Build_Inputs {
     WLX_Text_Style style;
     WLX_Rect rect;
     bool wrap;
+    // Wrap only: how a space or tab that overflows the width is placed.
+    // false (display text: labels, captions) hangs it on the row it
+    // follows, measured past the width; true (editable text: editor,
+    // textarea, multiline inputbox) cuts the row at its latest break
+    // opportunity or opens the next row with it, so every row measures
+    // within the width and a caret in trailing whitespace stays inside.
+    bool wrap_strict_ws;
     float line_h;
     size_t text_unit_cap;
     // Truncated-line continuation. Non-wrap: a width- or budget-truncated
@@ -9369,9 +9376,10 @@ static inline bool wlx_text_wrap_ws_at(const char *text, size_t length, size_t p
 // it stood at its latest break opportunity (the memo - the whitespace
 // unit's end, cumulative advance and height, the row's unit count
 // through it, and the ink extent at that moment), the running ink
-// extent (the advance at the last accepted non-whitespace unit), and
-// whether an overflowing whitespace run is hanging past the fit width.
-// O(1) per row; the walk never rescans a byte to find a cut.
+// extent (the advance at the last accepted non-whitespace unit), the
+// whitespace mode, and - in hanging mode - whether an overflowing
+// whitespace run is hanging past the fit width. O(1) per row; the walk
+// never rescans a byte to find a cut.
 typedef struct {
     bool   has_memo;
     size_t memo_end;
@@ -9380,20 +9388,28 @@ typedef struct {
     size_t memo_units;
     float  memo_content_adv;
     float  content_adv;
+    bool   strict_ws;   // overflowing whitespace cuts or rejects, never hangs
     bool   hanging;
 } WLX_Text_Wrap_Break;
 
-static inline void wlx_text_wrap_break_reset(WLX_Text_Wrap_Break *b) {
+static inline void wlx_text_wrap_break_reset(WLX_Text_Wrap_Break *b,
+    const WLX_Text_Build_Inputs *inputs)
+{
     wlx_zero_struct(*b);
+    b->strict_ws = inputs->wrap_strict_ws;
 }
 
 // The wrapped row's fit decision: the base verdict for the unit ending
 // at unit_end with cumulative advance advance_w, then the word-boundary
 // rule over the row's break state:
 //   - whitespace that fits is accepted and becomes the memo;
-//   - whitespace that does not fit is accepted anyway (it hangs) and
-//     the row ends with the run - the next non-whitespace unit is
-//     rejected;
+//   - whitespace that does not fit depends on the mode. Display builds
+//     (labels, captions) accept it anyway - it hangs - and the row ends
+//     with the run: the next non-whitespace unit is rejected. Editable
+//     builds (editor, textarea, multiline inputbox) treat it like any
+//     overflowing unit: it cuts the row at the memo (the word before it
+//     moves down with it) or opens the next row, so a caret in trailing
+//     whitespace always stands on a row inside the width;
 //   - a non-whitespace unit that does not fit cuts the row at the memo
 //     when there is one, else is rejected as in plain fitting;
 //   - a first unit that does not fit still ends the row alone.
@@ -9406,6 +9422,7 @@ static inline WLX_Text_Fit wlx_text_wrap_fit_step(WLX_Text_Wrap_Break *b, bool w
     WLX_Text_Fit base = wlx_text_fit_step(advance_w, fit_w, row_units);
     if (ws) {
         if (base == WLX_TEXT_FIT_REJECT) {
+            if (b->strict_ws) return b->has_memo ? WLX_TEXT_FIT_CUT : WLX_TEXT_FIT_REJECT;
             b->hanging = true;
             return WLX_TEXT_FIT_ACCEPT;
         }
@@ -10518,7 +10535,11 @@ static bool wlx_text_geom_ensure_wrap(const WLX_Text_Build_Inputs *inputs,
         float row_x = 0.0f;
         bool row_done = false;
         WLX_Text_Wrap_Break wb;
-        wlx_text_wrap_break_reset(&wb);
+        wlx_text_wrap_break_reset(&wb, inputs);
+#ifdef WLX_DEBUG
+        // The store is the editor's, and the editor always builds strict.
+        assert(inputs->wrap_strict_ws && "geom store: wrapped entries are built strict");
+#endif
         while (!row_done) {
             if (pos >= length || wlx_text_at_line_break(text, length, pos)) {
                 row_start = length; // line text exhausted; outer loop ends
@@ -10583,7 +10604,8 @@ static bool wlx_text_geom_ensure_wrap(const WLX_Text_Build_Inputs *inputs,
 // returns false and the caller's measuring scan takes over. row_continues
 // reports a row another row of the same line follows, and ink_w its ink
 // extent - the advance at its last non-whitespace unit, read back over
-// the trailing whitespace the scan kept (hanging, or before a cut) - so
+// the trailing whitespace the scan kept before a cut (or hanging, in a
+// display build) - so
 // the replayed record aligns exactly as the scanned one; the line's last
 // row keeps its measured extent.
 static bool wlx_text_geom_wrap_step(const WLX_Text_Build_Inputs *inputs,
@@ -10754,11 +10776,12 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
     bool geom_replayed = false;
     // Wrapped rows: the break state of the row being scanned, the ink
     // extent of the row (its measured width without the trailing
-    // whitespace a cut or a hanging run leaves on it), and whether the
-    // row ended by overflow with a further row of the same line to
-    // follow - the one case where advance_w is the ink extent.
+    // whitespace a cut, or a hanging run in a display build, leaves on
+    // it), and whether the row ended by overflow with a further row of
+    // the same line to follow - the one case where advance_w is the ink
+    // extent.
     WLX_Text_Wrap_Break wb;
-    wlx_text_wrap_break_reset(&wb);
+    wlx_text_wrap_break_reset(&wb, inputs);
     float ink_w = 0.0f;
     bool wrap_overflow = false;
     bool wrap_cut = false;
@@ -10931,8 +10954,9 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
     }
     // A wrap-ended row - one that overflowed and whose hard line goes on
     // in the next row - aligns and clips by its ink extent: the trailing
-    // whitespace it keeps, hanging or before a cut, stays out of
-    // advance_w. Every other row keeps advance_w equal to measured_w.
+    // whitespace it keeps, before a cut or hanging in a display build,
+    // stays out of advance_w. Every other row keeps advance_w equal to
+    // measured_w.
     if (inputs->wrap && wrap_overflow && !ended_by_newline
         && step.next_offset == visible_end && visible_end < length) {
         step.line.advance_w = ink_w;
@@ -10940,6 +10964,9 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
         assert(ink_w <= measured_w && "wrap: ink extent past the measured extent");
         assert((!wrap_cut || wlx_text_wrap_ws_at(text, length, visible_end - 1))
             && "wrap cut: row does not end after whitespace");
+        assert((!inputs->wrap_strict_ws || scan_unit_count == 1
+                || measured_w <= inputs->rect.w)
+            && "strict wrap: whitespace hangs past the width");
 #endif
     }
     step.append_trailing_empty_line = ended_by_newline && step.next_offset == length;
@@ -11048,7 +11075,7 @@ static bool wlx_text_lines_need_scissor(WLX_Rect rect, const WLX_Text_Line_Recor
 
         if (line->origin_x < rect.x) return true;
         // The ink extent decides: whitespace hanging past the rect on a
-        // wrapped row draws nothing and needs no scissor.
+        // display build's wrapped row draws nothing and needs no scissor.
         if (line->origin_x + line->advance_w > rect.x + rect.w) return true;
         if (line_top < rect.y) return true;
         if (line_bottom > rect.y + rect.h) return true;
@@ -11127,6 +11154,9 @@ static WLX_Text_Line_Record *wlx_text_line_scratch(WLX_Context *ctx, size_t min_
 typedef struct WLX_Text_Prepare_Opt {
     WLX_Align align;
     bool wrap;
+    bool wrap_strict_ws;    // wrap only: overflowing whitespace cuts or
+                            // opens the next row instead of hanging
+                            // (editable text; see WLX_Text_Build_Inputs)
     WLX_Vertical_Metric vmetric;
     size_t text_unit_cap;   // 0 = WLX_TEXT_RUN_MAX_UNITS
 } WLX_Text_Prepare_Opt;
@@ -11154,6 +11184,7 @@ static bool wlx_text_prepare_lines_slice(WLX_Context *ctx, WLX_Rect rect, const 
         .style = style,
         .rect = rect,
         .wrap = opt.wrap,
+        .wrap_strict_ws = opt.wrap_strict_ws,
         .line_h = line_h,
         .text_unit_cap = opt.text_unit_cap > 0
             ? opt.text_unit_cap : (size_t)WLX_TEXT_RUN_MAX_UNITS,
@@ -13893,6 +13924,7 @@ static WLX_Inputbox_Lines wlx_inputbox_build_lines(WLX_Context *ctx,
     if (lines != NULL) {
         wlx_text_prepare_lines_slice(ctx, probe_rect, disp_text, disp_len, ts,
             (WLX_Text_Prepare_Opt){ .align = opt->content_align, .wrap = opt->wrap,
+                                    .wrap_strict_ws = true,
                                     .text_unit_cap = build_unit_cap },
             lines, build_line_cap, &line_array);
     }
@@ -13916,6 +13948,7 @@ static WLX_Inputbox_Lines wlx_inputbox_build_lines(WLX_Context *ctx,
     if (sb_visible != predict_sb && lines != NULL) {
         wlx_text_prepare_lines_slice(ctx, text_rect, disp_text, disp_len, ts,
             (WLX_Text_Prepare_Opt){ .align = opt->content_align, .wrap = opt->wrap,
+                                    .wrap_strict_ws = true,
                                     .text_unit_cap = build_unit_cap },
             lines, build_line_cap, &line_array);
         line_count = line_array.line_count;

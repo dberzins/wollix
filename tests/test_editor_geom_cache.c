@@ -315,10 +315,11 @@ static void gc_put_rep(char *buf, size_t cap, size_t *off, char c, size_t n) {
 }
 
 // Prose for the word-boundary rule: doubled spaces, a token ending exactly
-// at the 373 px band followed by a space (the space hangs), the same one
-// unit longer, tabs between words, a word wider than the band, a line of
-// spaces only, a spaces-only line wider than the band, a trailing space
-// before a newline, and an unterminated last line that wraps.
+// at the 373 px band followed by a space (the space opens the next row:
+// the editor builds strict), the same one unit longer, tabs between words,
+// a word wider than the band, a line of spaces only, a spaces-only line
+// wider than the band, a trailing space before a newline, and an
+// unterminated last line that wraps.
 static size_t gc_fill_prose(char *buf, size_t cap) {
     size_t off = 0;
     gc_put(buf, cap, &off, "prose  with  doubled  spaces  between  every  word  of  a  line  "
@@ -367,31 +368,37 @@ TEST(geom_wrap_rows_match_measuring_build_on_prose) {
         ASSERT_EQ_INT((long)nb, (long)na);
         for (size_t r = 0; r < na; r++) {
             gc_assert_records_equal(&ra[r], &rb[r]);
-            // Every row but a line's last ends after whitespace or inside
-            // an over-wide word, never before whitespace; its ink extent
-            // never exceeds its measured extent.
-            if (r + 1 < na) {
-                ASSERT_TRUE(ra[r].advance_w <= ra[r].measured_w);
-                ASSERT_FALSE(buf[ra[r].visible_end] == ' ' || buf[ra[r].visible_end] == '\t');
-            }
+            // The editor builds strict: every row measures within the
+            // band (no unit of the corpus is wider than it), and a row's
+            // ink extent never exceeds its measured extent.
+            ASSERT_TRUE(ra[r].measured_w <= idx->geom.env.band_w + 0.01f);
+            if (r + 1 < na) ASSERT_TRUE(ra[r].advance_w <= ra[r].measured_w);
         }
     }
-    // The 74-byte token fills the band and its space hangs: the first row
-    // of line 1 is the token plus the space, measured past the band.
+    // The 74-byte token fills the band and its space does not fit: with
+    // no earlier opportunity the space opens the next row.
     {
         WLX_Text_Line_Record r[64];
         size_t n = gc_stream_line(&with_geom, idx, 1, r, 64);
-        ASSERT_TRUE(n >= 2);
-        ASSERT_EQ_INT((long)(r[0].visible_end - r[0].visible_start), 75);
-        ASSERT_TRUE(r[0].measured_w > idx->geom.env.band_w);
+        ASSERT_EQ_INT(2, (long)n);
+        ASSERT_EQ_INT((long)(r[0].visible_end - r[0].visible_start), 74);
+        ASSERT_EQ_F(r[0].measured_w, 370.0f, 0.01f);
         ASSERT_EQ_F(r[0].advance_w, 370.0f, 0.01f);
+        ASSERT_TRUE(buf[r[1].visible_start] == ' ');
+        ASSERT_EQ_INT((long)(r[1].visible_end - r[1].visible_start), 29);
+        ASSERT_TRUE(r[1].ended_by_newline);
     }
-    // The spaces-only line wider than the band hangs whole on one row.
+    // The spaces-only line wider than the band cuts at its 74th space:
+    // a first row of spaces with no ink, then the rest.
     {
         WLX_Text_Line_Record r[64];
         size_t n = gc_stream_line(&with_geom, idx, 6, r, 64);
-        ASSERT_EQ_INT(1, (long)n);
-        ASSERT_EQ_F(r[0].measured_w, 400.0f, 0.01f);
+        ASSERT_EQ_INT(2, (long)n);
+        ASSERT_EQ_INT((long)(r[0].visible_end - r[0].visible_start), 74);
+        ASSERT_EQ_F(r[0].measured_w, 370.0f, 0.01f);
+        ASSERT_EQ_F(r[0].advance_w, 0.0f, 0.01f);
+        ASSERT_EQ_INT((long)(r[1].visible_end - r[1].visible_start), 6);
+        ASSERT_EQ_F(r[1].measured_w, 30.0f, 0.01f);
     }
     gc_assert_store_keys_valid(&ctx, len);
     wlx_context_destroy(&ctx);

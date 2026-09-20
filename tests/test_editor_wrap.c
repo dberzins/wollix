@@ -949,7 +949,7 @@ TEST(editor_wrap_click_past_row_end_lands_on_next_row_start) {
     ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 371, 8, false, false, 0.0f);
 
     // The caret draws at row 1's start, inside the band, not past row 0's
-    // hanging space.
+    // trailing space.
     _ew_line_count = 0;
     ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 200, 50, false, false, 0.0f);
     ASSERT_TRUE(_ew_line_count >= 1);
@@ -995,6 +995,48 @@ TEST(editor_wrap_row_counts_agree_with_and_without_store_on_prose) {
     wlx_context_destroy(&ctx);
 }
 
+TEST(editor_wrap_caret_draws_inside_trailing_spaces) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+    ctx.backend.draw_line = _ew_capture_draw_line;
+    static char buf[512];
+    // 74 a's fill the 373 px band (370 px); extra lines keep the strip.
+    size_t len = ew_fill_long_first(buf, sizeof(buf), 74, 20);
+    ew_frame(&ctx, buf, sizeof(buf), &len, 0);
+    WLX_Editor_State *state = ev_state(&ctx);
+    ASSERT_TRUE(state != NULL);
+
+    // Click at the end of the a's: caret 74.
+    ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 379, 8, true, true, 0.0f);
+    ASSERT_EQ_INT(74, (long)state->caret.cursor_pos);
+    ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 379, 8, false, false, 0.0f);
+
+    // A typed space does not fit the row: it opens row 1 and the caret
+    // after it draws there, inside the band, never past the edge.
+    ew_frame_text(&ctx, buf, sizeof(buf), &len, " ");
+    ASSERT_EQ_INT(75, (long)state->caret.cursor_pos);
+    _ew_line_count = 0;
+    ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 200, 50, false, false, 0.0f);
+    ASSERT_TRUE(_ew_line_count >= 1);
+    for (int i = 0; i < _ew_line_count; i++) {
+        ASSERT_TRUE(_ew_lines[i].x < 60.0f);
+        ASSERT_TRUE(_ew_lines[i].y0 >= 13.0f);
+    }
+
+    // Between two trailing spaces likewise.
+    ew_frame_text(&ctx, buf, sizeof(buf), &len, " ");
+    ew_frame_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, 0);
+    ASSERT_EQ_INT(75, (long)state->caret.cursor_pos);
+    _ew_line_count = 0;
+    ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 200, 50, false, false, 0.0f);
+    ASSERT_TRUE(_ew_line_count >= 1);
+    for (int i = 0; i < _ew_line_count; i++) {
+        ASSERT_TRUE(_ew_lines[i].x < 60.0f);
+        ASSERT_TRUE(_ew_lines[i].y0 >= 13.0f);
+    }
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(editor_wrap) {
     RUN_TEST(editor_wrap_draws_band_wide_rows);
     RUN_TEST(editor_wrap_wheel_scrolls_rows_not_lines);
@@ -1021,4 +1063,5 @@ SUITE(editor_wrap) {
     RUN_TEST(editor_wrap_vertical_motion_keeps_column_across_word_break);
     RUN_TEST(editor_wrap_click_past_row_end_lands_on_next_row_start);
     RUN_TEST(editor_wrap_row_counts_agree_with_and_without_store_on_prose);
+    RUN_TEST(editor_wrap_caret_draws_inside_trailing_spaces);
 }

@@ -444,6 +444,60 @@ TEST(multiline_wrapped_overwide_word_breaks_inside) {
     wlx_context_destroy(&ctx);
 }
 
+// Caret line capture: the multiline inputbox draws no other line while its
+// border is off, so every captured line is the caret.
+#define ML_MAX_LINES_CAP_ 16
+static struct { float x; float y0; float y1; } _ml_lines[ML_MAX_LINES_CAP_];
+static int _ml_line_count = 0;
+
+static void _ml_capture_draw_line(float x1, float y1, float x2, float y2, float thick,
+                                  WLX_Color c, void *user) {
+    (void)x2; (void)thick; (void)c; (void)user;
+    if (_ml_line_count < ML_MAX_LINES_CAP_) {
+        _ml_lines[_ml_line_count].x = x1;
+        _ml_lines[_ml_line_count].y0 = y1;
+        _ml_lines[_ml_line_count].y1 = y2;
+        _ml_line_count++;
+    }
+}
+
+static void ml_assert_caret_inside_band(void) {
+    ASSERT_TRUE(_ml_line_count >= 1);
+    for (int i = 0; i < _ml_line_count; i++) {
+        ASSERT_TRUE(_ml_lines[i].x >= 4.0f);
+        ASSERT_TRUE(_ml_lines[i].x < 36.0f);
+    }
+}
+
+TEST(multiline_wrapped_caret_stays_inside_after_trailing_spaces) {
+    WLX_Context ctx;
+    // 5-char band again: "AAAAA" fills the first soft line, so a typed
+    // space does not fit and opens the next soft line instead of hanging
+    // past the field; the caret follows it and stays drawn.
+    test_ctx_init(&ctx, 43, 300);
+    ctx.backend.draw_line = _ml_capture_draw_line;
+    char buf[64] = "AAAAA";
+
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 40, true, true);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, test_command_mod());
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, " ");
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, " ");
+    ASSERT_EQ_STR(buf, "AAAAA  ");
+
+    // After the second space (caret 7): on the second soft line, inside
+    // the band (right edge x 35).
+    _ml_line_count = 0;
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 200, false, false);
+    ml_assert_caret_inside_band();
+
+    // Between the two spaces (caret 6) likewise.
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_LEFT, 0);
+    _ml_line_count = 0;
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 200, false, false);
+    ml_assert_caret_inside_band();
+    wlx_context_destroy(&ctx);
+}
+
 // Stable call site + drivers for the wrap = false variant: hard newlines must
 // still split visual lines, so UP/DOWN traverse them (assumption check from
 // the multiline design: line records split on hard breaks regardless of wrap).
@@ -529,5 +583,6 @@ SUITE(input_multiline) {
     RUN_TEST(multiline_horizontal_motion_resets_column);
     RUN_TEST(multiline_wrapped_soft_line_traversal);
     RUN_TEST(multiline_wrapped_overwide_word_breaks_inside);
+    RUN_TEST(multiline_wrapped_caret_stays_inside_after_trailing_spaces);
     RUN_TEST(multiline_nowrap_hard_lines_traversal);
 }

@@ -558,6 +558,7 @@ static WLX_Text_Build_Inputs wlx_editor_wrap_build_inputs(WLX_Context *ctx, cons
         .style = ts,
         .rect = { 0, 0, band_w > 1.0f ? band_w : 1.0f, 0 },
         .wrap = true,
+        .wrap_strict_ws = true, // the caret must always stand inside the band
         .line_h = line_h,
         .text_unit_cap = WLX_EDITOR_MAX_LINE_UNITS,
         .truncate_continue = true,

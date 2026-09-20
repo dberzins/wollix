@@ -47,9 +47,11 @@ static size_t ep_build_from(WLX_Context *ctx, const char *text, size_t length, f
 }
 
 // Wrapped build (per-line budget mode when truncate_continue is set) from
-// an arbitrary hard line start.
-static size_t ep_build_wrap_from(WLX_Context *ctx, const char *text, size_t length, float rect_w,
-    bool truncate_continue, size_t start_offset, WLX_Text_Line_Record *out, size_t cap) {
+// an arbitrary hard line start, in either whitespace mode (strict_ws: the
+// editable-build rule; off: display builds, whitespace hangs).
+static size_t ep_build_wrap_from_mode(WLX_Context *ctx, const char *text, size_t length,
+    float rect_w, bool truncate_continue, bool strict_ws, size_t start_offset,
+    WLX_Text_Line_Record *out, size_t cap) {
     WLX_Text_Build_Inputs inputs = {
         .ctx = ctx,
         .text = text,
@@ -57,12 +59,19 @@ static size_t ep_build_wrap_from(WLX_Context *ctx, const char *text, size_t leng
         .style = (WLX_Text_Style){ .font_size = 10 },
         .rect = (WLX_Rect){ 0, 0, rect_w, 10000.0f },
         .wrap = true,
+        .wrap_strict_ws = strict_ws,
         .line_h = 10.0f,
         .text_unit_cap = EP_UNIT_CAP_,
         .truncate_continue = truncate_continue,
     };
     WLX_Text_Build_Cursor cursor = { .text_unit_count = 0 };
     return wlx_text_build_lines_from(&inputs, &cursor, start_offset, out, cap);
+}
+
+static size_t ep_build_wrap_from(WLX_Context *ctx, const char *text, size_t length, float rect_w,
+    bool truncate_continue, size_t start_offset, WLX_Text_Line_Record *out, size_t cap) {
+    return ep_build_wrap_from_mode(ctx, text, length, rect_w, truncate_continue, false,
+        start_offset, out, cap);
 }
 
 // Records are zero-initialized before population (wlx_zero_struct), so a
@@ -456,22 +465,25 @@ TEST(editor_wrap_build_from_hard_line_start_yields_tail) {
     float widths[3] = { 1000.0f, 20.0f, 7.0f };
 
     test_frame_begin(&ctx, 0, 0, false, false);
+    // Both whitespace modes: display (hanging) and editable (strict).
+    for (int mode = 0; mode < 2; mode++)
     for (size_t c = 0; c < EP_CORPUS_COUNT_ + 2; c++) {
         const char *text = corpora[c];
         size_t length = strlen(text);
+        bool strict = mode == 1;
 
         size_t starts[EP_MAX_LINES_];
         size_t start_count = ep_hard_line_starts(text, length, starts, EP_MAX_LINES_);
 
         for (size_t w = 0; w < 3; w++) {
             WLX_Text_Line_Record full[EP_MAX_LINES_];
-            size_t full_count = ep_build_wrap_from(&ctx, text, length, widths[w], true, 0,
-                full, EP_MAX_LINES_);
+            size_t full_count = ep_build_wrap_from_mode(&ctx, text, length, widths[w], true,
+                strict, 0, full, EP_MAX_LINES_);
 
             for (size_t k = 0; k < start_count; k++) {
                 WLX_Text_Line_Record tail[EP_MAX_LINES_];
-                size_t tail_count = ep_build_wrap_from(&ctx, text, length, widths[w], true,
-                    starts[k], tail, EP_MAX_LINES_);
+                size_t tail_count = ep_build_wrap_from_mode(&ctx, text, length, widths[w], true,
+                    strict, starts[k], tail, EP_MAX_LINES_);
 
                 if (full_count == 0) {
                     ASSERT_EQ_INT(0, (long)tail_count);

@@ -308,6 +308,7 @@ static void ap_assert_streams_equal(AP_Pair *p, const char *doc_a,
     WLX_Text_Build_Inputs base_a = {
         .ctx = &p->fallback, .text = doc_a, .length = len, .style = ts,
         .rect = { 0, 0, w, 1000 }, .wrap = wrap,
+        .wrap_strict_ws = wrap, // the editor's rule, so the store and this scan agree
         .line_h = ia->geom.env.line_h,
         .text_unit_cap = WLX_EDITOR_MAX_LINE_UNITS,
         .truncate_continue = true,
