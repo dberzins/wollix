@@ -1336,6 +1336,15 @@ typedef struct {
     size_t bytes_capacity;
 } WLX_Perf_Arena_Stats;
 
+// Persistent per-id storage the context holds at frame end: state map
+// entries and slot capacity, editor line indices, text undo journals.
+typedef struct {
+    size_t entries;
+    size_t capacity;
+    size_t editor_indices;
+    size_t undo_journals;
+} WLX_Perf_State_Stats;
+
 typedef struct {
     uint64_t frame_index;
     bool timer_available;
@@ -1344,6 +1353,7 @@ typedef struct {
     WLX_Perf_Text_Stats text;
     WLX_Perf_Arena_Stats arena[WLX_ARENA_GROUP_COUNT];
     WLX_Perf_Allocator_Stats allocator;
+    WLX_Perf_State_Stats state;
 } WLX_Perf_Frame;
 #endif
 
@@ -16992,6 +17002,10 @@ static inline void wlx_perf_frame_publish(WLX_Context *ctx) {
     perf->current.timings.total_ns = wlx_perf_elapsed(perf->frame_start_ns, now);
     perf->current.commands.command_ranges = ctx->arena.cmd_ranges.count;
     wlx_perf_capture_arenas(ctx);
+    perf->current.state.entries = ctx->states.count;
+    perf->current.state.capacity = ctx->states.capacity;
+    perf->current.state.editor_indices = ctx->editor_indices.count;
+    perf->current.state.undo_journals = ctx->text_undo.count;
     perf->last = perf->current;
     perf->capturing = false;
     if (wlx_perf_allocator_sink == &perf->current.allocator) {

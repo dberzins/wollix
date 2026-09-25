@@ -185,6 +185,9 @@ typedef enum {
     GALLERY_PERF_COUNTER_ARENA_GROWS,
     GALLERY_PERF_COUNTER_ALLOC_CALLS,
     GALLERY_PERF_COUNTER_REALLOC_CALLS,
+    GALLERY_PERF_COUNTER_STATE_ENTRIES,
+    GALLERY_PERF_COUNTER_EDITOR_INDICES,
+    GALLERY_PERF_COUNTER_UNDO_JOURNALS,
 } Gallery_Perf_Counter;
 
 static Gallery_Perf_Run gallery_perf = {
@@ -695,6 +698,9 @@ static uint64_t gallery_perf_counter_value(const Gallery_Perf_Sample *sample, Ga
     case GALLERY_PERF_COUNTER_ALLOC_CALLS:
         return sample->core.allocator.alloc_calls + sample->core.allocator.calloc_calls;
     case GALLERY_PERF_COUNTER_REALLOC_CALLS: return sample->core.allocator.realloc_calls;
+    case GALLERY_PERF_COUNTER_STATE_ENTRIES: return sample->core.state.entries;
+    case GALLERY_PERF_COUNTER_EDITOR_INDICES: return sample->core.state.editor_indices;
+    case GALLERY_PERF_COUNTER_UNDO_JOURNALS: return sample->core.state.undo_journals;
     }
     return 0;
 }
@@ -868,6 +874,9 @@ static void gallery_perf_print_summary(const Gallery_State *gs) {
     printf("arena_grows,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_ARENA_GROWS));
     printf("alloc_calls,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_ALLOC_CALLS));
     printf("realloc_calls,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_REALLOC_CALLS));
+    printf("state_entries,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_STATE_ENTRIES));
+    printf("editor_indices,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_EDITOR_INDICES));
+    printf("undo_journals,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_UNDO_JOURNALS));
     printf("arena_high_water,commands=%zu,cmd_ranges=%zu,scratch=%zu,layouts=%zu,slot_offsets=%zu,dyn_offsets=%zu\n",
         gallery_perf_arena_high_water_max(WLX_ARENA_COMMANDS),
         gallery_perf_arena_high_water_max(WLX_ARENA_CMD_RANGES),

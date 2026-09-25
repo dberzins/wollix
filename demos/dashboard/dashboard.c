@@ -188,6 +188,9 @@ typedef struct {
     float    fps;             // smoothed frames per second from the backend timer
     uint64_t draw_calls;      // perf total command count for the prior frame
     size_t   wlx_bytes;       // summed wollix arena capacity in bytes
+    size_t   state_entries;   // persistent state map entries at frame end
+    size_t   editor_indices;  // editor line indices held
+    size_t   undo_journals;   // text undo journals held
     bool     rss_available;   // process RSS measurable on this platform
     double   rss_mb;          // resident set size in megabytes
 } Dashboard_Metrics;
@@ -2771,6 +2774,22 @@ static void dashboard_frame_prepare(WLX_Context *ctx, const Dashboard_Fonts *fon
     ctx->theme = &theme;
 }
 
+#if defined(WLX_PERF) && !defined(WLX_DASHBOARD_WASM)
+// Reports each new high-water mark of the persistent per-id storage on
+// stderr, so a session's peak live widget count can be read back without an
+// on-screen readout: a few lines per session, none once the peaks settle.
+static void dashboard_note_state_peak(const Dashboard_Metrics *m, size_t capacity) {
+    static size_t peak_entries, peak_indices, peak_journals;
+    if (m->state_entries <= peak_entries && m->editor_indices <= peak_indices
+        && m->undo_journals <= peak_journals) return;
+    if (m->state_entries > peak_entries) peak_entries = m->state_entries;
+    if (m->editor_indices > peak_indices) peak_indices = m->editor_indices;
+    if (m->undo_journals > peak_journals) peak_journals = m->undo_journals;
+    fprintf(stderr, "wollix state peak: entries %zu (slots %zu), editor indices %zu, "
+        "undo journals %zu\n", peak_entries, capacity, peak_indices, peak_journals);
+}
+#endif
+
 // Refresh the live Overview metrics for this frame. FPS is derived from the
 // smoothed backend frame delta (passed in, since the SDL3 timer reports the delta
 // since its previous call and must be sampled exactly once per frame); draw calls
@@ -2797,6 +2816,12 @@ static void dashboard_update_metrics(WLX_Context *ctx, float frame_dt) {
         m.draw_calls = pf->commands.total_commands;
         for (int i = 0; i < WLX_ARENA_GROUP_COUNT; i++) bytes += pf->arena[i].bytes_capacity;
         m.wlx_bytes = bytes;
+        m.state_entries  = pf->state.entries;
+        m.editor_indices = pf->state.editor_indices;
+        m.undo_journals  = pf->state.undo_journals;
+#ifndef WLX_DASHBOARD_WASM
+        dashboard_note_state_peak(&m, pf->state.capacity);
+#endif
     }
 #endif
     m.rss_available = dashboard_process_rss_mb(&m.rss_mb);
