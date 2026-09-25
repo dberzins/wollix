@@ -1474,16 +1474,57 @@ typedef struct WLX_Scroll_Panel_State {
 #define WLX_STATE_MAP_MAX_LOAD  0.7f
 
 typedef struct {
-    WLX_Id id;        // 0 = empty slot
+    WLX_Id id;          // 0 = empty slot
     void *data;
-    size_t data_size;
+    size_t data_size;   // bytes the widget asked for (the block may be larger)
+    uint32_t last_seen; // frame index of the last request
 } WLX_State_Map_Slot;
+
+// Reclaimed data blocks of one requested size, linked through their first
+// pointer-sized bytes and handed out zeroed to the next insert of that size.
+typedef struct {
+    size_t size;
+    void *head;
+} WLX_State_Free_Class;
 
 typedef struct {
     WLX_State_Map_Slot *slots;
     size_t count;     // number of occupied slots
     size_t capacity;  // always power of 2 (slot array length)
+    size_t trigger;   // count above which wlx_begin sweeps; 0 = the threshold
+    WLX_State_Free_Class *free_classes;
+    size_t free_class_count;
+    size_t free_class_cap;
 } WLX_State_Map;
+
+// Persistent state reclamation. An entry a widget has not requested for
+// WLX_STATE_MIN_AGE frames is reclaimed at wlx_begin once the map holds more
+// than WLX_STATE_EVICT_THRESHOLD entries (0 disables the automatic sweep;
+// wlx_state_prune still works), never below that, and never an entry
+// requested in the current frame. Reclaimed data blocks are kept on a free
+// list by requested size and reused zeroed, so churn at a stable live count
+// allocates nothing and bare-WASM builds, whose free is a no-op, reclaim
+// too. WLX_STATE_RECYCLE 0 frees them instead; it defaults to 0 under an
+// address sanitizer so a use after reclamation is reported, not hidden.
+#ifndef WLX_STATE_EVICT_THRESHOLD
+#define WLX_STATE_EVICT_THRESHOLD 4096
+#endif
+#ifndef WLX_STATE_MIN_AGE
+#define WLX_STATE_MIN_AGE 300
+#endif
+#ifndef WLX_STATE_RECYCLE
+#if defined(__SANITIZE_ADDRESS__)
+#define WLX_STATE_RECYCLE 0
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define WLX_STATE_RECYCLE 0
+#else
+#define WLX_STATE_RECYCLE 1
+#endif
+#else
+#define WLX_STATE_RECYCLE 1
+#endif
+#endif
 
 // Retained line-geometry entry: the per-unit prefix advances one hard
 // line's build measured, kept across frames so unchanged lines rebuild
@@ -2034,6 +2075,7 @@ typedef struct WLX_Context {
     WLX_Arena_Pool arena;
 
     WLX_State_Map states;
+    uint32_t frame_index;  // advanced by wlx_begin; ages state map entries
 
     // Text line-record scratch: one context-owned, lazily grown buffer that
     // the inputbox geometry build borrows each frame instead of stacking its
@@ -2364,6 +2406,15 @@ WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint
 // by wlx_push_id()/wlx_pop_id() when the same source line is reached multiple times.
 WLXDEF WLX_State wlx_get_state_impl(WLX_Context *ctx, size_t state_size, const char *file, int line);
 #define wlx_get_state(ctx, type) wlx_get_state_impl((ctx), sizeof(type), __FILE__, __LINE__)
+
+// Reclaim persistent state not requested for `max_age` frames (clamped to at
+// least 1: an entry requested in the current frame always survives) and
+// return the number of entries reclaimed. The automatic sweep at wlx_begin
+// does the same with WLX_STATE_MIN_AGE once the map holds more than
+// WLX_STATE_EVICT_THRESHOLD entries; this call is the deterministic release
+// point an application may use instead (after a route change, say).
+// Reclaimed state comes back zeroed on its next request.
+WLXDEF size_t wlx_state_prune(WLX_Context *ctx, uint32_t max_age);
 
 WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler);
 WLXDEF void wlx_begin_immediate(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler);
@@ -6422,6 +6473,8 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
     }
 }
 
+static size_t wlx_state_reclaim(WLX_Context *ctx, uint32_t min_age);
+
 WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler) {
     wlx_assert_backend_ready(ctx);
     assert(input_handler != NULL && "WLX input handler must not be NULL");
@@ -6429,6 +6482,16 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
     WLX_PERF_HOOK(input_begin, ctx);
     input_handler(ctx);
     WLX_PERF_HOOK(input_end, ctx);
+    ctx->frame_index++;
+#if WLX_STATE_EVICT_THRESHOLD != 0
+    // Persistent state reclamation runs here, before any widget of the
+    // frame, and only under pressure: nothing is live to point into the map.
+    {
+        size_t trigger = ctx->states.trigger != 0
+            ? ctx->states.trigger : (size_t)WLX_STATE_EVICT_THRESHOLD;
+        if (ctx->states.count > trigger) wlx_state_reclaim(ctx, WLX_STATE_MIN_AGE);
+    }
+#endif
     ctx->interaction.hot_id = 0;
     ctx->interaction.active_id_seen = false;
     ctx->interaction.enter_consumed = false;
@@ -6878,12 +6941,22 @@ static void wlx_text_undo_stack_free(WLX_Text_Undo_Stack *s);
 
 WLXDEF void wlx_context_destroy(WLX_Context *ctx) {
     WLX_PERF_HOOK(destroy, ctx);
-    // Free state map data entries
+    // Free state map data entries and the reclaimed blocks kept for reuse
     for (size_t i = 0; i < ctx->states.capacity; i++) {
         if (ctx->states.slots[i].id != 0) {
             wlx_free(ctx->states.slots[i].data);
         }
     }
+    for (size_t i = 0; i < ctx->states.free_class_count; i++) {
+        void *block = ctx->states.free_classes[i].head;
+        while (block != NULL) {
+            void *next;
+            memcpy(&next, block, sizeof(void *));
+            wlx_free(block);
+            block = next;
+        }
+    }
+    wlx_free(ctx->states.free_classes);
     // Release pool-owned per-frame buffers and the persistent state map.
     wlx_arena_pool_destroy(&ctx->arena);
     wlx_free(ctx->cands[0].items);
@@ -8607,6 +8680,58 @@ static void wlx_state_map_grow(WLX_State_Map *map) {
     wlx_free(old_slots);
 }
 
+// Every data block is at least pointer-sized so a reclaimed one can carry
+// its free-list link; nothing observes the block's true size.
+static inline size_t wlx_state_block_bytes(size_t data_size) {
+    return data_size < sizeof(void *) ? sizeof(void *) : data_size;
+}
+
+// A zeroed reclaimed block of the requested size, or NULL when none is kept.
+static void *wlx_state_block_take(WLX_State_Map *map, size_t data_size) {
+#if WLX_STATE_RECYCLE
+    for (size_t i = 0; i < map->free_class_count; i++) {
+        WLX_State_Free_Class *c = &map->free_classes[i];
+        if (c->size != data_size || c->head == NULL) continue;
+        void *block = c->head;
+        memcpy(&c->head, block, sizeof(void *));
+        memset(block, 0, wlx_state_block_bytes(data_size));
+        return block;
+    }
+#else
+    WLX_UNUSED(map); WLX_UNUSED(data_size);
+#endif
+    return NULL;
+}
+
+// Keep a reclaimed block for the next insert of its size (or free it when
+// recycling is off, or when the class table cannot grow).
+static void wlx_state_block_give(WLX_State_Map *map, void *block, size_t data_size) {
+#if WLX_STATE_RECYCLE
+    WLX_State_Free_Class *c = NULL;
+    for (size_t i = 0; i < map->free_class_count; i++) {
+        if (map->free_classes[i].size == data_size) { c = &map->free_classes[i]; break; }
+    }
+    if (c == NULL) {
+        if (map->free_class_count == map->free_class_cap) {
+            size_t new_cap = map->free_class_cap == 0 ? 8 : map->free_class_cap * 2;
+            WLX_State_Free_Class *grown = (WLX_State_Free_Class *)wlx_realloc(
+                map->free_classes, new_cap * sizeof(WLX_State_Free_Class));
+            if (grown == NULL) { wlx_free(block); return; }
+            map->free_classes = grown;
+            map->free_class_cap = new_cap;
+        }
+        c = &map->free_classes[map->free_class_count++];
+        c->size = data_size;
+        c->head = NULL;
+    }
+    memcpy(block, &c->head, sizeof(void *));
+    c->head = block;
+#else
+    WLX_UNUSED(map); WLX_UNUSED(data_size);
+    wlx_free(block);
+#endif
+}
+
 // Insert-or-find: returns pointer to the slot
 static WLX_State_Map_Slot *wlx_state_map_get(WLX_State_Map *map, WLX_Id id, size_t data_size) {
     if (map->capacity == 0 || (float)(map->count + 1) > (float)map->capacity * WLX_STATE_MAP_MAX_LOAD) {
@@ -8616,12 +8741,70 @@ static WLX_State_Map_Slot *wlx_state_map_get(WLX_State_Map *map, WLX_Id id, size
     if (slot->id == 0) {
         // New entry
         slot->id = id;
-        slot->data = wlx_calloc(1, data_size);
+        slot->data = wlx_state_block_take(map, data_size);
+        if (slot->data == NULL) slot->data = wlx_calloc(1, wlx_state_block_bytes(data_size));
         WLX_HARD_ASSERT(slot->data != NULL, "Unable to allocate more RAM");
         slot->data_size = data_size;
         map->count++;
     }
     return slot;
+}
+
+// Reclaim every entry whose age (frames since its last request, modulo
+// 2^32) is at least min_age. Deletion is by backward shift: the hole is
+// filled from later members of its probe cluster whose home slot lies at
+// or before the hole, so no tombstone is left and find is unchanged. The
+// walk starts just past an empty slot, so no cluster wraps across its
+// starting point, and re-examines a slot after a shift into it. Data
+// blocks never move; only slots do. Returns the number reclaimed.
+static size_t wlx_state_map_sweep(WLX_State_Map *map, uint32_t frame_index, uint32_t min_age) {
+    size_t cap = map->capacity;
+    if (cap == 0 || map->count == 0) return 0;
+    size_t mask = cap - 1;
+    size_t start = 0;
+    while (map->slots[start].id != 0) start++;  // the load factor keeps one empty
+    size_t evicted = 0;
+    size_t visited = 0;
+    size_t i = (start + 1) & mask;
+    while (visited < cap) {
+        WLX_State_Map_Slot *s = &map->slots[i];
+        if (s->id == 0 || (uint32_t)(frame_index - s->last_seen) < min_age) {
+            i = (i + 1) & mask;
+            visited++;
+            continue;
+        }
+        wlx_state_block_give(map, s->data, s->data_size);
+        map->count--;
+        evicted++;
+        size_t hole = i;
+        for (size_t j = (i + 1) & mask; map->slots[j].id != 0; j = (j + 1) & mask) {
+            size_t home = (size_t)(map->slots[j].id & mask);
+            // Movable when the hole lies on the probe path from home to j.
+            if (((hole - home) & mask) <= ((j - home) & mask)) {
+                map->slots[hole] = map->slots[j];
+                hole = j;
+            }
+        }
+        wlx_zero_struct(map->slots[hole]);
+        // Slot i is re-examined: a later entry may have shifted into it.
+    }
+    return evicted;
+}
+
+// The sweep plus what follows it: the trigger re-armed to twice the
+// survivors (never below the threshold), so a live set above the threshold
+// does not sweep every frame and each sweep is paid for by as many inserts.
+static size_t wlx_state_reclaim(WLX_Context *ctx, uint32_t min_age) {
+    size_t evicted = wlx_state_map_sweep(&ctx->states, ctx->frame_index, min_age);
+    size_t twice = ctx->states.count * 2;
+    size_t floor = (size_t)WLX_STATE_EVICT_THRESHOLD;
+    ctx->states.trigger = twice > floor ? twice : floor;
+    return evicted;
+}
+
+WLXDEF size_t wlx_state_prune(WLX_Context *ctx, uint32_t max_age) {
+    if (max_age == 0) max_age = 1;
+    return wlx_state_reclaim(ctx, max_age);
 }
 
 // ---------------------------------------------------------------------------
@@ -8640,6 +8823,7 @@ WLXDEF WLX_State wlx_get_state_impl(WLX_Context *ctx, size_t state_size, const c
     WLX_State_Map_Slot *slot = wlx_state_map_get(&ctx->states, id, state_size);
     WLX_HARD_ASSERT(slot->data_size == state_size,
         "state id collision: two call sites resolved to the same id with different state sizes");
+    slot->last_seen = ctx->frame_index;
     return (WLX_State){ .id = id, .data = slot->data };
 }
 

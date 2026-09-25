@@ -363,6 +363,42 @@ TEST(perf_steady_state_zero_allocations) {
     wlx_context_destroy(&ctx);
 }
 
+// Churn at a stable live count allocates nothing once warm: a fresh set of
+// 64 ids every frame drives the map past the threshold, the sweep evicts
+// entries older than the minimum age, and their blocks come back through
+// the free list for the next inserts. Warm-up covers the growth to the
+// steady oscillation (two sweep periods); the count then holds.
+TEST(perf_churn_zero_allocations) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+
+    WLX_Perf_Allocator_Stats stats = {0};
+    wlx_perf_allocator_sink = &stats;
+
+    enum { PER_FRAME = 64 };
+    const int warm = 5 * WLX_STATE_MIN_AGE;
+    const int measure = WLX_STATE_MIN_AGE + 50;
+    for (int frame = 0; frame < warm + measure; frame++) {
+        if (frame == warm) memset(&stats, 0, sizeof(stats));
+        test_frame_begin(&ctx, 0, 0, false, false);
+        for (int i = 0; i < PER_FRAME; i++) {
+            wlx_push_id(&ctx, (WLX_Id)frame * PER_FRAME + (WLX_Id)i);
+            (void)wlx_get_state_impl(&ctx, sizeof(float), "churn.c", 1);
+            wlx_pop_id(&ctx);
+        }
+        test_frame_end(&ctx);
+    }
+
+    ASSERT_TRUE(ctx.states.count > (size_t)WLX_STATE_EVICT_THRESHOLD);
+    ASSERT_TRUE(ctx.states.count <= (size_t)PER_FRAME * 2 * WLX_STATE_MIN_AGE + PER_FRAME);
+    ASSERT_EQ_INT((int)stats.alloc_calls, 0);
+    ASSERT_EQ_INT((int)stats.calloc_calls, 0);
+    ASSERT_EQ_INT((int)stats.realloc_calls, 0);
+
+    wlx_perf_allocator_sink = NULL;
+    wlx_context_destroy(&ctx);
+}
+
 
 // ============================================================================
 // Backend perf clock (the scaffold the adapter headers build on)
@@ -479,6 +515,7 @@ SUITE(perf) {
     RUN_TEST(perf_timer_available_when_set);
     RUN_TEST(perf_immediate_mode_zero_commands);
     RUN_TEST(perf_steady_state_zero_allocations);
+    RUN_TEST(perf_churn_zero_allocations);
     RUN_TEST(perf_clock_inc_gated_on_capturing);
     RUN_TEST(perf_clock_timer_unavailable_accumulates_nothing);
     RUN_TEST(perf_clock_accumulates_across_scopes);
