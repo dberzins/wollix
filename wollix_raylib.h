@@ -254,8 +254,8 @@ static inline void wlx_process_raylib_input(WLX_Context *ctx) {
     static bool prev_middle_down = false;
 
     Vector2 mouse_pos = GetMousePosition();
-    ctx->input.mouse_x = mouse_pos.x;
-    ctx->input.mouse_y = mouse_pos.y;
+    ctx->input.mouse_x = (int)mouse_pos.x;
+    ctx->input.mouse_y = (int)mouse_pos.y;
     ctx->input.mouse_down = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
     ctx->input.mouse_clicked = ctx->input.mouse_down && !prev_mouse_down;
     ctx->input.mouse_held = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
@@ -449,7 +449,7 @@ static inline void wlx_raylib_draw_text(const char *text, float x, float y, WLX_
     Font font = (style.font != WLX_FONT_DEFAULT)
               ? *(Font *)(uintptr_t)style.font
               : GetFontDefault();
-    DrawTextEx(font, text, (Vector2){x, y}, style.font_size,
+    DrawTextEx(font, text, (Vector2){x, y}, (float)style.font_size,
                wlx_raylib_effective_spacing(style),
                (Color){style.color.r, style.color.g, style.color.b, style.color.a});
     WLX_RAYLIB_SCOPE_END(text_draw_ns);
@@ -468,7 +468,7 @@ static inline bool wlx_raylib_text_cache_lookup(uintptr_t font_handle,
 #if WLX_RAYLIB_TEXT_CACHE_CAP > 0
     WLX_RAYLIB_PERF_INC(text_cache_lookups);
 
-    uint32_t font_size_bits = wlx_raylib_text_cache_float_bits(style.font_size);
+    uint32_t font_size_bits = wlx_raylib_text_cache_float_bits((float)style.font_size);
     uint32_t spacing_bits   = wlx_raylib_text_cache_float_bits((float)style.spacing);
     uint32_t generation     = g_wlx_raylib_text_cache_generation;
     size_t   mask  = (size_t)WLX_RAYLIB_TEXT_CACHE_SLOTS - 1u;
@@ -540,7 +540,7 @@ static inline void wlx_raylib_text_cache_store(uintptr_t font_handle,
     WLX_Raylib_Text_Cache_Entry *e =
         &g_wlx_raylib_text_cache[g_wlx_raylib_text_cache_pending_slot];
     e->font_handle    = font_handle;
-    e->font_size_bits = wlx_raylib_text_cache_float_bits(style.font_size);
+    e->font_size_bits = wlx_raylib_text_cache_float_bits((float)style.font_size);
     e->spacing_bits   = wlx_raylib_text_cache_float_bits((float)style.spacing);
     e->text_len       = (uint32_t)len;
     e->text_hash      = text_hash;
@@ -584,7 +584,7 @@ static inline void wlx_raylib_measure_text(const char *text, WLX_Text_Style styl
               ? *(Font *)(uintptr_t)style.font
               : GetFontDefault();
     Vector2 size = MeasureTextEx(font, text != NULL ? text : "",
-                                 style.font_size, wlx_raylib_effective_spacing(style));
+                                 (float)style.font_size, wlx_raylib_effective_spacing(style));
     *out_w = size.x;
     *out_h = size.y;
     wlx_raylib_text_cache_store((uintptr_t)style.font, style, len, hash,
@@ -628,7 +628,7 @@ static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_
         return;
     }
 
-    Vector2 size = MeasureTextEx(font, measure_text, style.font_size,
+    Vector2 size = MeasureTextEx(font, measure_text, (float)style.font_size,
                                  wlx_raylib_effective_spacing(style));
     *out_w = size.x;
     *out_h = size.y;
@@ -736,7 +736,7 @@ static inline void wlx_raylib_begin_scissor(WLX_Rect rect, void *user) {
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(begin_scissor_calls);
     WLX_RAYLIB_PERF_INC(clip_change_calls);
-    BeginScissorMode(rect.x, rect.y, rect.w, rect.h);
+    BeginScissorMode((int)rect.x, (int)rect.y, (int)rect.w, (int)rect.h);
     WLX_RAYLIB_SCOPE_END(scissor_ns);
 }
 

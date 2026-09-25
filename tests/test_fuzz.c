@@ -338,7 +338,7 @@ static void fuzz_align_rect_contained_round(unsigned int seed) {
 
         WLX_Align align = aligns[fuzz_randi(0, num_aligns - 1)];
 
-        WLX_Rect r = wlx_get_align_rect(parent, cw, ch, align);
+        WLX_Rect r = wlx_get_align_rect(parent, (float)cw, (float)ch, align);
 
         // Result x >= parent.x
         if (r.x < parent.x - 0.01f) {

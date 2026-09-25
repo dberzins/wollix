@@ -404,6 +404,11 @@ ctest --test-dir build --output-on-failure
 cmake --install build --prefix /some/prefix
 ```
 
+On a multi-config generator (Visual Studio) the configuration is chosen per
+command rather than at configure time: `cmake --build build --config Debug`
+and `ctest --test-dir build -C Debug`. Without `-C`, CTest reports every test
+as `Not Run`.
+
 Raylib is found as a CMake package or as a plain install (`-DWOLLIX_RAYLIB_DIR=~/opt/raylib`);
 SDL3 and SDL3_ttf as CMake packages (`-DCMAKE_PREFIX_PATH="~/opt/sdl3;~/opt/sdl3_ttf"`).
 The Makefile remains the developer tool for the perf gates and the WASM

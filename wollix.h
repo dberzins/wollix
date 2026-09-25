@@ -4279,11 +4279,11 @@ static inline void wlx_dbg_frame_begin(WLX_Context *ctx);
 static inline void wlx_dbg_interaction_id(WLX_Context *ctx, size_t base, const char *file, int line);
 static inline void wlx_dbg_layout_begin(WLX_Context *ctx, int vb_force,
     const WLX_Slot_Size *sizes, size_t count, int orient,
-    int pos, int span, const char *file, int line);
+    int pos, size_t span, const char *file, int line);
 static inline void wlx_dbg_layout_end(WLX_Context *ctx);
 static inline void wlx_dbg_auto_slot(WLX_Context *ctx, float px, int kind, float total, float used);
 static inline void wlx_dbg_slot_overflow(WLX_Context *ctx, const WLX_Layout *l, const char *file, int line);
-static inline void wlx_dbg_widget_begin(WLX_Context *ctx, WLX_Rect cell, float height, int span, bool overflow, const char *file, int line);
+static inline void wlx_dbg_widget_begin(WLX_Context *ctx, WLX_Rect cell, float height, size_t span, bool overflow, const char *file, int line);
 static inline void wlx_dbg_split_begin(WLX_Context *ctx);
 static inline void wlx_dbg_split_suppress_warn(WLX_Context *ctx, bool suppress);
 static inline void wlx_dbg_split_next(WLX_Context *ctx);
@@ -5442,7 +5442,7 @@ static inline WLX_Widget_Frame wlx_widget_frame_begin(
 
     bool pushed = wlx_scope_push(ctx, id);
     WLX_Widget_Rect wg = wlx_widget_begin(ctx, ly);
-    WLX_DBG(widget_begin, ctx, wg.slot_rect, ly.height, (int)ly.span, ly.overflow, file, line);
+    WLX_DBG(widget_begin, ctx, wg.slot_rect, ly.height, ly.span, ly.overflow, file, line);
     ctx->last_widget_rect = wg.rect;
     return (WLX_Widget_Frame){ .slot_rect = wg.slot_rect, .rect = wg.rect, .pushed_scope = pushed };
 }
@@ -5616,7 +5616,7 @@ static inline float wlx_slot_fixed_size(const WLX_Slot_Size *s,
         case WLX_SIZE_PERCENT: return (s->value * adjusted_total) / 100.0f;
         case WLX_SIZE_FILL:    return s->value * viewport;
         case WLX_SIZE_CONTENT: return s->value; // pre-resolved or fallback 0
-        default: WLX_UNREACHABLE("Undefined slot size kind"); return 0.0f;
+        default: WLX_UNREACHABLE("Undefined slot size kind");
     }
 }
 
@@ -17196,7 +17196,7 @@ static inline const WLX_Slot_Size *wlx_dbg_shadow_sizes(const WLX_Context *ctx, 
 
 static inline void wlx_dbg_layout_begin(WLX_Context *ctx, int vb_force,
     const WLX_Slot_Size *sizes, size_t count, int orient,
-    int pos, int span, const char *file, int line) {
+    int pos, size_t span, const char *file, int line) {
     if (!ctx->dbg) return;
     size_t idx = ctx->arena.layouts.count - 1;
     if (idx >= wlx_array_len(ctx->dbg->layout_shadow)) return;
@@ -17222,7 +17222,7 @@ static inline void wlx_dbg_layout_begin(WLX_Context *ctx, int vb_force,
                 size_t parent_count = parent_shadow->count;
                 size_t slot_idx = (pos >= 0)
                     ? (size_t)pos
-                    : (parent->index > (size_t)span ? parent->index - (size_t)span : 0);
+                    : (parent->index > span ? parent->index - span : 0);
                 if (slot_idx < parent_count) {
                     WLX_Size_Kind kind = parent_sizes[slot_idx].kind;
                     // PX/FILL bound directly. CONTENT bounds via measurement
@@ -17262,8 +17262,8 @@ static inline void wlx_dbg_layout_begin(WLX_Context *ctx, int vb_force,
             if (parent->kind == WLX_LAYOUT_LINEAR) {
                 size_t slot_idx = (pos >= 0)
                     ? (size_t)pos
-                    : (parent->index > (size_t)span
-                        ? parent->index - (size_t)span : 0);
+                    : (parent->index > span
+                        ? parent->index - span : 0);
                 WLX_Layout *current = &wlx_pool_layouts(ctx)[idx];
                 float dim = wlx_layout_is_horz(parent) ? current->rect.w : current->rect.h;
                 if (slot_idx < parent_shadow->count
@@ -17402,7 +17402,7 @@ static inline void wlx_dbg_slot_overflow(WLX_Context *ctx, const WLX_Layout *l,
     }
 }
 
-static inline bool wlx_dbg_widget_in_content_slot(WLX_Context *ctx, int span) {
+static inline bool wlx_dbg_widget_in_content_slot(WLX_Context *ctx, size_t span) {
     if (!ctx->dbg) return false;
     if (ctx->arena.layouts.count == 0) return false;
 
@@ -17416,8 +17416,8 @@ static inline bool wlx_dbg_widget_in_content_slot(WLX_Context *ctx, int span) {
             return row < pl->grid.rows && cs[row].kind == WLX_SIZE_CONTENT;
         }
 
-        if (pl->kind == WLX_LAYOUT_LINEAR && pl->index >= (size_t)span
-                && wlx_layout_slot_is_content(ctx, pl, pl->index - (size_t)span))
+        if (pl->kind == WLX_LAYOUT_LINEAR && pl->index >= span
+                && wlx_layout_slot_is_content(ctx, pl, pl->index - span))
             return true;
     }
 
@@ -17429,7 +17429,7 @@ static inline bool wlx_dbg_widget_in_content_slot(WLX_Context *ctx, int span) {
 }
 
 static inline void wlx_dbg_widget_begin(WLX_Context *ctx, WLX_Rect cell,
-                                        float height, int span, bool overflow,
+                                        float height, size_t span, bool overflow,
                                         const char *file, int line) {
     if (!ctx->dbg) return;
     // Warn when a widget's requested height significantly exceeds the slot

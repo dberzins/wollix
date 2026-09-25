@@ -20,6 +20,11 @@ else()
 endif()
 option(WOLLIX_BUILD_TESTS "Build the test binaries and register them with CTest" ${_wollix_top})
 option(WOLLIX_BUILD_DEMOS "Build the Raylib and SDL3 demos when those libraries are found" ${_wollix_top})
+# Last-resort backend for the Raylib demos: build Raylib from source under
+# build/_deps instead of requiring an install. Off by default - it turns a
+# configure into a source download and a dependency build - and consulted only
+# after find_package and the plain-install probe have both come up empty.
+option(WOLLIX_FETCH_RAYLIB "Fetch and build Raylib from source when no installed Raylib is found" OFF)
 
 # ----------------------------------------------------------------------------
 # The consumer target: header-only, C11, plus the compile options the option
@@ -72,12 +77,24 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/wollixConfig.cmake
 install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/wollix)
 
 # The Makefile's warning set, per compiler, for the tests and demos.
+# /W4 is stricter than -Wall -Wextra, so the MSVC leg turns off the classes
+# that have no GNU/Clang counterpart and no bug behind them. They are held to
+# the same substance, not the same flag spelling:
+#   C4127  constant conditional - while(0) in the assertion macros.
+#   C4189  local initialized but not referenced - the $S temporaries MSVC
+#          materializes for the compound literals the option-struct macros
+#          build. Raised at the call site, so it lands on test and demo code
+#          (and on any /W4 consumer) rather than inside the header.
+#   C4310  cast truncates constant value - the deliberate (char)0x80 byte
+#          literals in the UTF-8, clipboard and text-layout tests.
+#   C4996  "unsafe" CRT nags on strcat and friends.
+set(_wollix_warn_msvc /W4 /wd4127 /wd4189 /wd4310 /D_CRT_SECURE_NO_WARNINGS)
 set(_wollix_warn_c
   $<$<COMPILE_LANG_AND_ID:C,GNU,Clang,AppleClang>:-Wall;-Wextra;-Werror=switch>
-  $<$<COMPILE_LANG_AND_ID:C,MSVC>:/W4>)
+  $<$<COMPILE_LANG_AND_ID:C,MSVC>:${_wollix_warn_msvc}>)
 set(_wollix_warn_cxx
   $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Wall;-Wextra;-Werror;-Wno-missing-field-initializers>
-  $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/W4>)
+  $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:${_wollix_warn_msvc}>)
 
 # ----------------------------------------------------------------------------
 # Tests. One list, mirroring the Makefile's `test` target: a binary added
@@ -139,7 +156,16 @@ if(WOLLIX_BUILD_DEMOS)
     add_executable(${name} ${source})
     target_link_libraries(${name} PRIVATE wollix::wollix ${dep})
     target_compile_definitions(${name} PRIVATE ${D_DEFINES})
-    target_compile_options(${name} PRIVATE ${_wollix_warn_c})
+    # C4244 on top of the shared set, for the demos alone. They widen ints into
+    # the float fields of the option structs - a raylib getter's int screen
+    # size, a demo's int row height - and MSVC charges each one to the line the
+    # defaults macro expansion ends on rather than to the designator, so the
+    # warning cannot be silenced where it is actually written. It is the safe
+    # direction and has no counterpart under -Wall -Wextra. The tests keep
+    # C4244 (see the cast in test_fuzz.c) and so does the library: the eight
+    # real conversions at the raylib boundary in wollix_raylib.h are cast.
+    target_compile_options(${name} PRIVATE ${_wollix_warn_c}
+      $<$<COMPILE_LANG_AND_ID:C,MSVC>:/wd4244>)
     if(NOT MSVC)
       target_link_libraries(${name} PRIVATE m)
     endif()
@@ -162,11 +188,29 @@ if(WOLLIX_BUILD_DEMOS)
       if(APPLE)
         target_link_libraries(wollix_raylib_dep INTERFACE
           "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo")
+      elseif(WIN32)
+        target_link_libraries(wollix_raylib_dep INTERFACE opengl32 gdi32 winmm user32 shell32)
       elseif(UNIX)
         target_link_libraries(wollix_raylib_dep INTERFACE GL dl pthread rt X11)
       endif()
       set(raylib_FOUND TRUE)
     endif()
+  endif()
+
+  # Neither an installed package nor a plain install: build Raylib from source
+  # when asked. FetchContent yields the same imported raylib target, so its
+  # own interface libraries (the Windows system libs among them) come along and
+  # the per-platform lists above are not repeated here.
+  if(NOT raylib_FOUND AND WOLLIX_FETCH_RAYLIB)
+    include(FetchContent)
+    set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(raylib
+      URL https://github.com/raysan5/raylib/archive/refs/tags/5.5.tar.gz
+      URL_HASH SHA256=aea98ecf5bc5c5e0b789a76de0083a21a70457050ea4cc2aec7566935f5e258e)
+    FetchContent_MakeAvailable(raylib)
+    target_link_libraries(wollix_raylib_dep INTERFACE raylib)
+    set(raylib_FOUND TRUE)
   endif()
 
   if(raylib_FOUND)
@@ -180,7 +224,8 @@ if(WOLLIX_BUILD_DEMOS)
     wollix_add_demo(dashboard demos/dashboard/dashboard.c wollix_raylib_dep
                     DEFINES WLX_DEBUG WLX_PERF)
   else()
-    message(STATUS "wollix: Raylib not found; Raylib demos skipped (set WOLLIX_RAYLIB_DIR or CMAKE_PREFIX_PATH)")
+    message(STATUS "wollix: Raylib not found; Raylib demos skipped "
+                   "(set WOLLIX_RAYLIB_DIR or CMAKE_PREFIX_PATH, or -DWOLLIX_FETCH_RAYLIB=ON to build it from source)")
   endif()
 
   find_package(SDL3 CONFIG QUIET)

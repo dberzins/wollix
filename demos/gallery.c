@@ -608,11 +608,6 @@ static WLX_Rect gallery_icon_src_for(WLX_Icon id, float target_px) {
     return (WLX_Rect){ (float)r.x, (float)r.y, (float)r.w, (float)r.h };
 }
 
-__attribute__((unused))
-static WLX_Rect gallery_icon_src(WLX_Icon id) {
-    return gallery_icon_src_for(id, 16.0f);
-}
-
 static WLX_Color gallery_icon_tint(const Gallery_Semantic_Theme *sem,
                                    Gallery_Icon_Role role) {
     switch (role) {
@@ -1825,10 +1820,10 @@ static void section_widget(WLX_Context *ctx, Gallery_State *st) {
         wlx_label(ctx, "12 alignment values shown as 30x30 swatches inside 100x200 grid cells:",
             .font_size = SMALL_FS, .height = SMALL_H);
 
-        static const WLX_Slot_Size align_grid_rows[] = {
+        const WLX_Slot_Size align_grid_rows[] = {
             WLX_SLOT_PX(100), WLX_SLOT_PX(100), WLX_SLOT_PX(100), WLX_SLOT_PX(100)
         };
-        static const WLX_Slot_Size align_grid_cols[] = {
+        const WLX_Slot_Size align_grid_cols[] = {
             WLX_SLOT_PX(200), WLX_SLOT_PX(200), WLX_SLOT_PX(200)
         };
         wlx_grid_begin(ctx, 4, 3,

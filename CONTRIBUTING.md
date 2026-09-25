@@ -30,5 +30,9 @@ make test                                   # the Makefile suite
 cmake -B build && cmake --build build && ctest --test-dir build   # the same suite through CTest
 ```
 
+On a multi-config generator (Visual Studio, the Windows/MSVC leg) the build
+and test steps each take the configuration: `cmake --build build --config Debug`
+and `ctest --test-dir build -C Debug`.
+
 Full contribution guidelines (including AI-assisted-contribution disclosure)
 will arrive with v1.0.0.

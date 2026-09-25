@@ -1126,18 +1126,17 @@ static bool gallery_perf_str_starts_with(const char *text, const char *prefix) {
 }
 
 static bool gallery_perf_parse_args(int argc, char **argv, Gallery_State *gs) {
-    int i;
     WLX_UNUSED(gs);
-    for (i = 1; i < argc; i++) {
-        if (gallery_perf_str_starts_with(argv[i], "--perf")) {
+    if (argc > 1) {
+        if (gallery_perf_str_starts_with(argv[1], "--perf")) {
             fprintf(stderr, "gallery perf controls require rebuilding with -DWLX_PERF\n");
             return false;
         }
-        if (gallery_perf_str_eq(argv[i], "--help")) {
+        if (gallery_perf_str_eq(argv[1], "--help")) {
             printf("Wollix gallery has no runtime options in this build. Rebuild with -DWLX_PERF for --perf controls.\n");
             return false;
         }
-        fprintf(stderr, "unknown gallery argument: %s\n", argv[i]);
+        fprintf(stderr, "unknown gallery argument: %s\n", argv[1]);
         return false;
     }
     return true;
