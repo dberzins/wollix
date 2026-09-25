@@ -260,7 +260,7 @@ TEST(overlay_open_ring_cycles_top_layer_only) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
 
-    size_t base_id = 0, over_a = 0, over_b = 0;
+    WLX_Id base_id = 0, over_a = 0, over_b = 0;
     for (int frame = 0; frame < 4; frame++) {
         bool keys_pressed[WLX_KEY_COUNT] = {0};
         if (frame >= 1) keys_pressed[WLX_KEY_TAB] = true;

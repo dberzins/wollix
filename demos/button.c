@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <inttypes.h>
 #include <raylib.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -45,14 +46,14 @@ int main(void) {
                         if (wlx_button(ctx, "BUTTON1",
                             .slot_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .content_align = WLX_CENTER
                         )) {
-                            printf("Button1 ID: %zu, Left mouse clicked at: (%d, %d)\n", ctx->interaction.hot_id, ctx->input.mouse_x, ctx->input.mouse_y);
+                            printf("Button1 ID: %" PRIu64 ", Left mouse clicked at: (%d, %d)\n", ctx->interaction.hot_id, ctx->input.mouse_x, ctx->input.mouse_y);
                             app.button1_clicked = true;
                         }
 
                         if (wlx_button(ctx, "BUTTON2",
                             .slot_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .content_align = WLX_CENTER
                         )) {
-                            printf("Button2 ID: %zu, Left mouse clicked at: (%d, %d)\n", ctx->interaction.hot_id, ctx->input.mouse_x, ctx->input.mouse_y);
+                            printf("Button2 ID: %" PRIu64 ", Left mouse clicked at: (%d, %d)\n", ctx->interaction.hot_id, ctx->input.mouse_x, ctx->input.mouse_y);
                             app.button2_clicked = true;
                         }
 

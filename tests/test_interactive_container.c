@@ -217,7 +217,7 @@ TEST(container_click_fires_on_release) {
     test_frame_end(&ctx);
     ASSERT_TRUE(it.pressed);
     ASSERT_TRUE(!it.clicked);
-    size_t id_press = it.id;
+    WLX_Id id_press = it.id;
 
     // Release while still inside: clicked fires.
     test_frame_begin(&ctx, 20, 20, false, false);

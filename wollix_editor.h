@@ -315,7 +315,7 @@ typedef struct WLX_Editor_Scroll {
 
 // Find or create the line index for a widget id. Returns NULL only on
 // allocation failure.
-static WLX_Editor_Line_Index *wlx_editor_index_get(WLX_Context *ctx, size_t id) {
+static WLX_Editor_Line_Index *wlx_editor_index_get(WLX_Context *ctx, WLX_Id id) {
     WLX_Editor_Line_Index_Cache *cache = &ctx->editor_indices;
     for (size_t i = 0; i < cache->count; i++) {
         if (cache->items[i].id == id) return &cache->items[i];

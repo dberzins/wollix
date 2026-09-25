@@ -1209,6 +1209,11 @@ typedef struct WLX_Cmd WLX_Cmd;
 typedef struct WLX_Cmd_Range WLX_Cmd_Range;
 typedef struct WLX_Scroll_Panel_State WLX_Scroll_Panel_State;
 
+// Widget id: the key of interaction and persistent state, 64-bit on every
+// target. 0 is reserved for "no widget" and the empty slot. Values are not
+// stable across builds (the call site is part of the hash).
+typedef uint64_t WLX_Id;
+
 typedef struct {
     WLX_Allocator *contiguous;  // backs flat float offset arrays
     WLX_Allocator *general;     // backs scratch, commands, layouts, stacks
@@ -1228,7 +1233,7 @@ typedef struct {
     X(cmd_ranges,        sizeof(WLX_Cmd_Range),            gen)    \
     X(layouts,           sizeof(WLX_Layout),               gen)    \
     X(scroll_panels,     sizeof(WLX_Scroll_Panel_State *), gen)    \
-    X(id_stack,          sizeof(size_t),                   gen)    \
+    X(id_stack,          sizeof(WLX_Id),                   gen)    \
     X(opacity_stack,     sizeof(float),                    gen)
 
 #ifdef WLX_PERF
@@ -1265,7 +1270,7 @@ typedef struct WLX_Context WLX_Context;
 #define wlx_pool_slot_size_offsets(ctx)   ((float *)(ctx)->arena.slot_size_offsets.items)
 #define wlx_pool_dyn_offsets(ctx)        ((float *)(ctx)->arena.dyn_offsets.items)
 #define wlx_pool_scroll_panels(ctx)  ((WLX_Scroll_Panel_State **)(ctx)->arena.scroll_panels.items)
-#define wlx_pool_id_stack(ctx)       ((size_t *)(ctx)->arena.id_stack.items)
+#define wlx_pool_id_stack(ctx)       ((WLX_Id *)(ctx)->arena.id_stack.items)
 #define wlx_pool_opacity_stack(ctx)  ((float *)(ctx)->arena.opacity_stack.items)
 
 #define wlx_pool_push(sa, type, item) do { \
@@ -1450,7 +1455,7 @@ typedef struct WLX_Scroll_Panel_State {
     bool pushed_scope;        // true when a scope id was pushed at begin; popped in wlx_scroll_panel_end
 
     // Saved outer auto-scroll context (for nesting non-auto panels inside auto panels)
-    size_t saved_auto_scroll_panel_id;
+    WLX_Id saved_auto_scroll_panel_id;
     float  saved_auto_scroll_total_height;
 } WLX_Scroll_Panel_State;
 
@@ -1459,7 +1464,7 @@ typedef struct WLX_Scroll_Panel_State {
 #define WLX_STATE_MAP_MAX_LOAD  0.7f
 
 typedef struct {
-    size_t id;        // 0 = empty slot
+    WLX_Id id;        // 0 = empty slot
     void *data;
     size_t data_size;
 } WLX_State_Map_Slot;
@@ -1554,7 +1559,7 @@ typedef struct {
 // retained line-geometry store, which follows the index's document
 // identity.
 typedef struct {
-    size_t id;        // widget id
+    WLX_Id id;        // widget id
     size_t *offsets;  // hard line start offsets, count entries
     size_t count;
     size_t cap;
@@ -1620,7 +1625,7 @@ typedef struct {
 } WLX_Text_Undo_Stack;
 
 typedef struct {
-    size_t id;              // widget id
+    WLX_Id id;              // widget id
     uint32_t touch;         // cache clock at the last lookup (eviction aid)
     WLX_Text_Undo_Stack undo;
     WLX_Text_Undo_Stack redo;
@@ -1677,7 +1682,7 @@ typedef struct {
 
 // Handle returned by wlx_get_state() - gives access to both the ID and the data pointer
 typedef struct {
-    size_t id;
+    WLX_Id id;
     void *data;
 } WLX_State;
 
@@ -1915,7 +1920,7 @@ static inline WLX_Color wlx_color_or(WLX_Color a, WLX_Color b) {
 // time (scroll panel viewports, .clip layouts, a popup's own rect) so
 // scrolled-away or clipped-away widgets cannot own the pointer.
 typedef struct {
-    size_t   id;
+    WLX_Id   id;
     WLX_Rect rect;
     int      layer;
     uint8_t  cursor;    // WLX_Cursor_Shape the widget wants while it owns the pointer
@@ -1962,8 +1967,8 @@ typedef struct WLX_Context {
 
     // Widget interaction state (hot = hovered, active = pressed/focused)
     struct {
-        size_t hot_id;
-        size_t active_id;
+        WLX_Id hot_id;
+        WLX_Id active_id;
         bool   active_id_seen; // true if any widget matched active_id this frame
         bool   enter_consumed; // Enter already used this frame (focus blur or newline insert); blocks keyboard activation
         // Frame-begin ownership arbitration (computed from the previous
@@ -1978,13 +1983,13 @@ typedef struct WLX_Context {
         int      pointer_layer;     // layer of the pointer's topmost candidate (0 when none): the wheel belongs to this layer
         bool     press_claimed;     // set when this frame's press owner's own query runs; popups snapshot it around their subtree to detect outside presses
         bool     active_is_focus;   // active_id holder is focus-class (inputbox/editor)
-        size_t   focus_released_id; // holder released at frame begin; it still reports just_unfocused
+        WLX_Id   focus_released_id; // holder released at frame begin; it still reports just_unfocused
         // Keyboard (Tab) focus - a third identity beside hot and active.
         // Traversal runs at frame begin over the previous frame's focusable
         // candidates; FOCUS-class targets bridge into active_id through
         // focus_gained_id so Tab into a field focuses it for typing.
-        size_t   focus_id;            // keyboard-focused widget; 0 = none
-        size_t   focus_gained_id;     // one-shot: traversal landed here this frame
+        WLX_Id   focus_id;            // keyboard-focused widget; 0 = none
+        WLX_Id   focus_gained_id;     // one-shot: traversal landed here this frame
         bool     focus_id_seen;       // focus_id holder was queried this frame (GC mirror of active_id_seen)
         bool     active_consumes_tab; // active_id holder was queried with FOCUS_HOLD_TAB (editor): Tab inserts, no traversal
         bool     tab_consumed;        // one-shot: traversal ate this frame's Tab; text edit must not also insert
@@ -2037,7 +2042,7 @@ typedef struct WLX_Context {
 
     // Auto scroll panel content height tracking
     struct {
-        size_t panel_id;      // 0 = not tracking
+        WLX_Id panel_id;      // 0 = not tracking
         float  total_height;
     } auto_scroll;
 
@@ -2194,7 +2199,7 @@ typedef enum {
 } WLX_Interact_Flags;
 
 typedef struct {
-    size_t id;
+    WLX_Id id;
     bool hover;          // Mouse is over widget
     bool pressed;        // Mouse is currently down on this widget
     bool clicked;        // Click completed (CLICK mode) or keyboard activated
@@ -2272,7 +2277,7 @@ WLXDEF bool wlx_mod_command_down(WLX_Context *ctx);
 // against WLX_Interaction.id. Independent of hot (hover) and active (press /
 // drag / typing focus): a Tab-focused inputbox is both focused and active; a
 // Tab-focused button is focused only and activates on Enter/Space.
-WLXDEF size_t wlx_focused_id(WLX_Context *ctx);
+WLXDEF WLX_Id wlx_focused_id(WLX_Context *ctx);
 // Right/middle mouse button state. The *_clicked variants are one-frame
 // press edges, set by the backend on the frame the button goes down.
 WLXDEF bool wlx_is_mouse_right_down(WLX_Context *ctx);
@@ -2326,7 +2331,7 @@ WLXDEF bool wlx_point_in_rect(int px, int py, int x, int y, int w, int h);
 //
 // Use wlx_push_id()/wlx_pop_id() directly only when you need loop-level or
 // reusable-function-level disambiguation that container `.id` does not cover.
-WLXDEF void wlx_push_id(WLX_Context *ctx, size_t id);
+WLXDEF void wlx_push_id(WLX_Context *ctx, WLX_Id id);
 WLXDEF void wlx_pop_id(WLX_Context *ctx);
 
 // Opacity stack - push region-level opacity that multiplies with theme and per-widget opacity.
@@ -4276,7 +4281,7 @@ static inline bool wlx_dbg_warn_once(WLX_Context *ctx, const char *file, int lin
 static inline void wlx_dbg_opt_defaults(WLX_Context *ctx, bool from_defaults, const char *entry,
     const char *defaults_fn, const char *file, int line);
 static inline void wlx_dbg_frame_begin(WLX_Context *ctx);
-static inline void wlx_dbg_interaction_id(WLX_Context *ctx, size_t base, const char *file, int line);
+static inline void wlx_dbg_interaction_id(WLX_Context *ctx, WLX_Id base, const char *file, int line);
 static inline void wlx_dbg_layout_begin(WLX_Context *ctx, int vb_force,
     const WLX_Slot_Size *sizes, size_t count, int orient,
     int pos, size_t span, const char *file, int line);
@@ -5369,20 +5374,20 @@ static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layo
     return (WLX_Widget_Rect){ .slot_rect = cell, .rect = rect };
 }
 
-static size_t wlx_hash_id(const char *file, int line) {
-    size_t hash = 5381;
+static WLX_Id wlx_hash_id(const char *file, int line) {
+    WLX_Id hash = 5381;
     while (*file) {
         hash = ((hash << 5) + hash) + (unsigned char)(*file);
         file++;
     }
-    hash = ((hash << 5) + hash) + (size_t)line;
+    hash = ((hash << 5) + hash) + (WLX_Id)line;
     return hash;
 }
 
 // djb2 hash for user-supplied string IDs.
-static inline size_t wlx_hash_string(const char *s) {
+static inline WLX_Id wlx_hash_string(const char *s) {
     if (!s) return 0;
-    size_t h = 5381;
+    WLX_Id h = 5381;
     while (*s) {
         h = ((h << 5) + h) + (unsigned char)(*s++);
     }
@@ -6224,8 +6229,8 @@ WLXDEF void wlx_context_init_ex(WLX_Context *ctx, const WLX_Arena_Pool_Config *c
 // backward the latest member before it (wrapping to the last); a start that
 // is not on the ring lands on the first / last member; a ring of one returns
 // that member. 0 when no candidate is focusable.
-static size_t wlx_focus_next_stop(const WLX_Candidate_List *prev,
-                                  size_t start_id, bool backward)
+static WLX_Id wlx_focus_next_stop(const WLX_Candidate_List *prev,
+                                  WLX_Id start_id, bool backward)
 {
     int top = -1;
     for (size_t i = 0; i < prev->count; i++) {
@@ -6284,7 +6289,7 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
     WLX_Candidate_List *prev = &ctx->cands[(ctx->cand_frame ^ 1) & 1];
     ctx->interaction.arbitrate = prev->count > 0;
 
-    size_t owner = 0;
+    WLX_Id owner = 0;
     int best_layer = -1;
     uint8_t owner_cursor = WLX_CURSOR_ARROW;
     uint8_t active_cursor = WLX_CURSOR_ARROW;
@@ -6376,9 +6381,9 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
             && !(ctx->interaction.active_id != 0 && ctx->interaction.active_consumes_tab)) {
         // Start from the keyboard-focused widget, else from a mouse-focused
         // field, so Tab continues from where the user is.
-        size_t start_id = ctx->interaction.focus_id != 0
+        WLX_Id start_id = ctx->interaction.focus_id != 0
             ? ctx->interaction.focus_id : ctx->interaction.active_id;
-        size_t next_id = wlx_focus_next_stop(prev, start_id, wlx_mod_down(ctx, WLX_MOD_SHIFT));
+        WLX_Id next_id = wlx_focus_next_stop(prev, start_id, wlx_mod_down(ctx, WLX_MOD_SHIFT));
         if (next_id != 0) {
             ctx->interaction.focus_id = next_id;
             ctx->interaction.focus_gained_id = next_id;
@@ -8178,8 +8183,8 @@ WLXDEF WLX_Rect wlx_get_align_rect(WLX_Rect parent_rect, float width, float heig
 // ---------------------------------------------------------------------------
 // ID stack for loop disambiguation
 // ---------------------------------------------------------------------------
-static size_t wlx_id_stack_hash(WLX_Context *ctx) {
-    size_t h = 0;
+static WLX_Id wlx_id_stack_hash(WLX_Context *ctx) {
+    WLX_Id h = 0;
     for (size_t i = 0; i < ctx->arena.id_stack.count; i++) {
         h = h * 2654435761u ^ wlx_pool_id_stack(ctx)[i];
     }
@@ -8188,13 +8193,13 @@ static size_t wlx_id_stack_hash(WLX_Context *ctx) {
 
 // Asymmetric hash combine (Boost hash_combine) - avoids the collision-prone
 // plain-XOR that let different (file:line, id_stack) pairs produce the same ID.
-static inline size_t wlx_combine_id_hash(size_t base, size_t stack) {
+static inline WLX_Id wlx_combine_id_hash(WLX_Id base, WLX_Id stack) {
     if (stack == 0) return base; // fast path - no push_id active
     return base ^ (stack + 0x9e3779b9u + (base << 6) + (base >> 2));
 }
 
-WLXDEF void wlx_push_id(WLX_Context *ctx, size_t id) {
-    wlx_pool_push(&ctx->arena.id_stack, size_t, id);
+WLXDEF void wlx_push_id(WLX_Context *ctx, WLX_Id id) {
+    wlx_pool_push(&ctx->arena.id_stack, WLX_Id, id);
 }
 
 WLXDEF void wlx_pop_id(WLX_Context *ctx) {
@@ -8235,8 +8240,8 @@ WLXDEF float wlx_get_opacity(const WLX_Context *ctx) {
 //   FOCUS - Input-like: click to focus, click elsewhere or press Enter to unfocus.
 //   DRAG  - Slider-like: activate on mouse down, stay active while held, deactivate on release.
 //
-static inline size_t wlx_interaction_make_id(WLX_Context *ctx, const char *file, int line) {
-    size_t base = wlx_combine_id_hash(wlx_hash_id(file, line), wlx_id_stack_hash(ctx));
+static inline WLX_Id wlx_interaction_make_id(WLX_Context *ctx, const char *file, int line) {
+    WLX_Id base = wlx_combine_id_hash(wlx_hash_id(file, line), wlx_id_stack_hash(ctx));
     WLX_DBG(interaction_id, ctx, base, file, line);
     return (base == 0) ? 1 : base;  // reserve 0 for "no widget"
 }
@@ -8270,7 +8275,7 @@ static inline void wlx_focus_rect_record(WLX_Context *ctx, WLX_Rect rect) {
     ctx->interaction.focus_clip_active = clipped;
 }
 
-static inline void wlx_interaction_compute_hover(WLX_Context *ctx, size_t id, bool mouse_over, WLX_Interaction *result) {
+static inline void wlx_interaction_compute_hover(WLX_Context *ctx, WLX_Id id, bool mouse_over, WLX_Interaction *result) {
     // Arbitrated frames resolve hover once at frame begin (hot_id holds the
     // owner); the query-time capture below is the bootstrap fallback.
     if (!ctx->interaction.arbitrate) {
@@ -8282,7 +8287,7 @@ static inline void wlx_interaction_compute_hover(WLX_Context *ctx, size_t id, bo
     result->hover = (ctx->interaction.hot_id == id);
 }
 
-static inline void wlx_interaction_handle_click(WLX_Context *ctx, size_t id, bool mouse_over, WLX_Interaction *result) {
+static inline void wlx_interaction_handle_click(WLX_Context *ctx, WLX_Id id, bool mouse_over, WLX_Interaction *result) {
     bool acquire = ctx->interaction.arbitrate
         ? (ctx->interaction.press_owner == id && ctx->input.mouse_clicked
            && ctx->interaction.active_id == 0)
@@ -8303,7 +8308,7 @@ static inline void wlx_interaction_handle_click(WLX_Context *ctx, size_t id, boo
     }
 }
 
-static inline void wlx_interaction_handle_focus(WLX_Context *ctx, size_t id, bool mouse_over, WLX_Interaction *result, bool hold_enter) {
+static inline void wlx_interaction_handle_focus(WLX_Context *ctx, WLX_Id id, bool mouse_over, WLX_Interaction *result, bool hold_enter) {
     bool was_focused = (ctx->interaction.active_id == id);
     result->focused = was_focused;
 
@@ -8359,7 +8364,7 @@ static inline void wlx_interaction_handle_focus(WLX_Context *ctx, size_t id, boo
     result->active = result->focused;
 }
 
-static inline void wlx_interaction_handle_drag(WLX_Context *ctx, size_t id, bool mouse_over, WLX_Interaction *result) {
+static inline void wlx_interaction_handle_drag(WLX_Context *ctx, WLX_Id id, bool mouse_over, WLX_Interaction *result) {
     // press_owner stays latched while the button is held, so only the widget
     // the press landed on may (re)acquire the drag.
     bool acquire = ctx->interaction.arbitrate
@@ -8384,7 +8389,7 @@ static inline void wlx_interaction_handle_drag(WLX_Context *ctx, size_t id, bool
     }
 }
 
-static inline void wlx_interaction_handle_keyboard(WLX_Context *ctx, size_t id, WLX_Interaction *result) {
+static inline void wlx_interaction_handle_keyboard(WLX_Context *ctx, WLX_Id id, WLX_Interaction *result) {
     // Hovered or keyboard-focused widgets activate on Space/Enter.
     if (ctx->interaction.hot_id != id && ctx->interaction.focus_id != id) return;
     // Keyboard activation is only valid when no other widget owns active_id
@@ -8399,7 +8404,7 @@ static inline void wlx_interaction_handle_keyboard(WLX_Context *ctx, size_t id, 
 // Append one interactive query to this frame's candidate list (consumed by
 // next frame's ownership arbitration). Grow-and-reuse storage; a failed
 // grow drops the candidate and arbitration degrades gracefully.
-static inline void wlx_candidates_push(WLX_Context *ctx, size_t id,
+static inline void wlx_candidates_push(WLX_Context *ctx, WLX_Id id,
                                        WLX_Rect rect, int layer,
                                        WLX_Cursor_Shape cursor, bool focusable) {
     WLX_Candidate_List *cur = &ctx->cands[ctx->cand_frame & 1];
@@ -8426,7 +8431,7 @@ static inline void wlx_candidates_push(WLX_Context *ctx, size_t id,
 // flag is set, but only as a local rect-containment check so a disabled
 // widget cannot claim hot ownership from a sibling.
 static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, bool disabled, const char *file, int line) {
-    size_t id = wlx_interaction_make_id(ctx, file, line);
+    WLX_Id id = wlx_interaction_make_id(ctx, file, line);
     WLX_Interaction result = { .id = id };
 
     // The hit zone: the rect clipped to the layer's container clips (scroll
@@ -8520,7 +8525,7 @@ static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect
     return result;
 }
 
-WLXDEF size_t wlx_focused_id(WLX_Context *ctx) {
+WLXDEF WLX_Id wlx_focused_id(WLX_Context *ctx) {
     return ctx->interaction.focus_id;
 }
 
@@ -8545,7 +8550,7 @@ WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint
 // ---------------------------------------------------------------------------
 
 // Find slot for `id` - returns pointer to the slot (empty or matching)
-static WLX_State_Map_Slot *wlx_state_map_find(WLX_State_Map *map, size_t id) {
+static WLX_State_Map_Slot *wlx_state_map_find(WLX_State_Map *map, WLX_Id id) {
     size_t mask = map->capacity - 1;
     size_t idx = id & mask;
     for (;;) {
@@ -8575,7 +8580,7 @@ static void wlx_state_map_grow(WLX_State_Map *map) {
 }
 
 // Insert-or-find: returns pointer to the slot
-static WLX_State_Map_Slot *wlx_state_map_get(WLX_State_Map *map, size_t id, size_t data_size) {
+static WLX_State_Map_Slot *wlx_state_map_get(WLX_State_Map *map, WLX_Id id, size_t data_size) {
     if (map->capacity == 0 || (float)(map->count + 1) > (float)map->capacity * WLX_STATE_MAP_MAX_LOAD) {
         wlx_state_map_grow(map);
     }
@@ -8601,7 +8606,7 @@ static WLX_State_Map_Slot *wlx_state_map_get(WLX_State_Map *map, size_t id, size
 // which add a frame-local sequence so repeated interaction queries in one frame
 // do not collide.
 WLXDEF WLX_State wlx_get_state_impl(WLX_Context *ctx, size_t state_size, const char *file, int line) {
-    size_t id = wlx_combine_id_hash(wlx_hash_id(file, line), wlx_id_stack_hash(ctx));
+    WLX_Id id = wlx_combine_id_hash(wlx_hash_id(file, line), wlx_id_stack_hash(ctx));
     if (id == 0) id = 1;
 
     WLX_State_Map_Slot *slot = wlx_state_map_get(&ctx->states, id, state_size);
@@ -13190,7 +13195,7 @@ static void wlx_text_undo_clear(WLX_Text_Undo_Journal *j, size_t length) {
     j->alloc_failed = false;
 }
 
-static WLX_Text_Undo_Journal *wlx_text_undo_find(WLX_Context *ctx, size_t id) {
+static WLX_Text_Undo_Journal *wlx_text_undo_find(WLX_Context *ctx, WLX_Id id) {
     WLX_Text_Undo_Cache *cache = &ctx->text_undo;
     for (size_t i = 0; i < cache->count; i++) {
         if (cache->items[i].id == id) return &cache->items[i];
@@ -13200,7 +13205,7 @@ static WLX_Text_Undo_Journal *wlx_text_undo_find(WLX_Context *ctx, size_t id) {
 
 // Release a widget's journal outright: a field shown as password keeps no
 // history, including anything recorded before the mode switched.
-static void wlx_text_undo_drop(WLX_Context *ctx, size_t id) {
+static void wlx_text_undo_drop(WLX_Context *ctx, WLX_Id id) {
     WLX_Text_Undo_Cache *cache = &ctx->text_undo;
     for (size_t i = 0; i < cache->count; i++) {
         if (cache->items[i].id != id) continue;
@@ -13214,7 +13219,7 @@ static void wlx_text_undo_drop(WLX_Context *ctx, size_t id) {
 
 // Drop a widget's history when it has one, at the given document length:
 // the editor's line-index probe reports in-place rewrites this way.
-static inline void wlx_text_undo_clear_if_present(WLX_Context *ctx, size_t id,
+static inline void wlx_text_undo_clear_if_present(WLX_Context *ctx, WLX_Id id,
     size_t length)
 {
     wlx_text_undo_clear(wlx_text_undo_find(ctx, id), length);
@@ -13226,7 +13231,7 @@ static inline void wlx_text_undo_clear_if_present(WLX_Context *ctx, size_t id,
 // so the history is dropped before anything could apply it to bytes it
 // never recorded. Returns NULL for password fields (any journal the id had
 // is released) and on allocation failure.
-static WLX_Text_Undo_Journal *wlx_text_undo_get(WLX_Context *ctx, size_t id,
+static WLX_Text_Undo_Journal *wlx_text_undo_get(WLX_Context *ctx, WLX_Id id,
     size_t length, uint32_t revision, bool password)
 {
     if (password) {
@@ -13489,16 +13494,16 @@ static void wlx_text_undo_note_caret_after(WLX_Text_Undo_Journal *j,
 
 #else  // WLX_TEXT_UNDO_ENTRIES == 0: the journal is compiled out.
 
-static inline WLX_Text_Undo_Journal *wlx_text_undo_find(WLX_Context *ctx, size_t id) {
+static inline WLX_Text_Undo_Journal *wlx_text_undo_find(WLX_Context *ctx, WLX_Id id) {
     WLX_UNUSED(ctx); WLX_UNUSED(id);
     return NULL;
 }
-static inline void wlx_text_undo_clear_if_present(WLX_Context *ctx, size_t id,
+static inline void wlx_text_undo_clear_if_present(WLX_Context *ctx, WLX_Id id,
     size_t length)
 {
     WLX_UNUSED(ctx); WLX_UNUSED(id); WLX_UNUSED(length);
 }
-static inline WLX_Text_Undo_Journal *wlx_text_undo_get(WLX_Context *ctx, size_t id,
+static inline WLX_Text_Undo_Journal *wlx_text_undo_get(WLX_Context *ctx, WLX_Id id,
     size_t length, uint32_t revision, bool password)
 {
     WLX_UNUSED(ctx); WLX_UNUSED(id); WLX_UNUSED(length);
@@ -14104,7 +14109,7 @@ static bool wlx_text_edit_handle_mouse(WLX_Context *ctx, WLX_Text_Edit_State *st
 // reports false.
 static bool wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state,
     char *buffer, size_t buffer_size, bool just_focused, bool read_only, bool password,
-    bool multiline, size_t id, uint32_t revision)
+    bool multiline, WLX_Id id, uint32_t revision)
 {
     size_t len = strlen(buffer);
 
@@ -17020,7 +17025,7 @@ typedef struct {
 
 typedef struct WLX_Debug_Context {
     // Call-site hit tracking (detect missing wlx_push_id in loops)
-    struct { size_t key; const char *file; int line; bool warned; } site_hits[512];
+    struct { WLX_Id key; const char *file; int line; bool warned; } site_hits[512];
     size_t site_hits_used;
 
     // Layout debug shadow stack (indexed by layouts.count at push time)
@@ -17037,7 +17042,7 @@ typedef struct WLX_Debug_Context {
     int  warn_count;  // total warnings this frame (for test assertions)
 
     // Once-per-site deduplication table (persistent across frames)
-    size_t warned_site_keys[64];
+    WLX_Id warned_site_keys[64];
     int warned_sites_count;
 
     // Content-slot oscillation companions (keyed by content_state pointer)
@@ -17085,7 +17090,7 @@ static inline void wlx_dbg_warn(WLX_Context *ctx, const char *file, int line,
 
 static inline bool wlx_dbg_warn_once(WLX_Context *ctx, const char *file, int line,
                                      const char *fmt, ...) {
-    size_t site_key;
+    WLX_Id site_key;
 
     if (!ctx->dbg) return false;
     site_key = wlx_hash_id(file != NULL ? file : "", line);
@@ -17140,7 +17145,7 @@ static inline void wlx_dbg_frame_begin(WLX_Context *ctx) {
     wlx_zero_array(wlx_array_len(ctx->dbg->site_hits), ctx->dbg->site_hits);
 }
 
-static inline void wlx_dbg_interaction_id(WLX_Context *ctx, size_t base,
+static inline void wlx_dbg_interaction_id(WLX_Context *ctx, WLX_Id base,
                                           const char *file, int line) {
     if (!ctx->dbg) return;
     // Track per-call-site hits to detect duplicate sites without wlx_push_id.

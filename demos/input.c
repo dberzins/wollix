@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <inttypes.h>
 #include <raylib.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -72,7 +73,7 @@ int main(void) {
                         wlx_inputbox(ctx, "Username:", app.username, sizeof(app.username), .height = 45, .wrap = true, .out_focused = &username_focused);
 
                         if (username_focused && !username_was_focused) {
-                            printf("Username field focused! Active ID: %zu. Type to enter text.\n", ctx->interaction.active_id);
+                            printf("Username field focused! Active ID: %" PRIu64 ". Type to enter text.\n", ctx->interaction.active_id);
                         }
                         if (!username_focused && username_was_focused) {
                             printf("Username field unfocused. Content: '%s'\n", app.username);
