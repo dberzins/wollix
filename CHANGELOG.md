@@ -347,6 +347,13 @@ your own pace before the next minor.
 - `build.sh`, the pre-Makefile demo build script: it built 21 of the 31
   demos (20 Raylib demos plus the SDL3 demo), lacked the SDL3_ttf flags its
   own SDL3 step needed and was referenced by nothing; `make` is the build.
+- `wlx_utf8_next`, a `static inline` in the implementation section that
+  forwarded to `wlx_text_codepoint_next` with its arguments reordered
+  (`s, pos, len` against `text, length, pos`); nothing in the core, the
+  adapters or the editor called it. Code that did calls
+  `wlx_text_codepoint_next(s, len, pos)`, which steps identically,
+  malformed bytes included. The codepoint-stepping cases in
+  `tests/test_utf8.c` now pin `wlx_text_codepoint_next` directly.
 
 ## [0.8.0] - 2026-09-12
 

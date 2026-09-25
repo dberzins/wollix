@@ -214,87 +214,87 @@ TEST(utf8_prev_4byte) {
 }
 
 // ============================================================================
-// wlx_utf8_next
+// wlx_text_codepoint_next
 // ============================================================================
 
-TEST(utf8_next_ascii) {
+TEST(codepoint_next_ascii) {
     const char *s = "AB";
     size_t len = 2;
-    ASSERT_EQ_INT(1, wlx_utf8_next(s, 0, len));
-    ASSERT_EQ_INT(2, wlx_utf8_next(s, 1, len));
-    ASSERT_EQ_INT(2, wlx_utf8_next(s, 2, len)); // at end, stays
+    ASSERT_EQ_INT(1, wlx_text_codepoint_next(s, len, 0));
+    ASSERT_EQ_INT(2, wlx_text_codepoint_next(s, len, 1));
+    ASSERT_EQ_INT(2, wlx_text_codepoint_next(s, len, 2)); // at end, stays
 }
 
-TEST(utf8_next_2byte) {
+TEST(codepoint_next_2byte) {
     // "öB" = ö (2 bytes) + 'B' (1 byte) = 3 bytes total
     const char *s = "\xC3\xB6\x42";
     size_t len = 3;
-    ASSERT_EQ_INT(2, wlx_utf8_next(s, 0, len)); // skip ö
-    ASSERT_EQ_INT(3, wlx_utf8_next(s, 2, len)); // skip B
+    ASSERT_EQ_INT(2, wlx_text_codepoint_next(s, len, 0)); // skip ö
+    ASSERT_EQ_INT(3, wlx_text_codepoint_next(s, len, 2)); // skip B
 }
 
-TEST(utf8_next_3byte) {
+TEST(codepoint_next_3byte) {
     // "€B" = € (3 bytes) + 'B' (1 byte) = 4 bytes total
     const char *s = "\xE2\x82\xAC\x42";
     size_t len = 4;
-    ASSERT_EQ_INT(3, wlx_utf8_next(s, 0, len)); // skip €
-    ASSERT_EQ_INT(4, wlx_utf8_next(s, 3, len)); // skip B
+    ASSERT_EQ_INT(3, wlx_text_codepoint_next(s, len, 0)); // skip €
+    ASSERT_EQ_INT(4, wlx_text_codepoint_next(s, len, 3)); // skip B
 }
 
-TEST(utf8_next_4byte) {
+TEST(codepoint_next_4byte) {
     // "𐐀B" = 𐐀 (4 bytes) + 'B' (1 byte) = 5 bytes total
     const char *s = "\xF0\x90\x90\x80\x42";
     size_t len = 5;
-    ASSERT_EQ_INT(4, wlx_utf8_next(s, 0, len)); // skip 𐐀
-    ASSERT_EQ_INT(5, wlx_utf8_next(s, 4, len)); // skip B
+    ASSERT_EQ_INT(4, wlx_text_codepoint_next(s, len, 0)); // skip 𐐀
+    ASSERT_EQ_INT(5, wlx_text_codepoint_next(s, len, 4)); // skip B
 }
 
 // Malformed input steps one byte at a time - the same one-byte fallback
 // units the line build walks, so caret motion, forward delete, and the
 // password-mask mapping agree with layout over invalid bytes. A stray
 // lead byte must never swallow the real character after it.
-TEST(utf8_next_malformed_lead_steps_one_byte) {
+TEST(codepoint_next_malformed_lead_steps_one_byte) {
     // Stray 2-byte lead followed by ASCII: the 'A' is a real character.
     const char *s = "\xC3\x41";
-    ASSERT_EQ_INT(1, wlx_utf8_next(s, 0, 2)); // stray lead alone
-    ASSERT_EQ_INT(2, wlx_utf8_next(s, 1, 2)); // then the 'A'
+    ASSERT_EQ_INT(1, wlx_text_codepoint_next(s, 2, 0)); // stray lead alone
+    ASSERT_EQ_INT(2, wlx_text_codepoint_next(s, 2, 1)); // then the 'A'
     // Stray 3- and 4-byte leads before ASCII behave the same.
-    ASSERT_EQ_INT(1, wlx_utf8_next("\xE2\x41\x42", 0, 3));
-    ASSERT_EQ_INT(1, wlx_utf8_next("\xF0\x41\x42\x43", 0, 4));
+    ASSERT_EQ_INT(1, wlx_text_codepoint_next("\xE2\x41\x42", 3, 0));
+    ASSERT_EQ_INT(1, wlx_text_codepoint_next("\xF0\x41\x42\x43", 4, 0));
 }
 
-TEST(utf8_next_malformed_continuation_steps_one_byte) {
+TEST(codepoint_next_malformed_continuation_steps_one_byte) {
     // A bare continuation byte is a one-byte unit.
     const char *s = "\x80\x41";
-    ASSERT_EQ_INT(1, wlx_utf8_next(s, 0, 2));
+    ASSERT_EQ_INT(1, wlx_text_codepoint_next(s, 2, 0));
     // A 3-byte lead whose second continuation is broken: one byte.
-    ASSERT_EQ_INT(1, wlx_utf8_next("\xE2\x82\x41", 0, 3));
+    ASSERT_EQ_INT(1, wlx_text_codepoint_next("\xE2\x82\x41", 3, 0));
 }
 
-TEST(utf8_next_truncated_sequence_at_end) {
+TEST(codepoint_next_truncated_sequence_at_end) {
     // A lead byte whose sequence runs past the end steps to the end.
-    ASSERT_EQ_INT(2, wlx_utf8_next("\x41\xC3", 1, 2));
-    ASSERT_EQ_INT(3, wlx_utf8_next("\x41\x42\xE2", 2, 3));
+    ASSERT_EQ_INT(2, wlx_text_codepoint_next("\x41\xC3", 2, 1));
+    ASSERT_EQ_INT(3, wlx_text_codepoint_next("\x41\x42\xE2", 3, 2));
 }
 
-TEST(text_unit_next_agrees_with_utf8_next_on_codepoints) {
+TEST(text_unit_next_agrees_with_codepoint_next_on_codepoints) {
     // On isolated codepoints the unit stepper and the codepoint stepper
-    // agree, valid, malformed and boundary input alike (parameter order
-    // differs); they part only where a codepoint joins the one before it,
-    // which is the unit stepper's job (test_grapheme.c).
+    // agree, valid, malformed and boundary input alike; they part only
+    // where a codepoint joins the one before it, which is the unit
+    // stepper's job (test_grapheme.c).
     const char *cases[] = { "\xC3\x41", "\x80\x41", ("A\xC3\xB6" "B"), "\xFF\xFE", "" };
     for (size_t c = 0; c < wlx_array_len(cases); c++) {
         const char *s = cases[c];
         size_t len = strlen(s);
         for (size_t pos = 0; pos <= len; pos++) {
             ASSERT_EQ_INT((int)wlx_text_unit_next(s, len, pos),
-                (int)wlx_utf8_next(s, pos, len));
+                (int)wlx_text_codepoint_next(s, len, pos));
         }
     }
     // e + U+0301: the codepoint step stops after the e, the unit step
     // carries the mark with it.
     const char *ea = "e\xCC\x81";
-    ASSERT_EQ_INT(1, (int)wlx_utf8_next(ea, 0, 3));
+    ASSERT_EQ_INT(1, (int)wlx_text_codepoint_next(ea, 3, 0));
     ASSERT_EQ_INT(3, (int)wlx_text_unit_next(ea, 3, 0));
 }
 
@@ -360,14 +360,14 @@ SUITE(utf8) {
     RUN_TEST(utf8_prev_4byte);
 
     // next
-    RUN_TEST(utf8_next_ascii);
-    RUN_TEST(utf8_next_2byte);
-    RUN_TEST(utf8_next_3byte);
-    RUN_TEST(utf8_next_4byte);
-    RUN_TEST(utf8_next_malformed_lead_steps_one_byte);
-    RUN_TEST(utf8_next_malformed_continuation_steps_one_byte);
-    RUN_TEST(utf8_next_truncated_sequence_at_end);
-    RUN_TEST(text_unit_next_agrees_with_utf8_next_on_codepoints);
+    RUN_TEST(codepoint_next_ascii);
+    RUN_TEST(codepoint_next_2byte);
+    RUN_TEST(codepoint_next_3byte);
+    RUN_TEST(codepoint_next_4byte);
+    RUN_TEST(codepoint_next_malformed_lead_steps_one_byte);
+    RUN_TEST(codepoint_next_malformed_continuation_steps_one_byte);
+    RUN_TEST(codepoint_next_truncated_sequence_at_end);
+    RUN_TEST(text_unit_next_agrees_with_codepoint_next_on_codepoints);
 
     // round-trip
     RUN_TEST(utf8_roundtrip);

@@ -8841,16 +8841,6 @@ static inline size_t wlx_text_codepoint_prev(const char *text, size_t length, si
     return pos - 1;
 }
 
-// Move byte position forward to the next codepoint boundary.
-// Returns new byte position (len if already at end). Keeps the
-// historical (s, pos, len) parameter order; steps exactly like
-// wlx_text_codepoint_next, including the one-byte fallback on
-// malformed bytes. Codepoint-level on purpose: the text unit is the
-// grapheme cluster (wlx_text_unit_next).
-static inline size_t wlx_utf8_next(const char *s, size_t byte_pos, size_t len) {
-    return wlx_text_codepoint_next(s, len, byte_pos);
-}
-
 // Byte class used by word-wise cursor motion: whitespace separates words;
 // every other byte is a word byte. Scanning single bytes is UTF-8 safe here
 // because the separators are ASCII and multibyte sequences never contain

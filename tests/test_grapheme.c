@@ -239,11 +239,11 @@ TEST(gr_malformed_input_steps_like_codepoints) {
 }
 
 TEST(gr_codepoint_helpers_unchanged) {
-    // wlx_utf8_next / wlx_utf8_prev stay codepoint-level.
-    ASSERT_EQ_INT(1, (long)wlx_utf8_next(GR_EACUTE, 0, 3));
-    ASSERT_EQ_INT(3, (long)wlx_utf8_next(GR_EACUTE, 1, 3));
+    // wlx_text_codepoint_next / wlx_utf8_prev stay codepoint-level.
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_next(GR_EACUTE, 3, 0));
+    ASSERT_EQ_INT(3, (long)wlx_text_codepoint_next(GR_EACUTE, 3, 1));
     ASSERT_EQ_INT(1, (long)wlx_utf8_prev(GR_EACUTE, 3));
-    ASSERT_EQ_INT(4, (long)wlx_utf8_next(GR_FAMILY, 0, 18));
+    ASSERT_EQ_INT(4, (long)wlx_text_codepoint_next(GR_FAMILY, 18, 0));
     ASSERT_EQ_INT(14, (long)wlx_utf8_prev(GR_FAMILY, 18));
     ASSERT_EQ_INT(5, (long)wlx_utf8_slicelen(GR_FAMILY, 18));
 }
