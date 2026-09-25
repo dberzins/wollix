@@ -114,6 +114,7 @@ static int test_span_assert_hits = 0;
 
 // Container Scope ID isolation and no-id collision regression
 #include "test_container_scope.c"
+#include "test_widget_id.c"
 
 // WLX_PERF instrumentation: disabled-build coverage plus guarded histogram,
 // text counter, arena high-water, timer, and immediate-mode snapshot tests.
@@ -311,6 +312,7 @@ int main(void) {
     RUN_SUITE(text_spacing);
     RUN_SUITE(widget_wrapper);
     RUN_SUITE(container_scope);
+    RUN_SUITE(widget_id);
     RUN_SUITE(perf);
     RUN_SUITE(image);
     RUN_SUITE(button_image);

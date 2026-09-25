@@ -2304,7 +2304,7 @@ WLXDEF bool wlx_point_in_rect(int px, int py, int x, int y, int w, int h);
 // ---------------------------------------------------------------------------
 // Wollix uses one shared hash formula for all identity purposes:
 //
-//   id = hash(file, line) ^ id_stack_hash
+//   id = mix(hash(file, line) ^ id_stack_hash)
 //
 // Three conceptual roles map onto this single formula:
 //
@@ -2342,14 +2342,14 @@ WLXDEF float wlx_get_opacity(const WLX_Context *ctx);
 
 // Unified interaction handler - replaces get_widget_state/get_input_state/inline state
 // Use `WLX_Interact_Flags` to specify desired behavior. Only use ONE of CLICK/FOCUS/DRAG.
-// Widget IDs are hash(file, line) ^ id_stack_hash.  The id stack is modified
+// Widget IDs are mix(hash(file, line) ^ id_stack_hash).  The id stack is modified
 // automatically by container `.id` (Scope ID) and manually by wlx_push_id()/wlx_pop_id()
 // when the same source line is reached multiple times (loops, reusable widget functions).
 WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, const char *file, int line);
 
 // Generic persistent state - returns a handle with the state's ID and a pointer
 // to zero-initialized persistent data. The data survives across frames.
-// State IDs are hash(file, line) ^ id_stack_hash - the same formula as Widget IDs.
+// State IDs are mix(hash(file, line) ^ id_stack_hash) - the same formula as Widget IDs.
 // The id stack is modified automatically by container `.id` (Scope ID) and manually
 // by wlx_push_id()/wlx_pop_id() when the same source line is reached multiple times.
 WLXDEF WLX_State wlx_get_state_impl(WLX_Context *ctx, size_t state_size, const char *file, int line);
@@ -5374,6 +5374,18 @@ static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layo
     return (WLX_Widget_Rect){ .slot_rect = cell, .rect = rect };
 }
 
+// Full-avalanche mix (the splitmix64 finalizer). Every widget id passes
+// through it at the combine and the id stack applies it per push, so ids
+// that differ by one call-site line or one pushed value differ in every bit.
+static inline WLX_Id wlx_id_mix(WLX_Id x) {
+    x ^= x >> 30;
+    x *= 0xbf58476d1ce4e5b9ull;
+    x ^= x >> 27;
+    x *= 0x94d049bb133111ebull;
+    x ^= x >> 31;
+    return x;
+}
+
 static WLX_Id wlx_hash_id(const char *file, int line) {
     WLX_Id hash = 5381;
     while (*file) {
@@ -8183,23 +8195,29 @@ WLXDEF WLX_Rect wlx_get_align_rect(WLX_Rect parent_rect, float width, float heig
 // ---------------------------------------------------------------------------
 // ID stack for loop disambiguation
 // ---------------------------------------------------------------------------
-static WLX_Id wlx_id_stack_hash(WLX_Context *ctx) {
-    WLX_Id h = 0;
-    for (size_t i = 0; i < ctx->arena.id_stack.count; i++) {
-        h = h * 2654435761u ^ wlx_pool_id_stack(ctx)[i];
-    }
-    return h;
+// The stack stores running hashes, not the pushed values: each push folds
+// its value into the hash below it through wlx_id_mix, so the hash of the
+// whole stack is its top entry and reading it is O(1). The nonzero seed
+// makes a push of 0 differ from no push, and the per-push mix makes stacks
+// of different depth differ even when they share a suffix ([0, b] vs [b]).
+#define WLX_ID_STACK_SEED 0x9e3779b97f4a7c15ull
+
+static inline WLX_Id wlx_id_stack_hash(WLX_Context *ctx) {
+    size_t n = ctx->arena.id_stack.count;
+    return n > 0 ? wlx_pool_id_stack(ctx)[n - 1] : (WLX_Id)WLX_ID_STACK_SEED;
 }
 
-// Asymmetric hash combine (Boost hash_combine) - avoids the collision-prone
-// plain-XOR that let different (file:line, id_stack) pairs produce the same ID.
+// Combine a call-site hash with the id stack hash. The final mix removes the
+// structure of both inputs (djb2 puts adjacent lines one apart; an unmixed
+// combine let a line step be undone by a pushed value about 64 lower), so
+// no relation between a line step and a pushed value makes two sites meet.
 static inline WLX_Id wlx_combine_id_hash(WLX_Id base, WLX_Id stack) {
-    if (stack == 0) return base; // fast path - no push_id active
-    return base ^ (stack + 0x9e3779b9u + (base << 6) + (base >> 2));
+    return wlx_id_mix(base ^ stack);
 }
 
 WLXDEF void wlx_push_id(WLX_Context *ctx, WLX_Id id) {
-    wlx_pool_push(&ctx->arena.id_stack, WLX_Id, id);
+    WLX_Id top = wlx_id_stack_hash(ctx);
+    wlx_pool_push(&ctx->arena.id_stack, WLX_Id, wlx_id_mix(top ^ id));
 }
 
 WLXDEF void wlx_pop_id(WLX_Context *ctx) {
@@ -8231,7 +8249,7 @@ WLXDEF float wlx_get_opacity(const WLX_Context *ctx) {
 // WLX_INTERACT_KEYBOARD as needed.
 //
 // ID model:
-//   Both interaction IDs and persistent state IDs = hash(file, line) ^ id_stack_hash.
+//   Both interaction IDs and persistent state IDs = mix(hash(file, line) ^ id_stack_hash).
 //   Use wlx_push_id()/wlx_pop_id() when the same source line is reached
 //   multiple times (loops, reusable widget functions).
 //
@@ -8540,7 +8558,7 @@ static inline void wlx_focus_ring_rect(WLX_Context *ctx, WLX_Rect rect) {
 }
 
 WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, const char *file, int line) {
-    // ID = hash(file, line) ^ id_stack_hash.
+    // ID = mix(hash(file, line) ^ id_stack_hash).
     // Use wlx_push_id()/wlx_pop_id() for loop disambiguation.
     return wlx_get_interaction_for(ctx, rect, flags, false, file, line);
 }
@@ -17174,6 +17192,17 @@ static inline void wlx_dbg_interaction_id(WLX_Context *ctx, WLX_Id base,
                         "widget hit multiple times without wlx_push_id()\n"
                         "  hint: wrap each loop iteration in "
                         "wlx_push_id(ctx, i) / wlx_pop_id(ctx)");
+                }
+                break;
+            } else if (ctx->dbg->site_hits[idx].key == base) {
+                // Same key from another site: two widgets share one id.
+                if (!ctx->dbg->site_hits[idx].warned) {
+                    ctx->dbg->site_hits[idx].warned = true;
+                    wlx_dbg_warn(ctx, file, line,
+                        "widget id collision with %s:%d\n"
+                        "  hint: give one of the two sites a wlx_push_id() "
+                        "or a container .id",
+                        ctx->dbg->site_hits[idx].file, ctx->dbg->site_hits[idx].line);
                 }
                 break;
             }
