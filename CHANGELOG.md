@@ -97,6 +97,21 @@ release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
   `%zu` needs `PRIu64`. Every id value changes with the derivation fix under
   Fixed (ids were never stable across builds, since the call site is part of
   the hash).
+- **Persistent widget state has a lifetime.** `wlx_get_state` data, and
+  the state every stateful widget keeps, no longer survives until the
+  program exits. State survives while its id is requested at least once
+  every `WLX_STATE_MIN_AGE` frames (300); unrequested longer, it may be
+  reclaimed at `wlx_begin` once the context holds more than
+  `WLX_STATE_EVICT_THRESHOLD` entries (4096), or by `wlx_state_prune`, and
+  comes back zeroed. Below the threshold nothing is ever reclaimed, so an
+  application whose live set stays under it sees no change. Reclaimed
+  blocks are recycled by size (bare-WASM builds, whose `free` is a no-op,
+  reclaim too); an editor's line index and a widget's undo journal go with
+  their state entry. Migration: state that owns resources, or must outlive
+  long absences under pressure, defines `WLX_STATE_EVICT_THRESHOLD` as
+  `0`; `WLX_State.data` is valid through the frame that returned it, so a
+  pointer kept across frames is outside the contract (under an address
+  sanitizer recycling is off and such a use is reported).
 
 #### Migrating from 0.8
 
@@ -129,6 +144,17 @@ your own pace before the next minor.
    call the `_impl` function.
 
 ### Added
+- **`wlx_state_prune`.** Reclaims persistent state not requested for a
+  caller-chosen number of frames (at least one, so the current frame's
+  widgets always survive) and returns the count; the deterministic release
+  point after a route change. `WLX_STATE_EVICT_THRESHOLD`,
+  `WLX_STATE_MIN_AGE` and `WLX_STATE_RECYCLE` are `#ifndef`-overridable
+  before the include.
+- **State counts in the perf frame.** `WLX_Perf_Frame.state` carries the
+  state map's entries and slot capacity, the editor line index count and
+  the undo journal count at frame end; the gallery's benchmark CSV prints
+  them and the desktop `WLX_PERF` dashboard reports each new peak on
+  stderr.
 - **Per-span colour on the editor (syntax highlighting).** `wlx_editor`
   gains `.span_color` / `.span_color_user`: a callback
   (`WLX_Text_Span_Color_Fn` over a `WLX_Text_Span_Query`) that names the

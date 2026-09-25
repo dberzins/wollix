@@ -138,10 +138,15 @@ every entry point without branching at the call sites:
 | Allocation failure while creating the cache item | NULL for this frame |
 | Unfocused widget | the handler does not run, so no lookup |
 
-The cache is freed by a typed sweep in `wlx_context_destroy`, next to the
-line-index sweep. Each item carries a `touch` stamp (the cache clock at
-its last lookup) so a future state-eviction pass can prune journals of
-widgets that stopped appearing; nothing evicts whole journals today.
+A journal lives exactly as long as its widget's state entry: when the
+state map reclaims the entry (the lifetime rules under `wlx_get_state` in
+API_REFERENCE.md, or `wlx_state_prune`), the journal's stacks are freed
+and its cache item zeroed in place, id 0 marking it free for the next
+widget; a password switch retires it the same way. Items never move. The
+rest is freed by a typed sweep in `wlx_context_destroy`, next to the
+line-index sweep. Each item also carries a `touch` stamp (the cache clock
+at its last lookup), kept as a diagnostic: liveness comes from the state
+map, since a journal is touched only while focused.
 
 ---
 
@@ -626,8 +631,8 @@ Consequences:
   the arena grows to hold it, and it undoes byte-exact. Refusing it would
   drop history exactly when it matters most.
 - **Grow-and-reuse.** Arrays grow on demand and never shrink before the
-  context is destroyed (the same policy as the editor's retained geometry
-  store). An oversize arena stays allocated; on bare WASM, where `free` is
+  journal is retired with its widget's state entry or the context is
+  destroyed (the same policy as the editor's retained geometry store). An oversize arena stays allocated; on bare WASM, where `free` is
   a no-op, that is the same as every retained store there.
 - **Cost.** An eviction event moves at most the cap's worth of entries
   and bytes, once per new step while the stack is full, never per

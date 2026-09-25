@@ -916,7 +916,26 @@ typedef struct {
 ```
 
 Handle returned by `wlx_get_state()`. The `data` pointer is zero-initialized on
-first access and survives across frames.
+first access. Its lifetime:
+
+- `data` is valid through the frame that returned it.
+- The state survives across frames while its id is requested at least once
+  every `WLX_STATE_MIN_AGE` frames (300).
+- State that goes unrequested longer than that may be reclaimed at a
+  `wlx_begin` once the context holds more than `WLX_STATE_EVICT_THRESHOLD`
+  entries (4096), or at any time by `wlx_state_prune`. Below the threshold,
+  and without a prune call, nothing is ever reclaimed.
+- Reclaimed state comes back zeroed on its next request, exactly as a first
+  request.
+- Reclamation drops the block without notice, so state must not own
+  resources: no heap pointers, handles or anything else that needs
+  releasing. An application whose state must own resources, or must
+  outlive long absences, defines `WLX_STATE_EVICT_THRESHOLD` as `0`.
+
+Ages count frames, not seconds. Both macros, and `WLX_STATE_RECYCLE` (`1`;
+`0` under an address sanitizer, so a use after reclamation is reported
+rather than served from a recycled block), are `#ifndef`-overridable before
+the include.
 
 ### `WLX_Inputbox_State`
 
@@ -1954,7 +1973,11 @@ for the coverage matrix.
 ```
 
 Returns a `WLX_State` handle with a pointer to zero-initialized persistent data
-of the given `type`. The data survives across frames.
+of the given `type`. The data survives across frames under the lifetime rules
+listed at `WLX_State`: valid through the frame, kept while requested within
+`WLX_STATE_MIN_AGE` frames, reclaimable only above `WLX_STATE_EVICT_THRESHOLD`
+entries or through `wlx_state_prune`, back zeroed afterwards, never owning
+resources.
 
 State IDs use call-site `file`/`line` plus the ID stack (no frame-local
 counter), so they are stable across frames. Use exactly **one** call per
@@ -1965,8 +1988,22 @@ typedef struct { float scroll_y; int page; } MyState;
 
 WLX_State s = wlx_get_state(ctx, MyState);
 MyState *state = (MyState *)s.data;
-state->page = 1;  // persists until the program exits
+state->page = 1;  // persists across frames under the lifetime rules above
 ```
+
+### `wlx_state_prune`
+
+```c
+size_t wlx_state_prune(WLX_Context *ctx, uint32_t max_age);
+```
+
+Reclaims every persistent state entry not requested for `max_age` frames
+(clamped to at least 1, so an entry requested in the current frame always
+survives) and returns the number reclaimed. The editor line index and the
+undo journal of a reclaimed widget go with it. This is the deterministic
+release point an application may use instead of, or as well as, the
+automatic sweep: after a route change, say. It may be called inside or
+between frames; the `data` pointers of surviving entries do not move.
 
 ### `wlx_push_id` / `wlx_pop_id`
 
@@ -4219,6 +4256,7 @@ typedef struct {
         WLX_Perf_Text_Stats text;
         WLX_Perf_Arena_Stats arena[WLX_ARENA_GROUP_COUNT];
         WLX_Perf_Allocator_Stats allocator;
+        WLX_Perf_State_Stats state;
 } WLX_Perf_Frame;
 ```
 
@@ -4234,6 +4272,8 @@ Core frame snapshot published after each completed `wlx_end()`.
     usage snapshots.
 - `allocator` stores `wlx_malloc` / `wlx_calloc` / `wlx_realloc` / `wlx_free`
     counters and byte totals.
+- `state` stores the persistent storage held at frame end: state map
+    `entries` and slot `capacity`, `editor_indices` and `undo_journals`.
 
 Supporting core sub-structs:
 
@@ -4242,6 +4282,7 @@ Supporting core sub-structs:
 - `WLX_Perf_Text_Stats`
 - `WLX_Perf_Arena_Stats`
 - `WLX_Perf_Allocator_Stats`
+- `WLX_Perf_State_Stats`
 
 ### `wlx_perf_set_timer`
 

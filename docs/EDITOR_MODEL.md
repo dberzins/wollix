@@ -90,6 +90,15 @@ Per open editor id, the context owns a lazily grown array of the byte
 offsets of every hard line start (offset 0 plus one entry after each
 separator). The index makes document geometry pure arithmetic:
 
+The index lives exactly as long as its widget's state entry. When the
+state map reclaims the entry (the lifetime rules under `wlx_get_state` in
+API_REFERENCE.md: unrequested for `WLX_STATE_MIN_AGE` frames while the
+context holds more than `WLX_STATE_EVICT_THRESHOLD` entries, or
+`wlx_state_prune`), the offsets and the retained geometry store are freed
+and the cache item is zeroed in place for the next editor; items never
+move. An editor that returns after that rebuilds its index from the
+document as on its first frame.
+
 - `content_h = line_count * line_h` — the vertical scrollbar is exact
   from counting alone, with zero measuring (wrapped mode ends its range
   at the bottom anchor instead — Section 7).
