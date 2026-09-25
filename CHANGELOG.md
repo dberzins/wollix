@@ -90,6 +90,13 @@ release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
   unchanged. Migration: write `0` for no inset.
 - **Split `.gap` is a literal `0`** like every other container gap (its `-1`
   resolved to `0` and inherited nothing). Omission is unchanged.
+- **`WLX_Id` is the widget id type, 64-bit on every target.** `WLX_State.id`,
+  `WLX_Interaction.id`, `wlx_focused_id` and `wlx_push_id` carry `WLX_Id`
+  (`uint64_t`) instead of `size_t`; on wasm32 ids widen from 32 to 64 bits.
+  Callers that pass or store `size_t` compile unchanged; an id printed with
+  `%zu` needs `PRIu64`. Every id value changes with the derivation fix under
+  Fixed (ids were never stable across builds, since the call site is part of
+  the hash).
 
 #### Migrating from 0.8
 
@@ -242,6 +249,18 @@ your own pace before the next minor.
   redo".
 
 ### Fixed
+- **Widget ids no longer collide across call sites.** Two stateful widgets
+  a few source lines apart inside one `wlx_push_id(row)` loop resolved to
+  the same id from row 65 on (the combine added the stack value linearly
+  beside the shifted site hash, so a line step was undone by a pushed value
+  about 64 lower), and an id stack `[0, b]` hashed like `[b]`, so a reusable
+  widget called inside a loop from index 0 met its standalone call. Either
+  way two widgets shared one state block, or a release build hit the
+  state-size guard's abort. The id stack now stores per-push mixed running
+  hashes from a nonzero seed and the combine passes through a full-avalanche
+  mix (splitmix64), which also makes the stack read O(1); `WLX_DEBUG`
+  builds report two sites that share one key. `tests/test_widget_id.c`
+  pins both cases.
 - **MSVC `/W4` warnings in the header.** The U+FFFD writer copies its three
   bytes instead of casting constants above 127 to `char` (C4310), and two
   `int` font sizes are cast where a `float` is wanted (C4244). No behaviour

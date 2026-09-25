@@ -812,7 +812,7 @@ every platform's default cursor; the enum is append-only.
 
 ```c
 typedef struct {
-    size_t id;
+    WLX_Id id;
     bool hover;           // Mouse is over widget
     bool pressed;         // Mouse is currently down on this widget
     bool clicked;         // Click completed (CLICK mode) or keyboard activated
@@ -894,11 +894,23 @@ designated-initializer pattern as all other widget option structs.
 
 ## Types — Persistent State
 
+### `WLX_Id`
+
+```c
+typedef uint64_t WLX_Id;
+```
+
+The widget id type: the key of every interaction and persistent-state
+lookup, 64-bit on every target including wasm32. `0` is reserved for "no
+widget". Ids derive from the call site and the ID stack (see the Identity
+Model below), so they are not stable across builds; print one with
+`PRIu64`. Callers that pass or store `size_t` compile unchanged.
+
 ### `WLX_State`
 
 ```c
 typedef struct {
-    size_t id;
+    WLX_Id id;
     void  *data;
 } WLX_State;
 ```
@@ -968,7 +980,10 @@ typedef struct {
 } WLX_Id_Stack;
 ```
 
-Stack of extra ID values pushed by `wlx_push_id()`. Stored in `ctx->arena.id_stack`.
+The ID stack. Each entry is the running hash of the stack up to that push
+(not the pushed value itself), so the hash of the whole stack is its top
+entry. Pushed by `wlx_push_id()` and by container `.id`; stored in
+`ctx->arena.id_stack`.
 
 ### `WLX_Allocator`
 
@@ -1204,9 +1219,9 @@ typedef struct {
 
     struct {
         // Three widget identities, each independent of the others:
-        size_t hot_id;          // hover owner this frame (pointer-derived, re-arbitrated every frame)
-        size_t active_id;       // pressed / dragged / typing-focused widget (persists until released)
-        size_t focus_id;        // keyboard (Tab) focus ring; 0 = none
+        WLX_Id hot_id;          // hover owner this frame (pointer-derived, re-arbitrated every frame)
+        WLX_Id active_id;       // pressed / dragged / typing-focused widget (persists until released)
+        WLX_Id focus_id;        // keyboard (Tab) focus ring; 0 = none
         bool   active_id_seen;  // active_id holder was queried this frame (else released at wlx_end)
         bool   focus_id_seen;   // focus_id holder was queried this frame (else released at wlx_end)
         bool   enter_consumed;  // an Enter already blurred a field this frame: no keyboard activation
@@ -1464,7 +1479,7 @@ Rules:
   hover-variant width, gradient, shadow, or glow fields. An *appearing* border is
   expressed with a constant width plus a transparent (`{0}`) base color that
   toggles to an accent `hover_*` color, as in the example above.
-- **Id stability.** The interaction id is `hash(file, line) ^ id_stack` with the
+- **Id stability.** The interaction id is `mix(hash(file, line) ^ id_stack_hash)` with the
   container scope folded in (the same rule `wlx_get_state` uses), so give
   reusable row/card functions a per-instance `.id`.
 - **Supported flags.** `HOVER`, `CLICK`, and `KEYBOARD`. `FOCUS` and `DRAG` are
@@ -1847,8 +1862,14 @@ wlx_layout_begin_s(ctx, WLX_HORZ,
 Wollix uses one shared hash formula for all identity purposes:
 
 ```
-id = hash(file, line) ^ id_stack_hash
+id = mix(hash(file, line) ^ id_stack_hash)
 ```
+
+`mix` is a full-avalanche finalizer, and the ID stack hash is itself mixed
+per push from a nonzero seed, so a source-line step can never be undone by
+a pushed value, a push of `0` differs from no push, and stacks of different
+depth never coincide. Ids are `WLX_Id` (64-bit on every target) and are
+not stable across builds.
 
 Three conceptual roles map onto this formula:
 
@@ -1950,11 +1971,13 @@ state->page = 1;  // persists until the program exits
 ### `wlx_push_id` / `wlx_pop_id`
 
 ```c
-void wlx_push_id(WLX_Context *ctx, size_t id);
+void wlx_push_id(WLX_Context *ctx, WLX_Id id);
 void wlx_pop_id(WLX_Context *ctx);
 ```
 
 Low-level escape hatch that pushes an arbitrary integer onto the ID stack.
+Pushing `0` is a real push, and the same values pushed in a different order
+or at a different depth give a different stack.
 Prefer setting `.id` on container option structs (Scope ID) for
 container-body disambiguation. Use `wlx_push_id`/`wlx_pop_id` directly only
 for loop-level or reusable-function-level disambiguation that container `.id`
@@ -2045,7 +2068,7 @@ inputbox clipboard shortcuts route through this helper.
 ### `wlx_focused_id`
 
 ```c
-size_t wlx_focused_id(WLX_Context *ctx);
+WLX_Id wlx_focused_id(WLX_Context *ctx);
 ```
 
 Id of the widget holding the keyboard (Tab) focus ring, or `0`. Compare

@@ -964,7 +964,8 @@ Every widget gets a unique ID derived from:
 2. **ID stack** — values pushed via `wlx_push_id()`.
 
 Both interaction IDs and persistent state IDs use the same formula:
-`hash(file, line) ^ id_stack_hash`. This means two calls to `wlx_button()` on
+`mix(hash(file, line) ^ id_stack_hash)`, a full-avalanche mix of the call site
+and the ID stack. This means two calls to `wlx_button()` on
 different source lines automatically get different IDs with no user effort.
 
 ### Loop Disambiguation with `wlx_push_id`
@@ -996,7 +997,7 @@ MyState *state = (MyState *)handle.data;
 // state->scroll_y persists across frames
 ```
 
-Persistent state IDs use the same `hash(file, line) ^ id_stack_hash` formula
+Persistent state IDs use the same `mix(hash(file, line) ^ id_stack_hash)` formula
 as interaction IDs, so they are stable across frames. Use `wlx_push_id` when
 the same state call is reached multiple times.
 

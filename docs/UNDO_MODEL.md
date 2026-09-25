@@ -777,7 +777,7 @@ Signature changes the journal introduced, for orientation when reading
 older notes: `wlx_text_edit_delete_selection` and `wlx_text_edit_insert`
 gained a trailing `WLX_Text_Undo_Journal *undo`; `wlx_text_edit_handle_keys`
 gained the same after `span`; `wlx_inputbox_handle_keys` gained
-`size_t id, uint32_t revision`.
+`WLX_Id id, uint32_t revision`.
 
 ---
 
