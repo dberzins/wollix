@@ -317,8 +317,14 @@ typedef struct WLX_Editor_Scroll {
 // allocation failure.
 static WLX_Editor_Line_Index *wlx_editor_index_get(WLX_Context *ctx, WLX_Id id) {
     WLX_Editor_Line_Index_Cache *cache = &ctx->editor_indices;
+    WLX_Editor_Line_Index *retired = NULL;
     for (size_t i = 0; i < cache->count; i++) {
         if (cache->items[i].id == id) return &cache->items[i];
+        if (cache->items[i].id == 0 && retired == NULL) retired = &cache->items[i];
+    }
+    if (retired != NULL) {
+        retired->id = id;   // zeroed when it was retired
+        return retired;
     }
     if (cache->count == cache->capacity) {
         size_t new_cap = cache->capacity == 0 ? 4 : cache->capacity * 2;

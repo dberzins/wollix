@@ -307,7 +307,7 @@ TEST(undo_journal_absent_without_focus_and_for_password_fields) {
     ASSERT_EQ_INT(1, (int)tu_journal(&ctx)->undo.count);
     tu_password = true;
     tu_idle(&ctx, buf, sizeof(buf));
-    ASSERT_EQ_INT(0, (int)ctx.text_undo.count);
+    ASSERT_TRUE(tu_journal(&ctx) == NULL || tu_journal(&ctx)->id == 0);   // retired in place
     wlx_context_destroy(&ctx);
 }
 

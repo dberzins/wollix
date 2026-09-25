@@ -241,6 +241,164 @@ TEST(evict_unreachable_trigger_disables_sweep) {
 }
 
 // ============================================================================
+// Companion caches: an editor's line index and a text widget's undo journal
+// are keyed by the widget's state id and retired in place with it.
+// ============================================================================
+
+// One editor frame at a synthetic site; two editors are two lines.
+static void sev_editor_frame(WLX_Context *ctx, char *buf, size_t cap, size_t *len, int line) {
+    test_frame_begin_full(ctx, 0, 0, false, false, false, 0.0f, NULL, NULL, NULL, 0, NULL);
+    wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+    (void)wlx_editor_impl(ctx, NULL, buf, cap, len,
+        wlx_default_editor_opt(.content_padding = 4, .font_size = 10,
+            .border_width = 0, .wrap = false),
+        "sev_editor", line);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
+// One inputbox frame: a click at (200, 150) focuses it, text types into it.
+static void sev_box_frame(WLX_Context *ctx, char *buf, size_t size,
+                          bool click, const char *text, bool password) {
+    test_frame_begin_full(ctx, 200, 150, click, click, click, 0.0f, NULL, NULL, NULL, 0, text);
+    wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+    (void)wlx_inputbox_impl(ctx, NULL, buf, size,
+        wlx_default_inputbox_opt(.content_padding = 4, .font_size = 10,
+            .wrap = false, .border_width = 0, .password = password),
+        "sev_box", 1);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
+static int sev_live_indices(const WLX_Context *ctx) {
+    int n = 0;
+    for (size_t i = 0; i < ctx->editor_indices.count; i++) n += ctx->editor_indices.items[i].id != 0;
+    return n;
+}
+
+static int sev_live_journals(const WLX_Context *ctx) {
+    int n = 0;
+    for (size_t i = 0; i < ctx->text_undo.count; i++) n += ctx->text_undo.items[i].id != 0;
+    return n;
+}
+
+static const WLX_Editor_Line_Index *sev_first_live_index(const WLX_Context *ctx) {
+    for (size_t i = 0; i < ctx->editor_indices.count; i++)
+        if (ctx->editor_indices.items[i].id != 0) return &ctx->editor_indices.items[i];
+    return NULL;
+}
+
+TEST(cascade_retires_index_and_journal) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char doc[64] = "one\ntwo\nthree";
+    size_t len = strlen(doc);
+    char box[64] = "";
+
+    sev_editor_frame(&ctx, doc, sizeof(doc), &len, 1);
+    ASSERT_EQ_INT(sev_live_indices(&ctx), 1);
+    // A press is arbitrated against the previous frame's candidates, so the
+    // box is drawn once before the click that focuses it.
+    sev_box_frame(&ctx, box, sizeof(box), false, NULL, false);
+    sev_box_frame(&ctx, box, sizeof(box), true, NULL, false);    // focus
+    sev_box_frame(&ctx, box, sizeof(box), false, "ab", false);   // one undo step
+    ASSERT_EQ_STR(box, "ab");
+    ASSERT_EQ_INT(sev_live_journals(&ctx), 1);
+    ASSERT_EQ_INT((int)ctx.text_undo.items[0].undo.count, 1);
+
+    // Neither widget drawn past the minimum age; then pressure.
+    sev_empty_frames(&ctx, WLX_STATE_MIN_AGE + 2);
+    ctx.states.trigger = 1;
+    sev_empty_frames(&ctx, 1);
+
+    ASSERT_EQ_INT(sev_live_indices(&ctx), 0);
+    ASSERT_EQ_INT(sev_live_journals(&ctx), 0);
+    ASSERT_EQ_INT((int)ctx.editor_indices.count, 1);   // retired in place
+    ASSERT_EQ_INT((int)ctx.text_undo.count, 1);
+
+    // Back: the editor rebuilds a fresh index, the box starts a fresh journal.
+    sev_editor_frame(&ctx, doc, sizeof(doc), &len, 1);
+    ASSERT_EQ_INT(sev_live_indices(&ctx), 1);
+    ASSERT_EQ_INT((int)sev_first_live_index(&ctx)->rebuilds, 1);
+    ASSERT_EQ_INT((int)sev_first_live_index(&ctx)->count, 3);
+    sev_box_frame(&ctx, box, sizeof(box), false, NULL, false);
+    sev_box_frame(&ctx, box, sizeof(box), true, NULL, false);
+    sev_box_frame(&ctx, box, sizeof(box), false, "c", false);
+    ASSERT_EQ_STR(box, "abc");   // the click placed the caret; the journal below is the proof
+    ASSERT_EQ_INT(sev_live_journals(&ctx), 1);
+    ASSERT_EQ_INT((int)ctx.text_undo.items[0].undo.count, 1);   // "c" only; "ab" is gone
+    wlx_context_destroy(&ctx);
+}
+
+TEST(cascade_keeps_live) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char a[64] = "a\nb", b[64] = "c\nd\ne";
+    size_t alen = strlen(a), blen = strlen(b);
+
+    sev_editor_frame(&ctx, a, sizeof(a), &alen, 1);
+    sev_editor_frame(&ctx, b, sizeof(b), &blen, 2);
+    ASSERT_EQ_INT(sev_live_indices(&ctx), 2);
+
+    // Only editor 2 is drawn through the window; the sweep evicts editor 1.
+    for (int f = 0; f < WLX_STATE_MIN_AGE + 2; f++) sev_editor_frame(&ctx, b, sizeof(b), &blen, 2);
+    ctx.states.trigger = 1;
+    sev_editor_frame(&ctx, b, sizeof(b), &blen, 2);
+
+    ASSERT_EQ_INT(sev_live_indices(&ctx), 1);
+    const WLX_Editor_Line_Index *live = sev_first_live_index(&ctx);
+    ASSERT_TRUE(live != NULL);
+    ASSERT_EQ_INT((int)live->count, 3);      // editor 2's three lines
+    ASSERT_EQ_INT((int)live->rebuilds, 1);   // never rebuilt: the index survived intact
+    wlx_context_destroy(&ctx);
+}
+
+TEST(retired_item_reused) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char a[64] = "x", c[64] = "y\nz";
+    size_t alen = strlen(a), clen = strlen(c);
+
+    sev_editor_frame(&ctx, a, sizeof(a), &alen, 1);
+    sev_empty_frames(&ctx, 1);
+    // The explicit path runs the same cascade: the editor was not requested
+    // in the last frame, so its entry and with it its index go.
+    ASSERT_TRUE(wlx_state_prune(&ctx, 1) >= 1);
+    ASSERT_EQ_INT(sev_live_indices(&ctx), 0);
+    ASSERT_EQ_INT((int)ctx.editor_indices.count, 1);
+
+    // A different editor takes the retired item instead of growing the cache.
+    sev_editor_frame(&ctx, c, sizeof(c), &clen, 3);
+    ASSERT_EQ_INT(sev_live_indices(&ctx), 1);
+    ASSERT_EQ_INT((int)ctx.editor_indices.count, 1);
+    ASSERT_EQ_INT((int)sev_first_live_index(&ctx)->count, 2);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(password_drop_retires_in_place) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char box[64] = "";
+
+    sev_box_frame(&ctx, box, sizeof(box), true, NULL, false);
+    sev_box_frame(&ctx, box, sizeof(box), false, "ab", false);
+    ASSERT_EQ_INT(sev_live_journals(&ctx), 1);
+    ASSERT_EQ_INT((int)ctx.text_undo.count, 1);
+
+    sev_box_frame(&ctx, box, sizeof(box), false, NULL, true);    // password: history released
+    ASSERT_EQ_INT(sev_live_journals(&ctx), 0);
+    ASSERT_EQ_INT((int)ctx.text_undo.count, 1);                  // the item stays, zeroed
+    ASSERT_EQ_INT((int)ctx.text_undo.items[0].undo.count, 0);
+
+    sev_box_frame(&ctx, box, sizeof(box), false, "c", false);    // plain again: item reused
+    ASSERT_EQ_STR(box, "abc");
+    ASSERT_EQ_INT(sev_live_journals(&ctx), 1);
+    ASSERT_EQ_INT((int)ctx.text_undo.count, 1);
+    ASSERT_EQ_INT((int)ctx.text_undo.items[0].undo.count, 1);
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
@@ -253,4 +411,8 @@ SUITE(state_evict) {
 #endif
     RUN_TEST(evict_backward_shift_model);
     RUN_TEST(evict_unreachable_trigger_disables_sweep);
+    RUN_TEST(cascade_retires_index_and_journal);
+    RUN_TEST(cascade_keeps_live);
+    RUN_TEST(retired_item_reused);
+    RUN_TEST(password_drop_retires_in_place);
 }

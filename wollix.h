@@ -8794,11 +8794,37 @@ static size_t wlx_state_map_sweep(WLX_State_Map *map, uint32_t frame_index, uint
 // The sweep plus what follows it: the trigger re-armed to twice the
 // survivors (never below the threshold), so a live set above the threshold
 // does not sweep every frame and each sweep is paid for by as many inserts.
+// Retire every editor line index and undo journal whose widget no longer
+// has a state entry: the buffers are freed and the item zeroed in place
+// (id 0 marks it free for the next widget), so nothing moves and no pointer
+// taken earlier in the frame moves either. A cache item can lose its
+// entry only through the sweep, so this runs only after one that evicted.
+static void wlx_state_caches_retire(WLX_Context *ctx) {
+    WLX_State_Map *map = &ctx->states;
+    for (size_t i = 0; i < ctx->editor_indices.count; i++) {
+        WLX_Editor_Line_Index *idx = &ctx->editor_indices.items[i];
+        if (idx->id == 0) continue;
+        if (map->capacity != 0 && wlx_state_map_find(map, idx->id)->id == idx->id) continue;
+        wlx_free(idx->offsets);
+        wlx_text_geom_store_free(&idx->geom);
+        wlx_zero_struct(*idx);
+    }
+    for (size_t i = 0; i < ctx->text_undo.count; i++) {
+        WLX_Text_Undo_Journal *j = &ctx->text_undo.items[i];
+        if (j->id == 0) continue;
+        if (map->capacity != 0 && wlx_state_map_find(map, j->id)->id == j->id) continue;
+        wlx_text_undo_stack_free(&j->undo);
+        wlx_text_undo_stack_free(&j->redo);
+        wlx_zero_struct(*j);
+    }
+}
+
 static size_t wlx_state_reclaim(WLX_Context *ctx, uint32_t min_age) {
     size_t evicted = wlx_state_map_sweep(&ctx->states, ctx->frame_index, min_age);
     size_t twice = ctx->states.count * 2;
     size_t floor = (size_t)WLX_STATE_EVICT_THRESHOLD;
     ctx->states.trigger = twice > floor ? twice : floor;
+    if (evicted != 0) wlx_state_caches_retire(ctx);
     return evicted;
 }
 
@@ -13416,17 +13442,15 @@ static WLX_Text_Undo_Journal *wlx_text_undo_find(WLX_Context *ctx, WLX_Id id) {
 }
 
 // Release a widget's journal outright: a field shown as password keeps no
-// history, including anything recorded before the mode switched.
+// history, including anything recorded before the mode switched. The item
+// is retired in place (id 0 marks it free for the next widget); items in
+// this cache never move.
 static void wlx_text_undo_drop(WLX_Context *ctx, WLX_Id id) {
-    WLX_Text_Undo_Cache *cache = &ctx->text_undo;
-    for (size_t i = 0; i < cache->count; i++) {
-        if (cache->items[i].id != id) continue;
-        wlx_text_undo_stack_free(&cache->items[i].undo);
-        wlx_text_undo_stack_free(&cache->items[i].redo);
-        cache->items[i] = cache->items[cache->count - 1];
-        cache->count--;
-        return;
-    }
+    WLX_Text_Undo_Journal *j = wlx_text_undo_find(ctx, id);
+    if (j == NULL) return;
+    wlx_text_undo_stack_free(&j->undo);
+    wlx_text_undo_stack_free(&j->redo);
+    wlx_zero_struct(*j);
 }
 
 // Drop a widget's history when it has one, at the given document length:
@@ -13453,6 +13477,11 @@ static WLX_Text_Undo_Journal *wlx_text_undo_get(WLX_Context *ctx, WLX_Id id,
     WLX_Text_Undo_Cache *cache = &ctx->text_undo;
     WLX_Text_Undo_Journal *j = wlx_text_undo_find(ctx, id);
     if (j == NULL) {
+        for (size_t i = 0; i < cache->count; i++) {
+            if (cache->items[i].id == 0) { j = &cache->items[i]; break; }  // retired item
+        }
+    }
+    if (j == NULL) {
         if (cache->count == cache->capacity) {
             size_t new_cap = cache->capacity == 0 ? 4 : cache->capacity * 2;
             WLX_Text_Undo_Journal *grown = (WLX_Text_Undo_Journal *)wlx_realloc(
@@ -13463,8 +13492,8 @@ static WLX_Text_Undo_Journal *wlx_text_undo_get(WLX_Context *ctx, WLX_Id id,
         }
         j = &cache->items[cache->count++];
         wlx_zero_struct(*j);
-        j->id = id;
     }
+    if (j->id == 0) j->id = id;
     if (!j->guard_seen) {
         j->guard_seen = true;
         j->expected_len = length;
