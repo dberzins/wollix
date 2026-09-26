@@ -25,8 +25,8 @@ extern "C" {
 #endif
 
 static SDL_Renderer *g_wlx_sdl3_renderer = NULL;
-static SDL_Window   *g_wlx_sdl3_window = NULL;   // retained by wlx_context_init_sdl3 for the display scale
-static float         g_wlx_sdl3_scale = 1.0f;    // device pixels per unit this frame (1.0 until a window is known)
+static float         g_wlx_sdl3_scale = 1.0f;    // device pixels per unit this frame (1.0 until a renderer is known)
+static bool          g_wlx_sdl3_scale_fresh = false;  // read by wlx_sdl3_root_rect this frame; the input handler reuses it
 static float g_wlx_sdl3_wheel_delta = 0.0f;
 static float g_wlx_sdl3_wheel_delta_x = 0.0f;
 static char g_wlx_sdl3_text_input[32] = {0};
@@ -188,14 +188,16 @@ static inline WLX_Rect wlx_sdl3_px_rect(WLX_Rect r) {
     return (WLX_Rect){ WLX_SDL3_PX(r.x), WLX_SDL3_PX(r.y), WLX_SDL3_PX(r.w), WLX_SDL3_PX(r.h) };
 }
 
-// Re-read the window's display scale: SDL's "expected scale for displaying
-// content" (pixel density times the display's scale setting), updated by SDL
-// when the setting changes or the window moves. 0.0 is SDL's failure return
-// and means 1.0 here. Called once per frame by the input handler and by
-// wlx_sdl3_root_rect, so a root computed before wlx_begin sees the current
-// value.
+// Re-read the renderer's window display scale: SDL's "expected scale for
+// displaying content" (pixel density times the display's scale setting),
+// updated by SDL when the setting changes or the window moves. 0.0 is SDL's
+// failure return and means 1.0 here. Read once per frame: by
+// wlx_sdl3_root_rect when the application sizes its root with it (so the
+// root and the sample the core receives in wlx_begin agree), otherwise by
+// the input handler.
 static inline void wlx_sdl3_refresh_scale(void) {
-    float scale = (g_wlx_sdl3_window != NULL) ? SDL_GetWindowDisplayScale(g_wlx_sdl3_window) : 0.0f;
+    SDL_Window *window = (g_wlx_sdl3_renderer != NULL) ? SDL_GetRenderWindow(g_wlx_sdl3_renderer) : NULL;
+    float scale = (window != NULL) ? SDL_GetWindowDisplayScale(window) : 0.0f;
     g_wlx_sdl3_scale = (scale > 0.0f) ? scale : 1.0f;
     WLX_SDL3_PERF_INC(content_scale_reads);
 }
@@ -336,7 +338,8 @@ static bool wlx_sdl3_event_watch(void *userdata, SDL_Event *event) {
 }
 
 static inline void wlx_process_sdl3_input(WLX_Context *ctx) {
-    wlx_sdl3_refresh_scale();
+    if (!g_wlx_sdl3_scale_fresh) wlx_sdl3_refresh_scale();
+    g_wlx_sdl3_scale_fresh = false;
     assert(ctx != NULL);
 
     static bool prev_mouse_down = false;
@@ -351,8 +354,10 @@ static inline void wlx_process_sdl3_input(WLX_Context *ctx) {
     float mx = 0.0f;
     float my = 0.0f;
     SDL_MouseButtonFlags mouse = SDL_GetMouseState(&mx, &my);
-    // Window coordinates -> render pixels (pixel density, any render scale or
-    // logical presentation the application set) -> units.
+    // Window coordinates -> render pixels (the window's pixel density) ->
+    // units. The adapter assumes the renderer's own scale and logical
+    // presentation are left at their defaults: its geometry and root rect
+    // are in raw output pixels.
     float rx = mx, ry = my;
     if (g_wlx_sdl3_renderer != NULL) {
         SDL_RenderCoordinatesFromWindow(g_wlx_sdl3_renderer, mx, my, &rx, &ry);
@@ -1656,12 +1661,14 @@ static inline void wlx_sdl3_begin_scissor(WLX_Rect rect, void *user) {
     WLX_SDL3_PERF_INC(begin_scissor_calls);
     WLX_SDL3_PERF_INC(clip_change_calls);
 
-    SDL_Rect r = {
-        .x = (int)rect.x,
-        .y = (int)rect.y,
-        .w = (int)rect.w,
-        .h = (int)rect.h,
-    };
+    // Edges rounded on their own: a device-grid boundary times the scale is a
+    // whole pixel only up to float error (33.333 * 1.5 = 49.99999), and a
+    // truncated x plus a truncated w would drop a pixel column.
+    int x0 = (int)floorf(rect.x + 0.5f);
+    int y0 = (int)floorf(rect.y + 0.5f);
+    int x1 = (int)floorf(rect.x + rect.w + 0.5f);
+    int y1 = (int)floorf(rect.y + rect.h + 0.5f);
+    SDL_Rect r = { .x = x0, .y = y0, .w = x1 - x0, .h = y1 - y0 };
     WLX_SDL3_PERF_INC(set_clip_rect_calls);
     SDL_SetRenderClipRect(g_wlx_sdl3_renderer, &r);
     WLX_SDL3_SCOPE_END(scissor_ns);
@@ -1689,6 +1696,7 @@ static inline float wlx_sdl3_get_content_scale(void *user) {
 static inline WLX_Rect wlx_sdl3_root_rect(void) {
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
     wlx_sdl3_refresh_scale();
+    g_wlx_sdl3_scale_fresh = true;
     int pw = 0, ph = 0;
     SDL_GetRenderOutputSize(g_wlx_sdl3_renderer, &pw, &ph);
     return (WLX_Rect){ 0, 0, (float)pw / g_wlx_sdl3_scale, (float)ph / g_wlx_sdl3_scale };
@@ -1829,10 +1837,9 @@ static inline void wlx_context_init_sdl3(WLX_Context *ctx, SDL_Window *window, S
         g_wlx_sdl3_event_watch_installed = true;
     }
 
-    g_wlx_sdl3_window = window;
-    wlx_sdl3_refresh_scale();
     SDL_StartTextInput(window);
     ctx->backend = wlx_backend_sdl3(renderer);
+    wlx_sdl3_refresh_scale();
 #ifdef WLX_PERF
     wlx_perf_sdl3_install_timer(ctx);
 #endif

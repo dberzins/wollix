@@ -316,7 +316,7 @@ text sizes stay in units. Where the number comes from:
 
 | Backend | Source | Root rect helper |
 |---|---|---|
-| Raylib | `GetRenderWidth() / GetScreenWidth()`, the ratio Raylib applies under `FLAG_WINDOW_HIGHDPI` (1.0 without it) | `wlx_raylib_root_rect()` |
+| Raylib | `GetWindowScaleDPI().x` under `FLAG_WINDOW_HIGHDPI` (1.0 without it; always on macOS), the scale Raylib's own scissor and resize paths apply | `wlx_raylib_root_rect()` |
 | SDL3 | `SDL_GetWindowDisplayScale(window)`, re-read every frame | `wlx_sdl3_root_rect()` |
 | WASM | `window.devicePixelRatio` from the host | the frame call's CSS-pixel size |
 
@@ -4048,13 +4048,19 @@ in units and twice the drawable space on a 2x display under
 
 Set `FLAG_WINDOW_HIGHDPI` before `InitWindow`; Raylib then draws, clips
 and reports the mouse in screen units and scales to the framebuffer
-itself, and the adapter's `get_content_scale` reports that ratio
-(`GetRenderWidth() / GetScreenWidth()`, 1.0 without the flag). Text
-crispness stays with the application, because it owns the atlas: load
-each font at its nominal size times `GetWindowScaleDPI().x` and keep a
-bilinear filter on the texture, and ask widgets for the nominal size as
-before. Raylib's built-in bitmap font has no scaled variant and stays
-soft on a scaled display.
+itself, and the adapter's `get_content_scale` reports that scale
+(`GetWindowScaleDPI().x` under the flag, 1.0 without it; on macOS the
+framebuffer is always the retina one, so the scale applies either way).
+Text crispness stays with the application, because it owns the atlas:
+load each font at its nominal size times `GetWindowScaleDPI().x` and
+keep a bilinear filter on the texture, and ask widgets for the nominal
+size as before. Raylib's built-in bitmap font has no scaled variant and
+stays soft on a scaled display. Raylib's scissor takes whole screen
+units, so a clip edge on a device-grid boundary between units (33.5 at
+2x) is rounded and may sit one device pixel off; the adapter rounds each
+edge on its own so the error never compounds. Requires Raylib 5.6 (5.5
+reports the pixel size from `GetScreenWidth` after a resize under the
+flag on X11 and Windows).
 
 ```c
 SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
@@ -4233,13 +4239,17 @@ static inline WLX_Rect wlx_sdl3_root_rect(void);
 ```
 
 The root rect for `wlx_begin`, in units: the renderer's output size in
-pixels over the window's display scale, which the call re-reads. Create
-the window with `SDL_WINDOW_HIGH_PIXEL_DENSITY` to get a dense backing
-store on displays that offer one. The adapter converts every geometry
-callback and the clip rect from units to pixels itself, never through
-`SDL_SetRenderScale`, and rasterises its font variants at
-`font_size * scale`, so text is crisp at any scale without application
-work; measures come back in units.
+pixels over the window's display scale, which the call re-reads (once per
+frame: the input handler reuses the value, so the root and the sample the
+core receives agree). Create the window with
+`SDL_WINDOW_HIGH_PIXEL_DENSITY` to get a dense backing store on displays
+that offer one. The adapter converts every geometry callback and the clip
+rect from units to pixels itself, never through `SDL_SetRenderScale`, and
+rasterises its font variants at `font_size * scale`, so text is crisp at
+any scale without application work; measures come back in units. It
+assumes the renderer's own scale and logical presentation are left at
+their defaults. The scale is read from the renderer's window, so a table
+built with `wlx_backend_sdl3(renderer)` directly gets it too.
 
 ### `wlx_texture_from_sdl3`
 

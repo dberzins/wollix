@@ -46,8 +46,9 @@ int main(void) {
     wlx_context_init_raylib(ctx);
 
     while (!WindowShouldClose()) {
-        float w = (float)GetScreenWidth();
-        float h = (float)GetScreenHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+        float w = wlx_root.w;
+        float h = wlx_root.h;
         WLX_Rect root = {0, 0, w, h};
 
         WLX_Color bdr = {

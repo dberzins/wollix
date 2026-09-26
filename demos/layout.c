@@ -20,8 +20,9 @@ int main(void) {
     wlx_context_init_raylib(ctx);
 
     while (!WindowShouldClose()) {
-        float w = GetScreenWidth();
-        float h = GetScreenHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+        float w = wlx_root.w;
+        float h = wlx_root.h;
 
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
 

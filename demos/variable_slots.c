@@ -32,8 +32,9 @@ int main(void) {
     wlx_context_init_raylib(ctx);
 
     while (!WindowShouldClose()) {
-        float w = (float)GetScreenWidth();
-        float h = (float)GetScreenHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+        float w = wlx_root.w;
+        float h = wlx_root.h;
         WLX_Rect root = { .x = 0, .y = 0, .w = w, .h = h };
 
         char title[128];

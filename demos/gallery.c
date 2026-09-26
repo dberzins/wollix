@@ -4096,7 +4096,8 @@ static bool gallery_platform_init(Gallery_State *gs) {
     InitWindow(gallery_perf_window_width(WINDOW_WIDTH), gallery_perf_window_height(WINDOW_HEIGHT), "Wollix Widget Gallery");
     SetTargetFPS(TARGET_FPS);
 
-    g_raylib_font = LoadFontEx(GALLERY_FONT_PATH, 32, NULL, 0);
+    int atlas_px = (int)(32.0f * GetWindowScaleDPI().x + 0.5f);   // crisp under FLAG_WINDOW_HIGHDPI
+    g_raylib_font = LoadFontEx(GALLERY_FONT_PATH, atlas_px, NULL, 0);
     g_raylib_font_ok = g_raylib_font.glyphCount > 0;
     if (g_raylib_font_ok) SetTextureFilter(g_raylib_font.texture, TEXTURE_FILTER_BILINEAR);
     else                  printf("WARNING: could not load %s\n", GALLERY_FONT_PATH);

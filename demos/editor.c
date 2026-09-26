@@ -121,8 +121,10 @@ int main(int argc, char **argv) {
         if (IsKeyPressed(KEY_THREE)) generate_mega_line(4u << 20); // one ~4 MB line
         if (IsKeyPressed(KEY_W)) wrap_mode = !wrap_mode;
 
-        float w = GetScreenWidth();
-        float h = GetScreenHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+
+        float w = wlx_root.w;
+        float h = wlx_root.h;
         WLX_Rect r = { .x = 0, .y = 0, .w = w, .h = h };
 
         wlx_begin(ctx, r, wlx_process_raylib_input);

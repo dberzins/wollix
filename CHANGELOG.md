@@ -175,10 +175,12 @@ your own pace before the next minor.
   callback and the clip rect from units to pixels, rasterises its font
   variants at `font_size * scale` and returns measures in units, so text
   is crisp at any scale; the mouse goes through
-  `SDL_RenderCoordinatesFromWindow`. The Raylib adapter reports the ratio
-  Raylib applies (`GetRenderWidth / GetScreenWidth`); text crispness there
-  is the application's atlas size (the API reference's "High-DPI with
-  Raylib"). The web host answers a `content_scale` import with
+  `SDL_RenderCoordinatesFromWindow`. The Raylib adapter reports the scale
+  Raylib applies (`GetWindowScaleDPI` under `FLAG_WINDOW_HIGHDPI`); text
+  crispness there is the application's atlas size (the API reference's
+  "High-DPI with Raylib"). Both native adapters round clip-rect edges on
+  their own, so a device-grid boundary between units never loses a pixel
+  column. The web host answers a `content_scale` import with
   `devicePixelRatio`. Documented under "Coordinate space" in the API
   reference; the option tables now say "in units" where they said "in
   pixels".

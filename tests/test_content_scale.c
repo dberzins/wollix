@@ -52,6 +52,7 @@ TEST(content_scale_null_callback_is_one) {
     ASSERT_EQ_F(wlx_content_scale(&ctx), 1.0f, 0.0f);
     test_frame_end(&ctx);
     ASSERT_EQ_INT(0, wlx_error_count(&ctx));
+    ASSERT_EQ_INT(0, (int)ctx.style_transform_generation);   // a first frame at 1.0 is not a change
     wlx_context_destroy(&ctx);
 }
 

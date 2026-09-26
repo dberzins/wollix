@@ -736,7 +736,15 @@ static inline void wlx_raylib_begin_scissor(WLX_Rect rect, void *user) {
     WLX_RAYLIB_SCOPE_BEGIN();
     WLX_RAYLIB_PERF_INC(begin_scissor_calls);
     WLX_RAYLIB_PERF_INC(clip_change_calls);
-    BeginScissorMode((int)rect.x, (int)rect.y, (int)rect.w, (int)rect.h);
+    // Raylib's scissor takes whole screen units, so a boundary on the device
+    // grid between units (33.5 at 2x) cannot be expressed exactly; rounding
+    // each edge on its own keeps the error to one device pixel and stops it
+    // compounding through the width.
+    int x0 = (int)floorf(rect.x + 0.5f);
+    int y0 = (int)floorf(rect.y + 0.5f);
+    int x1 = (int)floorf(rect.x + rect.w + 0.5f);
+    int y1 = (int)floorf(rect.y + rect.h + 0.5f);
+    BeginScissorMode(x0, y0, x1 - x0, y1 - y0);
     WLX_RAYLIB_SCOPE_END(scissor_ns);
 }
 
@@ -754,17 +762,24 @@ static inline float wlx_raylib_get_frame_time(void *user) {
     return GetFrameTime();
 }
 
-// The content scale Raylib applies: 1.0 without FLAG_WINDOW_HIGHDPI, the
-// framebuffer over the screen size with it (Raylib then draws, clips and
-// reports the mouse in screen units and scales to the framebuffer itself).
-// Not GetWindowScaleDPI, which reports the display's scale even when Raylib
-// is not applying it. The application still owns text crispness: load the
-// atlas at size * GetWindowScaleDPI().x and keep a bilinear filter on it;
-// Raylib's built-in bitmap font has no scaled variant.
+// The content scale Raylib applies, read the way Raylib's own scissor and
+// resize paths read it: the window content scale under FLAG_WINDOW_HIGHDPI,
+// 1.0 without the flag (Raylib then draws, clips and reports the mouse in
+// screen units and scales to the framebuffer itself). On macOS the
+// framebuffer is always the retina one, so the content scale applies whether
+// or not the flag is set. Not the render/screen size ratio: after a resize
+// Raylib stores the logical size in both, while its scale matrix still
+// applies. The application owns text crispness: load the atlas at
+// size * GetWindowScaleDPI().x and keep a bilinear filter on it; Raylib's
+// built-in bitmap font has no scaled variant.
 static inline float wlx_raylib_get_content_scale(void *user) {
     WLX_UNUSED(user);
-    int screen_w = GetScreenWidth();
-    return (screen_w > 0) ? (float)GetRenderWidth() / (float)screen_w : 1.0f;
+#if defined(__APPLE__)
+    float scale = GetWindowScaleDPI().x;
+#else
+    float scale = IsWindowState(FLAG_WINDOW_HIGHDPI) ? GetWindowScaleDPI().x : 1.0f;
+#endif
+    return (scale > 0.0f) ? scale : 1.0f;
 }
 
 // The root rect for wlx_begin, in units: the screen size, which is the

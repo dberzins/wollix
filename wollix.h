@@ -2128,8 +2128,9 @@ typedef struct WLX_Context {
     // backend.get_content_scale exactly once per frame in wlx_begin (1.0
     // when the callback is absent or its value is unusable). Read by the
     // slot-boundary snap and wlx_content_scale only. prev_content_scale is
-    // the previous frame's value: a change bumps style_transform_generation
-    // so retained text geometry measured under the old scale is dropped.
+    // the previous frame's value (1.0 before the first frame): a change bumps
+    // style_transform_generation so retained text geometry measured under the
+    // old scale is dropped.
     float content_scale;
     float prev_content_scale;
 
@@ -6865,8 +6866,11 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
             ctx->content_scale = scale;
         }
     }
-    if (ctx->content_scale != ctx->prev_content_scale) {
-        ctx->style_transform_generation++;
+    {
+        // 1.0 before the first frame (what the accessor reports for a zeroed
+        // context), so a first frame at 1.0 is not a change.
+        float prev = (ctx->prev_content_scale > 0.0f) ? ctx->prev_content_scale : 1.0f;
+        if (ctx->content_scale != prev) ctx->style_transform_generation++;
         ctx->prev_content_scale = ctx->content_scale;
     }
     wlx_frame_arbitrate(ctx);

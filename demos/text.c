@@ -38,9 +38,11 @@ int main(void) {
 
     int cp_count = 0;
     int *codepoints = get_font_codepoints(&cp_count);
-    Font font_sans = LoadFontEx(FONT_PATH_SANS, 20, codepoints, cp_count);
+    int atlas_px = (int)(20.0f * GetWindowScaleDPI().x + 0.5f);   // crisp under FLAG_WINDOW_HIGHDPI
+    Font font_sans = LoadFontEx(FONT_PATH_SANS, atlas_px, codepoints, cp_count);
     free(codepoints);
     bool sans_ok = font_sans.glyphCount > 0;
+    if (sans_ok) SetTextureFilter(font_sans.texture, TEXTURE_FILTER_BILINEAR);
     if (!sans_ok) printf("WARNING: could not load %s\n", FONT_PATH_SANS);
     if (sans_ok) SetTextureFilter(font_sans.texture, TEXTURE_FILTER_BILINEAR);
     WLX_Font h_sans = sans_ok ? wlx_font_from_raylib(&font_sans) : WLX_FONT_DEFAULT;
@@ -52,8 +54,9 @@ int main(void) {
     WLX_Theme theme = wlx_theme_dark;
 
     while (!WindowShouldClose()) {
-        float w = GetScreenWidth();
-        float h = GetScreenHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+        float w = wlx_root.w;
+        float h = wlx_root.h;
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
         theme.font = sans_ok ? h_sans : WLX_FONT_DEFAULT;
         ctx->theme = &theme;

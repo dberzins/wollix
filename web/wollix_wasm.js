@@ -1132,9 +1132,13 @@ function probeCtxFilterSupported() {
         const dpr = window.devicePixelRatio || 1;
         const displayW = canvas.clientWidth;
         const displayH = canvas.clientHeight;
-        if (canvas.width !== displayW * dpr || canvas.height !== displayH * dpr) {
-            canvas.width = displayW * dpr;
-            canvas.height = displayH * dpr;
+        // canvas.width is an integer; compare against the rounded target or
+        // a fractional dpr reallocates the backing store every frame.
+        const targetW = Math.round(displayW * dpr);
+        const targetH = Math.round(displayH * dpr);
+        if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width = targetW;
+            canvas.height = targetH;
             ctx.scale(dpr, dpr);
         }
 
