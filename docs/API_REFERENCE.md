@@ -1381,9 +1381,9 @@ Install the handler; `NULL` restores the default. **Handler contract:** it
 runs on the calling thread inside the misusing call, before the
 degradation; it sees every occurrence (at frame rate while a misuse
 recurs); it may `abort` or `exit`; it must not call any `wlx_` function on
-the same context (a `WLX_DEBUG` build asserts if it does); it must not
-`longjmp` past the frame, because the layout stack and the command ranges
-would be left open.
+the same context (a `WLX_DEBUG` build asserts when a handler causes a
+second report on that context); it must not `longjmp` past the frame,
+because the layout stack and the command ranges would be left open.
 
 ### `wlx_error_count`
 
@@ -1425,6 +1425,7 @@ sites the default prints one suppression line and stays silent.
 | A required pointer that is NULL (`buffer`, `value`, `active`, `selected`, `open`, `length`) | `WLX_ERR_BAD_ARGUMENT` | The widget returns `false` and draws nothing; a dropdown with `options == NULL` and a nonzero count shows no options |
 | More slots than `WLX_CONTENT_SLOTS_MAX` with CONTENT sizes | `WLX_ERR_LIMIT` | CONTENT tracking is off for that layout; its CONTENT slots take their minimum size |
 | No usable backend table at `wlx_begin` | `WLX_ERR_BACKEND` | Reported, then fatal (`WLX_HARD_ASSERT`): there is no frame without a table |
+| A NULL input handler at `wlx_begin` | `WLX_ERR_BAD_ARGUMENT` | The frame runs with no input |
 
 ### Examples
 

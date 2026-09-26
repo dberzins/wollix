@@ -2081,8 +2081,9 @@ typedef struct WLX_Error {
 
 // Handler contract: runs on the calling thread inside the misusing call,
 // before the degradation; may abort or exit; must not call any wlx_
-// function on the same context; must not longjmp past the frame. It sees
-// every occurrence, at frame rate if the misuse recurs each frame.
+// function on the same context (a WLX_DEBUG build asserts when a handler
+// causes a second report); must not longjmp past the frame. It sees every
+// occurrence, at frame rate if the misuse recurs each frame.
 typedef void (*WLX_Error_Fn)(const WLX_Error *err, void *user);
 
 typedef struct WLX_Context {
@@ -5612,12 +5613,15 @@ static WLX_Id wlx_hash_id(const char *file, int line) {
 // Implementation: contract errors
 // ============================================================================
 
-// Default sink dedup: true the first time this (code, caller site, layout
-// site) is seen on the context. Once the table is full one suppression line
+// Default sink dedup: true the first time this (code, message, caller site,
+// layout site) is seen on the context. Once the table is full one suppression line
 // goes out and every further new site is silent; the count and an installed
 // handler are unaffected.
 static bool wlx_error_site_first_seen(WLX_Context *ctx, const WLX_Error *e) {
+    // Messages are static strings, so the pointer identifies the violation;
+    // two different violations at one site and code print one line each.
     WLX_Id key = wlx_id_mix((WLX_Id)e->code
+        ^ wlx_id_mix((WLX_Id)(uintptr_t)e->message)
         ^ wlx_id_mix(wlx_hash_id(e->file != NULL ? e->file : "", e->line))
         ^ (wlx_id_mix(wlx_hash_id(e->layout_file != NULL ? e->layout_file : "", e->layout_line)) << 1));
     for (int i = 0; i < ctx->error_sites_count; i++) {
@@ -6389,8 +6393,10 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
         }
 
         // Dynamic grid: grow rows on demand when cursor/explicit placement
-        // reaches beyond the current row count.
-        if (l->grid.dynamic && (row + rspan) > l->grid.rows) {
+        // reaches beyond the current row count. A span that does not fit
+        // the columns is an overrun and grows nothing.
+        bool cols_ok = col + cspan <= l->grid.cols;
+        if (cols_ok && l->grid.dynamic && (row + rspan) > l->grid.rows) {
             size_t rows_needed = (row + rspan) - l->grid.rows;
             size_t new_total = l->grid.rows + rows_needed;
 
@@ -6409,7 +6415,7 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
             l->count = l->grid.rows * l->grid.cols;
         }
 
-        if (!WLX_CONTRACT(ctx, row + rspan <= l->grid.rows && col + cspan <= l->grid.cols,
+        if (!WLX_CONTRACT(ctx, cols_ok && row + rspan <= l->grid.rows,
                 WLX_ERR_GRID_BOUNDS, "grid overrun: the cell or span lies outside the grid")) {
             l->grid.next_cell_back_color   = (WLX_Color){0};
             l->grid.next_cell_border_color = (WLX_Color){0};
@@ -6766,10 +6772,15 @@ static size_t wlx_state_reclaim(WLX_Context *ctx, uint32_t min_age);
 
 WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler) {
     wlx_assert_backend_ready(ctx);
-    assert(input_handler != NULL && "WLX input handler must not be NULL");
     WLX_PERF_HOOK(frame_begin, ctx);
     WLX_PERF_HOOK(input_begin, ctx);
-    input_handler(ctx);
+    // No handler means no input this frame, not a call through NULL.
+    if (WLX_CONTRACT(ctx, input_handler != NULL, WLX_ERR_BAD_ARGUMENT,
+            "wlx_begin: input handler must not be NULL; the frame runs with no input")) {
+        input_handler(ctx);
+    } else {
+        memset(&ctx->input, 0, sizeof ctx->input);
+    }
     WLX_PERF_HOOK(input_end, ctx);
     ctx->frame_index++;
 #if WLX_STATE_EVICT_THRESHOLD != 0
@@ -8013,6 +8024,8 @@ WLXDEF void wlx_overlay_begin_impl(WLX_Context *ctx, size_t count, WLX_Rect rect
         opt.content_padding_top, opt.content_padding_right,
         opt.content_padding_bottom, opt.content_padding_left);
 
+    count = wlx_contract_count(ctx, count,
+        "wlx_overlay_begin: slot count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", file, line);
     WLX_Layout l = wlx_create_layout(ctx, body, count, opt.orient, opt.gap);
     l.file            = file;
     l.line            = line;
@@ -8084,6 +8097,10 @@ WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, floa
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_layout_begin_auto", "wlx_layout_opt_defaults", file, line);
     WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), file, line);
 
+    if (!WLX_CONTRACT_AT(ctx, slot_px >= 0.0f, WLX_ERR_BAD_ARGUMENT,
+            "wlx_layout_begin_auto: slot size is negative (0 means variable-size mode); using 1 px",
+            file, line))
+        slot_px = 1.0f;
     WLX_Layout l = wlx_create_layout_auto(ctx, frame.rect, orient, slot_px);
     l.file = file;
     l.line = line;
@@ -8148,7 +8165,7 @@ WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_
     l.pushed_scope = frame.pushed_scope;
     wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
     // layout_begin: grid layouts - inherit parent vert_bounded, no per-slot FLEX/FILL check
-    WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, NULL, 0);
+    WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, file, line);
 }
 
 WLXDEF void wlx_grid_begin_auto_impl(WLX_Context *ctx, size_t cols, float row_px, WLX_Grid_Auto_Opt opt,
@@ -16055,6 +16072,9 @@ static inline void wlx_scroll_panel_contribute_to_parent(WLX_Context *ctx, float
                                                          float w_contrib) {
     if (ctx->arena.layouts.count == 0) return;
     WLX_Layout *parent_l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    // A panel whose slot fetch reported an overrun occupies no slot and
+    // contributes nothing, like a widget or a nested layout.
+    if (parent_l->slot_clamped) return;
     // Per-slot bucket needs parent_l->index > 0 (index was already advanced
     // by wlx_get_slot_rect); guard by clamping the index when not eligible.
     size_t slot_index = (parent_l->index > 0) ? (parent_l->index - 1) : WLX_SLOT_SKIP;

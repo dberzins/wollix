@@ -207,6 +207,87 @@ static float es_content_height_with_labels(int labels) {
     return measured;
 }
 
+// Same shape, but the overrunning third child is a scroll panel with an
+// explicit height (the panel prologue contributes its viewport itself).
+static float es_content_height_with_panel_overrun(bool add_panel) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    WLX_Slot_Size sizes[2] = { WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    float measured = -1.0f;
+    for (int frame = 0; frame < 2; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin(&ctx, 2, WLX_VERT, .sizes = sizes);
+        if (frame == 1) {
+            const float *off = wlx_layout_offsets(&ctx, es_top(&ctx));
+            measured = off[1] - off[0];
+        }
+        wlx_layout_begin(&ctx, 2, WLX_VERT);
+        wlx_push_id(&ctx, 1); (void)wlx_label(&ctx, "row"); wlx_pop_id(&ctx);
+        wlx_push_id(&ctx, 2); (void)wlx_label(&ctx, "row"); wlx_pop_id(&ctx);
+        if (add_panel) {
+            wlx_scroll_panel_begin(&ctx, 500.0f, .height = 200.0f);
+            wlx_scroll_panel_end(&ctx);
+        }
+        wlx_layout_end(&ctx);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    wlx_context_destroy(&ctx);
+    return measured;
+}
+
+TEST(scroll_panel_overrun_contributes_nothing) {
+    float without = es_content_height_with_panel_overrun(false);
+    float with    = es_content_height_with_panel_overrun(true);
+    ASSERT_TRUE(without > 0.0f);
+    ASSERT_EQ_F(without, with, 0.001f);
+}
+
+TEST(dynamic_grid_column_overrun_grows_no_row) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin_auto(&ctx, 2, 30.0f);
+    WLX_Layout *top = es_top_mut(&ctx);
+    (void)wlx_get_slot_rect(&ctx, top, -1, 1);
+    (void)wlx_get_slot_rect(&ctx, top, -1, 1);   // the cursor sits at (1, 0)
+    ASSERT_EQ_INT(0, es_count);
+    ASSERT_EQ_INT(1, (int)top->grid.rows);
+    WLX_Rect r = wlx_get_slot_rect(&ctx, top, -1, 3);   // a span wider than the grid
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_GRID_BOUNDS, (int)es_last.code);
+    ASSERT_EQ_INT(1, (int)top->grid.rows);              // no phantom row
+    ASSERT_EQ_INT(2, (int)top->count);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 30, 400, 0 }), r, 0.001f);
+    ASSERT_EQ_INT(1, (int)top->grid.cursor_row);
+    ASSERT_EQ_INT(0, (int)top->grid.cursor_col);
+    // A row that does fit still grows on demand.
+    (void)wlx_get_slot_rect(&ctx, top, -1, 2);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(2, (int)top->grid.rows);
+    wlx_grid_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(null_input_handler_reports_and_runs_without_input) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 10, 10, true, true);
+    test_frame_end(&ctx);
+    wlx_begin(&ctx, ctx.rect, NULL);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_FALSE(ctx.input.mouse_down);                 // last frame's press did not carry over
+    ASSERT_FALSE(ctx.input.mouse_clicked);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    ASSERT_FALSE(wlx_button(&ctx, "quiet"));
+    wlx_layout_end(&ctx);
+    wlx_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
 TEST(slot_overrun_skips_content_contribution) {
     float two   = es_content_height_with_labels(2);
     float three = es_content_height_with_labels(3);   // the third label overruns
@@ -522,6 +603,9 @@ SUITE(error_surface) {
     RUN_TEST(error_direct_create_has_no_site);
     RUN_TEST(slot_overrun_reports_and_collapses);
     RUN_TEST(slot_overrun_skips_content_contribution);
+    RUN_TEST(scroll_panel_overrun_contributes_nothing);
+    RUN_TEST(dynamic_grid_column_overrun_grows_no_row);
+    RUN_TEST(null_input_handler_reports_and_runs_without_input);
     RUN_TEST(positional_slot_past_count_reports);
     RUN_TEST(grid_cell_out_of_range_is_ignored);
     RUN_TEST(grid_auto_advance_past_last_row_collapses);

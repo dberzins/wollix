@@ -240,7 +240,9 @@ TEST(default_sink_prints_once_per_site) {
     ASSERT_EQ_INT(2, test_sink_lines);
     wlx_error_report(&ctx, WLX_ERR_GRID_BOUNDS, "same site", "site.c", 11);    // another code
     ASSERT_EQ_INT(3, test_sink_lines);
-    ASSERT_EQ_INT(7, wlx_error_count(&ctx));
+    wlx_error_report(&ctx, WLX_ERR_GRID_BOUNDS, "another message", "site.c", 11); // another violation
+    ASSERT_EQ_INT(4, test_sink_lines);
+    ASSERT_EQ_INT(8, wlx_error_count(&ctx));
     wlx_context_destroy(&ctx);
 }
 
