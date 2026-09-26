@@ -112,6 +112,14 @@ release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
   `0`; `WLX_State.data` is valid through the frame that returned it, so a
   pointer kept across frames is outside the contract (under an address
   sanitizer recycling is off and such a use is reported).
+- **The `_auto` begin entries record a call site.** `wlx_layout_begin_auto_impl`,
+  `wlx_grid_begin_auto_impl` and `wlx_grid_begin_auto_tile_impl` take a
+  trailing `const char *file, int line` like every other begin, so an
+  auto-sized layout or grid can name itself in a contract-error report.
+  The `wlx_layout_begin_auto`, `wlx_grid_begin_auto` and
+  `wlx_grid_begin_auto_tile` macros pass `__FILE__, __LINE__`; macro callers
+  are unaffected. Migration: struct-form (C++) callers of those three
+  entries append `__FILE__, __LINE__`.
 
 #### Migrating from 0.8
 
@@ -142,6 +150,9 @@ your own pace before the next minor.
 8. **Callers without designated initializers** (C++ translation units,
    table-driven builders) take `wlx_<widget>_opt_defaults()`, assign, and
    call the `_impl` function.
+9. **Struct-form `_auto` begins.** Append `__FILE__, __LINE__` to
+   `wlx_layout_begin_auto_impl`, `wlx_grid_begin_auto_impl` and
+   `wlx_grid_begin_auto_tile_impl` calls; macro callers change nothing.
 
 ### Added
 - **`wlx_state_prune`.** Reclaims persistent state not requested for a

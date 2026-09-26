@@ -198,7 +198,9 @@
  *     oscillation detection, split widget pairing assertions, and widget
  *     clipping warnings. All debug state is isolated in a separate context
  *     (WLX_Debug_Context) - production structs are not affected.
- *     Use ctx->dbg->warn_cb to capture warnings programmatically.
+ *     Use ctx->dbg->warn_cb to capture warnings programmatically. Warnings
+ *     are heuristics and debug-only; contract errors are a separate channel
+ *     that exists in every build (wlx_set_error_handler).
  *
  * WLX_MEMORY_DEBUG
  *     When defined, every internal malloc/realloc/free prints the source
@@ -208,12 +210,24 @@
  * ---------------------------------------------------------------------------
  * ASSERTION POLICY
  * ---------------------------------------------------------------------------
- * Plain assert() diagnoses API-contract violations (bad arguments, unbalanced
- * begin/end pairs, unreasonable counts) and compiles out under NDEBUG.
+ * Three tiers.
+ *
+ * WLX_CONTRACT / WLX_CONTRACT_AT diagnose caller-contract violations (more
+ *     children than slots, a grid cell outside the grid, an end without a
+ *     begin, a widget with no layout open, a count of zero, a required NULL)
+ *     in every build: the violation is reported through the context's error
+ *     handler (wlx_set_error_handler; the default prints once per site via
+ *     WLX_ERROR_PRINT and aborts only outside NDEBUG) and the call then
+ *     degrades the way its documentation states. Any new caller-facing check
+ *     uses WLX_CONTRACT.
+ * Plain assert() is for library invariants only (state the library itself
+ *     established) and compiles out under NDEBUG.
  * WLX_HARD_ASSERT stays active in release builds and is reserved for guards
- * whose failure would corrupt memory: out-of-bounds writes, failed allocation
- * results, and persistent-state size collisions. Any new guard whose failure
- * mode is writing memory must use WLX_HARD_ASSERT, never plain assert().
+ *     whose failure would corrupt memory and that have no sound degraded
+ *     result: out-of-bounds writes, failed allocation results, persistent-
+ *     state size collisions. Any new guard whose failure mode is writing
+ *     memory must use WLX_HARD_ASSERT, never plain assert(). Its text goes
+ *     through WLX_ERROR_PRINT before abort().
  *
  * ---------------------------------------------------------------------------
  * BACKEND AUTO-DETECTION
@@ -398,16 +412,41 @@ typedef struct {
 #define WLX_TEXT_RANGE_STACK_CAP 1024
 #endif
 
+// Where diagnostic text goes: one NUL-terminated line per call, no trailing
+// newline in the argument. Contract errors with no handler installed, hard
+// asserts and WLX_UNREACHABLE all print through it. Overridable before
+// include; targets without a usable stderr (the bare-WASM shim maps it to
+// puts, which the host logs to the console) define their own.
+#ifndef WLX_ERROR_PRINT
+#define WLX_ERROR_PRINT(msg) do { fputs((msg), stderr); fputc('\n', stderr); } while (0)
+#endif
+
+// Distinct contract-error sites the default handler prints before it goes
+// quiet (a site is the error code plus the caller and layout locations).
+// Installed handlers and wlx_error_count are never throttled. Overridable
+// before include.
+#ifndef WLX_ERROR_SITES_MAX
+#define WLX_ERROR_SITES_MAX 32
+#endif
+
 #define WLX_UNUSED(value) (void)(value)
-#define WLX_UNREACHABLE(message) do { fprintf(stderr, "%s:%d: UNREACHABLE: %s\n", __FILE__, __LINE__, message); abort(); } while(0)
+
+// Formats "file:line: kind: msg" and emits it through WLX_ERROR_PRINT.
+static inline void wlx_fatal_print(const char *file, int line, const char *kind, const char *msg) {
+    char buf[320];
+    snprintf(buf, sizeof buf, "%s:%d: %s: %s", file, line, kind, msg);
+    WLX_ERROR_PRINT(buf);
+}
+
+#define WLX_UNREACHABLE(message) do { wlx_fatal_print(__FILE__, __LINE__, "UNREACHABLE", (message)); abort(); } while(0)
 
 // Memory-safety guard that stays active in release (NDEBUG) builds. Reserved
 // for conditions whose failure would write out of bounds, dereference a failed
-// allocation, or hand out a wrongly-sized persistent-state buffer. See the
-// ASSERTION POLICY section in the header preamble.
+// allocation, or hand out a wrongly-sized persistent-state buffer, and that
+// have no sound degraded result. Caller-contract violations use WLX_CONTRACT
+// instead. See the ASSERTION POLICY section in the header preamble.
 #define WLX_HARD_ASSERT(cond, msg) \
-    do { if (!(cond)) { fprintf(stderr, "%s:%d: wollix fatal: %s\n", \
-        __FILE__, __LINE__, (msg)); abort(); } } while (0)
+    do { if (!(cond)) { wlx_fatal_print(__FILE__, __LINE__, "wollix fatal", (msg)); abort(); } } while (0)
 
 #define wlx_array_len(array) (sizeof(array)/sizeof(array[0]))
 #define wlx_zero_struct(instance) memset(&(instance), 0, sizeof(instance))
@@ -939,6 +978,14 @@ typedef struct WLX_Layout {
     WLX_Rect rect;
     size_t count;
     size_t index;
+    // Call site of the begin that opened this layout; NULL/0 for a layout
+    // built through wlx_create_* directly. Contract-error reports name it.
+    const char *file;
+    int         line;
+    // Set by a slot fetch that reported an overrun and returned the collapsed
+    // rect. The consumer (widget prologue or nested begin) skips its parent
+    // contribution and clears it.
+    bool slot_clamped;
     bool overflow;
     float accumulated_content_height;
     float padding;         // original uniform inset padding
@@ -2001,6 +2048,43 @@ typedef struct WLX_Menu_Frame WLX_Menu_Frame;
 #define WLX_MENU_STACK_MAX 4
 #endif
 
+// Contract errors: a caller broke a documented rule (more children than
+// slots, a grid cell outside the grid, an end without a begin, a widget with
+// no layout open, a count of zero, a required pointer that is NULL). Every
+// build reports the violation through the context's handler before the
+// call degrades in the way its documentation states; library invariants
+// stay plain asserts and memory guards stay WLX_HARD_ASSERT.
+typedef enum {
+    WLX_ERR_NONE = 0,
+    WLX_ERR_SLOT_OVERRUN,     // more children than slots in a linear layout
+    WLX_ERR_GRID_BOUNDS,      // cell or span outside rows x cols
+    WLX_ERR_UNBALANCED_END,   // end or pop without a matching begin or push
+    WLX_ERR_NO_LAYOUT,        // widget placed with no layout open
+    WLX_ERR_BAD_ARGUMENT,     // count 0 or negative, px <= 0, required NULL
+    WLX_ERR_LIMIT,            // a documented limit exceeded (WLX_CONTENT_SLOTS_MAX ...)
+    WLX_ERR_BACKEND,          // backend table not ready at wlx_begin
+    WLX_ERR_COUNT
+} WLX_Error_Code;
+
+// One report. The record is a struct so it can grow without changing the
+// handler signature. `file`/`line` are the caller's site when the entry
+// records one (widgets, the begin forms), else NULL/0; `layout_file`/
+// `layout_line` are the begin site of the innermost open layout, else NULL/0.
+typedef struct WLX_Error {
+    WLX_Error_Code code;
+    const char *message;      // static, human readable
+    const char *file;
+    int         line;
+    const char *layout_file;
+    int         layout_line;
+} WLX_Error;
+
+// Handler contract: runs on the calling thread inside the misusing call,
+// before the degradation; may abort or exit; must not call any wlx_
+// function on the same context; must not longjmp past the frame. It sees
+// every occurrence, at frame rate if the misuse recurs each frame.
+typedef void (*WLX_Error_Fn)(const WLX_Error *err, void *user);
+
 typedef struct WLX_Context {
     WLX_Rect rect;
     WLX_Backend backend;
@@ -2114,6 +2198,17 @@ typedef struct WLX_Context {
     // Every walker that intersects "all active clips" - for drawing or for
     // hit-testing - iterates from this base (wlx_enclosing_clip).
     WLX_Clip_Base clip_base;
+
+    // Contract-error reporting (wlx_set_error_handler). With no handler the
+    // default prints once per site through WLX_ERROR_PRINT and, outside
+    // NDEBUG, aborts; under NDEBUG it returns and the call degrades.
+    WLX_Error_Fn error_handler;
+    void        *error_user;
+    int          error_count;                       // reports since wlx_context_init
+    WLX_Error    last_error;
+    WLX_Id       error_sites[WLX_ERROR_SITES_MAX];  // sites the default sink has printed
+    int          error_sites_count;
+    bool         error_sites_full;                  // the suppression line went out
 
     // Theme - NULL means use &wlx_theme_dark (set automatically in wlx_begin)
     const WLX_Theme *theme;
@@ -2436,6 +2531,17 @@ WLXDEF void wlx_set_cull_offscreen(WLX_Context *ctx, bool enabled);
 // behaviour only through this call; mutating `user` behind it leaves
 // retained geometry stale.
 WLXDEF void wlx_set_style_transform(WLX_Context *ctx, WLX_Style_Transform_Fn fn, void *user);
+
+// Install (or clear, with NULL) the context's contract-error handler. See
+// WLX_Error_Fn for the handler's contract and WLX_Error for what it gets.
+// Without one, the default prints each distinct site once through
+// WLX_ERROR_PRINT and then aborts in a build without NDEBUG or returns in a
+// build with it, so release builds degrade as each entry documents.
+WLXDEF void wlx_set_error_handler(WLX_Context *ctx, WLX_Error_Fn fn, void *user);
+
+// Contract errors reported on this context since wlx_context_init, in every
+// build, with or without a handler, never throttled.
+WLXDEF int wlx_error_count(const WLX_Context *ctx);
 
 #ifdef WLX_PERF
 WLXDEF void wlx_perf_set_timer(WLX_Context *ctx, WLX_Perf_Timestamp_Fn timestamp_fn, void *user);
@@ -2806,12 +2912,14 @@ WLXDEF void wlx_overlay_end(WLX_Context *ctx);
     wlx_layout_begin_impl((ctx), (count_val), (orient), \
         wlx_default_layout_opt(.sizes = (sizes_ptr), __VA_ARGS__), __FILE__, __LINE__)
 
-WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, float slot_px, WLX_Layout_Opt opt);
+WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, float slot_px, WLX_Layout_Opt opt,
+                                       const char *file, int line);
 // Dynamic layout: slot count grows as children are added.
 //   slot_px > 0  - fixed pixel size for every slot (height for `WLX_VERT`, width for `WLX_HORZ`).
 //   slot_px = 0  - variable-size mode: each child must call `wlx_layout_auto_slot_px()` before it.
 // Use two-pass counting for equal-division when count is unknown.
-#define wlx_layout_begin_auto(ctx, orient, slot_px, ...) wlx_layout_begin_auto_impl((ctx), (orient), (slot_px), wlx_default_layout_opt(__VA_ARGS__))
+#define wlx_layout_begin_auto(ctx, orient, slot_px, ...) \
+    wlx_layout_begin_auto_impl((ctx), (orient), (slot_px), wlx_default_layout_opt(__VA_ARGS__), __FILE__, __LINE__)
 
 // Set the size for the *next* slot in the enclosing dynamic layout.
 // Accepts any WLX_Slot_Size - PX, PCT, FLEX, FILL, CONTENT (with min/max).
@@ -2854,16 +2962,18 @@ WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_
 #define wlx_grid_begin(ctx, rows, cols, ...) \
     wlx_grid_begin_impl((ctx), (rows), (cols), wlx_default_grid_opt(__VA_ARGS__), __FILE__, __LINE__)
 
-WLXDEF void wlx_grid_begin_auto_impl(WLX_Context *ctx, size_t cols, float row_px, WLX_Grid_Auto_Opt opt);
+WLXDEF void wlx_grid_begin_auto_impl(WLX_Context *ctx, size_t cols, float row_px, WLX_Grid_Auto_Opt opt,
+                                     const char *file, int line);
 #define wlx_grid_begin_auto(ctx, cols, row_px, ...) \
-    wlx_grid_begin_auto_impl((ctx), (cols), (row_px), wlx_default_grid_auto_opt(__VA_ARGS__))
+    wlx_grid_begin_auto_impl((ctx), (cols), (row_px), wlx_default_grid_auto_opt(__VA_ARGS__), __FILE__, __LINE__)
 
 // Convenience: tile grid where column count is derived from tile width.
 // Equivalent to computing cols = floor(available_width / tile_w), then
 // calling `wlx_grid_begin_auto(ctx, cols, tile_h, ...)`.
-WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float tile_h, WLX_Grid_Auto_Opt opt);
+WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float tile_h, WLX_Grid_Auto_Opt opt,
+                                          const char *file, int line);
 #define wlx_grid_begin_auto_tile(ctx, tile_w, tile_h, ...) \
-    wlx_grid_begin_auto_tile_impl((ctx), (tile_w), (tile_h), wlx_default_grid_auto_opt(__VA_ARGS__))
+    wlx_grid_begin_auto_tile_impl((ctx), (tile_w), (tile_h), wlx_default_grid_auto_opt(__VA_ARGS__), __FILE__, __LINE__)
 
 #define wlx_grid_end(ctx) wlx_layout_end(ctx)
 
@@ -4333,10 +4443,26 @@ WLXDEF WLX_Panel_Opt        wlx_panel_opt_defaults(void);
 // here so interaction-aware container begins can resolve before its definition.
 static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, bool disabled, const char *file, int line);
 
+// Contract-error report, defined with the error surface after the id
+// helpers; forward-declared so every contract site can use WLX_CONTRACT.
+static void wlx_error_report(WLX_Context *ctx, WLX_Error_Code code, const char *msg,
+                             const char *file, int line);
+
+// Caller-contract check. Yields the condition, reporting on failure first,
+// so a site degrades in the same statement:
+//   if (!WLX_CONTRACT(ctx, count > 0, WLX_ERR_UNBALANCED_END, "...")) return;
+// The _AT form carries the caller's site when the entry records one.
+#define WLX_CONTRACT(ctx, cond, code, msg) \
+    ((cond) ? true : (wlx_error_report((ctx), (code), (msg), NULL, 0), false))
+#define WLX_CONTRACT_AT(ctx, cond, code, msg, file, line) \
+    ((cond) ? true : (wlx_error_report((ctx), (code), (msg), (file), (line)), false))
+
 // Forward declarations for debug hook functions (defined at end of file).
 #ifdef WLX_DEBUG
 static inline void wlx_dbg_init(WLX_Context *ctx);
 static inline void wlx_dbg_destroy(WLX_Context *ctx);
+static inline void wlx_dbg_error_handler_enter(WLX_Context *ctx);
+static inline void wlx_dbg_error_handler_leave(WLX_Context *ctx);
 static inline void wlx_dbg_warn(WLX_Context *ctx, const char *file, int line, const char *fmt, ...);
 static inline bool wlx_dbg_warn_once(WLX_Context *ctx, const char *file, int line, const char *fmt, ...);
 static inline void wlx_dbg_opt_defaults(WLX_Context *ctx, bool from_defaults, const char *entry,
@@ -5455,6 +5581,83 @@ static WLX_Id wlx_hash_id(const char *file, int line) {
     }
     hash = ((hash << 5) + hash) + (WLX_Id)line;
     return hash;
+}
+
+// ============================================================================
+// Implementation: contract errors
+// ============================================================================
+
+// Default sink dedup: true the first time this (code, caller site, layout
+// site) is seen on the context. Once the table is full one suppression line
+// goes out and every further new site is silent; the count and an installed
+// handler are unaffected.
+static bool wlx_error_site_first_seen(WLX_Context *ctx, const WLX_Error *e) {
+    WLX_Id key = wlx_id_mix((WLX_Id)e->code
+        ^ wlx_id_mix(wlx_hash_id(e->file != NULL ? e->file : "", e->line))
+        ^ (wlx_id_mix(wlx_hash_id(e->layout_file != NULL ? e->layout_file : "", e->layout_line)) << 1));
+    for (int i = 0; i < ctx->error_sites_count; i++) {
+        if (ctx->error_sites[i] == key) return false;
+    }
+    if (ctx->error_sites_count < WLX_ERROR_SITES_MAX) {
+        ctx->error_sites[ctx->error_sites_count++] = key;
+        return true;
+    }
+    if (!ctx->error_sites_full) {
+        ctx->error_sites_full = true;
+        WLX_ERROR_PRINT("wollix error: further error sites suppressed (WLX_ERROR_SITES_MAX reached)");
+    }
+    return false;
+}
+
+// The default handler: one line naming the caller site when known, the
+// message, and the layout's begin site when known. A build without NDEBUG
+// then stops at the site, as assert() did; a build with NDEBUG returns and
+// the call degrades.
+static void wlx_error_default_handler(const WLX_Error *e, void *user) {
+    char buf[320];
+    int n;
+    WLX_UNUSED(user);
+    if (e->file != NULL) {
+        n = snprintf(buf, sizeof buf, "%s:%d: wollix error: %s", e->file, e->line, e->message);
+    } else {
+        n = snprintf(buf, sizeof buf, "wollix error: %s", e->message);
+    }
+    if (n < 0) n = 0;
+    if ((size_t)n >= sizeof buf) n = (int)sizeof buf - 1;
+    if (e->layout_file != NULL) {
+        snprintf(buf + n, sizeof buf - (size_t)n, " (layout begun at %s:%d)",
+                 e->layout_file, e->layout_line);
+    }
+    WLX_ERROR_PRINT(buf);
+#ifndef NDEBUG
+    abort();
+#endif
+}
+
+static void wlx_error_report(WLX_Context *ctx, WLX_Error_Code code, const char *msg,
+                             const char *file, int line)
+{
+    WLX_Error e;
+    e.code        = code;
+    e.message     = msg;
+    e.file        = file;
+    e.line        = line;
+    e.layout_file = NULL;
+    e.layout_line = 0;
+    if (ctx->arena.layouts.count > 0 && ctx->arena.layouts.items != NULL) {
+        const WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+        e.layout_file = l->file;
+        e.layout_line = l->line;
+    }
+    ctx->error_count++;
+    ctx->last_error = e;
+    if (ctx->error_handler != NULL) {
+        WLX_DBG(error_handler_enter, ctx);
+        ctx->error_handler(&e, ctx->error_user);
+        WLX_DBG(error_handler_leave, ctx);
+    } else if (wlx_error_site_first_seen(ctx, &e)) {
+        wlx_error_default_handler(&e, NULL);
+    }
 }
 
 // djb2 hash for user-supplied string IDs.
@@ -7526,15 +7729,14 @@ static inline bool wlx_prepare_content_sizes(
 
     if (!wlx_has_content_sizes(sizes, count)) return false;
 
-    assert(count <= WLX_CONTENT_SLOTS_MAX && "CONTENT slots exceed WLX_CONTENT_SLOTS_MAX");
-    if (count > WLX_CONTENT_SLOTS_MAX) {
-        // Release fallback: tracking this layout would overflow the caller's
-        // resolved[] buffer and the persistent measured[] array. Warn and
-        // disable CONTENT tracking instead - CONTENT slots then size to their
-        // value (0) plus min clamp in wlx_compute_offsets.
-        fprintf(stderr, "%s:%d: wollix: layout has %zu slots; CONTENT sizing "
-            "supports at most %d - CONTENT slots fall back to min size\n",
-            file, line, count, WLX_CONTENT_SLOTS_MAX);
+    // Tracking a layout past the limit would overflow the caller's resolved[]
+    // buffer and the persistent measured[] array, so it is reported and not
+    // tracked: its CONTENT slots size to their value (0) plus the min clamp
+    // in wlx_compute_offsets.
+    if (!WLX_CONTRACT_AT(ctx, count <= WLX_CONTENT_SLOTS_MAX, WLX_ERR_LIMIT,
+            "layout has more slots than WLX_CONTENT_SLOTS_MAX: CONTENT sizing is "
+            "off for it and its CONTENT slots fall back to their minimum size",
+            file, line)) {
         return false;
     }
 
@@ -7602,6 +7804,8 @@ WLXDEF void wlx_layout_begin_impl(WLX_Context *ctx, size_t count, WLX_Orient ori
     WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), file, line);
 
     WLX_Layout l = wlx_create_layout(ctx, frame.rect, count, orient, opt.gap);
+    l.file = file;
+    l.line = line;
     wlx_layout_apply_common(&l, WLX_LAYOUT_COMMON_OPT(opt), frame);
     l.viewport = (orient == WLX_HORZ) ? frame.viewport_horz : frame.viewport_vert;
 
@@ -7712,6 +7916,8 @@ WLXDEF void wlx_overlay_begin_impl(WLX_Context *ctx, size_t count, WLX_Rect rect
         opt.content_padding_bottom, opt.content_padding_left);
 
     WLX_Layout l = wlx_create_layout(ctx, body, count, opt.orient, opt.gap);
+    l.file            = file;
+    l.line            = line;
     l.cmd_range_idx   = range_idx;
     l.pushed_scope    = pushed;
     l.is_overlay_root = true;
@@ -7775,18 +7981,21 @@ WLXDEF void wlx_overlay_end(WLX_Context *ctx)
 // The layout's slot count starts at 0 and grows by one for each direct child
 // widget or nested layout_begin call.  slot_px controls the fixed pixel size
 // of every slot along the layout axis.
-WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, float slot_px, WLX_Layout_Opt opt) {
-    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_layout_begin_auto", "wlx_layout_opt_defaults", NULL, 0);
-    WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), NULL, 0);
+WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, float slot_px, WLX_Layout_Opt opt,
+                                       const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_layout_begin_auto", "wlx_layout_opt_defaults", file, line);
+    WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), file, line);
 
     WLX_Layout l = wlx_create_layout_auto(ctx, frame.rect, orient, slot_px);
+    l.file = file;
+    l.line = line;
     wlx_layout_apply_common(&l, WLX_LAYOUT_COMMON_OPT(opt), frame);
     l.viewport = (orient == WLX_HORZ) ? frame.viewport_horz : frame.viewport_vert;
 
     l.pushed_scope = frame.pushed_scope;
     wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
     // layout_begin: auto layouts have no sizes array - inherit parent vert_bounded only
-    WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, NULL, 0);
+    WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, file, line);
 
     // Opt-in clip on the pushed layout, same path as the counted begin.
     if (opt.clip) wlx_layout_clip_begin(ctx);
@@ -7814,6 +8023,8 @@ WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_
 
     WLX_Layout l = wlx_create_grid(ctx, frame.rect, rows, cols,
                                          effective_row_sizes, opt.col_sizes, opt.gap);
+    l.file = file;
+    l.line = line;
     wlx_layout_apply_common(&l, WLX_LAYOUT_COMMON_OPT(opt), frame);
 
     if (cstate != NULL) {
@@ -7838,24 +8049,28 @@ WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_
     WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, NULL, 0);
 }
 
-WLXDEF void wlx_grid_begin_auto_impl(WLX_Context *ctx, size_t cols, float row_px, WLX_Grid_Auto_Opt opt) {
-    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_begin_auto", "wlx_grid_auto_opt_defaults", NULL, 0);
-    WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), NULL, 0);
+WLXDEF void wlx_grid_begin_auto_impl(WLX_Context *ctx, size_t cols, float row_px, WLX_Grid_Auto_Opt opt,
+                                     const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_begin_auto", "wlx_grid_auto_opt_defaults", file, line);
+    WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), file, line);
 
     WLX_Layout l = wlx_create_grid_auto(ctx, frame.rect, cols, row_px, opt.col_sizes, opt.gap);
+    l.file = file;
+    l.line = line;
     wlx_layout_apply_common(&l, WLX_LAYOUT_COMMON_OPT(opt), frame);
     l.pushed_scope = frame.pushed_scope;
     wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
     // layout_begin: grid auto - inherit parent vert_bounded
-    WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, NULL, 0);
+    WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, file, line);
 }
 
-WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float tile_h, WLX_Grid_Auto_Opt opt) {
-    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_begin_auto_tile", "wlx_grid_auto_opt_defaults", NULL, 0);
+WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float tile_h, WLX_Grid_Auto_Opt opt,
+                                          const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_begin_auto_tile", "wlx_grid_auto_opt_defaults", file, line);
     assert(tile_w > 0.0f && "tile width must be positive");
     assert(tile_h > 0.0f && "tile height must be positive");
 
-    WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), NULL, 0);
+    WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), file, line);
 
     size_t cols = (opt.gap > 0.0f)
         ? (size_t)((frame.rect.w + opt.gap) / (tile_w + opt.gap))
@@ -7863,11 +8078,13 @@ WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float 
     if (cols < 1) cols = 1;
 
     WLX_Layout l = wlx_create_grid_auto(ctx, frame.rect, cols, tile_h, opt.col_sizes, opt.gap);
+    l.file = file;
+    l.line = line;
     wlx_layout_apply_common(&l, WLX_LAYOUT_COMMON_OPT(opt), frame);
     l.pushed_scope = frame.pushed_scope;
     wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
     // layout_begin: grid auto tile - inherit parent vert_bounded
-    WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, NULL, 0);
+    WLX_DBG(layout_begin, ctx, -1, NULL, 0, 0, -1, 1, file, line);
 }
 
 // Scope-pop half of the layout frame lifecycle: pops the layout from the stack
@@ -8120,6 +8337,17 @@ WLXDEF void wlx_set_style_transform(WLX_Context *ctx, WLX_Style_Transform_Fn fn,
 WLXDEF void wlx_set_cull_offscreen(WLX_Context *ctx, bool enabled) {
     assert(ctx != NULL);
     ctx->cull_offscreen = enabled;
+}
+
+WLXDEF void wlx_set_error_handler(WLX_Context *ctx, WLX_Error_Fn fn, void *user) {
+    assert(ctx != NULL);
+    ctx->error_handler = fn;
+    ctx->error_user    = user;
+}
+
+WLXDEF int wlx_error_count(const WLX_Context *ctx) {
+    assert(ctx != NULL);
+    return ctx->error_count;
 }
 
 // Resolve a WLX_Slot_Size to pixels and set it as the next slot size in the
@@ -15730,7 +15958,8 @@ static inline void wlx_scroll_panel_restore_scissor(WLX_Context *ctx) {
 // Helper: set up scissor clipping, draw the scrollbar bar, and push the content layout.
 static inline void wlx_scroll_panel_begin_content_layout(
     WLX_Context *ctx, WLX_Scroll_Panel_State *state, const WLX_Scroll_Panel_Opt *opt,
-    WLX_Rect wr, float content_height, bool sb_visible, WLX_Rect sb_rect)
+    WLX_Rect wr, float content_height, bool sb_visible, WLX_Rect sb_rect,
+    const char *file, int line)
 {
     // Intersect the scissor rect with the enclosing draw clip of this layer
     // (an explicit scissor scope, else parent panels, .clip layouts, or a
@@ -15759,6 +15988,8 @@ static inline void wlx_scroll_panel_begin_content_layout(
         .h = content_height
     };
     WLX_Layout l = wlx_create_layout(ctx, content_rect, 1, WLX_VERT, 0.0f);
+    l.file = file;
+    l.line = line;
     wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
     // layout_begin: scroll panel - vb_force=!auto_height (bounded when not auto-sizing)
     WLX_DBG(layout_begin, ctx, !state->auto_height, NULL, 0, 0, -1, 1, NULL, 0);
@@ -15901,7 +16132,8 @@ WLXDEF void wlx_scroll_panel_begin_impl(WLX_Context *ctx, float content_height, 
     // Scissor, scrollbar bar draw, content layout.
     // The scope id (if any) remains pushed until wlx_scroll_panel_end so descendants
     // can see the panel's id scope.
-    wlx_scroll_panel_begin_content_layout(ctx, frame.state, &opt, frame.rect, frame.content_height, sb_visible, sb_rect);
+    wlx_scroll_panel_begin_content_layout(ctx, frame.state, &opt, frame.rect, frame.content_height, sb_visible, sb_rect,
+        file, line);
 }
 
 // Scope-pop half of the scroll panel frame lifecycle: pops the scope id if one
@@ -16358,7 +16590,7 @@ static bool wlx_menu_frame_push(WLX_Context *ctx, bool *open,
     WLX_Overlay_Opt lopt = wlx_overlay_chrome_opt(style->back_color, style->border_color,
         style->border_width, style->roundness, style->rounded_segments, false);
     wlx_overlay_begin_impl(ctx, 1, rect, lopt, file, line);
-    wlx_layout_begin_auto_impl(ctx, WLX_VERT, style->row_height, wlx_default_layout_opt());
+    wlx_layout_begin_auto_impl(ctx, WLX_VERT, style->row_height, wlx_default_layout_opt(), file, line);
 
     WLX_Menu_Frame *mf = &ctx->menu_stack[ctx->menu_stack_count++];
     mf->open              = open;
@@ -17286,6 +17518,10 @@ typedef struct WLX_Debug_Context {
     void *warn_user_data;
     int  warn_count;  // total warnings this frame (for test assertions)
 
+    // Set while the context's error handler runs; a handler that calls back
+    // into the same context trips the re-entrancy assert.
+    bool in_error_handler;
+
     // Once-per-site deduplication table (persistent across frames)
     WLX_Id warned_site_keys[64];
     int warned_sites_count;
@@ -17379,6 +17615,18 @@ static inline void wlx_dbg_opt_defaults(WLX_Context *ctx, bool from_defaults, co
     wlx_dbg_warn_once(ctx, file, line,
         "%s: option struct not built from its defaults (a zero-initialised "
         "struct is not the defaults); start from %s()", entry, defaults_fn);
+}
+
+static inline void wlx_dbg_error_handler_enter(WLX_Context *ctx) {
+    if (!ctx->dbg) return;
+    assert(!ctx->dbg->in_error_handler
+        && "wollix: the error handler called back into the context it was reporting for");
+    ctx->dbg->in_error_handler = true;
+}
+
+static inline void wlx_dbg_error_handler_leave(WLX_Context *ctx) {
+    if (!ctx->dbg) return;
+    ctx->dbg->in_error_handler = false;
 }
 
 static inline void wlx_dbg_frame_begin(WLX_Context *ctx) {

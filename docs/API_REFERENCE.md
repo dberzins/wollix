@@ -3674,11 +3674,11 @@ line` where the macro form records a call site:
 | Entry | Options |
 |---|---|
 | `wlx_layout_begin_impl(ctx, count, orient, opt, file, line)` | `WLX_Layout_Opt` |
-| `wlx_layout_begin_auto_impl(ctx, orient, slot_px, opt)` | `WLX_Layout_Opt` |
+| `wlx_layout_begin_auto_impl(ctx, orient, slot_px, opt, file, line)` | `WLX_Layout_Opt` |
 | `wlx_overlay_begin_impl(ctx, count, rect, opt, file, line)` | `WLX_Overlay_Opt` |
 | `wlx_grid_begin_impl(ctx, rows, cols, opt, file, line)` | `WLX_Grid_Opt` |
-| `wlx_grid_begin_auto_impl(ctx, cols, row_px, opt)` | `WLX_Grid_Auto_Opt` |
-| `wlx_grid_begin_auto_tile_impl(ctx, tile_w, tile_h, opt)` | `WLX_Grid_Auto_Opt` |
+| `wlx_grid_begin_auto_impl(ctx, cols, row_px, opt, file, line)` | `WLX_Grid_Auto_Opt` |
+| `wlx_grid_begin_auto_tile_impl(ctx, tile_w, tile_h, opt, file, line)` | `WLX_Grid_Auto_Opt` |
 | `wlx_grid_cell_impl(ctx, row, col, opt)` | `WLX_Slot_Style_Opt` |
 | `wlx_grid_cell_style_impl(ctx, opt)` | `WLX_Slot_Style_Opt` |
 | `wlx_slot_style_impl(ctx, opt)` | `WLX_Slot_Style_Opt` |

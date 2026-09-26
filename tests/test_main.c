@@ -269,6 +269,9 @@ static int test_span_assert_hits = 0;
 // wo_* fixtures, so it follows test_editor_windowed_origin.c.
 #include "test_editor_span_color.c"
 #include "test_opt_defaults_marker.c"
+// Contract errors: the handler, the record, the layout begin site, and the
+// clamps each entry documents for release builds.
+#include "test_error_surface.c"
 
 int main(void) {
     RUN_SUITE(layout_math);
@@ -357,5 +360,6 @@ int main(void) {
     RUN_SUITE(tooltip);
     RUN_SUITE(menu);
     RUN_SUITE(opt_defaults_marker);
+    RUN_SUITE(error_surface);
     return test_summary();
 }
