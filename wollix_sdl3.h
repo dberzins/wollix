@@ -25,6 +25,8 @@ extern "C" {
 #endif
 
 static SDL_Renderer *g_wlx_sdl3_renderer = NULL;
+static SDL_Window   *g_wlx_sdl3_window = NULL;   // retained by wlx_context_init_sdl3 for the display scale
+static float         g_wlx_sdl3_scale = 1.0f;    // device pixels per unit this frame (1.0 until a window is known)
 static float g_wlx_sdl3_wheel_delta = 0.0f;
 static float g_wlx_sdl3_wheel_delta_x = 0.0f;
 static char g_wlx_sdl3_text_input[32] = {0};
@@ -58,6 +60,7 @@ typedef struct {
     uint64_t set_clip_rect_calls;
     uint64_t set_draw_blend_mode_calls;
     uint64_t set_font_size_calls;
+    uint64_t content_scale_reads;
     uint64_t text_engine_create_attempts;
     uint64_t text_engine_create_successes;
     uint64_t text_engine_draw_calls;
@@ -172,6 +175,29 @@ static inline SDL_Color wlx_sdl3_to_color(WLX_Color c) {
 
 static inline SDL_FRect wlx_sdl3_to_frect(WLX_Rect r) {
     return (SDL_FRect){ r.x, r.y, r.w, r.h };
+}
+
+// Units to device pixels. The core works in units; this adapter converts at
+// the entry of every geometry callback and draws text at pixel coordinates
+// from fonts sized at font_size * scale, so both text paths stay pixel-exact.
+// The renderer's own scale is never touched: SDL_SetRenderScale would draw
+// the text engine's glyph quads scale times too large.
+#define WLX_SDL3_PX(v) ((v) * g_wlx_sdl3_scale)
+
+static inline WLX_Rect wlx_sdl3_px_rect(WLX_Rect r) {
+    return (WLX_Rect){ WLX_SDL3_PX(r.x), WLX_SDL3_PX(r.y), WLX_SDL3_PX(r.w), WLX_SDL3_PX(r.h) };
+}
+
+// Re-read the window's display scale: SDL's "expected scale for displaying
+// content" (pixel density times the display's scale setting), updated by SDL
+// when the setting changes or the window moves. 0.0 is SDL's failure return
+// and means 1.0 here. Called once per frame by the input handler and by
+// wlx_sdl3_root_rect, so a root computed before wlx_begin sees the current
+// value.
+static inline void wlx_sdl3_refresh_scale(void) {
+    float scale = (g_wlx_sdl3_window != NULL) ? SDL_GetWindowDisplayScale(g_wlx_sdl3_window) : 0.0f;
+    g_wlx_sdl3_scale = (scale > 0.0f) ? scale : 1.0f;
+    WLX_SDL3_PERF_INC(content_scale_reads);
 }
 
 static inline WLX_Texture wlx_texture_from_sdl3(SDL_Texture *texture, int width, int height) {
@@ -310,6 +336,7 @@ static bool wlx_sdl3_event_watch(void *userdata, SDL_Event *event) {
 }
 
 static inline void wlx_process_sdl3_input(WLX_Context *ctx) {
+    wlx_sdl3_refresh_scale();
     assert(ctx != NULL);
 
     static bool prev_mouse_down = false;
@@ -324,8 +351,14 @@ static inline void wlx_process_sdl3_input(WLX_Context *ctx) {
     float mx = 0.0f;
     float my = 0.0f;
     SDL_MouseButtonFlags mouse = SDL_GetMouseState(&mx, &my);
-    ctx->input.mouse_x = (int)mx;
-    ctx->input.mouse_y = (int)my;
+    // Window coordinates -> render pixels (pixel density, any render scale or
+    // logical presentation the application set) -> units.
+    float rx = mx, ry = my;
+    if (g_wlx_sdl3_renderer != NULL) {
+        SDL_RenderCoordinatesFromWindow(g_wlx_sdl3_renderer, mx, my, &rx, &ry);
+    }
+    ctx->input.mouse_x = (int)(rx / g_wlx_sdl3_scale);
+    ctx->input.mouse_y = (int)(ry / g_wlx_sdl3_scale);
     ctx->input.mouse_down = (mouse & SDL_BUTTON_LMASK) != 0;
     ctx->input.mouse_clicked = ctx->input.mouse_down && !prev_mouse_down;
     ctx->input.mouse_held = ctx->input.mouse_down;
@@ -391,7 +424,7 @@ static inline void wlx_sdl3_draw_texture(WLX_Texture texture, WLX_Rect src, WLX_
     SDL_SetTextureAlphaMod(tex, tint.a);
 
     SDL_FRect s = wlx_sdl3_to_frect(src);
-    SDL_FRect d = wlx_sdl3_to_frect(dst);
+    SDL_FRect d = wlx_sdl3_to_frect(wlx_sdl3_px_rect(dst));   // src stays in texture pixels
     WLX_SDL3_PERF_INC(render_texture_calls);
     SDL_RenderTexture(g_wlx_sdl3_renderer, tex, &s, &d);
     WLX_SDL3_SCOPE_END(texture_ns);
@@ -532,7 +565,7 @@ static inline void wlx_sdl3_draw_rect(WLX_Rect rect, WLX_Color color, void *user
 
     WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(draw_rect_calls);
-    wlx_sdl3_draw_rect_impl(rect, color);
+    wlx_sdl3_draw_rect_impl(wlx_sdl3_px_rect(rect), color);
     WLX_SDL3_SCOPE_END(geometry_ns);
 }
 
@@ -554,7 +587,7 @@ static inline void wlx_sdl3_draw_rect_lines(WLX_Rect rect, float thick, WLX_Colo
 
     WLX_SDL3_SCOPE_BEGIN();
     WLX_SDL3_PERF_INC(draw_rect_lines_calls);
-    wlx_sdl3_draw_rect_lines_impl(rect, thick, color);
+    wlx_sdl3_draw_rect_lines_impl(wlx_sdl3_px_rect(rect), WLX_SDL3_PX(thick), color);
     WLX_SDL3_SCOPE_END(geometry_ns);
 }
 
@@ -562,6 +595,7 @@ static inline void wlx_sdl3_draw_rect_rounded(
     WLX_Rect rect, float roundness, int segments, WLX_Color color, void *user)
 {
     WLX_UNUSED(user);
+    rect = wlx_sdl3_px_rect(rect);   // roundness is a ratio: the radius follows
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -601,6 +635,8 @@ static inline void wlx_sdl3_draw_rect_rounded_lines(
     WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color, void *user)
 {
     WLX_UNUSED(user);
+    rect = wlx_sdl3_px_rect(rect);
+    thick = WLX_SDL3_PX(thick);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -639,6 +675,7 @@ static inline void wlx_sdl3_draw_rect_rounded_lines(
 
 static inline void wlx_sdl3_draw_circle(float cx, float cy, float radius, int segments, WLX_Color color, void *user) {
     WLX_UNUSED(user);
+    cx = WLX_SDL3_PX(cx); cy = WLX_SDL3_PX(cy); radius = WLX_SDL3_PX(radius);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -662,6 +699,8 @@ static inline void wlx_sdl3_draw_circle(float cx, float cy, float radius, int se
 static inline void wlx_sdl3_draw_ring(float cx, float cy, float inner_r, float outer_r,
         int segments, WLX_Color color, void *user) {
     WLX_UNUSED(user);
+    cx = WLX_SDL3_PX(cx); cy = WLX_SDL3_PX(cy);
+    inner_r = WLX_SDL3_PX(inner_r); outer_r = WLX_SDL3_PX(outer_r);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -684,6 +723,9 @@ static inline void wlx_sdl3_draw_ring(float cx, float cy, float inner_r, float o
 
 static inline void wlx_sdl3_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color color, void *user) {
     WLX_UNUSED(user);
+    x1 = WLX_SDL3_PX(x1); y1 = WLX_SDL3_PX(y1);
+    x2 = WLX_SDL3_PX(x2); y2 = WLX_SDL3_PX(y2);
+    thick = WLX_SDL3_PX(thick);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -770,7 +812,7 @@ static inline TTF_TextEngine *wlx_sdl3_get_text_engine(void) {
 }
 
 // Backend-owned effective font variants.
-// One entry per (base_font, font_size, spacing) tuple. The variant is a
+// One entry per (base_font, font_size, spacing, scale) tuple. The variant is a
 // TTF_CopyFont-derived TTF_Font* with size and char spacing applied once at
 // publish time, so the hot path can stop mutating the shared base font with
 // TTF_SetFontSize. base_generation snapshots TTF_GetFontGeneration(base_font)
@@ -779,6 +821,8 @@ static inline TTF_TextEngine *wlx_sdl3_get_text_engine(void) {
 //
 // Variants are not renderer-bound, but they are released alongside renderer-
 // bound state by wlx_sdl3_text_cache_clear() to keep teardown a single call.
+// A content-scale change keys new variants; the old scale's entries age out
+// through the LRU rather than being evicted eagerly.
 #ifndef WLX_SDL3_FONT_VARIANT_CAP
 #define WLX_SDL3_FONT_VARIANT_CAP 32
 #endif
@@ -801,6 +845,7 @@ typedef struct {
     int       spacing;
     Uint32    base_generation;
     uint64_t  last_use;
+    float     scale;           // device pixels per unit the variant was sized for
 } WLX_SDL3_Font_Variant;
 
 static WLX_SDL3_Font_Variant g_wlx_sdl3_font_variants[WLX_SDL3_FONT_VARIANT_CAP] = {0};
@@ -879,7 +924,7 @@ static uint64_t g_wlx_sdl3_text_cache_cursor = 0;
 // otherwise the entry is evicted and treated as miss. On miss, evicts the
 // LRU entry if the table is full, calls TTF_CopyFont, applies the size and
 // spacing once, and publishes the entry.
-static inline TTF_Font *wlx_sdl3_get_font_variant(TTF_Font *base_font, int font_size, int spacing) {
+static inline TTF_Font *wlx_sdl3_get_font_variant(TTF_Font *base_font, int font_size, int spacing, float scale) {
 
     if (base_font == NULL || font_size <= 0) {
         WLX_SDL3_PERF_INC(font_variant_fallback_resolutions);
@@ -900,7 +945,8 @@ static inline TTF_Font *wlx_sdl3_get_font_variant(TTF_Font *base_font, int font_
 
         if (e->base_font == base_font
                 && e->font_size == font_size
-                && e->spacing == spacing) {
+                && e->spacing == spacing
+                && e->scale == scale) {
             if (e->base_generation != base_gen) {
                 // Stale variant; evict and treat as miss. Retained TTF_Text
                 // entries reference this variant pointer and must be
@@ -945,13 +991,13 @@ static inline TTF_Font *wlx_sdl3_get_font_variant(TTF_Font *base_font, int font_
         WLX_SDL3_PERF_INC(font_variant_fallback_resolutions);
         return NULL;
     }
-    if (!TTF_SetFontSize(variant, (float)font_size)) {
+    if (!TTF_SetFontSize(variant, (float)font_size * scale)) {
         TTF_CloseFont(variant);
         WLX_SDL3_PERF_INC(font_variant_fallback_resolutions);
         return NULL;
     }
     WLX_SDL3_PERF_INC(ttf_set_font_char_spacing_calls);
-    if (!TTF_SetFontCharSpacing(variant, spacing)) {
+    if (!TTF_SetFontCharSpacing(variant, (int)floorf((float)spacing * scale + 0.5f))) {
         TTF_CloseFont(variant);
         WLX_SDL3_PERF_INC(font_variant_fallback_resolutions);
         return NULL;
@@ -962,6 +1008,7 @@ static inline TTF_Font *wlx_sdl3_get_font_variant(TTF_Font *base_font, int font_
     e->variant         = variant;
     e->font_size       = font_size;
     e->spacing         = spacing;
+    e->scale           = scale;
     e->base_generation = base_gen;
     e->last_use        = ++g_wlx_sdl3_font_variant_cursor;
     return variant;
@@ -1180,8 +1227,8 @@ static inline WLX_SDL3_Text_Cache_Entry *wlx_sdl3_get_text_cache_entry(
     e->text_len          = effective_len;
     e->text_hash         = text_hash;
     e->text              = ttext;
-    e->cached_w          = (float)w;
-    e->cached_h          = (float)h;
+    e->cached_w          = (float)w / g_wlx_sdl3_scale;   // units; the variant fixes the scale
+    e->cached_h          = (float)h / g_wlx_sdl3_scale;
     e->last_color_rgba32 = 0;
     e->last_color_set    = false;
     e->last_use          = ++g_wlx_sdl3_text_cache_cursor;
@@ -1192,7 +1239,7 @@ static inline WLX_SDL3_Text_Cache_Entry *wlx_sdl3_get_text_cache_entry(
 static inline void wlx_sdl3_set_font_size(TTF_Font *font, int font_size) {
     if (font == NULL || font_size <= 0) return;
 
-    float target = (float)font_size;
+    float target = (float)font_size * g_wlx_sdl3_scale;
     float current = TTF_GetFontSize(font);
     if (current < target - 0.01f || current > target + 0.01f) {
         WLX_SDL3_PERF_INC(set_font_size_calls);
@@ -1211,9 +1258,9 @@ static inline void wlx_sdl3_draw_ttf_text(
         TTF_Font *base_font, const char *text, size_t slice_len,
         float x, float y, WLX_Text_Style style)
 {
-    float draw_x = wlx_sdl3_snap_text_coord(x);
-    float draw_y = wlx_sdl3_snap_text_coord(y);
-    TTF_Font *variant = wlx_sdl3_get_font_variant(base_font, style.font_size, style.spacing);
+    float draw_x = wlx_sdl3_snap_text_coord(WLX_SDL3_PX(x));
+    float draw_y = wlx_sdl3_snap_text_coord(WLX_SDL3_PX(y));
+    TTF_Font *variant = wlx_sdl3_get_font_variant(base_font, style.font_size, style.spacing, g_wlx_sdl3_scale);
     TTF_Font *font = (variant != NULL) ? variant : base_font;
     if (variant == NULL) {
         wlx_sdl3_set_font_size(font, style.font_size);
@@ -1297,7 +1344,7 @@ static inline void wlx_sdl3_measure_ttf_text(
         TTF_Font *base_font, const char *text, size_t slice_len,
         WLX_Text_Style style, float *out_w, float *out_h)
 {
-    TTF_Font *variant = wlx_sdl3_get_font_variant(base_font, style.font_size, style.spacing);
+    TTF_Font *variant = wlx_sdl3_get_font_variant(base_font, style.font_size, style.spacing, g_wlx_sdl3_scale);
     TTF_Font *font = (variant != NULL) ? variant : base_font;
     if (variant == NULL) {
         wlx_sdl3_set_font_size(font, style.font_size);
@@ -1323,8 +1370,8 @@ static inline void wlx_sdl3_measure_ttf_text(
     int w = 0, h = 0;
     WLX_SDL3_PERF_INC(ttf_get_string_size_calls);
     TTF_GetStringSize(font, text, slice_len, &w, &h);
-    *out_w = (float)w;
-    *out_h = (float)h;
+    *out_w = (float)w / g_wlx_sdl3_scale;
+    *out_h = (float)h / g_wlx_sdl3_scale;
 }
 #endif
 
@@ -1384,7 +1431,7 @@ static inline void wlx_sdl3_draw_text(const char *text, float x, float y, WLX_Te
     SDL_SetRenderDrawBlendMode(g_wlx_sdl3_renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(g_wlx_sdl3_renderer, sc.r, sc.g, sc.b, sc.a);
     SDL_RenderDebugText(g_wlx_sdl3_renderer,
-        wlx_sdl3_snap_text_coord(x), wlx_sdl3_snap_text_coord(y), text);
+        wlx_sdl3_snap_text_coord(WLX_SDL3_PX(x)), wlx_sdl3_snap_text_coord(WLX_SDL3_PX(y)), text);
     WLX_SDL3_SCOPE_END(text_draw_ns);
 }
 
@@ -1459,7 +1506,7 @@ static inline void wlx_sdl3_draw_text_slice(
         SDL_SetRenderDrawBlendMode(g_wlx_sdl3_renderer, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(g_wlx_sdl3_renderer, sc.r, sc.g, sc.b, sc.a);
         SDL_RenderDebugText(g_wlx_sdl3_renderer,
-            wlx_sdl3_snap_text_coord(x), wlx_sdl3_snap_text_coord(y), cstr);
+            wlx_sdl3_snap_text_coord(WLX_SDL3_PX(x)), wlx_sdl3_snap_text_coord(WLX_SDL3_PX(y)), cstr);
         wlx_cstr_tmp_end(&tmp);
     }
     WLX_SDL3_SCOPE_END(text_draw_ns);
@@ -1534,7 +1581,7 @@ static inline size_t wlx_sdl3_measure_text_advances(const char *text, size_t len
     if (style.font != WLX_FONT_DEFAULT) {
         size_t filled = 0;
         TTF_Font *base_font = (TTF_Font *)(uintptr_t)style.font;
-        TTF_Font *variant = wlx_sdl3_get_font_variant(base_font, style.font_size, style.spacing);
+        TTF_Font *variant = wlx_sdl3_get_font_variant(base_font, style.font_size, style.spacing, g_wlx_sdl3_scale);
         TTF_TextEngine *engine = wlx_sdl3_get_text_engine();
         if (variant != NULL && engine != NULL) {
             TTF_Text *ttext = NULL;
@@ -1569,9 +1616,9 @@ static inline size_t wlx_sdl3_measure_text_advances(const char *text, size_t len
                             cluster = next;
                         }
                         if (!walk_ok) break;
-                        out_advances[u] = (size_t)cluster.offset >= e
+                        out_advances[u] = ((size_t)cluster.offset >= e
                             ? (float)cluster.rect.x
-                            : (float)(cluster.rect.x + cluster.rect.w);
+                            : (float)(cluster.rect.x + cluster.rect.w)) / g_wlx_sdl3_scale;
                         filled = u + 1;
                     }
                 }
@@ -1602,6 +1649,7 @@ static inline size_t wlx_sdl3_measure_text_advances(const char *text, size_t len
 
 static inline void wlx_sdl3_begin_scissor(WLX_Rect rect, void *user) {
     WLX_UNUSED(user);
+    rect = wlx_sdl3_px_rect(rect);
     assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
 
     WLX_SDL3_SCOPE_BEGIN();
@@ -1629,6 +1677,21 @@ static inline void wlx_sdl3_end_scissor(void *user) {
     WLX_SDL3_PERF_INC(set_clip_rect_calls);
     SDL_SetRenderClipRect(g_wlx_sdl3_renderer, NULL);
     WLX_SDL3_SCOPE_END(scissor_ns);
+}
+
+static inline float wlx_sdl3_get_content_scale(void *user) {
+    WLX_UNUSED(user);
+    return g_wlx_sdl3_scale;
+}
+
+// The root rect for wlx_begin, in units: the renderer's output size in pixels
+// over the current display scale, which this call re-reads.
+static inline WLX_Rect wlx_sdl3_root_rect(void) {
+    assert(g_wlx_sdl3_renderer != NULL && "SDL3 renderer is not set");
+    wlx_sdl3_refresh_scale();
+    int pw = 0, ph = 0;
+    SDL_GetRenderOutputSize(g_wlx_sdl3_renderer, &pw, &ph);
+    return (WLX_Rect){ 0, 0, (float)pw / g_wlx_sdl3_scale, (float)ph / g_wlx_sdl3_scale };
 }
 
 static inline float wlx_sdl3_get_frame_time(void *user) {
@@ -1737,6 +1800,7 @@ static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer) {
         .clipboard_get = wlx_sdl3_clipboard_get,
         .clipboard_set = wlx_sdl3_clipboard_set,
         .set_cursor = wlx_sdl3_set_cursor,
+        .get_content_scale = wlx_sdl3_get_content_scale,
     };
     // Registered only where it can actually fill: cluster geometry needs
     // the font-variant machinery (SDL_ttf >= 3.3.0); a TTF build without
@@ -1765,6 +1829,8 @@ static inline void wlx_context_init_sdl3(WLX_Context *ctx, SDL_Window *window, S
         g_wlx_sdl3_event_watch_installed = true;
     }
 
+    g_wlx_sdl3_window = window;
+    wlx_sdl3_refresh_scale();
     SDL_StartTextInput(window);
     ctx->backend = wlx_backend_sdl3(renderer);
 #ifdef WLX_PERF
