@@ -155,6 +155,25 @@ your own pace before the next minor.
    `wlx_grid_begin_auto_tile_impl` calls; macro callers change nothing.
 
 ### Added
+- **Contract errors are reported in every build.** A caller-contract
+  violation (more children than slots, a grid cell outside the grid, an
+  end without a begin, a widget with no layout open, a count of zero, a
+  required pointer that is NULL, the CONTENT-slot limit) reports through
+  the context's error handler (`wlx_set_error_handler`, `WLX_Error`,
+  `WLX_Error_Code`, `WLX_Error_Fn`, `wlx_error_count`) and then degrades
+  the way API_REFERENCE "Error Reporting" tables: a zero-size rect at the
+  layout's far edge for an overrun (the child contributes nothing to
+  CONTENT measurement), an ignored placement for a grid cell outside the
+  grid, a return for an unmatched end or pop, the root rect for a widget
+  with no layout open, 1 for a bad count, 1 px for a bad size, an inert
+  widget for a NULL pointer. Under `NDEBUG` these used to index out of
+  bounds without a word; a slot overrun's write past a CONTENT-tracked
+  parent's measure buffer is gone. With no handler the default prints each
+  distinct site once through the new `WLX_ERROR_PRINT` configuration
+  macro (`WLX_ERROR_SITES_MAX` sites, 32) and aborts only in a build
+  without `NDEBUG`, so debug builds still stop at the site. Every layout
+  records its begin site; a report names the widget's line and the
+  layout's begin line. The header's ASSERTION POLICY gains the third tier.
 - **`wlx_state_prune`.** Reclaims persistent state not requested for a
   caller-chosen number of frames (at least one, so the current frame's
   widgets always survive) and returns the count; the deterministic release
@@ -335,6 +354,11 @@ your own pace before the next minor.
   edge. Two tests in `tests/test_tab_traversal.c`.
 
 ### Changed
+- **`WLX_HARD_ASSERT` and `WLX_UNREACHABLE` print through `WLX_ERROR_PRINT`.**
+  Their text reaches the bare-WASM browser console (the shim maps the macro
+  to `puts`; its `fprintf` is a no-op), where they aborted without a word
+  before. Native targets see the same `file:line: wollix fatal: ...` line
+  on `stderr` as before.
 - **Wrapped text breaks at word boundaries.** Every wrapped build - labels,
   buttons and captions with `.wrap`, the textarea, the multiline inputbox
   and the editor's wrapped mode - now ends a row after the last space or

@@ -33,39 +33,40 @@ layout library.
 8. [Types — Persistent State](#types--persistent-state)
 9. [Types — Theme](#types--theme)
 10. [Types — Context](#types--context)
-11. [Frame Lifecycle](#frame-lifecycle)
-12. [Layout API](#layout-api)
-13. [Grid API](#grid-api)
-14. [Slot Size Macros](#slot-size-macros)
-15. [Interaction & State](#interaction--state)
-16. [Input Queries](#input-queries)
-17. [Utility Functions](#utility-functions)
-18. [Widget — `wlx_widget`](#widget--wlx_widget)
-19. [Widget — `wlx_label`](#widget--wlx_label)
-20. [Widget — `wlx_button`](#widget--wlx_button)
-21. [Widget — `wlx_checkbox`](#widget--wlx_checkbox)
-22. [Widget — `wlx_inputbox`](#widget--wlx_inputbox)
-23. [Widget — `wlx_editor`](#widget--wlx_editor)
-24. [Widget — `wlx_slider`](#widget--wlx_slider)
-25. [Widget — `wlx_separator`](#widget--wlx_separator)
-26. [Widget — `wlx_progress`](#widget--wlx_progress)
-27. [Widget — `wlx_toggle`](#widget--wlx_toggle)
-28. [Widget — `wlx_radio`](#widget--wlx_radio)
-29. [Widget — `wlx_scroll_panel`](#widget--wlx_scroll_panel)
-30. [List Clipper — `wlx_list_clipper`](#list-clipper--wlx_list_clipper)
-31. [Compound Widget — `wlx_split`](#compound-widget--wlx_split)
-32. [Compound Widget — `wlx_panel`](#compound-widget--wlx_panel)
-33. [Overlay — `wlx_overlay`](#overlay--wlx_overlay)
-34. [Widget — `wlx_dropdown`](#widget--wlx_dropdown)
-35. [Widget — `wlx_tooltip_for`](#widget--wlx_tooltip_for)
-36. [Compound Widget — `wlx_menu`](#compound-widget--wlx_menu)
-37. [Shared Option Field Macros](#shared-option-field-macros)
-38. [Calling from C++](#calling-from-c)
-39. [Theme Presets](#theme-presets)
-40. [Backend — Raylib](#backend--raylib)
-41. [Backend — SDL3](#backend--sdl3)
-42. [Backend — WASM](#backend--wasm)
-43. [Performance Diagnostics](#performance-diagnostics)
+11. [Error Reporting](#error-reporting)
+12. [Frame Lifecycle](#frame-lifecycle)
+13. [Layout API](#layout-api)
+14. [Grid API](#grid-api)
+15. [Slot Size Macros](#slot-size-macros)
+16. [Interaction & State](#interaction--state)
+17. [Input Queries](#input-queries)
+18. [Utility Functions](#utility-functions)
+19. [Widget — `wlx_widget`](#widget--wlx_widget)
+20. [Widget — `wlx_label`](#widget--wlx_label)
+21. [Widget — `wlx_button`](#widget--wlx_button)
+22. [Widget — `wlx_checkbox`](#widget--wlx_checkbox)
+23. [Widget — `wlx_inputbox`](#widget--wlx_inputbox)
+24. [Widget — `wlx_editor`](#widget--wlx_editor)
+25. [Widget — `wlx_slider`](#widget--wlx_slider)
+26. [Widget — `wlx_separator`](#widget--wlx_separator)
+27. [Widget — `wlx_progress`](#widget--wlx_progress)
+28. [Widget — `wlx_toggle`](#widget--wlx_toggle)
+29. [Widget — `wlx_radio`](#widget--wlx_radio)
+30. [Widget — `wlx_scroll_panel`](#widget--wlx_scroll_panel)
+31. [List Clipper — `wlx_list_clipper`](#list-clipper--wlx_list_clipper)
+32. [Compound Widget — `wlx_split`](#compound-widget--wlx_split)
+33. [Compound Widget — `wlx_panel`](#compound-widget--wlx_panel)
+34. [Overlay — `wlx_overlay`](#overlay--wlx_overlay)
+35. [Widget — `wlx_dropdown`](#widget--wlx_dropdown)
+36. [Widget — `wlx_tooltip_for`](#widget--wlx_tooltip_for)
+37. [Compound Widget — `wlx_menu`](#compound-widget--wlx_menu)
+38. [Shared Option Field Macros](#shared-option-field-macros)
+39. [Calling from C++](#calling-from-c)
+40. [Theme Presets](#theme-presets)
+41. [Backend — Raylib](#backend--raylib)
+42. [Backend — SDL3](#backend--sdl3)
+43. [Backend — WASM](#backend--wasm)
+44. [Performance Diagnostics](#performance-diagnostics)
 
 ---
 
@@ -175,6 +176,33 @@ If no timer is installed, timing fields remain zero and `timer_available` is
 
 For benchmark commands and metric interpretation, see
 [PERFORMANCE_DIAGNOSTICS.md](PERFORMANCE_DIAGNOSTICS.md).
+
+### `WLX_ERROR_PRINT`
+
+```c
+// #define WLX_ERROR_PRINT(msg) my_log_line(msg)   // define before including wollix.h
+```
+
+Where wollix's diagnostic lines go. A contract error with no handler
+installed (see [Error Reporting](#error-reporting)), a `WLX_HARD_ASSERT` and
+`WLX_UNREACHABLE` all print through it, one NUL-terminated line per call
+with no trailing newline in the argument. The default writes the line and a
+newline to `stderr`. The bare-WASM shim (`web/wlx_libc_shim.h`) defines it
+as `puts`, which the host logs to the browser console, so diagnostics are
+visible on the Pages site; an embedded target with a UART defines it the
+same way.
+
+### `WLX_ERROR_SITES_MAX`
+
+```c
+// #define WLX_ERROR_SITES_MAX 32   // define before including wollix.h
+```
+
+How many distinct contract-error sites the default handler prints before it
+goes quiet (a site is the error code plus the caller and layout locations).
+After that many it prints one "further error sites suppressed" line and
+nothing new. An installed handler and `wlx_error_count` are never
+throttled.
 
 ---
 
@@ -1268,6 +1296,10 @@ typedef struct {
         float  total_height;
     } auto_scroll;
 
+    WLX_Error_Fn error_handler;  // contract-error handler; set through wlx_set_error_handler
+    void        *error_user;
+    int          error_count;    // read through wlx_error_count
+
     const WLX_Theme *theme;    // NULL → &wlx_theme_dark
 } WLX_Context;
 ```
@@ -1291,6 +1323,126 @@ wlx_context_init_raylib(&ctx);         // or wlx_context_init_sdl3(&ctx, win, re
 ctx.theme = &wlx_theme_light;          // optional; NULL defaults to wlx_theme_dark
 // ... use &ctx ...
 wlx_context_destroy(&ctx);             // frees internal buffers
+```
+
+---
+
+## Error Reporting
+
+A caller-contract violation (more children than slots, a grid cell outside
+the grid, an end without a begin, a widget with no layout open, a count of
+zero, a required pointer that is NULL) is reported in **every build**, and
+the call then degrades the way its entry documents. Nothing here compiles
+out under `NDEBUG`. Library invariants stay plain `assert()`s; memory guards
+stay `WLX_HARD_ASSERT` (release-live and fatal, printing through
+[`WLX_ERROR_PRINT`](#wlx_error_print) first).
+
+### `WLX_Error_Code`, `WLX_Error`, `WLX_Error_Fn`
+
+```c
+typedef enum {
+    WLX_ERR_NONE = 0,
+    WLX_ERR_SLOT_OVERRUN,     // more children than slots in a linear layout
+    WLX_ERR_GRID_BOUNDS,      // cell or span outside rows x cols
+    WLX_ERR_UNBALANCED_END,   // end or pop without a matching begin or push
+    WLX_ERR_NO_LAYOUT,        // widget placed with no layout open
+    WLX_ERR_BAD_ARGUMENT,     // count 0 or negative, px <= 0, required NULL
+    WLX_ERR_LIMIT,            // a documented limit exceeded (WLX_CONTENT_SLOTS_MAX ...)
+    WLX_ERR_BACKEND,          // backend table not ready at wlx_begin
+    WLX_ERR_COUNT
+} WLX_Error_Code;
+
+typedef struct WLX_Error {
+    WLX_Error_Code code;
+    const char *message;      // static, human readable
+    const char *file;         // caller site when the entry records one, else NULL
+    int         line;
+    const char *layout_file;  // begin site of the innermost open layout, else NULL
+    int         layout_line;
+} WLX_Error;
+
+typedef void (*WLX_Error_Fn)(const WLX_Error *err, void *user);
+```
+
+`file`/`line` name the widget or begin call when the entry receives a call
+site (every widget macro and every begin form does); `layout_file`/
+`layout_line` name the begin of the innermost layout open at the time,
+which for an overrun is the layout that ran out and for a missing end is
+the layout left open. The enum's names are stable; its numbering is not
+promised across releases in 0.9.
+
+### `wlx_set_error_handler`
+
+```c
+void wlx_set_error_handler(WLX_Context *ctx, WLX_Error_Fn fn, void *user);
+```
+
+Install the handler; `NULL` restores the default. **Handler contract:** it
+runs on the calling thread inside the misusing call, before the
+degradation; it sees every occurrence (at frame rate while a misuse
+recurs); it may `abort` or `exit`; it must not call any `wlx_` function on
+the same context (a `WLX_DEBUG` build asserts if it does); it must not
+`longjmp` past the frame, because the layout stack and the command ranges
+would be left open.
+
+### `wlx_error_count`
+
+```c
+int wlx_error_count(const WLX_Context *ctx);
+```
+
+Reports since `wlx_context_init`, in every build, with or without a
+handler, never throttled. Cheap to show in a status bar.
+
+### The default handler
+
+With no handler installed, each distinct site (code, caller site, layout
+site) prints once through [`WLX_ERROR_PRINT`](#wlx_error_print):
+
+```
+demo.c:88: wollix error: slot overrun: more children than slots in this layout (layout begun at demo.c:80)
+```
+
+Then, in a build **without** `NDEBUG`, the process aborts at the site, as
+`assert()` did; in a build **with** `NDEBUG` the handler returns and the
+call degrades per the table below. After `WLX_ERROR_SITES_MAX` distinct
+sites the default prints one suppression line and stays silent.
+
+### What each violation does after the report
+
+| Violation | Code | Degradation |
+|---|---|---|
+| More children than slots in a fixed linear layout; `.pos` past the count | `WLX_ERR_SLOT_OVERRUN` | The child gets a zero-size rect at the layout's far edge, the layout's cursor stays where it was, and the child contributes nothing to CONTENT measurement |
+| `wlx_grid_cell` outside the grid | `WLX_ERR_GRID_BOUNDS` | The placement is ignored; the cursor stands |
+| A grid cell fetched outside the grid (explicit, or auto-advance past a fixed grid's last row) | `WLX_ERR_GRID_BOUNDS` | Zero-size rect at the grid's far edge; cursor unchanged; no contribution |
+| `wlx_layout_end` / `wlx_grid_end`, `wlx_scroll_panel_end`, `wlx_pop_id`, `wlx_pop_opacity` with nothing to pop | `WLX_ERR_UNBALANCED_END` | Returns; no stack is touched |
+| A layout still open at `wlx_end` | `WLX_ERR_UNBALANCED_END` | Reported once, naming the innermost open begin; the frame finishes and the next `wlx_begin` resets the pool |
+| A widget with no layout open | `WLX_ERR_NO_LAYOUT` | The widget takes the root rect (`ctx->rect`), as a root container does |
+| `wlx_layout_auto_slot`, `wlx_grid_auto_row_px`, `wlx_grid_cell`, `wlx_slot_style`, `wlx_grid_cell_style` with no layout open, or inside a layout of the wrong kind | `WLX_ERR_NO_LAYOUT` / `WLX_ERR_BAD_ARGUMENT` | Returns |
+| A slot, row or column count of `0` or above `WLX_MAX_SLOT_COUNT` (a negative `int`, converted) | `WLX_ERR_BAD_ARGUMENT` | Clamped to 1 |
+| A non-positive auto slot, row or tile size; a variable-size auto layout child with no `wlx_layout_auto_slot_px` before it | `WLX_ERR_BAD_ARGUMENT` | 1 px |
+| Positional `.pos` on a dynamic layout | `WLX_ERR_BAD_ARGUMENT` | Taken in sequence |
+| A required pointer that is NULL (`buffer`, `value`, `active`, `selected`, `open`, `length`) | `WLX_ERR_BAD_ARGUMENT` | The widget returns `false` and draws nothing; a dropdown with `options == NULL` and a nonzero count shows no options |
+| More slots than `WLX_CONTENT_SLOTS_MAX` with CONTENT sizes | `WLX_ERR_LIMIT` | CONTENT tracking is off for that layout; its CONTENT slots take their minimum size |
+| No usable backend table at `wlx_begin` | `WLX_ERR_BACKEND` | Reported, then fatal (`WLX_HARD_ASSERT`): there is no frame without a table |
+
+### Examples
+
+```c
+// Log and keep running, in every build.
+static void on_wlx_error(const WLX_Error *e, void *user) {
+    Log *log = user;
+    log_error(log, "%s:%d: %s", e->file ? e->file : "wollix", e->line, e->message);
+}
+wlx_set_error_handler(&ctx, on_wlx_error, &app.log);
+
+// Make release builds stop as well.
+static void on_wlx_error_fatal(const WLX_Error *e, void *user) { (void)e; (void)user; abort(); }
+
+// In a test: capture and assert.
+static WLX_Error last; static int errors;
+static void capture(const WLX_Error *e, void *user) { (void)user; last = *e; errors++; }
+wlx_set_error_handler(&ctx, capture, NULL);
 ```
 
 ---
@@ -1333,7 +1485,9 @@ void wlx_end(WLX_Context *ctx);
 ```
 
 End the frame. Finalizes interaction state for the next frame. Call after all
-drawing and layout calls.
+drawing and layout calls. A layout still open here is a contract error,
+reported once with its begin site (see [Error Reporting](#error-reporting));
+the frame still finishes.
 
 Because deferred draw commands replay inside `wlx_end()`, keep it inside the
 backend's active frame scope. In Raylib that means calling `wlx_end(ctx)`
@@ -1595,7 +1749,9 @@ void wlx_layout_end(WLX_Context *ctx);
 
 Pop the current layout from the stack. Every `wlx_layout_begin` / `wlx_layout_begin_auto`
 / `wlx_grid_begin` / `wlx_grid_begin_auto` must have a matching `wlx_layout_end` (or
-`wlx_grid_end`).
+`wlx_grid_end`). An end with nothing to pop is a contract error: reported
+(see [Error Reporting](#error-reporting)) and returned from without
+touching the stack.
 
 ---
 
@@ -1700,6 +1856,8 @@ Equivalent to `cols = floor(available_width / tile_w)` then
 ```
 
 Override the auto-advance cursor so the **next** child occupies a specific cell.
+A cell or span outside the grid is a contract error: reported (see
+[Error Reporting](#error-reporting)) and ignored, the cursor standing.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -2014,7 +2172,9 @@ void wlx_pop_id(WLX_Context *ctx);
 
 Low-level escape hatch that pushes an arbitrary integer onto the ID stack.
 Pushing `0` is a real push, and the same values pushed in a different order
-or at a different depth give a different stack.
+or at a different depth give a different stack. A `wlx_pop_id` with nothing
+to pop is a contract error: reported (see
+[Error Reporting](#error-reporting)) and returned from.
 Prefer setting `.id` on container option structs (Scope ID) for
 container-body disambiguation. Use `wlx_push_id`/`wlx_pop_id` directly only
 for loop-level or reusable-function-level disambiguation that container `.id`
@@ -2229,7 +2389,10 @@ WLX_Layout wlx_create_grid_auto(WLX_Context *ctx, WLX_Rect r,
 WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size_t span);
 ```
 
-Compute the rect for slot `pos` (spanning `span` slots) in layout `l`.
+Compute the rect for slot `pos` (spanning `span` slots) in layout `l`. A slot
+past the layout's count is a contract error: reported (see
+[Error Reporting](#error-reporting)), and the rect returned is zero-size
+at the layout's far edge with the layout's cursor unchanged.
 
 ### `wlx_get_parent_rect`
 
@@ -3067,6 +3230,9 @@ void wlx_scroll_panel_end(WLX_Context *ctx);
 ```
 
 Scrollable container. Used as a begin/end pair with layout content between.
+An end without a begin is a contract error: reported (see
+[Error Reporting](#error-reporting)) and returned from; it never pops an
+unrelated layout.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

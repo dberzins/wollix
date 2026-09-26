@@ -456,6 +456,7 @@ the value.
 | `wlx_grid_begin_auto_tile` | Same as `wlx_grid_begin_auto`. Column count derived from `floor(width / tile_w)`, minimum 1. `col_sizes` in opt is accepted but column count is computed from tile width. |
 | All layouts | CONTENT sizing uses one-frame delay (0px first frame, measured on second). Use `WLX_SLOT_CONTENT_MIN()` to avoid visual pop. |
 | All layouts | Persistent state keyed by `__FILE__`/`__LINE__` — duplicate calls at same source location share state (e.g. layouts in loops). |
+| All layouts | A contract violation (a child past the slot count, a grid cell outside the grid, an end without a begin, a widget with no layout open, a count of 0) is reported through the context's error handler in every build and then degrades: the child gets a zero-size rect at the layout's far edge and contributes nothing, the placement is ignored, the end returns, the widget takes the root rect, the count becomes 1. Debug builds still stop at the site by default. See API_REFERENCE.md § Error Reporting. |
 
 ---
 
