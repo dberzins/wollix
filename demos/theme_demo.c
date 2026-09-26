@@ -663,7 +663,7 @@ static void preview_panel(WLX_Context *ctx, App_State *state, const WLX_Theme *c
 
 int main(void) {
     printf("Theme demo - edit a custom WLX_Theme at runtime\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix Theme Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -674,8 +674,8 @@ int main(void) {
     wlx_context_init_raylib(ctx);
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        float w = (float)GetScreenWidth();
+        float h = (float)GetScreenHeight();
         WLX_Rect root = {0, 0, w, h};
 
         WLX_Font active_font = ctx->theme ? ctx->theme->font : WLX_FONT_DEFAULT;

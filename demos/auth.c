@@ -123,11 +123,12 @@ static void draw_top_bar(float w) {
 }
 
 int main(void) {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "AuthWollix Login - wollix demo");
     SetTargetFPS(TARGET_FPS);
 
-    Font font = LoadFontEx("demos/assets/PublicSans-Regular.ttf", 32, NULL, 0);
+    int atlas_px = (int)(32.0f * GetWindowScaleDPI().x + 0.5f);   // crisp under FLAG_WINDOW_HIGHDPI
+    Font font = LoadFontEx("demos/assets/PublicSans-Regular.ttf", atlas_px, NULL, 0);
     bool font_ok = font.glyphCount > 0;
     if (font_ok) SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
     else         printf("WARNING: could not load PublicSans-Regular.ttf\n");
@@ -157,8 +158,8 @@ int main(void) {
     ctx->theme = &card_theme;
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        float w = (float)GetScreenWidth();
+        float h = (float)GetScreenHeight();
         WLX_Rect root = { 0, 0, w, h };
 
         wlx_begin(ctx, root, wlx_process_raylib_input);

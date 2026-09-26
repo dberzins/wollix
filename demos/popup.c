@@ -32,7 +32,7 @@
 static const char *size_options[] = { "Small", "Medium", "Large", "Huge" };
 
 int main(void) {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Popup Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -45,8 +45,8 @@ int main(void) {
     char status[128] = "Ready.";
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        float w = (float)GetScreenWidth();
+        float h = (float)GetScreenHeight();
         WLX_Rect r = { 0, 0, w, h };
 
         wlx_begin(ctx, r, wlx_process_raylib_input);

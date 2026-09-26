@@ -143,7 +143,7 @@ Texture2D create_check_atlas_texture(void) {
 
 int main(void) {
     printf("Wollix Checkbox Texture Demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix Checkbox Texture Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -162,8 +162,8 @@ int main(void) {
     WLX_Rect atlas_checked_src   = (WLX_Rect){64, 0, 64, 64};
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        float w = GetScreenWidth();
+        float h = GetScreenHeight();
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
 
         wlx_begin(ctx, r, wlx_process_raylib_input);

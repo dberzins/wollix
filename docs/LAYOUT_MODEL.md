@@ -106,6 +106,17 @@ context is not thread-safe — use one per thread if needed.
 
 ---
 
+### Units and the device grid
+
+Every size and position in the layout is in **units**, logical pixels that
+the backend maps to device pixels by its content scale (1.0 unless the
+window is high-density; see the API reference's "Coordinate space"). Slot
+boundaries snap to the device-pixel grid, so adjacent fills never leave a
+seam: at 1.0 that is the unit grid, exactly as before; at 2.0 boundaries
+may land on half units; at 1.5 on thirds. The unit values a layout hands
+to widgets are what the application sees; the scale itself is readable
+through `wlx_content_scale`.
+
 ## 3. Layout Stack
 
 Layouts divide a rectangle into **slots**. Widgets and nested layouts consume
@@ -171,7 +182,7 @@ wlx_layout_begin_auto(ctx, WLX_VERT, 40);    // each slot is 40px tall
 wlx_layout_end(ctx);
 ```
 
-- `slot_px > 0` — fixed pixel size per slot.
+- `slot_px > 0` — fixed size per slot, in units.
 - `slot_px = 0` — variable mode: call `wlx_layout_auto_slot(ctx, size)` before
   each child to set its size. Any `WLX_Slot_Size` type is accepted.
 
@@ -197,7 +208,7 @@ wlx_layout_end(ctx);
 
 | Type | Resolution in auto layout |
 |------|---------------------------|
-| `WLX_SLOT_PX(px)` | Exact pixel value |
+| `WLX_SLOT_PX(px)` | Exact value in units |
 | `WLX_SLOT_PCT(pct)` | Percentage of the layout rect |
 | `WLX_SLOT_FILL` | Full viewport height/width |
 | `WLX_SLOT_FILL_PCT(pct)` | Percentage of viewport |
@@ -250,7 +261,7 @@ individual slot dimensions:
 
 ```c
 WLX_Slot_Size sizes[] = {
-    WLX_SLOT_PX(200),       // 200 pixels
+    WLX_SLOT_PX(200),       // 200 units
     WLX_SLOT_PCT(30),       // 30% of parent
     WLX_SLOT_FLEX(1),       // remaining space, weight 1
     WLX_SLOT_FLEX(2),       // remaining space, weight 2
@@ -263,7 +274,7 @@ wlx_layout_begin(ctx, 4, WLX_HORZ, .sizes = sizes);
 | Macro | Kind | Description |
 |-------|------|-------------|
 | `WLX_SLOT_AUTO` | `WLX_SIZE_AUTO` | Equal share of remaining space (weight 1) |
-| `WLX_SLOT_PX(px)` | `WLX_SIZE_PIXELS` | Fixed pixel size |
+| `WLX_SLOT_PX(px)` | `WLX_SIZE_PIXELS` | Fixed size in units |
 | `WLX_SLOT_PCT(pct)` | `WLX_SIZE_PERCENT` | Percentage of parent size |
 | `WLX_SLOT_FLEX(w)` | `WLX_SIZE_FLEX` | Weighted share of remaining space |
 | `WLX_SLOT_FILL` | `WLX_SIZE_FILL` | Fill entire viewport (scroll panel or layout rect) |
@@ -579,7 +590,7 @@ Widget option structs share these field groups, depending on widget type:
 | `border_color` | `{0}` | Uniform border color (`{0}` = theme/widget fallback) |
 | `border_width` | `WLX_UNSET` | Uniform border width (unset = theme default, `0` = none) |
 | `roundness` / `rounded_segments` | `WLX_UNSET` | Corner roundness (fraction of shorter side) and segment count |
-| `corner_radius` | `0` | Absolute corner radius in **pixels**; `> 0` overrides `roundness`, `0` = unset |
+| `corner_radius` | `0` | Absolute corner radius in **units**; `> 0` overrides `roundness`, `0` = unset |
 | `border_color_top/right/bottom/left` | `{0}` | Per-side border color; `{0}` inherits `border_color` |
 | `border_width_top/right/bottom/left` | `WLX_UNSET` | Per-side border width; `< 0` inherits `border_width`, `0` switches that edge off |
 
@@ -653,7 +664,7 @@ if (it.clicked) navigate();
 
 `roundness` is a fraction of the container's shorter side, so a layout of
 differently sized panels rounded with one constant gets a different pixel corner
-per panel. `corner_radius` declares the radius in **pixels** instead. It is
+per panel. `corner_radius` declares the radius in **units** instead. It is
 resolved centrally at draw time against the container's final rect with
 `clamp(2 * corner_radius / min(w,h), 0, 1)`, so panels of any size share the same
 pixel corner. `corner_radius > 0` overrides `roundness` for that container; the

@@ -56,7 +56,7 @@ int main(void) {
     bool  checked    = false;
 
     while (!WindowShouldClose()) {
-        WLX_Rect root = {0, 0, GetRenderWidth(), GetRenderHeight()};
+        WLX_Rect root = wlx_raylib_root_rect();   // units: the screen size
         wlx_begin(&ctx, root, wlx_process_raylib_input);
 
         BeginDrawing();
@@ -159,7 +159,7 @@ int main() {
     float value = 0.5f;
 
     while (!WindowShouldClose()) {
-        WLX_Rect root = { 0, 0, (float)GetRenderWidth(), (float)GetRenderHeight() };
+        WLX_Rect root = wlx_raylib_root_rect();
         app_ui_begin(&ctx, root);
         BeginDrawing();
         ClearBackground(WLX_BACKGROUND_COLOR);

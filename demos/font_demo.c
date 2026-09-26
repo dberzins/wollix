@@ -52,20 +52,23 @@ static App_State app = {
 
 int main(void) {
     printf("Font demo - demonstrates per-widget and theme-level font usage\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Font Demo");
     SetTargetFPS(TARGET_FPS);
 
     // ── Load fonts ───────────────────────────────────────────────────────
     // LoadFontEx returns a heap-allocated Font; we keep them as locals
     // and convert their addresses to WLX_Font handles.
-    Font font_sans = LoadFontEx(FONT_PATH_SANS, 32, NULL, 0);
-    Font font_mono = LoadFontEx(FONT_PATH_MONO, 32, NULL, 0);
-    Font font_bold = LoadFontEx(FONT_PATH_BOLD, 32, NULL, 0);
-    Font font_public      = LoadFontEx(FONT_PATH_PUBLIC, 32, NULL, 0);
-    Font font_public_bold = LoadFontEx(FONT_PATH_PUBLIC_BOLD, 32, NULL, 0);
-    Font font_inter       = LoadFontEx(FONT_PATH_INTER, 32, NULL, 0);
-    Font font_inter_bold  = LoadFontEx(FONT_PATH_INTER_BOLD, 32, NULL, 0);
+    // Rasterise the atlases for the display's scale so text stays crisp
+    // under FLAG_WINDOW_HIGHDPI; the sizes the widgets ask for are unchanged.
+    int atlas_px = (int)(32.0f * GetWindowScaleDPI().x + 0.5f);
+    Font font_sans = LoadFontEx(FONT_PATH_SANS, atlas_px, NULL, 0);
+    Font font_mono = LoadFontEx(FONT_PATH_MONO, atlas_px, NULL, 0);
+    Font font_bold = LoadFontEx(FONT_PATH_BOLD, atlas_px, NULL, 0);
+    Font font_public      = LoadFontEx(FONT_PATH_PUBLIC, atlas_px, NULL, 0);
+    Font font_public_bold = LoadFontEx(FONT_PATH_PUBLIC_BOLD, atlas_px, NULL, 0);
+    Font font_inter       = LoadFontEx(FONT_PATH_INTER, atlas_px, NULL, 0);
+    Font font_inter_bold  = LoadFontEx(FONT_PATH_INTER_BOLD, atlas_px, NULL, 0);
 
     bool sans_ok   = font_sans.glyphCount > 0;
     bool mono_ok   = font_mono.glyphCount > 0;
@@ -110,8 +113,8 @@ int main(void) {
     WLX_Theme theme = wlx_theme_dark;
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        float w = (float)GetScreenWidth();
+        float h = (float)GetScreenHeight();
         WLX_Rect root = {0, 0, w, h};
 
         // ── Theme-level font override ────────────────────────────────────

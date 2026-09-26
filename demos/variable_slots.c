@@ -23,7 +23,7 @@ typedef struct {
 static App_State app = {0};
 
 int main(void) {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Variable-size rows/columns demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -32,8 +32,8 @@ int main(void) {
     wlx_context_init_raylib(ctx);
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        float w = (float)GetScreenWidth();
+        float h = (float)GetScreenHeight();
         WLX_Rect root = { .x = 0, .y = 0, .w = w, .h = h };
 
         char title[128];

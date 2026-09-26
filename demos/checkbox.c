@@ -28,7 +28,7 @@ static App_State app = {0};
 int main() {
 
     printf("Wollix checkbox demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix Checkbox Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -37,8 +37,8 @@ int main() {
     wlx_context_init_raylib(ctx);
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        float w = GetScreenWidth();
+        float h = GetScreenHeight();
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
 
         wlx_begin(ctx, r, wlx_process_raylib_input);

@@ -110,7 +110,7 @@ static Texture2D create_landscape_texture(void) {
 
 int main(void) {
     printf("Wollix Image-capable Label Demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix Image-capable Label Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -123,8 +123,8 @@ int main(void) {
     Texture2D tex_land  = create_landscape_texture();
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        float w = (float)GetScreenWidth();
+        float h = (float)GetScreenHeight();
         WLX_Rect root = { 0, 0, w, h };
 
         wlx_begin(ctx, root, wlx_process_raylib_input);

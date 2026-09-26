@@ -495,7 +495,7 @@ static void render_about_tab(WLX_Context *ctx, int layout_span) {
 // ---------------------------------------------------------------------------
 int main(void) {
     printf("Wollix - Full Widget Demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix - Full Widget Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -514,8 +514,8 @@ int main(void) {
     }
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        float w = GetScreenWidth();
+        float h = GetScreenHeight();
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
 
         // Apply theme based on dark_mode toggle

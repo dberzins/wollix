@@ -15,7 +15,7 @@
 #define WINDOW_HEIGHT 700
 
 int main(void) {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Min/Max Constraints Demo");
     SetTargetFPS(60);
 
@@ -24,8 +24,8 @@ int main(void) {
     wlx_context_init_raylib(ctx);
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        float w = (float)GetScreenWidth();
+        float h = (float)GetScreenHeight();
 
         wlx_begin(ctx, (WLX_Rect){0, 0, w, h}, wlx_process_raylib_input);
         BeginDrawing();

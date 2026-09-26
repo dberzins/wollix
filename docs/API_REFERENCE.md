@@ -192,6 +192,18 @@ as `puts`, which the host logs to the browser console, so diagnostics are
 visible on the Pages site; an embedded target with a UART defines it the
 same way.
 
+### `WLX_CONTENT_SCALE_MIN`, `WLX_CONTENT_SCALE_MAX`
+
+```c
+// #define WLX_CONTENT_SCALE_MIN 0.25f   // define before including wollix.h
+// #define WLX_CONTENT_SCALE_MAX 8.0f
+```
+
+The range a backend's `get_content_scale` value must lie in. A value
+outside it (or NaN) reports `WLX_ERR_BAD_ARGUMENT` from `wlx_begin` and
+the frame runs at 1.0. Floats, so they are checked at run time, not by
+the preprocessor.
+
 ### `WLX_ERROR_SITES_MAX`
 
 ```c
@@ -281,6 +293,36 @@ Opaque texture handle passed to `draw_texture`. Backend-specific.
 ---
 
 ## Types — Backend
+
+### Coordinate space
+
+One Wollix unit is a **logical pixel**. Every `WLX_Rect`, every length in
+an option or theme field (padding, border width, radius, thickness,
+scrollbar width, tile size), every `font_size`, the root rect passed to
+`wlx_begin` and the mouse position in `WLX_Input_State` are in units. The
+backend maps units to device pixels by its **content scale**, the number
+of device pixels one unit occupies: 2.0 on a 2x display, 1.5 at a 150%
+setting, 1.0 when the window is not high-density. At 1.0 a unit is a
+device pixel.
+
+The core learns the scale through the optional
+`WLX_Backend.get_content_scale` callback (NULL means 1.0), samples it once
+per frame in `wlx_begin`, and uses it for exactly two things: slot
+boundaries snap to the device-pixel grid instead of the unit grid (at 1.0
+the two are the same and the result is bit-identical), and
+[`wlx_content_scale`](#wlx_content_scale) reports it to the application.
+Nothing else in the core reads it: no unit constant is multiplied, and
+text sizes stay in units. Where the number comes from:
+
+| Backend | Source | Root rect helper |
+|---|---|---|
+| Raylib | `GetRenderWidth() / GetScreenWidth()`, the ratio Raylib applies under `FLAG_WINDOW_HIGHDPI` (1.0 without it) | `wlx_raylib_root_rect()` |
+| SDL3 | `SDL_GetWindowDisplayScale(window)`, re-read every frame | `wlx_sdl3_root_rect()` |
+| WASM | `window.devicePixelRatio` from the host | the frame call's CSS-pixel size |
+
+Size the root with the helper for the backend you use: the older recipe
+(`GetRenderWidth` / `SDL_GetRenderOutputSize`) returns the framebuffer in
+pixels, which is twice the drawable space on a 2x display.
 
 ### `WLX_Font`
 
@@ -377,6 +419,7 @@ typedef struct {
     const char *(*clipboard_get)(void *user);                         // optional
     void (*clipboard_set)(const char *text, size_t len, void *user);  // optional
     void (*set_cursor)(WLX_Cursor_Shape shape, void *user);           // optional
+    float (*get_content_scale)(void *user);                           // optional: device pixels per unit
 } WLX_Backend;
 ```
 
@@ -398,6 +441,15 @@ version and pass `NULL`. A v0.8 table migrates in one line with
 callbacks of an adapter-installed table must forward `user` unchanged and
 must not repoint `backend.user`, which every other callback of the table
 reads.
+
+**Content scale.** `get_content_scale` is the table's last member and is
+optional: a zero-initialised or v1-shimmed table reports 1.0. The core
+calls it exactly once per frame from `wlx_begin`, after the input handler.
+The value must lie in `[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]`
+(0.25 to 8.0 by default); anything else, NaN included, reports
+`WLX_ERR_BAD_ARGUMENT` and the frame runs at 1.0. The table's shape,
+including this member, is the frozen v2 contract. See
+[Coordinate space](#coordinate-space).
 
 | Callback | Purpose |
 |----------|---------|
@@ -441,7 +493,7 @@ in the public text model; spans are truncated at the first NUL before backend
 dispatch.
 
 **`measure_text_advances` contract.** The callback fills
-`out_advances[i]` with the cumulative advance width in pixels of the run
+`out_advances[i]` with the cumulative advance width in units of the run
 prefix `[0, unit_ends[i])`, for every `i < unit_count`, and returns the
 number of leading entries filled — a partial fill is valid; the core
 falls back to per-unit prefix measures for the rest. The run
@@ -569,6 +621,7 @@ software or copy path):
 | `draw_shadow` / `draw_glow` | - (layered fallback) | - (layered fallback) | - (layered fallback) |
 | `clipboard_get` / `clipboard_set` | yes | yes | yes |
 | `set_cursor` | yes | yes | yes (host CSS cursor) |
+| `get_content_scale` | yes (render/screen ratio) | yes (`SDL_GetWindowDisplayScale`) | yes (`devicePixelRatio`) |
 
 ### `wlx_backend_is_ready`
 
@@ -1490,6 +1543,19 @@ drawing and layout calls. A layout still open here is a contract error,
 reported once with its begin site (see [Error Reporting](#error-reporting));
 the frame still finishes.
 
+### `wlx_content_scale`
+
+```c
+float wlx_content_scale(const WLX_Context *ctx);
+```
+
+This frame's device pixels per unit, as sampled from
+`backend.get_content_scale` in `wlx_begin`: 1.0 before the first frame,
+when the backend has no callback, or when its value was unusable. Read it
+to choose a scaled image asset or to size drawing the application does
+itself; the layout, the theme and every option field stay in units. See
+[Coordinate space](#coordinate-space).
+
 Because deferred draw commands replay inside `wlx_end()`, keep it inside the
 backend's active frame scope. In Raylib that means calling `wlx_end(ctx)`
 before `EndDrawing()`.
@@ -1537,7 +1603,7 @@ parent layout.
 | `sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `count` slot sizes. `NULL` = equal division |
 | `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every slot |
 | `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every slot |
-| `slot_border_width` | `float` | `0` | Border thickness in pixels (`0` = no border) |
+| `slot_border_width` | `float` | `0` | Border thickness in units (`0` = no border) |
 | `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full layout body. Also keys any container-owned state. `NULL` = no scoping |
 | `clip` | `bool` | `false` | Clip children to this layout's post-padding content rect (see [Layout clipping](#layout-clipping)) |
 | `interact` | `uint32_t` | `0` | `WLX_Interact_Flags` opt-in (`HOVER`/`CLICK`/`KEYBOARD`). `0` = non-interactive (no query, no overhead). See [Interactive containers](#interactive-containers) |
@@ -1680,7 +1746,7 @@ Push a dynamic layout whose slot count grows as children are added.
 |-----------|------|-------------|
 | `ctx` | `WLX_Context *` | The UI context |
 | `orient` | `WLX_Orient` | `WLX_HORZ` or `WLX_VERT` |
-| `slot_px` | `float` | Fixed pixel size per slot. `0` = variable (use `wlx_layout_auto_slot()` or `wlx_layout_auto_slot_px()`) |
+| `slot_px` | `float` | Fixed size per slot, in units. `0` = variable (use `wlx_layout_auto_slot()` or `wlx_layout_auto_slot_px()`) |
 
 ### `wlx_layout_auto_slot`
 
@@ -1702,7 +1768,7 @@ child calls `wlx_get_slot_rect()`.
 
 | Kind | Resolution |
 |------|------------|
-| `WLX_SIZE_PIXELS` | Exact pixel value |
+| `WLX_SIZE_PIXELS` | Exact value in units |
 | `WLX_SIZE_PERCENT` | `value × total / 100` where total is the layout rect width (HORZ) or height (VERT) |
 | `WLX_SIZE_FILL` | `value × viewport` (scroll panel viewport, or layout rect if none) |
 | `WLX_SIZE_FLEX` | **Greedy:** consumes all remaining space (`total − used`). Only the *last* FLEX slot in the layout gets the correct split — multiple FLEX slots do **not** share proportionally. |
@@ -1738,7 +1804,7 @@ void wlx_layout_auto_slot_px(WLX_Context *ctx, float px);
 Convenience wrapper — equivalent to
 `wlx_layout_auto_slot(ctx, WLX_SLOT_PX(px))`.
 
-Override the pixel size for the **next** slot in the enclosing dynamic layout.
+Override the size (in units) of the **next** slot in the enclosing dynamic layout.
 Call immediately before the widget whose size differs from the layout's global
 `slot_px`. Consumed automatically.
 
@@ -1782,9 +1848,9 @@ Push a fixed-size grid layout.
 | `padding` | `float` | `0` | Uniform inset on the slot |
 | `back_color` | `WLX_Color` | `{0}` | Background fill drawn behind the whole grid |
 | `border_color` | `WLX_Color` | `{0}` | Border color for the whole grid container |
-| `border_width` | `float` | `0` | Border thickness in pixels for the whole grid container |
+| `border_width` | `float` | `0` | Border thickness in units for the whole grid container |
 | `roundness` | `float` | `0` | Rounded corner factor (fraction of shorter side) for the grid container |
-| `corner_radius` | `float` | `0` | Absolute corner radius in pixels; `> 0` overrides `roundness`, `0` = unset |
+| `corner_radius` | `float` | `0` | Absolute corner radius in units; `> 0` overrides `roundness`, `0` = unset |
 | `rounded_segments` | `int` | `0` | Segment count for rounded corners (`0` = theme default) |
 | `rounded_corners` | `int` | `0` | `WLX_CORNERS_*` mask of which corners use the radius; `0` = all four. Omitted corners are squared off (fill only) |
 | `gap` | `float` | `0` | Spacing between adjacent cells |
@@ -1792,7 +1858,7 @@ Push a fixed-size grid layout.
 | `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes. `NULL` = equal division |
 | `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every cell |
 | `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every cell |
-| `slot_border_width` | `float` | `0` | Border thickness in pixels (`0` = no border) |
+| `slot_border_width` | `float` | `0` | Border thickness in units (`0` = no border) |
 | `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full grid body. `NULL` = no scoping |
 
 Use `border_*` to decorate the outer grid rect and `slot_border_*` to decorate each cell independently.
@@ -1809,7 +1875,7 @@ Push a dynamic grid whose row count grows as children are added.
 |-----------|------|-------------|
 | `ctx` | `WLX_Context *` | The UI context |
 | `cols` | `size_t` | Fixed number of columns |
-| `row_px` | `float` | Fixed pixel height per row |
+| `row_px` | `float` | Fixed row height in units |
 
 **Options** (`WLX_Grid_Auto_Opt`):
 
@@ -1821,16 +1887,16 @@ Push a dynamic grid whose row count grows as children are added.
 | `padding` | `float` | `0` | Uniform inset |
 | `back_color` | `WLX_Color` | `{0}` | Background fill drawn behind the whole grid |
 | `border_color` | `WLX_Color` | `{0}` | Border color for the whole grid container |
-| `border_width` | `float` | `0` | Border thickness in pixels for the whole grid container |
+| `border_width` | `float` | `0` | Border thickness in units for the whole grid container |
 | `roundness` | `float` | `0` | Rounded corner factor (fraction of shorter side) for the grid container |
-| `corner_radius` | `float` | `0` | Absolute corner radius in pixels; `> 0` overrides `roundness`, `0` = unset |
+| `corner_radius` | `float` | `0` | Absolute corner radius in units; `> 0` overrides `roundness`, `0` = unset |
 | `rounded_segments` | `int` | `0` | Segment count for rounded corners (`0` = theme default) |
 | `rounded_corners` | `int` | `0` | `WLX_CORNERS_*` mask of which corners use the radius; `0` = all four. Omitted corners are squared off (fill only) |
 | `gap` | `float` | `0` | Spacing between adjacent cells |
 | `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes |
 | `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every cell |
 | `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every cell |
-| `slot_border_width` | `float` | `0` | Border thickness in pixels (`0` = no border) |
+| `slot_border_width` | `float` | `0` | Border thickness in units (`0` = no border) |
 | `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full grid body. `NULL` = no scoping |
 
 Use `border_*` to decorate the outer grid rect and `slot_border_*` to decorate each cell independently.
@@ -1847,8 +1913,8 @@ Equivalent to `cols = floor(available_width / tile_w)` then
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `tile_w` | `float` | Desired tile width in pixels |
-| `tile_h` | `float` | Desired tile height in pixels |
+| `tile_w` | `float` | Desired tile width in units |
+| `tile_h` | `float` | Desired tile height in units |
 
 ### `wlx_grid_cell`
 
@@ -1892,7 +1958,7 @@ decoration (or no decoration if none is set).
 |-------|------|---------|-------------|
 | `back_color` | `WLX_Color` | `{0}` | Background fill for this cell |
 | `border_color` | `WLX_Color` | `{0}` | Border color for this cell |
-| `border_width` | `float` | `0` | Border thickness in pixels |
+| `border_width` | `float` | `0` | Border thickness in units |
 
 ### `wlx_slot_style`
 
@@ -1912,7 +1978,7 @@ The override is consumed and reset after that slot's rect is computed.
 void wlx_grid_auto_row_px(WLX_Context *ctx, float px);
 ```
 
-Override the pixel height for the **next** row in the enclosing dynamic grid.
+Override the height (in units) of the **next** row in the enclosing dynamic grid.
 Call immediately before the first widget of the row whose height differs from
 the grid's default `row_px`.
 
@@ -1939,7 +2005,7 @@ and clang accept the literal there as an extension, MSVC does not.
 | Macro | Description |
 |-------|-------------|
 | `WLX_SLOT_AUTO` | Equal division of remaining space |
-| `WLX_SLOT_PX(px)` | Fixed pixel size |
+| `WLX_SLOT_PX(px)` | Fixed size in units |
 | `WLX_SLOT_PCT(pct)` | Percentage of parent (0–100) |
 | `WLX_SLOT_FLEX(weight)` | Flex weight — proportional share of remaining space |
 | `WLX_SLOT_FILL` | Fill entire viewport (scroll panel or layout rect) |
@@ -1968,7 +2034,7 @@ and clang accept the literal there as an extension, MSVC does not.
 
 | Macro | Description |
 |-------|-------------|
-| `WLX_SLOT_PX_MINMAX(px, lo, hi)` | Fixed pixels with min/max clamp |
+| `WLX_SLOT_PX_MINMAX(px, lo, hi)` | Fixed units with min/max clamp |
 | `WLX_SLOT_PCT_MINMAX(pct, lo, hi)` | Percentage with min/max clamp |
 | `WLX_SLOT_FLEX_MIN(weight, lo)` | Flex with minimum |
 | `WLX_SLOT_FLEX_MAX(weight, hi)` | Flex with maximum |
@@ -2430,7 +2496,7 @@ than the (potentially larger) scrollable content area.
 float wlx_get_scroll_panel_offset(WLX_Context *ctx);
 ```
 
-Return the current vertical scroll offset (pixels) of the innermost scroll
+Return the current vertical scroll offset (units) of the innermost scroll
 panel, or `0` when none is active. Pairs with `wlx_get_scroll_panel_viewport`
 to compute which rows of a long list are on screen; the list clipper uses both
 internally.
@@ -3111,7 +3177,7 @@ is wider than tall, and a vertical line when it is taller than wide.
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | `back_color` | `WLX_Color` | `{0}` | Divider color. `{0}` = theme `border` (renamed from `color` in v0.6; the alias was removed in v0.7) |
-| `thickness` | `float` | `1.0` | Divider thickness in pixels |
+| `thickness` | `float` | `1.0` | Divider thickness in units |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
@@ -3237,7 +3303,7 @@ unrelated layout.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `content_height` | `float` | Total scrollable height in pixels. `WLX_SCROLL_AUTO_HEIGHT` (`-1`) = auto (measured from children) |
+| `content_height` | `float` | Total scrollable height in units. `WLX_SCROLL_AUTO_HEIGHT` (`-1`) = auto (measured from children) |
 
 **Option struct:** `WLX_Scroll_Panel_Opt`
 
@@ -3289,7 +3355,7 @@ wlx_scroll_panel_end(ctx);
 |-------|------|---------|-------------|
 | `id` | `const char *` | `NULL` | Stable id for the content layout (`NULL` = call-site) |
 | `item_offsets` | `const float *` | `NULL` | Variable-height mode: prefix sums, length `item_count + 1`, monotonic with `[0] == 0`. `NULL` selects fixed pitch (`row_height`). |
-| `overscan` | `float` | `0` | Extra pixels of rows built above/below the viewport |
+| `overscan` | `float` | `0` | Extra units of rows built above/below the viewport |
 
 **Result struct:** `WLX_List_Clipper` exposes `int first` and `int last` — the
 visible item range `[first, last)`. Remaining fields are internal.
@@ -3386,14 +3452,14 @@ impact. Adding or removing child widgets requires no slot-count updates.
 |-------|------|---------|-------------|
 | `title` | `const char *` | `NULL` | Heading text. `NULL` = no heading (full capacity available for children) |
 | `title_font_size` | `int` | `18` | Heading font size |
-| `title_height` | `float` | `32` | Heading slot height in pixels |
+| `title_height` | `float` | `32` | Heading slot height in units |
 | `title_align` | `WLX_Align` | `WLX_CENTER` | Heading text alignment |
 | `title_back_color` | `WLX_Color` | `{0}` | Heading background color. `{0}` = theme surface |
 | `back_color` | `WLX_Color` | `{0}` | Panel background color drawn behind the full panel area. `{0}` = transparent (surrounding container surface shows through) |
 | `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = theme `border` (v0.6) |
-| `border_width` | `float` | `WLX_UNSET` | Panel border thickness in pixels. unset inherits theme `border_width` (v0.6); an explicit `0` keeps the panel borderless |
+| `border_width` | `float` | `WLX_UNSET` | Panel border thickness in units. unset inherits theme `border_width` (v0.6); an explicit `0` keeps the panel borderless |
 | `roundness` | `float` | `0` | Corner roundness for the panel background and border (fraction of shorter side). `0` = sharp corners |
-| `corner_radius` | `float` | `0` | Absolute corner radius in pixels; `> 0` overrides `roundness`, `0` = unset. See [`WLX_BORDER_FIELDS`](#wlx_border_fields--wlx_border_defaults) |
+| `corner_radius` | `float` | `0` | Absolute corner radius in units; `> 0` overrides `roundness`, `0` = unset. See [`WLX_BORDER_FIELDS`](#wlx_border_fields--wlx_border_defaults) |
 | `border_color_top` / `_right` / `_bottom` / `_left` | `WLX_Color` | `{0}` | Per-side border color. `{0}` inherits `border_color`. See [Per-side container decor](#per-side-container-decor) |
 | `border_width_top` / `_right` / `_bottom` / `_left` | `float` | `WLX_UNSET` | Per-side border width. `< 0` inherits `border_width`; `0` switches that edge off |
 | `rounded_segments` | `int` | `0` | Corner tessellation for rounded chrome. `0` = theme default |
@@ -3647,7 +3713,7 @@ Injected fields: `border_color`, `border_width`, `roundness`, `corner_radius`,
 #### Absolute corner radius (`corner_radius`)
 
 `corner_radius` (also injected by `WLX_CONTAINER_DECOR_FIELDS`) declares the
-corner radius in **pixels**, where `roundness` is a fraction of the element's
+corner radius in **units**, where `roundness` is a fraction of the element's
 shorter side. It defaults to `0` (unset); when `> 0` it overrides `roundness`
 for that element. Resolution is central and at draw time: inside `wlx_draw_box`
 the px value is converted to the fraction the backends already consume,
@@ -3966,6 +4032,38 @@ Font my_font = LoadFontEx("myfont.ttf", 24, NULL, 0);
 ctx->theme_copy.font = wlx_font_from_raylib(&my_font);
 ```
 
+### `wlx_raylib_root_rect`
+
+```c
+static inline WLX_Rect wlx_raylib_root_rect(void);
+```
+
+The root rect for `wlx_begin`, in units: `{0, 0, GetScreenWidth(),
+GetScreenHeight()}`, the space Raylib draws and reports the mouse in
+under any scale. Prefer it to `GetRenderWidth`, which is the framebuffer
+in units and twice the drawable space on a 2x display under
+`FLAG_WINDOW_HIGHDPI`.
+
+### High-DPI with Raylib
+
+Set `FLAG_WINDOW_HIGHDPI` before `InitWindow`; Raylib then draws, clips
+and reports the mouse in screen units and scales to the framebuffer
+itself, and the adapter's `get_content_scale` reports that ratio
+(`GetRenderWidth() / GetScreenWidth()`, 1.0 without the flag). Text
+crispness stays with the application, because it owns the atlas: load
+each font at its nominal size times `GetWindowScaleDPI().x` and keep a
+bilinear filter on the texture, and ask widgets for the nominal size as
+before. Raylib's built-in bitmap font has no scaled variant and stays
+soft on a scaled display.
+
+```c
+SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
+InitWindow(800, 600, "app");
+int atlas_px = (int)(32.0f * GetWindowScaleDPI().x + 0.5f);
+Font font = LoadFontEx("myfont.ttf", atlas_px, NULL, 0);
+SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
+```
+
 ### `WLX_RAYLIB_TEXT_CACHE_CAP`
 
 ```c
@@ -4079,8 +4177,7 @@ int main(void) {
     wlx_context_init_raylib(&ctx);
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth(), h = GetRenderHeight();
-        wlx_begin(&ctx, (WLX_Rect){0, 0, w, h}, wlx_process_raylib_input);
+        wlx_begin(&ctx, wlx_raylib_root_rect(), wlx_process_raylib_input);
             BeginDrawing();
                 ClearBackground((Color){ 27, 27, 27, 255 });
                 // ... widgets ...
@@ -4117,7 +4214,9 @@ static inline void wlx_process_sdl3_input(WLX_Context *ctx);
 ```
 
 `WLX_Input_Handler` callback for SDL3. Calls `SDL_PumpEvents()` and reads
-mouse/keyboard state.
+mouse/keyboard state. Re-reads the window's display scale
+(`SDL_GetWindowDisplayScale`) for the frame and converts the mouse from
+window coordinates to units through `SDL_RenderCoordinatesFromWindow`.
 
 ### `wlx_backend_sdl3`
 
@@ -4126,6 +4225,21 @@ static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer);
 ```
 
 Returns a `WLX_Backend` struct with all SDL3 function pointers.
+
+### `wlx_sdl3_root_rect`
+
+```c
+static inline WLX_Rect wlx_sdl3_root_rect(void);
+```
+
+The root rect for `wlx_begin`, in units: the renderer's output size in
+pixels over the window's display scale, which the call re-reads. Create
+the window with `SDL_WINDOW_HIGH_PIXEL_DENSITY` to get a dense backing
+store on displays that offer one. The adapter converts every geometry
+callback and the clip rect from units to pixels itself, never through
+`SDL_SetRenderScale`, and rasterises its font variants at
+`font_size * scale`, so text is crisp at any scale without application
+work; measures come back in units.
 
 ### `wlx_texture_from_sdl3`
 
@@ -4296,7 +4410,8 @@ from those base fonts and retained `TTF_Text` entries reference those variants.
 
 int main(void) {
     SDL_Init(SDL_INIT_VIDEO);
-    SDL_Window *win = SDL_CreateWindow("My App", 800, 600, SDL_WINDOW_RESIZABLE);
+    SDL_Window *win = SDL_CreateWindow("My App", 800, 600,
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     SDL_Renderer *ren = SDL_CreateRenderer(win, NULL);
 
     WLX_Context ctx = {0};
@@ -4308,9 +4423,7 @@ int main(void) {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) running = false;
         }
-        int w, h;
-        SDL_GetWindowSize(win, &w, &h);
-        wlx_begin(&ctx, (WLX_Rect){0, 0, w, h}, wlx_process_sdl3_input);
+        wlx_begin(&ctx, wlx_sdl3_root_rect(), wlx_process_sdl3_input);
             SDL_SetRenderDrawColor(ren, 27, 27, 27, 255);
             SDL_RenderClear(ren);
             // ... widgets ...
@@ -4334,8 +4447,8 @@ Defined in `wollix_wasm.h` (bare wasm32, no libc; the JS host is
 -nostdlib` plus `web/wlx_libc_shim.c`; `make wasm-site` packages the
 dashboard showcase. Every `WLX_Backend` callback is bridged to a wasm import
 in the `"wlx"` module (`draw_rect`, `draw_text_slice`, `measure_text_advances`,
-`draw_texture`, `begin_scissor`, `get_frame_time`, `clipboard_get_into`,
-`clipboard_set`, `set_cursor`, ...); structs are flattened to scalars and
+`draw_texture`, `begin_scissor`, `get_frame_time`, `content_scale`,
+`clipboard_get_into`, `clipboard_set`, `set_cursor`, ...); structs are flattened to scalars and
 `WLX_Color` is packed as one `uint32_t` (`0xRRGGBBAA`).
 
 ### `wlx_context_init_wasm`

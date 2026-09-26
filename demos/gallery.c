@@ -4092,7 +4092,7 @@ static bool gallery_icon_atlas_ready(void) {
 
 static bool gallery_platform_init(Gallery_State *gs) {
     printf("Wollix Widget Gallery\n");
-    SetConfigFlags((gallery_perf_enabled() ? 0 : FLAG_WINDOW_RESIZABLE) | FLAG_MSAA_4X_HINT);
+    SetConfigFlags((gallery_perf_enabled() ? 0 : FLAG_WINDOW_RESIZABLE) | FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIGHDPI);
     InitWindow(gallery_perf_window_width(WINDOW_WIDTH), gallery_perf_window_height(WINDOW_HEIGHT), "Wollix Widget Gallery");
     SetTargetFPS(TARGET_FPS);
 
@@ -4142,9 +4142,7 @@ static void gallery_platform_shutdown(Gallery_State *gs) {
 
 static bool gallery_platform_begin_frame(Gallery_State *gs, WLX_Rect *out_root) {
     if (WindowShouldClose()) return false;
-    float w = (float)GetRenderWidth();
-    float h = (float)GetRenderHeight();
-    *out_root = (WLX_Rect){ 0, 0, w, h };
+    *out_root = wlx_raylib_root_rect();
     if (gs->theme_mode < 0 || gs->theme_mode >= GALLERY_THEME_COUNT) gs->theme_mode = GALLERY_THEME_DARK;
     WLX_Font body_font = gallery_platform_font(GALLERY_FONT_BODY);
     g_raylib_theme_brand = gallery_brand_theme(body_font);
@@ -4283,7 +4281,7 @@ static bool gallery_platform_init(Gallery_State *gs) {
 
     g_sdl3_window = SDL_CreateWindow("Wollix Widget Gallery",
         gallery_perf_window_width(WINDOW_WIDTH), gallery_perf_window_height(WINDOW_HEIGHT),
-        (gallery_perf_enabled() ? 0 : SDL_WINDOW_RESIZABLE) | SDL_WINDOW_OPENGL);
+        (gallery_perf_enabled() ? 0 : SDL_WINDOW_RESIZABLE) | SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!g_sdl3_window) {
         fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
         SDL_Quit();
@@ -4380,9 +4378,7 @@ static bool gallery_platform_begin_frame(Gallery_State *gs, WLX_Rect *out_root) 
     }
     if (g_sdl3_quit) return false;
 
-    int rw = 0, rh = 0;
-    SDL_GetRenderOutputSize(g_sdl3_renderer, &rw, &rh);
-    *out_root = (WLX_Rect){ 0, 0, (float)rw, (float)rh };
+    *out_root = wlx_sdl3_root_rect();
 
     if (gs->theme_mode < 0 || gs->theme_mode >= GALLERY_THEME_COUNT) gs->theme_mode = GALLERY_THEME_DARK;
     WLX_Font body_font = gallery_platform_font(GALLERY_FONT_BODY);

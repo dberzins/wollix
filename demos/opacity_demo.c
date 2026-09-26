@@ -81,7 +81,7 @@ static void draw_widget_column(WLX_Context *ctx, float op) {
 
 int main(void) {
     printf("Opacity demo - three-layer opacity model\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Opacity Demo - Three-Layer Model");
     SetTargetFPS(TARGET_FPS);
 
@@ -94,8 +94,8 @@ int main(void) {
     ctx->theme = &theme;
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        float w = (float)GetScreenWidth();
+        float h = (float)GetScreenHeight();
         WLX_Rect root = {0, 0, w, h};
 
         // Apply theme opacity from slider

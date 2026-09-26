@@ -32,7 +32,7 @@ static int *get_font_codepoints(int *out_count) {
 
 int main(void) {
     printf("Wollix text demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix text demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -52,8 +52,8 @@ int main(void) {
     WLX_Theme theme = wlx_theme_dark;
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        float w = GetScreenWidth();
+        float h = GetScreenHeight();
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
         theme.font = sans_ok ? h_sans : WLX_FONT_DEFAULT;
         ctx->theme = &theme;

@@ -99,7 +99,7 @@ static void load_file(const char *path) {
 
 int main(int argc, char **argv) {
     printf("Wollix Editor Demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix Editor Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -121,8 +121,8 @@ int main(int argc, char **argv) {
         if (IsKeyPressed(KEY_THREE)) generate_mega_line(4u << 20); // one ~4 MB line
         if (IsKeyPressed(KEY_W)) wrap_mode = !wrap_mode;
 
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        float w = GetScreenWidth();
+        float h = GetScreenHeight();
         WLX_Rect r = { .x = 0, .y = 0, .w = w, .h = h };
 
         wlx_begin(ctx, r, wlx_process_raylib_input);

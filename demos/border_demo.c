@@ -37,7 +37,7 @@ static App_State app = {
 
 int main(void) {
     printf("Border demo - showcasing border_color and border_width\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Border Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -46,8 +46,8 @@ int main(void) {
     wlx_context_init_raylib(ctx);
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        float w = (float)GetScreenWidth();
+        float h = (float)GetScreenHeight();
         WLX_Rect root = {0, 0, w, h};
 
         WLX_Color bdr = {

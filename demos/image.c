@@ -91,7 +91,7 @@ static void draw_scale_pane(WLX_Context *ctx, WLX_Texture tex,
 
 int main(void) {
     printf("Wollix Image Widget Demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix Image Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -105,8 +105,8 @@ int main(void) {
     double start = GetTime();
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        float w = (float)GetScreenWidth();
+        float h = (float)GetScreenHeight();
         WLX_Rect root = { 0, 0, w, h };
 
         float t = (float)(GetTime() - start);

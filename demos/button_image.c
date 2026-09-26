@@ -100,7 +100,7 @@ static const char *kind_label(int kind) {
 
 int main(void) {
     printf("Wollix Image-capable Button Demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix Image-capable Button Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -114,8 +114,8 @@ int main(void) {
     App_State app = {0};
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        float w = (float)GetScreenWidth();
+        float h = (float)GetScreenHeight();
         WLX_Rect root = { 0, 0, w, h };
 
         wlx_begin(ctx, root, wlx_process_raylib_input);

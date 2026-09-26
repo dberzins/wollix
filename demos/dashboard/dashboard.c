@@ -2888,7 +2888,10 @@ static void dashboard_raylib_load_fonts(void) {
         &g_dashboard_fonts.mono_bold,
     };
     for (int i = 0; i < DASHBOARD_FONT_FACE_COUNT; i++) {
-        g_dashboard_faces[i] = LoadFontEx(dashboard_font_paths[i], DASHBOARD_FONT_BASE_SIZE, cps, cp_count);
+        // The atlas is rasterised for the display's scale so text stays crisp
+        // under FLAG_WINDOW_HIGHDPI; the nominal size is unchanged.
+        int atlas_px = (int)(DASHBOARD_FONT_BASE_SIZE * GetWindowScaleDPI().x + 0.5f);
+        g_dashboard_faces[i] = LoadFontEx(dashboard_font_paths[i], atlas_px, cps, cp_count);
         if (g_dashboard_faces[i].glyphCount <= 0) {
             printf("WARNING: could not load %s\n", dashboard_font_paths[i]);
             *slots[i] = WLX_FONT_DEFAULT;
@@ -2922,7 +2925,7 @@ static WLX_Text_Style dashboard_raylib_scale_style(WLX_Text_Style style, void *u
 
 static bool dashboard_platform_init(void) {
     printf("Wollix dashboard demo (Raylib)\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix Dashboard");
     SetTargetFPS(TARGET_FPS);
 
@@ -2954,7 +2957,7 @@ static void dashboard_platform_shutdown(void) {
 
 static bool dashboard_platform_begin_frame(WLX_Rect *out_root) {
     if (WindowShouldClose()) return false;
-    *out_root = (WLX_Rect){ 0, 0, (float)GetRenderWidth(), (float)GetRenderHeight() };
+    *out_root = wlx_raylib_root_rect();
     wlx_begin(g_dashboard_ctx, *out_root, wlx_process_raylib_input);
     BeginDrawing();
     return true;
@@ -3041,7 +3044,7 @@ static bool dashboard_platform_init(void) {
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 8);
 
     g_dashboard_window = SDL_CreateWindow("Wollix Dashboard", WINDOW_WIDTH, WINDOW_HEIGHT,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!g_dashboard_window) {
         fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
         SDL_Quit();
@@ -3104,9 +3107,7 @@ static bool dashboard_platform_begin_frame(WLX_Rect *out_root) {
     }
     if (g_dashboard_quit) return false;
 
-    int rw = 0, rh = 0;
-    SDL_GetRenderOutputSize(g_dashboard_renderer, &rw, &rh);
-    *out_root = (WLX_Rect){ 0, 0, (float)rw, (float)rh };
+    *out_root = wlx_sdl3_root_rect();
     wlx_begin(g_dashboard_ctx, *out_root, wlx_process_sdl3_input);
     return true;
 }

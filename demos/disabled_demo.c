@@ -123,7 +123,7 @@ static void draw_widget_column(WLX_Context *ctx, bool disabled) {
 
 int main(void) {
     printf("Disabled-state demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Disabled Demo - Phase 1");
     SetTargetFPS(TARGET_FPS);
 
@@ -136,8 +136,8 @@ int main(void) {
     preset_themes[2] = &wlx_theme_glass;
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        float w = (float)GetScreenWidth();
+        float h = (float)GetScreenHeight();
         WLX_Rect root = {0, 0, w, h};
 
         const WLX_Theme *theme = preset_themes[app.preset_index];

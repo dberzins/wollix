@@ -23,7 +23,7 @@ int main(void) {
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 8);
 
     SDL_Window *window = SDL_CreateWindow("Wollix SDL3 Demo", WINDOW_WIDTH, WINDOW_HEIGHT,
-            SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
+            SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (window == NULL) {
         fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
         SDL_Quit();
@@ -78,16 +78,7 @@ int main(void) {
             }
         }
 
-        int render_w = 0;
-        int render_h = 0;
-        SDL_GetRenderOutputSize(renderer, &render_w, &render_h);
-
-        WLX_Rect root = {
-            .x = 0,
-            .y = 0,
-            .w = (float)render_w,
-            .h = (float)render_h,
-        };
+        WLX_Rect root = wlx_sdl3_root_rect();   // units: pixels over the display scale
 
         wlx_begin(ctx, root, wlx_process_sdl3_input);
 

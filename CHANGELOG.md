@@ -34,7 +34,11 @@ release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
   removed in the first minor after 0.9); or, for good, append `void *user`
   to each callback and set `.contract_version`. An application that
   overrides individual callbacks of an adapter-installed table forwards
-  `user` unchanged and never repoints `backend.user`.
+  `user` unchanged and never repoints `backend.user`. The v2 table's last
+  member is the optional `float (*get_content_scale)(void *user)` (device
+  pixels per unit; NULL or a zero-initialised table means 1.0; the shim
+  leaves it NULL). The version stays `2`, and this shape, member included,
+  is the one that freezes after 0.9.
 - **`.align` is `.content_align`; `.widget_align` is `.slot_align`.** The
   two alignment fields never said what they aligned: `content_align`
   places the text or image inside the widget rect (the typography field,
@@ -155,6 +159,29 @@ your own pace before the next minor.
    `wlx_grid_begin_auto_tile_impl` calls; macro callers change nothing.
 
 ### Added
+- **Coordinate units and content scale.** One Wollix unit is a logical
+  pixel; the backend maps it to device pixels by its content scale (2.0 on
+  a 2x display, 1.5 at a 150% setting). `WLX_Backend.get_content_scale`
+  (optional, see the contract entry above) reports the scale; `wlx_begin`
+  samples it once per frame, reports `WLX_ERR_BAD_ARGUMENT` and runs at
+  1.0 for a value outside `[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]`
+  (new configuration macros, 0.25 and 8.0), and bumps the text-geometry
+  generation when the scale changes. `wlx_content_scale(ctx)` reads the
+  frame's value. Root-rect helpers per backend: `wlx_raylib_root_rect()`
+  (the screen size in units) and `wlx_sdl3_root_rect()` (the output size
+  over the display scale); the README and every demo use them and opt
+  their windows into high density (`FLAG_WINDOW_HIGHDPI`,
+  `SDL_WINDOW_HIGH_PIXEL_DENSITY`). The SDL3 adapter maps every geometry
+  callback and the clip rect from units to pixels, rasterises its font
+  variants at `font_size * scale` and returns measures in units, so text
+  is crisp at any scale; the mouse goes through
+  `SDL_RenderCoordinatesFromWindow`. The Raylib adapter reports the ratio
+  Raylib applies (`GetRenderWidth / GetScreenWidth`); text crispness there
+  is the application's atlas size (the API reference's "High-DPI with
+  Raylib"). The web host answers a `content_scale` import with
+  `devicePixelRatio`. Documented under "Coordinate space" in the API
+  reference; the option tables now say "in units" where they said "in
+  pixels".
 - **Contract errors are reported in every build.** A caller-contract
   violation (more children than slots, a grid cell outside the grid, an
   end without a begin, a widget with no layout open, a count of zero, a
@@ -354,6 +381,12 @@ your own pace before the next minor.
   edge. Two tests in `tests/test_tab_traversal.c`.
 
 ### Changed
+- **Slot boundaries snap to the device-pixel grid.** The layout's
+  integer snap of slot boundaries now snaps to multiples of one device
+  pixel in units (`floorf(v * scale + 0.5f) / scale`). At content scale
+  1.0 the arithmetic is exact and every boundary is bit-identical to
+  before; at 1.5 or 2.0 boundaries land on the device grid instead of the
+  unit grid, so adjacent fills do not seam.
 - **`WLX_HARD_ASSERT` and `WLX_UNREACHABLE` print through `WLX_ERROR_PRINT`.**
   Their text reaches the bare-WASM browser console (the shim maps the macro
   to `puts`; its `fprintf` is a no-op), where they aborted without a word

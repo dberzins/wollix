@@ -33,8 +33,8 @@ are documented once here.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `slot_align` | `WLX_Align` | `WLX_LEFT` | Where to place the widget rect inside its slot when it is smaller than the slot. `widget_align` is the deprecated pre-0.9 name (same storage, removed in the first minor after 0.9) |
-| `width` | `float` | `WLX_UNSET` | Widget width in pixels. unset = fill parent width |
-| `height` | `float` | `WLX_UNSET` | Widget height in pixels. unset = fill parent height |
+| `width` | `float` | `WLX_UNSET` | Widget width in units. unset = fill parent width |
+| `height` | `float` | `WLX_UNSET` | Widget height in units. unset = fill parent height |
 | `min_width` | `float` | `0` | Minimum width constraint. `0` = unconstrained |
 | `min_height` | `float` | `0` | Minimum height constraint. `0` = unconstrained |
 | `max_width` | `float` | `0` | Maximum width constraint. `0` = unconstrained |
@@ -59,7 +59,7 @@ Used by `label`, `button`, `checkbox`, `inputbox`, `toggle`, and `radio`.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `font` | `WLX_Font` | `WLX_FONT_DEFAULT` | Font handle. `0` = backend default / theme font |
-| `font_size` | `int` | `0` | Font size in pixels. `0` = use theme default |
+| `font_size` | `int` | `0` | Font size in units. `0` = use theme default |
 | `content_align` | `WLX_Align` | `WLX_LEFT` | Text alignment within the widget rect. `align` is the deprecated pre-0.9 name (same storage, removed in the first minor after 0.9) |
 | `wrap` | `bool` | varies | Enable fitted multi-line wrapping for long text. Width wrapping breaks at word boundaries: after the last space or tab that fits the row, inside a word only when it is wider than the row, with overflowing whitespace hanging on its row and left out of the row's alignment width. In the multiline inputbox and textarea an overflowing space or tab never hangs: the row cuts at the previous whitespace (the word before it moves down) or the whitespace opens the next row, so the caret stays inside the field. Explicit `\n`, `\r\n`, and `\r` always break lines |
 | `spacing` | `int` | `0` | Opt-in extra tracking. `0` = natural backend spacing |
@@ -108,7 +108,7 @@ directly even though it does not use the macro.
 | `border_color` | `WLX_Color` | `{0}` | Border color. `{0}` = theme or widget-specific border fallback |
 | `border_width` | `float` | `WLX_UNSET` | Border width. unset = theme/widget default, `0` = no border |
 | `roundness` | `float` | `WLX_UNSET` | Corner roundness (fraction of the shorter side). unset = theme default |
-| `corner_radius` | `float` | `0` | Absolute corner radius in **pixels**. `> 0` overrides `roundness`; `0` = unset |
+| `corner_radius` | `float` | `0` | Absolute corner radius in **units**. `> 0` overrides `roundness`; `0` = unset |
 | `rounded_segments` | `int` | `WLX_UNSET` | Segment count for rounded drawing. unset = theme default |
 | `rounded_corners` | `int` | `0` | `WLX_CORNERS_*` mask selecting which corners use the radius. `0` = all four |
 | `border_color_top` / `_right` / `_bottom` / `_left` | `WLX_Color` | `{0}` | Per-side border color. `{0}` inherits `border_color` |
@@ -118,7 +118,7 @@ directly even though it does not use the macro.
 
 `roundness` is a fraction of the element's shorter side, so a single constant
 rounds differently sized elements by different pixel amounts. `corner_radius`
-expresses the radius in **pixels** instead, for design systems that specify a
+expresses the radius in **units** instead, for design systems that specify a
 fixed corner (e.g. an 8 px `rounded-lg`). It is resolved centrally at draw time
 against the element's final rect using `clamp(2 * corner_radius / min(w,h), 0, 1)`,
 so two differently sized panels with the same `corner_radius` get the same pixel
@@ -1649,7 +1649,7 @@ wlx_separator(ctx, .height = 1);
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `back_color` | `WLX_Color` | `{0}` | Divider color. `{0}` = theme `border` (renamed from `color` in v0.6; the alias was removed in v0.7) |
-| `thickness` | `float` | `1.0` | Line thickness in pixels |
+| `thickness` | `float` | `1.0` | Line thickness in units |
 
 Shared placement and sizing fields also apply.
 
@@ -1921,7 +1921,7 @@ void wlx_scroll_panel_end(WLX_Context *ctx);
 
 | Parameter | Description |
 |-----------|-------------|
-| `content_height` | Total height of the scrollable content in pixels. Use `WLX_SCROLL_AUTO_HEIGHT` (`-1`) for **auto-height** mode (measured from children automatically) |
+| `content_height` | Total height of the scrollable content in units. Use `WLX_SCROLL_AUTO_HEIGHT` (`-1`) for **auto-height** mode (measured from children automatically) |
 
 ### Minimal example
 
@@ -2043,7 +2043,7 @@ wlx_list_clipper_end(ctx, &c);
 ```
 
 **Options** (`WLX_List_Clipper_Opt`): `id` (content-layout id), `item_offsets`
-(variable mode; `NULL` = fixed pitch), `overscan` (extra pixels of rows built
+(variable mode; `NULL` = fixed pitch), `overscan` (extra units of rows built
 above/below the viewport — use it to keep a margin of pre-built rows).
 
 **Caveat:** rows outside `[first, last)` are not produced, so they get no ids,
@@ -2216,14 +2216,14 @@ wlx_panel_end(ctx);
 |-------|------|---------|-------------|
 | `title` | `const char *` | `NULL` | Heading text. `NULL` = no heading |
 | `title_font_size` | `int` | `18` | Heading font size |
-| `title_height` | `float` | `32` | Heading slot height in pixels |
+| `title_height` | `float` | `32` | Heading slot height in units |
 | `title_align` | `WLX_Align` | `WLX_CENTER` | Heading text alignment |
 | `title_back_color` | `WLX_Color` | `{0}` | Heading background color |
 | `back_color` | `WLX_Color` | `{0}` | Panel body background color. `{0}` = transparent |
 | `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = theme `border` (v0.6) |
-| `border_width` | `float` | `WLX_UNSET` | Border thickness in pixels. unset inherits theme `border_width` (v0.6); explicit `0` = borderless |
+| `border_width` | `float` | `WLX_UNSET` | Border thickness in units. unset inherits theme `border_width` (v0.6); explicit `0` = borderless |
 | `roundness` | `float` | `0` | Corner roundness for border/background (fraction of the shorter side). `0` = sharp |
-| `corner_radius` | `float` | `0` | Absolute corner radius in **pixels**. `> 0` overrides `roundness`; `0` = unset. See [Absolute corner radius](#absolute-corner-radius-corner_radius) |
+| `corner_radius` | `float` | `0` | Absolute corner radius in **units**. `> 0` overrides `roundness`; `0` = unset. See [Absolute corner radius](#absolute-corner-radius-corner_radius) |
 | `clip` | `bool` | `false` | Clip body content to panel bounds |
 | `content_padding` | `float` | `2` | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |
 | `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |

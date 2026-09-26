@@ -28,7 +28,7 @@ static App_State app = {0};
 
 int main(void) {
     printf("Wollix Input Widget Demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix Input Widget Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -44,8 +44,8 @@ int main(void) {
     bool show_submit = false;
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        float w = GetScreenWidth();
+        float h = GetScreenHeight();
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
 
         wlx_begin(ctx, r, wlx_process_raylib_input);
