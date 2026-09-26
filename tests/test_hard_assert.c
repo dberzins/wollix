@@ -273,6 +273,74 @@ TEST(default_sink_suppresses_after_table_full) {
     wlx_context_destroy(&ctx);
 }
 
+// --- The four release probes: with no handler, each reports and degrades ---
+
+static void probe_slot_overrun(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 2, WLX_VERT);
+    for (int i = 0; i < 6; i++) (void)wlx_button(&ctx, "child");
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    if (wlx_error_count(&ctx) != 4) _exit(3);
+    wlx_context_destroy(&ctx);
+}
+
+static void probe_grid_bounds(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin(&ctx, 2, 2);
+    wlx_grid_cell(&ctx, 5, 7);
+    for (int i = 0; i < 5; i++) (void)wlx_button(&ctx, "cell");   // the fifth overruns
+    wlx_grid_end(&ctx);
+    test_frame_end(&ctx);
+    if (wlx_error_count(&ctx) != 2) _exit(3);
+    wlx_context_destroy(&ctx);
+}
+
+static void probe_extra_end(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_layout_end(&ctx);
+    wlx_layout_end(&ctx);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);   // used to abort in the sub-arena guard
+    (void)wlx_button(&ctx, "after");
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    if (wlx_error_count(&ctx) != 1) _exit(3);
+    wlx_context_destroy(&ctx);
+}
+
+static void probe_orphan_widget(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    (void)wlx_button(&ctx, "orphan");     // used to segfault
+    test_frame_end(&ctx);
+    if (wlx_error_count(&ctx) != 1) _exit(3);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(release_probe_slot_overrun_exits_clean) {
+    ASSERT_TRUE(run_in_child(probe_slot_overrun) == CHILD_EXITED_CLEAN);
+}
+
+TEST(release_probe_grid_bounds_exits_clean) {
+    ASSERT_TRUE(run_in_child(probe_grid_bounds) == CHILD_EXITED_CLEAN);
+}
+
+TEST(release_probe_extra_end_exits_clean) {
+    ASSERT_TRUE(run_in_child(probe_extra_end) == CHILD_EXITED_CLEAN);
+}
+
+TEST(release_probe_orphan_widget_exits_clean) {
+    ASSERT_TRUE(run_in_child(probe_orphan_widget) == CHILD_EXITED_CLEAN);
+}
+
 static void trigger_hard_assert_through_sink(void) {
     test_sink_exit_on_fatal = 42;
     trigger_overlay_end_without_begin();   // WLX_HARD_ASSERT: its text reaches the sink first
@@ -307,6 +375,10 @@ SUITE(hard_assert) {
     RUN_TEST(default_sink_names_the_open_layout);
     RUN_TEST(default_sink_suppresses_after_table_full);
     RUN_TEST(hard_assert_prints_before_abort);
+    RUN_TEST(release_probe_slot_overrun_exits_clean);
+    RUN_TEST(release_probe_grid_bounds_exits_clean);
+    RUN_TEST(release_probe_extra_end_exits_clean);
+    RUN_TEST(release_probe_orphan_widget_exits_clean);
     RUN_TEST(plain_assert_is_inert_under_ndebug);
 }
 

@@ -201,7 +201,7 @@ static const WLX_Color MARK_D = {250, 250, 1, 255};
 // Helper: draw a colored rect at the current slot position.
 // Advances the slot (widget_begin) and draws a rect to mark position.
 static inline void crec_marker(WLX_Context *ctx, WLX_Color c, float h) {
-    WLX_Widget_Rect wg = wlx_widget_begin(ctx, (WLX_Widget_Layout){.pos = -1, .span = 1, .height = h});
+    WLX_Widget_Rect wg = wlx_widget_begin(ctx, (WLX_Widget_Layout){.pos = -1, .span = 1, .height = h}, __FILE__, __LINE__);
     wlx_draw_rect(ctx, wg.rect, c);
 }
 

@@ -2209,6 +2209,11 @@ typedef struct WLX_Context {
     WLX_Id       error_sites[WLX_ERROR_SITES_MAX];  // sites the default sink has printed
     int          error_sites_count;
     bool         error_sites_full;                  // the suppression line went out
+    // Caller site of the entry in progress, set around the slot fetch a
+    // widget or nested begin makes, so a report from the site-less fetch
+    // names the caller; NULL between entries.
+    const char  *site_file;
+    int          site_line;
 
     // Theme - NULL means use &wlx_theme_dark (set automatically in wlx_begin)
     const WLX_Theme *theme;
@@ -5319,10 +5324,22 @@ static inline float wlx_get_available_height(WLX_Context *ctx) {
 }
 
 static inline WLX_Rect wlx_get_widget_cell_rect(WLX_Context *ctx, int pos, size_t span,
-    float padding, float padding_top, float padding_right, float padding_bottom, float padding_left) {
+    float padding, float padding_top, float padding_right, float padding_bottom, float padding_left,
+    const char *file, int line) {
     assert(ctx != NULL);
-    assert(ctx->arena.layouts.count > 0);
-    WLX_Rect rect = wlx_get_slot_rect(ctx, &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1], pos, span);
+    WLX_Rect rect;
+    // A widget with no layout open takes the root rect, as a root container
+    // does, so the screen still shows it.
+    if (!WLX_CONTRACT_AT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
+            "widget placed with no layout open", file, line)) {
+        rect = ctx->rect;
+    } else {
+        ctx->site_file = file;
+        ctx->site_line = line;
+        rect = wlx_get_slot_rect(ctx, &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1], pos, span);
+        ctx->site_file = NULL;
+        ctx->site_line = 0;
+    }
     WLX_Resolved_Padding p = wlx_resolve_padding(padding, padding_top, padding_right, padding_bottom, padding_left);
     return wlx_rect_inset_sides(rect, p.top, p.right, p.bottom, p.left);
 }
@@ -5427,7 +5444,8 @@ static inline void wlx_contribute_to_parent_layout(
         parent->accumulated_content_height += c.h_contrib;
     }
 
-    if (parent->has_content_slot_measures && c.slot_index < WLX_CONTENT_SLOTS_MAX) {
+    if (parent->has_content_slot_measures
+        && c.slot_index < WLX_CONTENT_SLOTS_MAX && c.slot_index < parent->count) {
         float main_extent = wlx_layout_is_horz(parent) ? c.w_contrib : c.h_contrib;
         wlx_layout_content_measures(ctx, parent)[c.slot_index] += main_extent;
     }
@@ -5527,10 +5545,11 @@ static inline float wlx_intrinsic_text_image_width(WLX_Context *ctx,
     return text_w + ((text_w > 0.0f) ? image_text_gap : 0.0f) + img_w;
 }
 
-static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layout ly)
+static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layout ly,
+                                               const char *file, int line)
 {
     WLX_Rect cell = wlx_get_widget_cell_rect(ctx, ly.pos, ly.span, ly.padding,
-        ly.padding_top, ly.padding_right, ly.padding_bottom, ly.padding_left);
+        ly.padding_top, ly.padding_right, ly.padding_bottom, ly.padding_left, file, line);
 
     wlx_cmd_close_sibling_range(ctx);
     wlx_cmd_open_range(ctx);
@@ -5539,7 +5558,10 @@ static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layo
     // folds the accumulated total into auto_scroll_total_height, so widgets
     // never need to know about scroll panels), width when explicit or
     // intrinsic.
-    if (ctx->arena.layouts.count > 0) {
+    // A widget whose slot fetch reported an overrun occupies no slot and
+    // contributes nothing (the collapsed cell is not content).
+    if (ctx->arena.layouts.count > 0
+        && !wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].slot_clamped) {
         WLX_Layout *parent_l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
         float h_contrib = (ly.height > 0) ? ly.height
                        : (ly.min_h > cell.h) ? ly.min_h : cell.h;
@@ -5640,8 +5662,8 @@ static void wlx_error_report(WLX_Context *ctx, WLX_Error_Code code, const char *
     WLX_Error e;
     e.code        = code;
     e.message     = msg;
-    e.file        = file;
-    e.line        = line;
+    e.file        = (file != NULL) ? file : ctx->site_file;
+    e.line        = (file != NULL) ? line : ctx->site_line;
     e.layout_file = NULL;
     e.layout_line = 0;
     if (ctx->arena.layouts.count > 0 && ctx->arena.layouts.items != NULL) {
@@ -5722,7 +5744,7 @@ static inline WLX_Widget_Frame wlx_widget_frame_begin(
     WLX_UNUSED(line);
 
     bool pushed = wlx_scope_push(ctx, id);
-    WLX_Widget_Rect wg = wlx_widget_begin(ctx, ly);
+    WLX_Widget_Rect wg = wlx_widget_begin(ctx, ly, file, line);
     WLX_DBG(widget_begin, ctx, wg.slot_rect, ly.height, ly.span, ly.overflow, file, line);
     ctx->last_widget_rect = wg.rect;
     return (WLX_Widget_Frame){ .slot_rect = wg.slot_rect, .rect = wg.rect, .pushed_scope = pushed };
@@ -6297,8 +6319,27 @@ static void wlx_draw_layout_background(WLX_Context *ctx, WLX_Rect rect,
                                         float border_width, float roundness,
                                         int rounded_segments);
 
+// The rect a slot fetch returns after it reported an overrun: zero-size on
+// the main axis at the layout's far edge, so the child draws nothing
+// measurable and no real child is overdrawn. The fetch leaves index and
+// cursor where they were and marks the layout so the child's parent
+// contribution is skipped.
+static inline WLX_Rect wlx_layout_overrun_rect(const WLX_Layout *l) {
+    float extent = wlx_layout_main_extent(l);
+    if (l->linear.orient == WLX_HORZ) {
+        return (WLX_Rect){ l->rect.x + extent, l->rect.y, 0.0f, l->rect.h };
+    }
+    return (WLX_Rect){ l->rect.x, l->rect.y + extent, l->rect.w, 0.0f };
+}
+
+static inline WLX_Rect wlx_grid_overrun_rect(const WLX_Context *ctx, const WLX_Layout *l) {
+    const float *row_off = wlx_grid_row_offsets(ctx, l);
+    return (WLX_Rect){ l->rect.x, l->rect.y + row_off[l->grid.rows], l->rect.w, 0.0f };
+}
+
 WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size_t span) {
     assert(l != NULL);
+    l->slot_clamped = false;
 
     if (l->kind == WLX_LAYOUT_GRID) {
         size_t row, col, rspan, cspan;
@@ -6339,8 +6380,14 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
             l->count = l->grid.rows * l->grid.cols;
         }
 
-        assert(row + rspan <= l->grid.rows && "Grid row + row_span out of bounds");
-        assert(col + cspan <= l->grid.cols && "Grid col + col_span out of bounds");
+        if (!WLX_CONTRACT(ctx, row + rspan <= l->grid.rows && col + cspan <= l->grid.cols,
+                WLX_ERR_GRID_BOUNDS, "grid overrun: the cell or span lies outside the grid")) {
+            l->grid.next_cell_back_color   = (WLX_Color){0};
+            l->grid.next_cell_border_color = (WLX_Color){0};
+            l->grid.next_cell_border_width = 0.0f;
+            l->slot_clamped = true;
+            return wlx_grid_overrun_rect(ctx, l);
+        }
 
         WLX_Rect slot_rect = wlx_calc_grid_slot_rect(ctx, l, row, col, rspan, cspan);
 
@@ -6372,7 +6419,9 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
     }
 
     if (l->linear.dynamic) {
-        assert(pos < 0 && "Positional access (pos >= 0) is not supported on dynamic layouts");
+        if (!WLX_CONTRACT(ctx, pos < 0, WLX_ERR_BAD_ARGUMENT,
+                "positional slot access on a dynamic layout: the slot is taken in sequence"))
+            pos = -1;
         assert(ctx->arena.dyn_offsets.count == l->linear.slot_size_offsets_base + l->count + 1 &&
                "Dynamic layout offset region is not contiguous - nested layout_begin inside a dynamic body?");
 
@@ -6390,11 +6439,19 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
             offsets[l->count + 1 + s] = floorf(offsets[l->count + s] + effective + gap_add + 0.5f);
         }
         l->count += span;
-    } else {
-        assert(pos < (int)l->count);
     }
 
     size_t cell_index = (pos < 0) ? l->index : (size_t)pos;
+    if (!l->linear.dynamic
+        && !WLX_CONTRACT(ctx, cell_index + span <= l->count, WLX_ERR_SLOT_OVERRUN,
+               (pos < 0) ? "slot overrun: more children than slots in this layout"
+                         : "slot position past the layout's slot count")) {
+        l->linear.next_slot_back_color   = (WLX_Color){0};
+        l->linear.next_slot_border_color = (WLX_Color){0};
+        l->linear.next_slot_border_width = 0.0f;
+        l->slot_clamped = true;
+        return wlx_layout_overrun_rect(l);
+    }
     WLX_Rect slot_rect = wlx_calc_layout_slot_rect(ctx, l, cell_index, span);
 
     {
@@ -7034,6 +7091,12 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
         ctx->interaction.focus_id = 0;
     }
 
+    // Every begin must have met its end by now; the report names the
+    // innermost open layout's begin site. The frame still finishes, and the
+    // next wlx_begin resets the pool.
+    (void)WLX_CONTRACT(ctx, ctx->arena.layouts.count == 0, WLX_ERR_UNBALANCED_END,
+        "wlx_end with a layout still open: a begin is missing its end");
+
 #ifdef WLX_DEBUG
     // Scope push/pop balance: every wlx_scope_push (via frame helpers) and
     // every direct wlx_push_id must be matched before frame end. The arena
@@ -7606,8 +7669,12 @@ static inline WLX_Layout_Frame wlx_layout_frame_begin(
     if (ctx->arena.layouts.count <= 0) {
         r = ctx->rect;
     } else {
+        ctx->site_file = file;
+        ctx->site_line = line;
         r = wlx_get_slot_rect(ctx,
             &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1], co.pos, co.span);
+        ctx->site_file = NULL;
+        ctx->site_line = 0;
     }
     wlx_cmd_close_sibling_range(ctx);
     int cmd_range_idx = wlx_cmd_open_range(ctx);
@@ -8097,7 +8164,9 @@ static inline void wlx_layout_frame_end(WLX_Context *ctx, WLX_Layout *l) {
 
 WLXDEF void wlx_layout_end(WLX_Context *ctx) {
     assert(ctx != NULL);
-    assert(ctx->arena.layouts.count > 0);
+    if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_UNBALANCED_END,
+            "wlx_layout_end without a matching begin"))
+        return;
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
 
     // Single owner of clip scissor release: any layout (including a panel body)
@@ -8142,7 +8211,11 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
 
     // --- Contribute this layout's content height to parent CONTENT tracking ---
     // Overlay roots float outside the slot tree and contribute nothing.
-    if (!l->is_overlay_root && ctx->arena.layouts.count > 1) {
+    // A layout whose own slot fetch reported an overrun (parent->slot_clamped,
+    // still set: nothing fetches from the parent while its child is open)
+    // occupies no slot and contributes nothing.
+    if (!l->is_overlay_root && ctx->arena.layouts.count > 1
+        && !wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2].slot_clamped) {
         WLX_Layout *parent = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2];
         // VERT parents only: the bucket stores the parent's main-axis extent,
         // and a nested layout has no intrinsic width to offer a HORZ parent
@@ -8150,7 +8223,7 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
         bool parent_horz = wlx_layout_is_horz(parent);
         if (parent->has_content_slot_measures && !parent_horz && parent->index > 0) {
             size_t slot_idx = parent->index - 1;
-            if (slot_idx < WLX_CONTENT_SLOTS_MAX) {
+            if (slot_idx < WLX_CONTENT_SLOTS_MAX && slot_idx < parent->count) {
                 wlx_layout_content_measures(ctx, parent)[slot_idx] +=
                     l->accumulated_content_height + l->padding_top + l->padding_bottom;
             }
@@ -8179,7 +8252,8 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
     // height into the parent's accumulated_content_height.  The wrapper
     // layout in wlx_scroll_panel_end reads the fully-aggregated tree total.
     // Overlay roots float outside the slot tree and contribute nothing.
-    if (!l->is_overlay_root && ctx->arena.layouts.count > 1) {
+    if (!l->is_overlay_root && ctx->arena.layouts.count > 1
+        && !wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2].slot_clamped) {
         WLX_Layout *parent = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2];
         float child_h = l->accumulated_content_height + l->padding_top + l->padding_bottom;
         // For VERT linear parents with explicitly-sized slots (PX or
@@ -8354,10 +8428,14 @@ WLXDEF int wlx_error_count(const WLX_Context *ctx) {
 // innermost dynamic layout.  FLEX/AUTO are greedy (take all remaining space).
 WLXDEF void wlx_layout_auto_slot(WLX_Context *ctx, WLX_Slot_Size size) {
     assert(ctx != NULL);
-    assert(ctx->arena.layouts.count > 0 && "wlx_layout_auto_slot called outside a layout");
+    if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
+            "wlx_layout_auto_slot called with no layout open"))
+        return;
 
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-    assert(l->linear.dynamic && "wlx_layout_auto_slot is only valid inside a wlx_layout_begin_auto block");
+    if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_LINEAR && l->linear.dynamic, WLX_ERR_BAD_ARGUMENT,
+            "wlx_layout_auto_slot is only valid inside a wlx_layout_begin_auto block"))
+        return;
 
     float total = wlx_layout_main_extent(l);
     float used  = (l->count > 0) ? wlx_layout_offsets(ctx, l)[l->count] : 0.0f;
@@ -8391,12 +8469,15 @@ WLXDEF void wlx_layout_auto_slot_px(WLX_Context *ctx, float px) {
 
 WLXDEF void wlx_grid_auto_row_px(WLX_Context *ctx, float px) {
     assert(ctx != NULL);
-    assert(ctx->arena.layouts.count > 0 && "wlx_grid_auto_row_px called outside a layout");
+    if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
+            "wlx_grid_auto_row_px called with no layout open"))
+        return;
     assert(px > 0.0f && "wlx_grid_auto_row_px requires a positive pixel size");
 
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-    assert(l->kind == WLX_LAYOUT_GRID && l->grid.dynamic &&
-           "wlx_grid_auto_row_px is only valid inside a wlx_grid_begin_auto block");
+    if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_GRID && l->grid.dynamic, WLX_ERR_BAD_ARGUMENT,
+            "wlx_grid_auto_row_px is only valid inside a wlx_grid_begin_auto block"))
+        return;
 
     l->grid.next_row_size = px;
 }
@@ -8404,10 +8485,14 @@ WLXDEF void wlx_grid_auto_row_px(WLX_Context *ctx, float px) {
 WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Style_Opt opt) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_cell", "wlx_slot_style_opt_defaults", NULL, 0);
     assert(ctx != NULL);
-    assert(ctx->arena.layouts.count > 0 && "grid_cell() called outside a layout");
+    if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
+            "wlx_grid_cell called with no layout open"))
+        return;
 
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-    assert(l->kind == WLX_LAYOUT_GRID && "grid_cell() is only valid inside a grid_begin block");
+    if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_GRID, WLX_ERR_BAD_ARGUMENT,
+            "wlx_grid_cell is only valid inside a wlx_grid_begin block"))
+        return;
 
     // -1 means "use cursor position for that axis"
     size_t r = (row < 0) ? l->grid.cursor_row : (size_t)row;
@@ -8415,8 +8500,10 @@ WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Styl
 
     size_t rs = (opt.row_span == 0) ? 1 : opt.row_span;
     size_t cs = (opt.col_span == 0) ? 1 : opt.col_span;
-    assert(r + rs <= l->grid.rows && "grid_cell row + row_span out of bounds");
-    assert(c + cs <= l->grid.cols && "grid_cell col + col_span out of bounds");
+    // An out-of-range placement is reported and ignored: the cursor stands.
+    if (!WLX_CONTRACT(ctx, r + rs <= l->grid.rows && c + cs <= l->grid.cols, WLX_ERR_GRID_BOUNDS,
+            "wlx_grid_cell: the cell or span lies outside the grid; the placement is ignored"))
+        return;
 
     l->grid.cell_set      = true;
     l->grid.next_row      = r;
@@ -8434,9 +8521,13 @@ WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Styl
 WLXDEF void wlx_slot_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_slot_style", "wlx_slot_style_opt_defaults", NULL, 0);
     assert(ctx != NULL);
-    assert(ctx->arena.layouts.count > 0 && "wlx_slot_style() called outside a layout");
+    if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
+            "wlx_slot_style called with no layout open"))
+        return;
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-    assert(l->kind == WLX_LAYOUT_LINEAR && "wlx_slot_style() is only valid inside a linear layout");
+    if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_LINEAR, WLX_ERR_BAD_ARGUMENT,
+            "wlx_slot_style is only valid inside a linear layout"))
+        return;
     l->linear.next_slot_back_color   = opt.back_color;
     l->linear.next_slot_border_color = opt.border_color;
     l->linear.next_slot_border_width = opt.border_width;
@@ -8445,9 +8536,13 @@ WLXDEF void wlx_slot_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt) {
 WLXDEF void wlx_grid_cell_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_cell_style", "wlx_slot_style_opt_defaults", NULL, 0);
     assert(ctx != NULL);
-    assert(ctx->arena.layouts.count > 0 && "wlx_grid_cell_style() called outside a layout");
+    if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
+            "wlx_grid_cell_style called with no layout open"))
+        return;
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-    assert(l->kind == WLX_LAYOUT_GRID && "wlx_grid_cell_style() is only valid inside a grid layout");
+    if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_GRID, WLX_ERR_BAD_ARGUMENT,
+            "wlx_grid_cell_style is only valid inside a grid layout"))
+        return;
     l->grid.next_cell_back_color   = opt.back_color;
     l->grid.next_cell_border_color = opt.border_color;
     l->grid.next_cell_border_width = opt.border_width;
@@ -8532,7 +8627,9 @@ WLXDEF void wlx_push_id(WLX_Context *ctx, WLX_Id id) {
 }
 
 WLXDEF void wlx_pop_id(WLX_Context *ctx) {
-    assert(ctx->arena.id_stack.count > 0);
+    if (!WLX_CONTRACT(ctx, ctx->arena.id_stack.count > 0, WLX_ERR_UNBALANCED_END,
+            "wlx_pop_id without a matching wlx_push_id"))
+        return;
     ctx->arena.id_stack.count--;
 }
 
@@ -8542,7 +8639,9 @@ WLXDEF void wlx_push_opacity(WLX_Context *ctx, float opacity) {
 }
 
 WLXDEF void wlx_pop_opacity(WLX_Context *ctx) {
-    assert(ctx->arena.opacity_stack.count > 0);
+    if (!WLX_CONTRACT(ctx, ctx->arena.opacity_stack.count > 0, WLX_ERR_UNBALANCED_END,
+            "wlx_pop_opacity without a matching wlx_push_opacity"))
+        return;
     ctx->arena.opacity_stack.count--;
 }
 
@@ -15889,10 +15988,10 @@ static void wlx_resolve_opt_scroll_panel(const WLX_Context *ctx, WLX_Scroll_Pane
 // Helper: resolve cell rect and widget rect for a scroll panel.
 static inline void wlx_scroll_panel_resolve_rect(
     WLX_Context *ctx, const WLX_Scroll_Panel_Opt *opt,
-    WLX_Rect *out_cell, WLX_Rect *out_widget)
+    WLX_Rect *out_cell, WLX_Rect *out_widget, const char *file, int line)
 {
     *out_cell = wlx_get_widget_cell_rect(ctx, opt->pos, opt->span, opt->padding,
-        opt->padding_top, opt->padding_right, opt->padding_bottom, opt->padding_left);
+        opt->padding_top, opt->padding_right, opt->padding_bottom, opt->padding_left, file, line);
     *out_widget = wlx_resolve_widget_rect(*out_cell, opt->width, opt->height,
         opt->min_width, opt->min_height, opt->max_width, opt->max_height,
         opt->slot_align, opt->overflow);
@@ -16019,7 +16118,7 @@ static inline WLX_Scroll_Panel_Frame wlx_scroll_panel_frame_begin(
     // NOTE: scroll_panel does NOT use wlx_widget_begin() because its scroll-height
     // tracking is conditional (only for non-auto-height panels) and deferred.
     WLX_Rect r, wr;
-    wlx_scroll_panel_resolve_rect(ctx, opt, &r, &wr);
+    wlx_scroll_panel_resolve_rect(ctx, opt, &r, &wr, file, line);
 
     WLX_State persistent = wlx_get_state_impl(ctx, sizeof(WLX_Scroll_Panel_State), file, line);
     WLX_Scroll_Panel_State *state = (WLX_Scroll_Panel_State *)persistent.data;
@@ -16143,7 +16242,11 @@ static inline void wlx_scroll_panel_frame_end(WLX_Context *ctx, WLX_Scroll_Panel
 }
 
 WLXDEF void wlx_scroll_panel_end(WLX_Context *ctx) {
-    assert(ctx->arena.layouts.count > 0);
+    // Both stacks are checked before either is touched: an unmatched end
+    // must not pop whatever layout happens to be innermost.
+    if (!WLX_CONTRACT(ctx, ctx->arena.scroll_panels.count > 0 && ctx->arena.layouts.count > 0,
+            WLX_ERR_UNBALANCED_END, "wlx_scroll_panel_end without a matching wlx_scroll_panel_begin"))
+        return;
     // The wrapper layout's accumulated_content_height now contains the
     // fully-aggregated content tree height, propagated up from all nested
     // layouts via wlx_layout_end.  This is the single authoritative source
@@ -16155,9 +16258,6 @@ WLXDEF void wlx_scroll_panel_end(WLX_Context *ctx) {
     ctx->arena.layouts.count -= 1;
 
     // Pop scroll panel from the stack.
-    assert(ctx->arena.scroll_panels.count > 0 &&
-        "wlx_scroll_panel_end without matching wlx_scroll_panel_begin - "
-        "possible orphaned end call after refactoring");
     WLX_Scroll_Panel_State *state_sp = wlx_pool_scroll_panels(ctx)[--ctx->arena.scroll_panels.count];
 
     // Update auto-height scroll panel with measured content height FIRST,
