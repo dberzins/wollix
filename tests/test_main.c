@@ -272,6 +272,7 @@ static int test_span_assert_hits = 0;
 // Contract errors: the handler, the record, the layout begin site, and the
 // clamps each entry documents for release builds.
 #include "test_error_surface.c"
+#include "test_content_scale.c"
 
 int main(void) {
     RUN_SUITE(layout_math);
@@ -361,5 +362,6 @@ int main(void) {
     RUN_SUITE(menu);
     RUN_SUITE(opt_defaults_marker);
     RUN_SUITE(error_surface);
+    RUN_SUITE(content_scale);
     return test_summary();
 }

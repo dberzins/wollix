@@ -429,6 +429,16 @@ typedef struct {
 #define WLX_ERROR_SITES_MAX 32
 #endif
 
+// Accepted range for WLX_Backend.get_content_scale (device pixels per unit).
+// A value outside it reports WLX_ERR_BAD_ARGUMENT in wlx_begin and the frame
+// runs at 1.0. Overridable before include.
+#ifndef WLX_CONTENT_SCALE_MIN
+#define WLX_CONTENT_SCALE_MIN 0.25f
+#endif
+#ifndef WLX_CONTENT_SCALE_MAX
+#define WLX_CONTENT_SCALE_MAX 8.0f
+#endif
+
 #define WLX_UNUSED(value) (void)(value)
 
 // Formats "file:line: kind: msg" and emits it through WLX_ERROR_PRINT.
@@ -552,6 +562,11 @@ static inline size_t wlx_utf8_floor(const char *s, size_t pos) {
 // Core geometry and backend interface
 // ============================================================================
 
+// Coordinate unit. One unit is a logical pixel: every rect, length, font
+// size, thickness, radius, the root rect passed to wlx_begin and the mouse
+// position are in units. The backend maps units to device pixels by its
+// content scale (WLX_Backend.get_content_scale, 1.0 when absent); at 1.0 a
+// unit is a device pixel. Slot boundaries snap to the device-pixel grid.
 typedef struct {
     float x;
     float y;
@@ -693,6 +708,14 @@ typedef struct {
     // the shape changes, so implementations stay stateless. NULL -> the
     // platform cursor is never touched.
     void (*set_cursor)(WLX_Cursor_Shape shape, void *user); /* optional */
+    // Optional content scale: the device pixels per unit the backend applies
+    // to this frame's commands (2.0 on a 2x display, 1.5 at a 150% setting).
+    // The core calls it exactly once per frame from wlx_begin, after the
+    // input handler, and uses it only to snap slot boundaries to the device
+    // grid and to serve wlx_content_scale. NULL -> 1.0. The value must lie in
+    // [WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]; anything else reports
+    // WLX_ERR_BAD_ARGUMENT and the frame runs at 1.0.
+    float (*get_content_scale)(void *user); /* optional */
 } WLX_Backend;
 
 // Deprecated: the v0.8 backend table (contract v1), kept so an existing
@@ -2094,12 +2117,21 @@ typedef struct WLX_Context {
     // under an earlier transform is dropped.
     WLX_Style_Transform_Fn style_transform;
     void    *style_transform_user;
-    uint32_t style_transform_generation;
+    uint32_t style_transform_generation;  // bumped by wlx_set_style_transform and by a content-scale change
     WLX_Input_State input;
 
     // Frame delta seconds, sampled from backend.get_frame_time exactly once
     // per frame in wlx_begin; every wlx_get_frame_time read serves this.
     float frame_dt;
+
+    // Device pixels per unit this frame, sampled from
+    // backend.get_content_scale exactly once per frame in wlx_begin (1.0
+    // when the callback is absent or its value is unusable). Read by the
+    // slot-boundary snap and wlx_content_scale only. prev_content_scale is
+    // the previous frame's value: a change bumps style_transform_generation
+    // so retained text geometry measured under the old scale is dropped.
+    float content_scale;
+    float prev_content_scale;
 
     // Widget interaction state (hot = hovered, active = pressed/focused)
     struct {
@@ -2520,6 +2552,10 @@ WLXDEF size_t wlx_state_prune(WLX_Context *ctx, uint32_t max_age);
 WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler);
 WLXDEF void wlx_begin_immediate(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler);
 WLXDEF void wlx_end(WLX_Context *ctx);
+// This frame's device pixels per unit (1.0 before the first frame, when the
+// backend has no get_content_scale, or when its value was unusable). Read it
+// to pick a scaled asset or to size drawing the application does itself.
+WLXDEF float wlx_content_scale(const WLX_Context *ctx);
 WLXDEF void wlx_context_init(WLX_Context *ctx);
 WLXDEF void wlx_context_init_ex(WLX_Context *ctx, const WLX_Arena_Pool_Config *cfg);
 WLXDEF void wlx_context_destroy(WLX_Context *ctx);
@@ -5937,6 +5973,19 @@ static inline float wlx_slot_clamp(const WLX_Slot_Size *s, float size) {
     return size;
 }
 
+// Device pixels per unit for the snap below: 1.0 for the standalone offsets
+// callers (no context), before the first frame, and for a zeroed context.
+static inline float wlx_content_scale_of(const WLX_Context *ctx) {
+    return (ctx != NULL && ctx->content_scale > 0.0f) ? ctx->content_scale : 1.0f;
+}
+
+// Snap a unit coordinate to the device-pixel grid. Exact at scale 1.0: the
+// multiply and the divide are identities, so the result equals
+// floorf(v + 0.5f) bit for bit.
+static inline float wlx_snap_unit(float v, float scale) {
+    return floorf(v * scale + 0.5f) / scale;
+}
+
 // Core offset math - fills offsets[0..count] given a total extent and
 // optional per-slot sizes.  Used by both 1D layouts (single axis) and
 // grid layouts (row axis + column axis).
@@ -5953,19 +6002,19 @@ static inline void wlx_compute_offsets_ctx(WLX_Context *ctx,
     assert(offsets != NULL);
     WLX_HARD_ASSERT(count > 0 && count <= WLX_MAX_SLOT_COUNT,
         "unreasonable slot count (negative count wrapped to size_t?)");
-    WLX_UNUSED(ctx);  // unused under WLX_SLOT_SINGLE_PASS_CLAMP
+    const float scale = wlx_content_scale_of(ctx);
 
     float total_gap = gap * (float)(count > 1 ? count - 1 : 0);
 
     if (sizes == NULL) {
         // Equal division - subtract gap from distributable total, then snap
-        // each boundary to integer pixels to prevent sub-pixel gaps.
+        // each boundary to the device-pixel grid to prevent sub-pixel gaps.
         float slot_total = total - total_gap;
         if (slot_total < 0.0f) slot_total = 0.0f;
         float slot_w = slot_total / (float)count;
         float offset = 0.0f;
         for (size_t i = 0; i <= count; i++) {
-            offsets[i] = floorf(offset + 0.5f);
+            offsets[i] = wlx_snap_unit(offset, scale);
             if (i < count) offset += slot_w + (i < count - 1 ? gap : 0.0f);
         }
         return;
@@ -6050,10 +6099,10 @@ static inline void wlx_compute_offsets_ctx(WLX_Context *ctx,
 #endif
         offset += slot_size;
         if (i < count - 1) offset += gap;
-        // Snap each boundary to integer pixels to prevent sub-pixel gaps.
-        offsets[i] = floorf(offsets[i] + 0.5f);
+        // Snap each boundary to the device-pixel grid to prevent sub-pixel gaps.
+        offsets[i] = wlx_snap_unit(offsets[i], scale);
     }
-    offsets[count] = floorf(offset + 0.5f);
+    offsets[count] = wlx_snap_unit(offset, scale);
 
 #ifndef WLX_SLOT_SINGLE_PASS_CLAMP
     // --- Pass 3: iterative freeze-and-redistribute (default) ---
@@ -6110,14 +6159,14 @@ static inline void wlx_compute_offsets_ctx(WLX_Context *ctx,
             if (!changed) break;
         }
 
-        // Rebuild offsets from raw sizes with gap - snap to integer pixels.
+        // Rebuild offsets from raw sizes with gap - snap to the device-pixel grid.
         offset = 0.0f;
         for (size_t i = 0; i < count; i++) {
-            offsets[i] = floorf(offset + 0.5f);
+            offsets[i] = wlx_snap_unit(offset, scale);
             offset += raw[i];
             if (i < count - 1) offset += gap;
         }
-        offsets[count] = floorf(offset + 0.5f);
+        offsets[count] = wlx_snap_unit(offset, scale);
 
         if (heap_scratch) wlx_free(raw);
     }
@@ -6471,7 +6520,8 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
         float *offsets = wlx_layout_offsets(ctx, l);
         for (size_t s = 0; s < span; s++) {
             float gap_add = (l->count + s > 0) ? l->gap : 0.0f;
-            offsets[l->count + 1 + s] = floorf(offsets[l->count + s] + effective + gap_add + 0.5f);
+            offsets[l->count + 1 + s] = wlx_snap_unit(offsets[l->count + s] + effective + gap_add,
+                                                      wlx_content_scale_of(ctx));
         }
         l->count += span;
     }
@@ -6802,6 +6852,23 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
     // since their own previous call because the core calls exactly once.
     ctx->frame_dt = ctx->backend.get_frame_time != NULL
         ? ctx->backend.get_frame_time(ctx->backend.user) : 0.0f;
+    // The frame's single content-scale sample. A NaN fails both comparisons
+    // and is reported like any other unusable value.
+    ctx->content_scale = 1.0f;
+    if (ctx->backend.get_content_scale != NULL) {
+        float scale = ctx->backend.get_content_scale(ctx->backend.user);
+        if (WLX_CONTRACT(ctx,
+                scale >= WLX_CONTENT_SCALE_MIN && scale <= WLX_CONTENT_SCALE_MAX,
+                WLX_ERR_BAD_ARGUMENT,
+                "wlx_begin: get_content_scale returned a value outside "
+                "[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]; the frame runs at 1.0")) {
+            ctx->content_scale = scale;
+        }
+    }
+    if (ctx->content_scale != ctx->prev_content_scale) {
+        ctx->style_transform_generation++;
+        ctx->prev_content_scale = ctx->content_scale;
+    }
     wlx_frame_arbitrate(ctx);
     // Lazy pool init: callers that zero-init WLX_Context and skip
     // wlx_context_init still get the default macro-backed allocators.
@@ -6825,6 +6892,11 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
 WLXDEF void wlx_begin_immediate(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler) {
     wlx_begin(ctx, r, input_handler);
     ctx->immediate_mode = true;
+}
+
+WLXDEF float wlx_content_scale(const WLX_Context *ctx) {
+    assert(ctx != NULL);
+    return wlx_content_scale_of(ctx);
 }
 
 // ----------------------------------------------------------------------------

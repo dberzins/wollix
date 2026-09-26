@@ -92,9 +92,11 @@ TEST(backend_v1_shim_forwards_and_keeps_null_optionals) {
     ASSERT_TRUE(ctx.backend.draw_text_slice == NULL);      // legacy text path
     ASSERT_TRUE(ctx.backend.clipboard_get == NULL);
     ASSERT_TRUE(ctx.backend.set_cursor == NULL);
+    ASSERT_TRUE(ctx.backend.get_content_scale == NULL);  // the v2 slot stays optional
 
     _v1_rect_calls = _v1_text_calls = _v1_frame_calls = 0;
     test_frame_begin(&ctx, 0, 0, false, false);
+    ASSERT_EQ_F(wlx_content_scale(&ctx), 1.0f, 0.0f);   // NULL slot -> 1.0
     wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
     wlx_button(&ctx, "shim");
     wlx_layout_end(&ctx);

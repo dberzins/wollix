@@ -13,9 +13,11 @@
 #define WLX_OVERLAY_MAX_LAYERS 4
 #define WLX_TEXT_UNDO_ENTRIES 64
 #define WLX_TEXT_UNDO_BYTES 4096
+#define WLX_CONTENT_SCALE_MAX 3.0f
 
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
+#include "test_mock_backend.h"
 
 #include <assert.h>
 #include <math.h>
@@ -46,6 +48,10 @@
 #endif
 
 static int approx(float a, float b) { return fabsf(a - b) < 0.01f; }
+static int   co_errors = 0;
+static float co_scale  = 1.0f;
+static void  co_capture(const WLX_Error *e, void *user) { (void)e; (void)user; co_errors++; }
+static float co_get_scale(void *user) { (void)user; return co_scale; }
 
 int main(void) {
     // Smoke: the offset solver works under the overridden limits, on the
@@ -62,6 +68,25 @@ int main(void) {
     assert(off[1] >= 50.0f);              // min clamp held
     assert(approx(off[N], 240.0f));       // redistribution keeps the total
 
+    // The float range override is honoured at run time (the preprocessor
+    // cannot compare floats, so this is its check): 4.0 is outside the
+    // overridden maximum and reports, 2.0 is inside and does not.
+    assert(WLX_CONTENT_SCALE_MAX == 3.0f);
+    {
+        WLX_Context ctx;
+        test_ctx_init(&ctx, 100, 50);
+        ctx.backend.get_content_scale = co_get_scale;
+        wlx_set_error_handler(&ctx, co_capture, NULL);
+        co_scale = 4.0f;
+        test_frame_begin(&ctx, 0, 0, false, false);
+        test_frame_end(&ctx);
+        assert(co_errors == 1 && approx(wlx_content_scale(&ctx), 1.0f));
+        co_scale = 2.0f;
+        test_frame_begin(&ctx, 0, 0, false, false);
+        test_frame_end(&ctx);
+        assert(co_errors == 1 && approx(wlx_content_scale(&ctx), 2.0f));
+        wlx_context_destroy(&ctx);
+    }
     printf("test_config_override: OK (pre-include limit overrides honored)\n");
     return 0;
 }
