@@ -393,6 +393,127 @@ TEST(layout_entries_without_layout_report_and_return) {
     wlx_context_destroy(&ctx);
 }
 
+// --- Arguments, pointers and limits ---
+
+TEST(zero_and_negative_counts_clamp_to_one) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 0, WLX_VERT);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(1, (int)es_top(&ctx)->count);
+    (void)wlx_button(&ctx, "fills the one slot");
+    ASSERT_EQ_INT(1, es_count);
+    wlx_layout_end(&ctx);
+    wlx_layout_begin(&ctx, (size_t)-1, WLX_VERT);   // a negative int, converted
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(1, (int)es_top(&ctx)->count);
+    wlx_layout_end(&ctx);
+    wlx_grid_begin(&ctx, 0, 3);
+    ASSERT_EQ_INT(3, es_count);
+    ASSERT_EQ_INT(1, (int)es_top(&ctx)->grid.rows);
+    ASSERT_EQ_INT(3, (int)es_top(&ctx)->grid.cols);
+    wlx_grid_end(&ctx);
+    wlx_grid_begin(&ctx, 2, 0);
+    ASSERT_EQ_INT(4, es_count);
+    ASSERT_EQ_INT(2, (int)es_top(&ctx)->grid.rows);
+    ASSERT_EQ_INT(1, (int)es_top(&ctx)->grid.cols);
+    wlx_grid_end(&ctx);
+    wlx_grid_begin_auto(&ctx, 0, 20.0f);
+    ASSERT_EQ_INT(5, es_count);
+    ASSERT_EQ_INT(1, (int)es_top(&ctx)->grid.cols);
+    wlx_grid_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(non_positive_pixel_sizes_clamp) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin_auto(&ctx, 2, 0.0f);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_EQ_F(1.0f, es_top(&ctx)->grid.row_size, 0.001f);
+    wlx_grid_auto_row_px(&ctx, -1.0f);
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_F(1.0f, es_top(&ctx)->grid.next_row_size, 0.001f);
+    wlx_grid_end(&ctx);
+    wlx_grid_begin_auto_tile(&ctx, 0.0f, -2.0f);
+    ASSERT_EQ_INT(4, es_count);   // width, then height
+    ASSERT_EQ_F(1.0f, es_top(&ctx)->grid.row_size, 0.001f);
+    wlx_grid_end(&ctx);
+    wlx_layout_begin_auto(&ctx, WLX_VERT, -5.0f);
+    ASSERT_EQ_INT(5, es_count);
+    ASSERT_EQ_F(1.0f, es_top(&ctx)->linear.slot_size, 0.001f);
+    wlx_layout_end(&ctx);
+    // Variable-size mode with no size set before the child: 1 px, reported.
+    wlx_layout_begin_auto(&ctx, WLX_VERT, 0.0f);
+    ASSERT_EQ_INT(5, es_count);
+    WLX_Rect r = wlx_get_slot_rect(&ctx, es_top_mut(&ctx), -1, 1);
+    ASSERT_EQ_INT(6, es_count);
+    ASSERT_EQ_F(1.0f, r.h, 0.001f);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(required_null_pointers_are_inert) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 12, WLX_VERT);
+    const char *opts[2] = { "a", "b" };
+    size_t cmds = ctx.arena.commands.count;
+    size_t index_before = es_top(&ctx)->index;
+    ASSERT_FALSE(wlx_inputbox(&ctx, "in", NULL, 16));
+    ASSERT_FALSE(wlx_slider(&ctx, "sl", NULL));
+    ASSERT_FALSE(wlx_toggle(&ctx, "tg", NULL));
+    ASSERT_FALSE(wlx_radio(&ctx, "rd", NULL, 0));
+    ASSERT_FALSE(wlx_dropdown(&ctx, "dd", NULL, opts, 2));
+    ASSERT_FALSE(wlx_menu_begin(&ctx, NULL, 10, 10));
+    ASSERT_FALSE(wlx_menu_button_begin(&ctx, "mb", NULL));
+    ASSERT_FALSE(wlx_submenu_begin(&ctx, NULL));
+    ASSERT_FALSE(wlx_editor(&ctx, "ed", NULL, 0, NULL));
+    ASSERT_EQ_INT(9, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT((int)cmds, (int)ctx.arena.commands.count);        // nothing drawn
+    ASSERT_EQ_INT((int)index_before, (int)es_top(&ctx)->index);     // no slot taken
+    // A NULL options array with a nonzero count is reported and shown empty;
+    // the widget itself still runs.
+    int sel = 0;
+    (void)wlx_dropdown(&ctx, "dd2", &sel, NULL, 3);
+    ASSERT_EQ_INT(10, es_count);
+    ASSERT_EQ_INT((int)index_before + 1, (int)es_top(&ctx)->index);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(content_limit_reports_through_channel) {
+    enum { OVER_MAX = WLX_CONTENT_SLOTS_MAX + 1 };
+    WLX_Context ctx;
+    es_init(&ctx);
+    WLX_Slot_Size sizes[OVER_MAX];
+    for (size_t i = 0; i < OVER_MAX; i++) sizes[i] = WLX_SLOT_FLEX(1);
+    sizes[0] = WLX_SLOT_CONTENT;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, OVER_MAX, WLX_VERT, .sizes = sizes); int lb = __LINE__;
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_LIMIT, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(lb, es_last.line);
+    ASSERT_FALSE(es_top(&ctx)->has_content_slot_measures);   // not tracked, still laid out
+    (void)wlx_button(&ctx, "still draws");
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(error_surface) {
     RUN_TEST(error_handler_receives_record);
     RUN_TEST(error_handler_null_restores_default);
@@ -410,4 +531,8 @@ SUITE(error_surface) {
     RUN_TEST(open_layouts_at_end_report_once);
     RUN_TEST(dynamic_positional_access_reports);
     RUN_TEST(layout_entries_without_layout_report_and_return);
+    RUN_TEST(zero_and_negative_counts_clamp_to_one);
+    RUN_TEST(non_positive_pixel_sizes_clamp);
+    RUN_TEST(required_null_pointers_are_inert);
+    RUN_TEST(content_limit_reports_through_channel);
 }

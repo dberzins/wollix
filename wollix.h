@@ -5176,10 +5176,13 @@ static inline void wlx_assert_backend_ready(WLX_Context *ctx) {
         "WLX_Backend contract v2 required: set .contract_version = "
         "WLX_BACKEND_CONTRACT_VERSION and add a trailing void *user parameter "
         "to every callback, or wrap a v1 table with wlx_backend_from_v1");
-    assert(
-        wlx_backend_is_ready(ctx) &&
-        "WLX_Backend is not initialized. Set ctx->backend before wlx_begin (e.g. wlx_context_init_raylib(ctx))."
-    );
+    // No table means no frame: reported first, so the text reaches the
+    // handler and the sink, then fatal.
+    if (!WLX_CONTRACT(ctx, wlx_backend_is_ready(ctx), WLX_ERR_BACKEND,
+            "WLX_Backend is not initialized: set ctx->backend before wlx_begin "
+            "(e.g. wlx_context_init_raylib(ctx))")) {
+        WLX_HARD_ASSERT(false, "no usable WLX_Backend table; the frame cannot run");
+    }
 }
 
 // ============================================================================
@@ -6136,10 +6139,29 @@ static inline void wlx_compute_slot_offsets(WLX_Context *ctx, WLX_Layout *l, con
 
 // Create a layout and allocate its offsets from the context slot sizes buffer.
 // The offsets are filled with equal-division values by default.
+// A slot, row or column count is at least 1 and at most WLX_MAX_SLOT_COUNT
+// (a negative int arrives here as a huge size_t). A bad count is reported
+// and clamped to 1, the smallest shape every downstream path accepts.
+static inline size_t wlx_contract_count(WLX_Context *ctx, size_t count, const char *msg,
+                                        const char *file, int line) {
+    if (!WLX_CONTRACT_AT(ctx, count > 0 && count <= WLX_MAX_SLOT_COUNT, WLX_ERR_BAD_ARGUMENT,
+            msg, file, line))
+        return 1;
+    return count;
+}
+
+// A pixel size that must be positive is reported and clamped to 1 px.
+static inline float wlx_contract_positive_px(WLX_Context *ctx, float px, const char *msg,
+                                             const char *file, int line) {
+    if (!WLX_CONTRACT_AT(ctx, px > 0.0f, WLX_ERR_BAD_ARGUMENT, msg, file, line))
+        return 1.0f;
+    return px;
+}
+
 WLXDEF WLX_Layout wlx_create_layout(WLX_Context *ctx, WLX_Rect r, size_t count, WLX_Orient orient, float gap) {
     assert(ctx != NULL);
-    assert(count > 0 && count <= WLX_MAX_SLOT_COUNT
-           && "slot count is 0 or absurdly large - did you pass a negative int?");
+    count = wlx_contract_count(ctx, count,
+        "layout slot count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", NULL, 0);
 
     size_t offsets_base = ctx->arena.slot_size_offsets.count;
     (void)wlx_scratch_alloc(ctx, count + 1);
@@ -6169,7 +6191,10 @@ WLXDEF WLX_Layout wlx_create_layout(WLX_Context *ctx, WLX_Rect r, size_t count, 
 // slot_px  - fixed pixel size per slot along the layout axis. (Must be >= 0)
 WLXDEF WLX_Layout wlx_create_layout_auto(WLX_Context *ctx, WLX_Rect r, WLX_Orient orient, float slot_px) {
     assert(ctx != NULL);
-    assert(slot_px >= 0.0f && "slot_px must be non-negative (0 = variable-size mode)");
+    // 0 is the variable-size mode; only a negative size is a violation.
+    if (!WLX_CONTRACT(ctx, slot_px >= 0.0f, WLX_ERR_BAD_ARGUMENT,
+            "auto layout slot size is negative (0 means variable-size mode); using 1 px"))
+        slot_px = 1.0f;
 
     size_t base = ctx->arena.dyn_offsets.count;
     wlx_sub_arena_extend_to(&ctx->arena.dyn_offsets, base + 1);
@@ -6196,8 +6221,10 @@ WLXDEF WLX_Layout wlx_create_grid(WLX_Context *ctx, WLX_Rect r,
     size_t rows, size_t cols, const WLX_Slot_Size *row_sizes, const WLX_Slot_Size *col_sizes, float gap)
 {
     assert(ctx != NULL);
-    assert(rows > 0 && rows <= WLX_MAX_SLOT_COUNT && "Grid must have at least 1 row (and not absurdly many)");
-    assert(cols > 0 && cols <= WLX_MAX_SLOT_COUNT && "Grid must have at least 1 column (and not absurdly many)");
+    rows = wlx_contract_count(ctx, rows,
+        "grid row count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", NULL, 0);
+    cols = wlx_contract_count(ctx, cols,
+        "grid column count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", NULL, 0);
 
     size_t row_base = ctx->arena.slot_size_offsets.count;
     float *row_off = wlx_scratch_alloc(ctx, rows + 1);
@@ -6227,8 +6254,10 @@ WLXDEF WLX_Layout wlx_create_grid_auto(WLX_Context *ctx, WLX_Rect r,
     size_t cols, float row_px, const WLX_Slot_Size *col_sizes, float gap)
 {
     assert(ctx != NULL);
-    assert(cols > 0 && cols <= WLX_MAX_SLOT_COUNT && "Grid must have at least 1 column (and not absurdly many)");
-    assert(row_px > 0.0f && "Dynamic grid requires row_px > 0");
+    cols = wlx_contract_count(ctx, cols,
+        "grid column count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", NULL, 0);
+    row_px = wlx_contract_positive_px(ctx, row_px,
+        "auto grid row size must be positive; using 1 px", NULL, 0);
 
     // Column offsets: fixed, computed immediately
     size_t col_base = ctx->arena.slot_size_offsets.count;
@@ -6426,9 +6455,9 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
                "Dynamic layout offset region is not contiguous - nested layout_begin inside a dynamic body?");
 
         float effective = (l->linear.next_slot_size > 0.0f) ? l->linear.next_slot_size : l->linear.slot_size;
-        assert(effective > 0.0f &&
-               "Dynamic layout: slot size is 0 - call wlx_layout_auto_slot_px() before each child "
-               "when using variable-size mode (slot_px = 0)");
+        effective = wlx_contract_positive_px(ctx, effective,
+            "auto layout in variable-size mode: no wlx_layout_auto_slot_px before this child; using 1 px",
+            NULL, 0);
         l->linear.next_slot_size = 0.0f;
 
         wlx_sub_arena_extend_to(&ctx->arena.dyn_offsets,
@@ -7868,6 +7897,8 @@ static inline void wlx_write_content_measurements(WLX_Context *ctx, WLX_Layout *
 WLXDEF void wlx_layout_begin_impl(WLX_Context *ctx, size_t count, WLX_Orient orient, WLX_Layout_Opt opt,
                                    const char *file, int line) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_layout_begin", "wlx_layout_opt_defaults", file, line);
+    count = wlx_contract_count(ctx, count,
+        "wlx_layout_begin: slot count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", file, line);
     WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), file, line);
 
     WLX_Layout l = wlx_create_layout(ctx, frame.rect, count, orient, opt.gap);
@@ -8071,6 +8102,10 @@ WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, floa
 WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_Grid_Opt opt,
                                 const char *file, int line) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_begin", "wlx_grid_opt_defaults", file, line);
+    rows = wlx_contract_count(ctx, rows,
+        "wlx_grid_begin: row count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", file, line);
+    cols = wlx_contract_count(ctx, cols,
+        "wlx_grid_begin: column count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", file, line);
     WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), file, line);
 
     // --- CONTENT row pre-resolution ---
@@ -8119,6 +8154,10 @@ WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_
 WLXDEF void wlx_grid_begin_auto_impl(WLX_Context *ctx, size_t cols, float row_px, WLX_Grid_Auto_Opt opt,
                                      const char *file, int line) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_begin_auto", "wlx_grid_auto_opt_defaults", file, line);
+    cols = wlx_contract_count(ctx, cols,
+        "wlx_grid_begin_auto: column count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", file, line);
+    row_px = wlx_contract_positive_px(ctx, row_px,
+        "wlx_grid_begin_auto: row size must be positive; using 1 px", file, line);
     WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), file, line);
 
     WLX_Layout l = wlx_create_grid_auto(ctx, frame.rect, cols, row_px, opt.col_sizes, opt.gap);
@@ -8134,8 +8173,10 @@ WLXDEF void wlx_grid_begin_auto_impl(WLX_Context *ctx, size_t cols, float row_px
 WLXDEF void wlx_grid_begin_auto_tile_impl(WLX_Context *ctx, float tile_w, float tile_h, WLX_Grid_Auto_Opt opt,
                                           const char *file, int line) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_begin_auto_tile", "wlx_grid_auto_opt_defaults", file, line);
-    assert(tile_w > 0.0f && "tile width must be positive");
-    assert(tile_h > 0.0f && "tile height must be positive");
+    tile_w = wlx_contract_positive_px(ctx, tile_w,
+        "wlx_grid_begin_auto_tile: tile width must be positive; using 1 px", file, line);
+    tile_h = wlx_contract_positive_px(ctx, tile_h,
+        "wlx_grid_begin_auto_tile: tile height must be positive; using 1 px", file, line);
 
     WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), file, line);
 
@@ -8472,7 +8513,8 @@ WLXDEF void wlx_grid_auto_row_px(WLX_Context *ctx, float px) {
     if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
             "wlx_grid_auto_row_px called with no layout open"))
         return;
-    assert(px > 0.0f && "wlx_grid_auto_row_px requires a positive pixel size");
+    px = wlx_contract_positive_px(ctx, px,
+        "wlx_grid_auto_row_px: row size must be positive; using 1 px", NULL, 0);
 
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
     if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_GRID && l->grid.dynamic, WLX_ERR_BAD_ARGUMENT,
@@ -15216,7 +15258,9 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
 {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_inputbox", "wlx_inputbox_opt_defaults", file, line);
     assert(ctx != NULL);
-    assert(buffer != NULL && "inputbox buffer must not be NULL");
+    if (!WLX_CONTRACT_AT(ctx, buffer != NULL, WLX_ERR_BAD_ARGUMENT,
+            "wlx_inputbox: buffer must not be NULL; the widget is skipped", file, line))
+        return false;
     WLX_HARD_ASSERT(buffer_size >= 2, "buffer_size must hold at least 1 char + null terminator");
     wlx_resolve_opt_inputbox(ctx, &opt);
 
@@ -15357,7 +15401,9 @@ static void wlx_resolve_opt_slider(const WLX_Context *ctx, WLX_Slider_Opt *opt) 
 WLXDEF bool wlx_slider_impl(WLX_Context *ctx, const char *label, float *value, WLX_Slider_Opt opt, const char *file, int line) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_slider", "wlx_slider_opt_defaults", file, line);
     assert(ctx != NULL);
-    assert(value != NULL && "slider value pointer must not be NULL");
+    if (!WLX_CONTRACT_AT(ctx, value != NULL, WLX_ERR_BAD_ARGUMENT,
+            "wlx_slider: value must not be NULL; the widget is skipped", file, line))
+        return false;
     wlx_resolve_opt_slider(ctx, &opt);
 
     // Prologue: compute widget frame and interaction state
@@ -15770,7 +15816,9 @@ static void wlx_resolve_opt_toggle(const WLX_Context *ctx, WLX_Toggle_Opt *opt) 
 WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WLX_Toggle_Opt opt, const char *file, int line) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_toggle", "wlx_toggle_opt_defaults", file, line);
     assert(ctx != NULL);
-    assert(value != NULL && "toggle value pointer must not be NULL");
+    if (!WLX_CONTRACT_AT(ctx, value != NULL, WLX_ERR_BAD_ARGUMENT,
+            "wlx_toggle: value must not be NULL; the widget is skipped", file, line))
+        return false;
 
     wlx_resolve_opt_toggle(ctx, &opt);
 
@@ -15885,7 +15933,9 @@ static void wlx_resolve_opt_radio(const WLX_Context *ctx, WLX_Radio_Opt *opt) {
 WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int index, WLX_Radio_Opt opt, const char *file, int line) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_radio", "wlx_radio_opt_defaults", file, line);
     assert(ctx != NULL);
-    assert(active != NULL && "radio active pointer must not be NULL");
+    if (!WLX_CONTRACT_AT(ctx, active != NULL, WLX_ERR_BAD_ARGUMENT,
+            "wlx_radio: active must not be NULL; the widget is skipped", file, line))
+        return false;
 
     wlx_resolve_opt_radio(ctx, &opt);
 
@@ -16411,8 +16461,12 @@ WLXDEF bool wlx_dropdown_impl(WLX_Context *ctx, const char *label,
     WLX_Dropdown_Opt opt, const char *file, int line)
 {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_dropdown", "wlx_dropdown_opt_defaults", file, line);
-    assert(selected != NULL && "wlx_dropdown: selected must not be NULL");
-    assert((count == 0 || options != NULL) && "wlx_dropdown: options must not be NULL");
+    if (!WLX_CONTRACT_AT(ctx, selected != NULL, WLX_ERR_BAD_ARGUMENT,
+            "wlx_dropdown: selected must not be NULL; the widget is skipped", file, line))
+        return false;
+    if (!WLX_CONTRACT_AT(ctx, count == 0 || options != NULL, WLX_ERR_BAD_ARGUMENT,
+            "wlx_dropdown: options is NULL with a nonzero count; showing no options", file, line))
+        count = 0;
     wlx_resolve_opt_dropdown(ctx, &opt);
 
     bool scope_pushed = wlx_scope_push(ctx, opt.id);
@@ -16712,7 +16766,9 @@ WLXDEF bool wlx_menu_begin_impl(WLX_Context *ctx, bool *open, float x, float y,
     WLX_Menu_Opt opt, const char *file, int line)
 {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_menu_begin", "wlx_menu_opt_defaults", file, line);
-    assert(open != NULL && "wlx_menu_begin: open must not be NULL");
+    if (!WLX_CONTRACT_AT(ctx, open != NULL, WLX_ERR_BAD_ARGUMENT,
+            "wlx_menu_begin: open must not be NULL; the menu is closed", file, line))
+        return false;
     wlx_resolve_opt_menu(ctx, &opt);
 
     bool scope_pushed = wlx_scope_push(ctx, opt.id);
@@ -16756,7 +16812,9 @@ WLXDEF bool wlx_menu_button_begin_impl(WLX_Context *ctx, const char *label,
     bool *open, WLX_Menu_Button_Opt opt, const char *file, int line)
 {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_menu_button_begin", "wlx_menu_button_opt_defaults", file, line);
-    assert(open != NULL && "wlx_menu_button_begin: open must not be NULL");
+    if (!WLX_CONTRACT_AT(ctx, open != NULL, WLX_ERR_BAD_ARGUMENT,
+            "wlx_menu_button_begin: open must not be NULL; the button and its menu are skipped", file, line))
+        return false;
     wlx_resolve_opt_menu_button(ctx, &opt);
 
     bool scope_pushed = wlx_scope_push(ctx, opt.id);
@@ -16846,7 +16904,9 @@ WLXDEF bool wlx_submenu_begin_impl(WLX_Context *ctx, bool *open,
     WLX_Menu_Opt opt, const char *file, int line)
 {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_submenu_begin", "wlx_menu_opt_defaults", file, line);
-    assert(open != NULL && "wlx_submenu_begin: open must not be NULL");
+    if (!WLX_CONTRACT_AT(ctx, open != NULL, WLX_ERR_BAD_ARGUMENT,
+            "wlx_submenu_begin: open must not be NULL; the submenu is closed", file, line))
+        return false;
     // An empty stack would index before its first entry (out-of-bounds
     // read of the parent frame in release builds), so this guard survives
     // NDEBUG.

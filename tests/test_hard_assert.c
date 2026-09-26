@@ -47,7 +47,9 @@ static int    test_sink_exit_on_fatal;   // nonzero: a "wollix fatal" line _exit
 static void test_sink_capture(const char *msg) {
     size_t n = strlen(msg);
     if (test_sink_exit_on_fatal != 0 && strstr(msg, "wollix fatal") != NULL) {
-        _exit(test_sink_exit_on_fatal);
+        // +1 when a contract error line was already captured: proves the
+        // report came before the abort.
+        _exit(test_sink_exit_on_fatal + (strstr(test_sink_buf, "wollix error:") != NULL ? 1 : 0));
     }
     if (test_sink_len + n + 1 < sizeof test_sink_buf) {
         memcpy(test_sink_buf + test_sink_len, msg, n);
@@ -325,6 +327,23 @@ static void probe_orphan_widget(void) {
     wlx_context_destroy(&ctx);
 }
 
+// An empty table with the right contract version: reported through the
+// channel (the default handler returns under NDEBUG), then fatal.
+static void trigger_backend_not_ready(void) {
+    WLX_Context ctx = {0};
+    wlx_context_init(&ctx);
+    ctx.backend.contract_version = WLX_BACKEND_CONTRACT_VERSION;
+    test_sink_reset();
+    test_sink_exit_on_fatal = 43;
+    wlx_begin(&ctx, wlx_rect(0, 0, 10, 10), _test_input_handler);
+}
+
+TEST(backend_not_ready_reports_then_aborts) {
+    Child_Result r = run_in_child(trigger_backend_not_ready);
+    ASSERT_TRUE(r == CHILD_OTHER);
+    ASSERT_EQ_INT(44, last_child_exit_code);   // 43 + 1: the error line preceded the fatal one
+}
+
 TEST(release_probe_slot_overrun_exits_clean) {
     ASSERT_TRUE(run_in_child(probe_slot_overrun) == CHILD_EXITED_CLEAN);
 }
@@ -342,6 +361,7 @@ TEST(release_probe_orphan_widget_exits_clean) {
 }
 
 static void trigger_hard_assert_through_sink(void) {
+    test_sink_reset();   // the child inherits the parent's captured lines
     test_sink_exit_on_fatal = 42;
     trigger_overlay_end_without_begin();   // WLX_HARD_ASSERT: its text reaches the sink first
 }
@@ -375,6 +395,7 @@ SUITE(hard_assert) {
     RUN_TEST(default_sink_names_the_open_layout);
     RUN_TEST(default_sink_suppresses_after_table_full);
     RUN_TEST(hard_assert_prints_before_abort);
+    RUN_TEST(backend_not_ready_reports_then_aborts);
     RUN_TEST(release_probe_slot_overrun_exits_clean);
     RUN_TEST(release_probe_grid_bounds_exits_clean);
     RUN_TEST(release_probe_extra_end_exits_clean);

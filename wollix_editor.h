@@ -2087,8 +2087,9 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
 {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_editor", "wlx_editor_opt_defaults", file, line);
     assert(ctx != NULL);
-    assert(buffer != NULL && "editor buffer must not be NULL");
-    assert(length != NULL && "editor length pointer must not be NULL");
+    if (!WLX_CONTRACT_AT(ctx, buffer != NULL && length != NULL, WLX_ERR_BAD_ARGUMENT,
+            "wlx_editor: buffer and length must not be NULL; the widget is skipped", file, line))
+        return false;
     WLX_HARD_ASSERT(*length <= buffer_cap, "editor length exceeds buffer capacity");
     wlx_resolve_opt_editor(ctx, &opt);
 
