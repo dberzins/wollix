@@ -292,6 +292,10 @@ extern void wlx_wasm_import_end_scissor(void);
 WLX_WASM_IMPORT("get_frame_time")
 extern float wlx_wasm_import_get_frame_time(void);
 
+// Device pixels per CSS pixel: the host answers with window.devicePixelRatio.
+WLX_WASM_IMPORT("content_scale")
+extern float wlx_wasm_import_content_scale(void);
+
 // Clipboard transport. clipboard_get_into copies the host's cached clipboard
 // string into buf (up to cap bytes, UTF-8-boundary safe) and returns the byte
 // count. clipboard_set copies a (text, len) span to the host clipboard cache.
@@ -581,6 +585,11 @@ static inline float wlx_wasm_get_frame_time(void *user) {
     return wlx_wasm_import_get_frame_time();
 }
 
+static inline float wlx_wasm_get_content_scale(void *user) {
+    WLX_UNUSED(user);
+    return wlx_wasm_import_content_scale();
+}
+
 // Upper bound for the clipboard receive buffer. Overridable before include.
 #ifndef WLX_WASM_CLIPBOARD_MAX
 #define WLX_WASM_CLIPBOARD_MAX (16u * 1024u * 1024u)
@@ -669,6 +678,7 @@ static inline WLX_Backend wlx_backend_wasm(void) {
         .clipboard_get     = wlx_wasm_clipboard_get,
         .clipboard_set     = wlx_wasm_clipboard_set,
         .set_cursor        = wlx_wasm_set_cursor,
+        .get_content_scale = wlx_wasm_get_content_scale,
     };
 }
 

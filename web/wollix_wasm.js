@@ -641,6 +641,12 @@ function probeCtxFilterSupported() {
             }
         },
 
+        // Device pixels per CSS pixel; the canvas backing store is already
+        // scaled by it in onFrame, so the core only snaps to its grid.
+        content_scale() {
+            return window.devicePixelRatio || 1;
+        },
+
         get_frame_time() {
             return frameTime;
         },

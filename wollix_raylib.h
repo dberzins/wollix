@@ -754,6 +754,25 @@ static inline float wlx_raylib_get_frame_time(void *user) {
     return GetFrameTime();
 }
 
+// The content scale Raylib applies: 1.0 without FLAG_WINDOW_HIGHDPI, the
+// framebuffer over the screen size with it (Raylib then draws, clips and
+// reports the mouse in screen units and scales to the framebuffer itself).
+// Not GetWindowScaleDPI, which reports the display's scale even when Raylib
+// is not applying it. The application still owns text crispness: load the
+// atlas at size * GetWindowScaleDPI().x and keep a bilinear filter on it;
+// Raylib's built-in bitmap font has no scaled variant.
+static inline float wlx_raylib_get_content_scale(void *user) {
+    WLX_UNUSED(user);
+    int screen_w = GetScreenWidth();
+    return (screen_w > 0) ? (float)GetRenderWidth() / (float)screen_w : 1.0f;
+}
+
+// The root rect for wlx_begin, in units: the screen size, which is the
+// space Raylib draws and reports the mouse in under any scale.
+static inline WLX_Rect wlx_raylib_root_rect(void) {
+    return (WLX_Rect){ 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
+}
+
 static inline const char *wlx_raylib_clipboard_get(void *user) {
     WLX_UNUSED(user);
     return GetClipboardText();
@@ -817,6 +836,7 @@ static inline WLX_Backend wlx_backend_raylib(void) {
         .clipboard_get = wlx_raylib_clipboard_get,
         .clipboard_set = wlx_raylib_clipboard_set,
         .set_cursor = wlx_raylib_set_cursor,
+        .get_content_scale = wlx_raylib_get_content_scale,
     };
 }
 
