@@ -35,27 +35,53 @@ static double now_ms(void) {
     return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
 }
 
+// Compiler barrier: the floor's index shifts must reach memory, not be
+// folded away as a +1/-1 pair the optimizer can prove cancels.
+#if defined(__GNUC__) || defined(__clang__)
+#define PERF_BARRIER() __asm__ __volatile__("" ::: "memory")
+#else
+#define PERF_BARRIER() ((void)0)
+#endif
+
 // Raw floor of the edit envelope: the unavoidable byte work of a keystroke
-// at offset 0 - one full-buffer memmove plus one document newline scan -
-// timed in this process right before the check that consumes it. An
-// absolute wall-clock bound proved load- and machine-dependent (a busy
-// machine trips it with no regression); the relative form scales with
-// whatever slows this process down, while any added O(document) pass in
-// the edit frame still inflates the frame by at least another scan and
-// blows the band. Each rep is two shifts plus one scan, so dividing by
-// 2*reps yields one shift plus half a scan - a deliberately low floor.
-static double edit_floor_ms(char *buf, size_t cap, size_t len, int reps) {
-    double t0 = now_ms();
-    volatile size_t sink = 0;
+// at offset 0 - one full-buffer memmove plus one shift of the line index's
+// tail (an add over one offset per line after the edit; on the 10 MB
+// document each costs about 1.6 ms, memory-bound) - timed in this process
+// right before the check that consumes it. An absolute wall-clock bound
+// proved load- and machine-dependent (a busy machine trips it with no
+// regression); the relative form scales with whatever slows this process
+// down, while a reintroduced O(document) byte pass in the edit frame (a
+// newline rescan runs about four times one shift here) still inflates the
+// frame past the band. Each rep is two buffer shifts plus one index
+// shift that accumulates (no cancelling pass for the optimizer to fold),
+// so dividing by reps and halving the memmove share yields one of each -
+// the floor of the patched edit path. The index is sized from the
+// acceptance document's line count, not from the buffer's contents (the
+// buffer is reused by other cases before the floor runs), and the shifted
+// array is checksummed after timing so its stores are live.
+static double edit_floor_ms(char *buf, size_t cap, size_t len, size_t lines, int reps) {
+    if (lines == 0) lines = 1;
+    size_t *offs = (size_t *)malloc(lines * sizeof(size_t));
+    if (offs == NULL) return 0.0;
+    for (size_t i = 0; i < lines; i++) offs[i] = i * 11;
+    double memmove_ms = 0.0, shift_ms = 0.0;
     for (int r = 0; r < reps; r++) {
+        double t0 = now_ms();
         memmove(buf + 1, buf, len);        // insert shift
         memmove(buf, buf + 1, len);        // undo shift (buffer restored)
-        size_t nl = 0;
-        for (size_t i = 0; i < len; i++) nl += (size_t)(buf[i] == '\n');
-        sink += nl;
+        double t1 = now_ms();
+        PERF_BARRIER();
+        for (size_t i = 0; i < lines; i++) offs[i] += 1;   // index tail shift
+        PERF_BARRIER();
+        double t2 = now_ms();
+        memmove_ms += (t1 - t0) * 0.5;
+        shift_ms += t2 - t1;
     }
+    volatile size_t sink = 0;
+    for (size_t i = 0; i < lines; i++) sink += offs[i];
     (void)sink; (void)cap;
-    return (now_ms() - t0) / (double)(2 * reps);
+    free(offs);
+    return (memmove_ms + shift_ms) / (double)reps;
 }
 
 // ~11 bytes per line, matching the demo generator's shape.
@@ -96,8 +122,10 @@ typedef struct {
     double first_frame_ms; // includes the initial index build
     double idle_avg_ms;
     double scroll_avg_ms;
-    double edit_avg_ms;    // keystroke at offset 0: memmove + index rescan
+    double edit_avg_ms;    // keystroke at offset 0: memmove + index tail shift
     uint32_t rebuilds_after_idle;
+    uint32_t rebuilds_after_edits; // must equal rebuilds_after_idle: typing patches
+    uint32_t patches_after_edits;
 } Perf_Result;
 
 static void run_frame_input(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
@@ -149,7 +177,7 @@ static Perf_Result run_case(char *buf, size_t cap, size_t *len, int frames, bool
 
     // Editing worst case: focus at the document start, then one typed
     // character per frame at offset 0 - every insert memmoves the whole
-    // buffer and rescans the index.
+    // buffer and shifts the whole index tail.
     run_frame_input(&ctx, buf, cap, len, 0.0f, true, NULL, wrap);
     int edit_frames = frames / 3;
     for (int rep = 0; rep < 3; rep++) {
@@ -160,6 +188,10 @@ static Perf_Result run_case(char *buf, size_t cap, size_t *len, int frames, bool
         double edit = (now_ms() - t0) / edit_frames;
         if (edit < r.edit_avg_ms) r.edit_avg_ms = edit;
     }
+    r.rebuilds_after_edits = ctx.editor_indices.count > 0
+        ? ctx.editor_indices.items[0].rebuilds : 0;
+    r.patches_after_edits = ctx.editor_indices.count > 0
+        ? ctx.editor_indices.items[0].patches : 0;
 
     wlx_context_destroy(&ctx);
     g_highlight = false;
@@ -626,6 +658,14 @@ int main(void) {
         rs.rebuilds_after_idle, rl.rebuilds_after_idle,
         ws.rebuilds_after_idle, wl.rebuilds_after_idle, wm.rebuilds_after_idle,
         hs.rebuilds_after_idle);
+    printf("%-22s %11u %12u %12u %12u %12u %12u\n", "rebuilds after edits",
+        rs.rebuilds_after_edits, rl.rebuilds_after_edits,
+        ws.rebuilds_after_edits, wl.rebuilds_after_edits, wm.rebuilds_after_edits,
+        hs.rebuilds_after_edits);
+    printf("%-22s %11u %12u %12u %12u %12u %12u\n", "patches after edits",
+        rs.patches_after_edits, rl.patches_after_edits,
+        ws.patches_after_edits, wl.patches_after_edits, wm.patches_after_edits,
+        hs.patches_after_edits);
 
     // Structural gates. Idle frames must not rebuild the index (that is the
     // only O(document) step in the frame path), and steady-state frame cost
@@ -637,6 +677,24 @@ int main(void) {
         || wm.rebuilds_after_idle != 1) {
         fprintf(stderr, "FAIL: idle frames rebuilt the line index\n");
         failures++;
+    }
+    // Typing frames patch the index from the edit span: the rebuild count
+    // must not move across the edit loop in any case, and every case with
+    // room to type must have patched at least one frame per rep. The mega
+    // line fills its buffer to the headroom, so only its first keystrokes
+    // apply; it is held to the rebuild rule alone.
+    {
+        const Perf_Result *typed[] = { &rs, &rl, &ws, &wl, &wm, &hs };
+        for (size_t i = 0; i < sizeof(typed) / sizeof(typed[0]); i++) {
+            if (typed[i]->rebuilds_after_edits != typed[i]->rebuilds_after_idle) {
+                fprintf(stderr, "FAIL: a typing frame rebuilt the line index (case %zu)\n", i);
+                failures++;
+            }
+            if (typed[i] != &wm && typed[i]->patches_after_edits < (uint32_t)(frames / 3)) {
+                fprintf(stderr, "FAIL: typing frames did not patch the line index (case %zu)\n", i);
+                failures++;
+            }
+        }
     }
     if (rl.idle_avg_ms > rs.idle_avg_ms * 3.0 + 0.05) {
         fprintf(stderr, "FAIL: idle frame cost grows with document size\n");
@@ -662,14 +720,16 @@ int main(void) {
         failures++;
     }
     // Envelope: a keystroke at offset 0 of the 10 MB document (full-buffer
-    // memmove plus index rescan) may cost at most a small multiple of the
-    // raw byte work measured in this same process. The multiplier leaves
-    // room for the index rebuild's offset stores on top of the floor but
-    // not for a second O(document) pass; a loose absolute backstop catches
-    // a floor measurement gone wrong.
-    double floor_ms = edit_floor_ms(large, large_cap, large_len, 4);
+    // memmove plus the index tail shift) may cost at most a small multiple
+    // of the raw byte work measured in this same process. The frame runs
+    // about 1.1x the floor on a quiet machine and inflates more than the
+    // floor's tight loop under load, so 2.5 floors plus a millisecond keeps
+    // the band; an O(document) byte pass cannot hide in it, since a
+    // newline rescan alone adds about two floors. A loose absolute backstop
+    // catches a floor measurement gone wrong.
+    double floor_ms = edit_floor_ms(large, large_cap, large_len, large_lines + 1, 4);
     double edit_bound_ms = floor_ms * 2.5 + 1.0;
-    printf("edit floor (memmove + newline scan): %.4fms, bound %.4fms\n",
+    printf("edit floor (memmove + index shift): %.4fms, bound %.4fms\n",
         floor_ms, edit_bound_ms);
     if (rl.edit_avg_ms > edit_bound_ms || wl.edit_avg_ms > edit_bound_ms) {
         fprintf(stderr,

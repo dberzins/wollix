@@ -601,6 +601,72 @@ TEST(advances_cluster_units_never_split_at_chunk) {
     ap_pair_destroy(&p);
 }
 
+// ============================================================================
+// Contract: a backend answering in visual order is clamped and reported
+// ============================================================================
+
+static int ap_err_count;
+static int ap_err_other_code;
+static void ap_err_capture(const WLX_Error *e, void *user) {
+    (void)user;
+    ap_err_count++;
+    if (e->code != WLX_ERR_BACKEND) ap_err_other_code++;
+}
+
+// The mock's advances reversed within the chunk: the shape a run shaped
+// right to left reports (cluster x decreasing with the byte offset).
+static size_t ap_measure_advances_decreasing(const char *text, size_t len,
+        WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
+        float *out_advances, void *user) {
+    size_t n = mock_measure_text_advances(text, len, style, unit_ends, unit_count,
+        out_advances, user);
+    for (size_t i = 0; i < n / 2; i++) {
+        float t = out_advances[i];
+        out_advances[i] = out_advances[n - 1 - i];
+        out_advances[n - 1 - i] = t;
+    }
+    return n;
+}
+
+TEST(advances_decreasing_backend_is_clamped_and_reported) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+    ctx.backend.measure_text_slice = ap_measure_slice;
+    ctx.backend.measure_text_advances = ap_measure_advances_decreasing;
+    wlx_set_error_handler(&ctx, ap_err_capture, NULL);
+    ap_err_count = 0;
+    ap_err_other_code = 0;
+
+    char buf[64];
+    memcpy(buf, "abcdef", 7);
+    size_t len = 6;
+    ap_frame(&ctx, buf, sizeof(buf), &len, false, 0, 0, false, 0.0f, 0, NULL, NULL);
+
+    // Reported as a backend contract violation, and nothing else.
+    ASSERT_TRUE(ap_err_count >= 1);
+    ASSERT_EQ_INT(0, (long)ap_err_other_code);
+
+    // Clamped: the retained entry holds a non-decreasing array. The mock's
+    // 5px units reversed are 30,25,...,5, so the clamp flattens the run to
+    // its first value at every unit.
+    WLX_Editor_Line_Index *idx = ap_index(&ctx);
+    ASSERT_TRUE(idx != NULL);
+    WLX_Text_Geom_Entry *e = wlx_text_geom_find(&idx->geom, 0, len);
+    ASSERT_TRUE(e != NULL);
+    ASSERT_EQ_INT(6, (long)e->units);
+    for (size_t u = 1; u < e->units; u++) ASSERT_TRUE(e->advances[u] >= e->advances[u - 1]);
+    ASSERT_EQ_F(30.0f, e->advances[0], 0.0f);
+    ASSERT_EQ_F(30.0f, e->advances[e->units - 1], 0.0f);
+
+    // An idle frame replays the retained geometry: no fetch, no report.
+    int reported = ap_err_count;
+    ap_frame(&ctx, buf, sizeof(buf), &len, false, 0, 0, false, 0.0f, 0, NULL, NULL);
+    ASSERT_EQ_INT((long)reported, (long)ap_err_count);
+
+    wlx_set_error_handler(&ctx, NULL, NULL);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(advances_parity) {
     RUN_TEST(advances_cluster_units_never_split_at_chunk);
     RUN_TEST(advances_records_match_fallback_across_widths);
@@ -609,4 +675,5 @@ SUITE(advances_parity) {
     RUN_TEST(advances_scenario_no_wrap_draws_identically);
     RUN_TEST(advances_scenario_wrap_draws_identically);
     RUN_TEST(advances_cold_build_batches_measure_traffic);
+    RUN_TEST(advances_decreasing_backend_is_clamped_and_reported);
 }
