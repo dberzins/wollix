@@ -137,6 +137,10 @@ TEST(whole_struct_staging_reaches_every_field) {
     in.mouse_middle_down = true;
     in.keys_pressed[WLX_KEY_F12] = true;
     in.modifiers = WLX_MOD_ALT;
+    memcpy(in.text_input, "typed", 5);
+    memcpy(in.preedit, "composing", 9);
+    in.preedit_cursor = 3;
+    in.preedit_sel_len = 2;
     test_frame_begin_input(&ctx, &in);
 
     ASSERT_EQ_INT(42, ctx.input.mouse_x);
@@ -149,6 +153,40 @@ TEST(whole_struct_staging_reaches_every_field) {
     ASSERT_FALSE(wlx_is_mouse_middle_clicked(&ctx));
     ASSERT_TRUE(wlx_is_key_pressed(&ctx, WLX_KEY_F12));
     ASSERT_TRUE(wlx_mod_down(&ctx, WLX_MOD_ALT));
+    ASSERT_EQ_STR(ctx.input.text_input, "typed");
+    ASSERT_EQ_STR(ctx.input.preedit, "composing");
+    ASSERT_EQ_INT(3, ctx.input.preedit_cursor);
+    ASSERT_EQ_INT(2, ctx.input.preedit_sel_len);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// The two text channels are sized by the public constants, a 127-byte
+// commit stages whole, and the composition helper reaches every field.
+TEST(input_text_and_preedit_caps_are_the_constants) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 100, 100);
+    WLX_Input_State probe;
+    ASSERT_EQ_INT(WLX_INPUT_TEXT_BYTES, (int)sizeof(probe.text_input));
+    ASSERT_EQ_INT(WLX_INPUT_PREEDIT_BYTES, (int)sizeof(probe.preedit));
+    ASSERT_EQ_INT(128, WLX_INPUT_TEXT_BYTES);
+    ASSERT_EQ_INT(128, WLX_INPUT_PREEDIT_BYTES);
+
+    char commit[WLX_INPUT_TEXT_BYTES];
+    memset(commit, 'k', sizeof(commit) - 1);
+    commit[sizeof(commit) - 1] = '\0';
+    test_frame_begin_ime(&ctx, commit, "ab", 1, -1);
+    ASSERT_EQ_INT(WLX_INPUT_TEXT_BYTES - 1, (int)strlen(ctx.input.text_input));
+    ASSERT_EQ_STR(ctx.input.preedit, "ab");
+    ASSERT_EQ_INT(1, ctx.input.preedit_cursor);
+    ASSERT_EQ_INT(-1, ctx.input.preedit_sel_len);
+    test_frame_end(&ctx);
+
+    // An empty channel stages as NUL at offset 0 with the rest zeroed.
+    test_frame_begin_ime(&ctx, NULL, NULL, -1, -1);
+    ASSERT_EQ_INT(0, (int)ctx.input.text_input[0]);
+    ASSERT_EQ_INT(0, (int)ctx.input.preedit[0]);
+    ASSERT_EQ_INT(-1, ctx.input.preedit_cursor);
     test_frame_end(&ctx);
     wlx_context_destroy(&ctx);
 }
@@ -402,6 +440,7 @@ SUITE(input_contract) {
     RUN_TEST(fkeys_and_insert_roundtrip);
     RUN_TEST(mouse_button_helpers_read_contract_fields);
     RUN_TEST(whole_struct_staging_reaches_every_field);
+    RUN_TEST(input_text_and_preedit_caps_are_the_constants);
     RUN_TEST(right_click_bootstrap_uses_containment);
     RUN_TEST(right_click_topmost_wins_under_overlap);
     RUN_TEST(right_press_does_not_blur_focus);

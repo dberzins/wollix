@@ -698,11 +698,15 @@ extern WLX_Input_State wlx_wasm_input_state;
 _Static_assert(offsetof(WLX_Input_State, keys_down)     == 16,  "WASM INPUT_OFFSETS.keys_down out of sync");
 _Static_assert(offsetof(WLX_Input_State, keys_pressed)  == 80,  "WASM INPUT_OFFSETS.keys_pressed out of sync");
 _Static_assert(offsetof(WLX_Input_State, text_input)    == 144, "WASM INPUT_OFFSETS.text_input out of sync");
-_Static_assert(offsetof(WLX_Input_State, keys_repeated) == 176, "WASM INPUT_OFFSETS.keys_repeated out of sync");
-_Static_assert(offsetof(WLX_Input_State, modifiers)     == 240, "WASM INPUT_OFFSETS.modifiers out of sync");
-_Static_assert(offsetof(WLX_Input_State, wheel_delta_x) == 244, "WASM INPUT_OFFSETS.wheel_delta_x out of sync");
-_Static_assert(offsetof(WLX_Input_State, mouse_right_down) == 248, "WASM INPUT_OFFSETS.mouse_right_down out of sync");
-_Static_assert(sizeof(WLX_Input_State)                  == 252, "WASM INPUT_SIZE out of sync");
+_Static_assert(offsetof(WLX_Input_State, keys_repeated) == 272, "WASM INPUT_OFFSETS.keys_repeated out of sync");
+_Static_assert(offsetof(WLX_Input_State, modifiers)     == 336, "WASM INPUT_OFFSETS.modifiers out of sync");
+_Static_assert(offsetof(WLX_Input_State, wheel_delta_x) == 340, "WASM INPUT_OFFSETS.wheel_delta_x out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_right_down) == 344, "WASM INPUT_OFFSETS.mouse_right_down out of sync");
+_Static_assert(offsetof(WLX_Input_State, preedit)       == 348, "WASM INPUT_OFFSETS.preedit out of sync");
+_Static_assert(offsetof(WLX_Input_State, preedit_cursor) == 476, "WASM INPUT_OFFSETS.preedit_cursor out of sync");
+_Static_assert(offsetof(WLX_Input_State, preedit_sel_len) == 480, "WASM INPUT_OFFSETS.preedit_sel_len out of sync");
+_Static_assert(WLX_INPUT_TEXT_BYTES == 128 && WLX_INPUT_PREEDIT_BYTES == 128, "WASM INPUT_TEXT_BYTES / INPUT_PREEDIT_BYTES out of sync");
+_Static_assert(sizeof(WLX_Input_State)                  == 484, "WASM INPUT_SIZE out of sync");
 
 static inline WLX_Input_State *wlx_wasm_get_input_ptr(void) {
     return &wlx_wasm_input_state;

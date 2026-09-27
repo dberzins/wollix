@@ -38,16 +38,23 @@ const INPUT_OFFSETS = {
     wheel_delta:          12,  // float32 (vertical detents, positive = up)
     keys_down:            16,  // bool[64]
     keys_pressed:         80,  // bool[64]
-    text_input:           144, // char[32]
-    keys_repeated:        176, // bool[64]
-    modifiers:            240, // uint32 (4-byte aligned)
-    wheel_delta_x:        244, // float32 (horizontal detents)
-    mouse_right_down:     248, // bool (uint8)
-    mouse_right_clicked:  249, // bool (uint8)
-    mouse_middle_down:    250, // bool (uint8)
-    mouse_middle_clicked: 251, // bool (uint8)
+    text_input:           144, // char[128] (INPUT_TEXT_BYTES)
+    keys_repeated:        272, // bool[64]
+    modifiers:            336, // uint32 (4-byte aligned)
+    wheel_delta_x:        340, // float32 (horizontal detents)
+    mouse_right_down:     344, // bool (uint8)
+    mouse_right_clicked:  345, // bool (uint8)
+    mouse_middle_down:    346, // bool (uint8)
+    mouse_middle_clicked: 347, // bool (uint8)
+    preedit:              348, // char[128] (INPUT_PREEDIT_BYTES): the composition string, state not stream
+    preedit_cursor:       476, // int32 (codepoints into preedit, -1 unknown)
+    preedit_sel_len:      480, // int32 (codepoints, -1 unknown)
 };
-const INPUT_SIZE = 252;
+const INPUT_SIZE = 484;
+// Byte capacities of the two text channels, NUL included (WLX_INPUT_TEXT_BYTES,
+// WLX_INPUT_PREEDIT_BYTES in wollix.h; wollix_wasm.h asserts both).
+const INPUT_TEXT_BYTES = 128;
+const INPUT_PREEDIT_BYTES = 128;
 const WLX_KEY_COUNT = 64;
 
 // DOM wheel deltas arrive in pixels (deltaMode 0), lines (1), or pages (2).
@@ -226,6 +233,11 @@ function probeCtxFilterSupported() {
         keysRepeated: new Uint8Array(WLX_KEY_COUNT),
         modifiers: 0,
         textInput: "",
+        // Composition state (WLX_Input_State.preedit*): the whole current
+        // composition string, replaced on each update; empty = none.
+        preedit: "",
+        preeditCursor: -1,
+        preeditSel: -1,
     };
 
     // Best-effort clipboard cache. The async Clipboard API cannot be read
@@ -1082,21 +1094,22 @@ function probeCtxFilterSupported() {
         const u32 = new Uint32Array(memory.buffer);
         u32[(base + INPUT_OFFSETS.modifiers) >> 2] = input.modifiers;
 
-        // text_input (NUL-terminated, max 31 chars)
-        const textBytes = encoder.encode(input.textInput);
-        const maxLen = 31;
-        let len = Math.min(textBytes.length, maxLen);
+        // text_input and preedit: NUL-terminated UTF-8 in a fixed field.
         // Truncation must never split a UTF-8 sequence: back off any
-        // continuation bytes at the cap.
-        if (len < textBytes.length) {
-            while (len > 0 && (textBytes[len] & 0xC0) === 0x80) len--;
-        }
-        u8.set(textBytes.subarray(0, len), base + INPUT_OFFSETS.text_input);
-        u8[base + INPUT_OFFSETS.text_input + len] = 0;
-        // Zero remaining bytes
-        for (let i = len + 1; i < 32; i++) {
-            u8[base + INPUT_OFFSETS.text_input + i] = 0;
-        }
+        // continuation bytes at the cap. The rest of the field is zeroed.
+        const writeTextField = (str, offset, cap) => {
+            const bytes = encoder.encode(str);
+            let len = Math.min(bytes.length, cap - 1);
+            if (len < bytes.length) {
+                while (len > 0 && (bytes[len] & 0xC0) === 0x80) len--;
+            }
+            u8.set(bytes.subarray(0, len), base + offset);
+            u8.fill(0, base + offset + len, base + offset + cap);
+        };
+        writeTextField(input.textInput, INPUT_OFFSETS.text_input, INPUT_TEXT_BYTES);
+        writeTextField(input.preedit, INPUT_OFFSETS.preedit, INPUT_PREEDIT_BYTES);
+        i32[(base + INPUT_OFFSETS.preedit_cursor) >> 2]  = input.preeditCursor;
+        i32[(base + INPUT_OFFSETS.preedit_sel_len) >> 2] = input.preeditSel;
 
         // Reset per-frame state
         input.prevMouseDown = input.mouseDown;

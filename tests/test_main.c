@@ -268,6 +268,12 @@ static int test_span_assert_hits = 0;
 // traffic identical with the hook on and off. Reuses the ev_*, ew_* and
 // wo_* fixtures, so it follows test_editor_windowed_origin.c.
 #include "test_editor_span_color.c"
+
+// Composition input on the text widgets: the no-composition identity
+// pins on the inputbox, textarea and editor (linear and wrapped), then the
+// tentative span, its journal exclusion, the commit, the adopt-on-blur
+// and the text-input-area contract. Self-contained fixture.
+#include "test_ime.c"
 #include "test_opt_defaults_marker.c"
 // Contract errors: the handler, the record, the layout begin site, and the
 // clamps each entry documents for release builds.
@@ -351,6 +357,7 @@ int main(void) {
     RUN_SUITE(advances_parity);
     RUN_SUITE(editor_windowed_origin);
     RUN_SUITE(editor_span_color);
+    RUN_SUITE(ime);
     RUN_SUITE(frame_time);
     RUN_SUITE(focus_release);
     RUN_SUITE(cursor_shape);

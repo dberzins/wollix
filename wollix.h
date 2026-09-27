@@ -946,6 +946,13 @@ typedef enum {
 // Core state and context types
 // ============================================================================
 
+// Byte capacities of the two text channels on WLX_Input_State, NUL
+// included. Fixed rather than configurable: the WASM host asserts the
+// struct layout at build time, so a per-build size would break that
+// lockstep.
+#define WLX_INPUT_TEXT_BYTES    128
+#define WLX_INPUT_PREEDIT_BYTES 128
+
 typedef struct {
     int mouse_x;
     int mouse_y;
@@ -957,12 +964,17 @@ typedef struct {
                         // must not quantize or debounce)
     bool keys_down[WLX_KEY_COUNT];     // current key states (held down)
     bool keys_pressed[WLX_KEY_COUNT];  // true for one frame when key pressed
-    char text_input[32];    // text input this frame (for typing)
+    // Committed text this frame: a stream the backend accumulates across
+    // the frame's events, NUL terminated, whole UTF-8 sequences only - a
+    // codepoint that does not fit is dropped with the rest of the burst,
+    // never split at the cap.
+    char text_input[WLX_INPUT_TEXT_BYTES];
 
     // New fields are appended at the end of the struct so the byte offsets of
     // the fields above stay put for the WASM host. WLX_KEY_COUNT growth still
     // shifts everything after keys_down; the WASM-side offset asserts and the
-    // JS INPUT_OFFSETS table police the layout in lockstep.
+    // JS INPUT_OFFSETS table police the layout in lockstep. text_input grew
+    // from 32 bytes in v0.9, the last release that moves these offsets.
     bool keys_repeated[WLX_KEY_COUNT]; // true on each OS auto-repeat tick (in addition to keys_pressed on first press)
     uint32_t modifiers;                // active WLX_Key_Mod bits this frame
     float wheel_delta_x;    // horizontal wheel detents this frame; polarity mirrors
@@ -972,6 +984,18 @@ typedef struct {
     bool mouse_right_clicked;   // true for one frame on right press
     bool mouse_middle_down;
     bool mouse_middle_clicked;  // true for one frame on middle press
+
+    // Composition (input method) state. Unlike text_input, preedit is not a
+    // stream: it holds the whole composition string as of the end of the
+    // frame's event pump, replaced by each update, empty when no
+    // composition is in flight; NUL terminated, whole UTF-8 sequences only
+    // under the same drop-at-cap rule. preedit_cursor is the caret inside
+    // the composition and preedit_sel_len the selected clause after it,
+    // both in codepoints from the start of preedit, -1 when unknown.
+    // Committed text keeps arriving through text_input.
+    char    preedit[WLX_INPUT_PREEDIT_BYTES];
+    int32_t preedit_cursor;
+    int32_t preedit_sel_len;
 } WLX_Input_State;
 
 // Persistent state for layouts that contain WLX_SIZE_CONTENT slots.

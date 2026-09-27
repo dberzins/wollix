@@ -443,6 +443,35 @@ static inline void test_frame_begin_input(WLX_Context *ctx, const WLX_Input_Stat
     wlx_begin(ctx, ctx->rect, _test_input_handler);
 }
 
+// Begin a frame carrying committed text and a composition string with its
+// codepoint cursor and selected-clause length (-1 = unknown), mouse at
+// rest and no keys. NULL stages an empty channel. Both strings are copied
+// whole up to their field capacity minus the NUL.
+static inline void test_frame_begin_ime(WLX_Context *ctx, const char *text_input,
+                                        const char *preedit, int32_t preedit_cursor,
+                                        int32_t preedit_sel_len) {
+    memset(&_test_staged_input, 0, sizeof(_test_staged_input));
+    _test_staged_input.mouse_x = 200;
+    _test_staged_input.mouse_y = 50;
+    if (text_input) {
+        size_t len = strlen(text_input);
+        if (len >= sizeof(_test_staged_input.text_input))
+            len = sizeof(_test_staged_input.text_input) - 1;
+        memcpy(_test_staged_input.text_input, text_input, len);
+        _test_staged_input.text_input[len] = '\0';
+    }
+    if (preedit) {
+        size_t len = strlen(preedit);
+        if (len >= sizeof(_test_staged_input.preedit))
+            len = sizeof(_test_staged_input.preedit) - 1;
+        memcpy(_test_staged_input.preedit, preedit, len);
+        _test_staged_input.preedit[len] = '\0';
+    }
+    _test_staged_input.preedit_cursor = preedit_cursor;
+    _test_staged_input.preedit_sel_len = preedit_sel_len;
+    wlx_begin(ctx, ctx->rect, _test_input_handler);
+}
+
 // End the current frame.
 static inline void test_frame_end(WLX_Context *ctx) {
     // Drain any open layouts so wlx_end doesn't assert
