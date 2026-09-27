@@ -397,6 +397,17 @@ deserves extra review care.
     with/without-hook equivalence tests in the span-colour suite, and
     by the coloured rows of `make perf-editor` against the plain
     bounds.
+17. **The pipeline has no composition concept.** An input method's
+    string is a tentative span of ordinary bytes in the widget's
+    buffer, applied and dropped by the shared key handler through the
+    two span primitives with the journal off; no build, index,
+    geometry, wrap, hit-test or measure path carries a composition
+    field, flag or branch, and its decoration (the underline and the
+    clause band) is a range visual on the record walk the selection
+    band uses. Locked by the no-composition identity pins in the IME
+    suite (byte-identical draw calls and journals with an empty
+    `preedit`) and by the composing rows of `make perf-editor` inside
+    twice the typing bounds with no index rebuild.
 
 ---
 

@@ -244,6 +244,11 @@ layout_end(&ctx);
 > If your installations are in different locations, update the paths in
 > `Makefile` accordingly.
 
+> **SDL3 and input methods:** call `wlx_sdl3_ime_hints()` before
+> `SDL_Init()` (the demos do). Wollix draws the composition string inline
+> in its text widgets, and the hint tells the platform not to open a
+> composition window of its own.
+
 ## Text Rendering
 
 The Raylib and SDL3 backends support real TTF font rendering:
@@ -269,9 +274,14 @@ right: a right-to-left run appears mirrored on the native backends, and on
 the web host the canvas reorders the drawn run while caret geometry stays
 logical).
 
-**Text entry** targets ASCII and European keyboard layouts: there is no
-input-method (IME) or composition support, so no inline preedit is drawn,
-and on the web host IME and dead-key input produce no text at all.
+**Text entry** supports input methods (IME) and dead keys on the SDL3 and
+web backends: the composition string is drawn inline in the inputbox,
+textarea and editor with its caret and selected clause, each committed
+clause is one undo step, text input is engaged on the platform only while
+an editable field has focus, and the platform's candidate window is
+anchored at the caret (candidate lists themselves stay the platform's).
+Raylib receives committed text only: its platform draws the composition
+and nothing is drawn inline. See WIDGETS.md, "Composition input".
 
 ## Available Widgets
 

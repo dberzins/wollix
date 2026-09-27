@@ -420,6 +420,7 @@ typedef struct {
     void (*clipboard_set)(const char *text, size_t len, void *user);  // optional
     void (*set_cursor)(WLX_Cursor_Shape shape, void *user);           // optional
     float (*get_content_scale)(void *user);                           // optional: device pixels per unit
+    void (*set_text_input_area)(const WLX_Text_Input_Area *area, void *user); // optional: composition anchor
 } WLX_Backend;
 ```
 
@@ -442,14 +443,29 @@ callbacks of an adapter-installed table must forward `user` unchanged and
 must not repoint `backend.user`, which every other callback of the table
 reads.
 
-**Content scale.** `get_content_scale` is the table's last member and is
-optional: a zero-initialised or v1-shimmed table reports 1.0. The core
-calls it exactly once per frame from `wlx_begin`, after the input handler.
-The value must lie in `[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]`
-(0.25 to 8.0 by default); anything else, NaN included, reports
-`WLX_ERR_BAD_ARGUMENT` and the frame runs at 1.0. The table's shape,
-including this member, is the frozen v2 contract. See
-[Coordinate space](#coordinate-space).
+**Content scale.** `get_content_scale` is optional: a zero-initialised or
+v1-shimmed table reports 1.0. The core calls it exactly once per frame
+from `wlx_begin`, after the input handler. The value must lie in
+`[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]` (0.25 to 8.0 by
+default); anything else, NaN included, reports `WLX_ERR_BAD_ARGUMENT` and
+the frame runs at 1.0. See [Coordinate space](#coordinate-space).
+
+**Composition anchor.** `set_text_input_area` is the table's last member
+and is optional: `NULL` means the platform is never told, and the shim
+leaves it `NULL`. The core assembles a [`WLX_Text_Input_Area`](#wlx_text_input_area)
+from the focused editable text widget's caret line (the inputbox, the
+textarea, the editor; never a read-only or disabled one) and pushes it
+from `wlx_end` **only when it changed**: `active` turns true when such a
+widget takes focus, the line and cursor follow the caret, and one push
+with `active` false follows the loss of focus. An adapter starts the
+platform's text input on the active edge (engaging the input method and,
+on mobile, the keyboard), stops it on the inactive edge, and anchors the
+candidate window at the caret on every call; the SDL3 adapter does
+exactly this through `SDL_StartTextInputWithProperties`,
+`SDL_StopTextInput` and `SDL_SetTextInputArea`, the web host by
+focusing and placing its hidden text proxy. Hosts without the callback
+read the last pushed value with `wlx_text_input_area`. The table's
+shape, this member included, is the frozen v2 contract.
 
 | Callback | Purpose |
 |----------|---------|
@@ -475,6 +491,8 @@ including this member, is the frozen v2 contract. See
 | `clipboard_get` | Optional synchronous clipboard read: returns a borrowed NUL-terminated UTF-8 string valid until the next backend call; `NULL` hook makes paste a safe no-op |
 | `clipboard_set` | Optional synchronous clipboard write: copies the byte slice out before returning; `NULL` hook makes copy/cut safe no-ops |
 | `set_cursor` | Optional mouse-cursor shape: apply a `WLX_Cursor_Shape` (`WLX_CURSOR_ARROW`, `WLX_CURSOR_IBEAM`) to the platform cursor. The core resolves the shape from the widget under the pointer once per frame in `wlx_begin` and calls this **only when it changes**, so implementations are stateless one-liners; `NULL` leaves the platform cursor untouched |
+| `get_content_scale` | Optional device pixels per unit (see **Content scale** above); `NULL` means 1.0 |
+| `set_text_input_area` | Optional composition anchor: the focused editable text widget's caret line and caret offset, or inactive (see **Composition anchor** above). Pushed from `wlx_end` **only when it changes**: start or stop the platform's text input on the `active` edges and re-anchor its candidate window on every call; `NULL` never tells the platform |
 
 The C-string callbacks remain the compatibility floor;
 `wlx_backend_is_ready()` accepts either form per direction (`draw_text_slice`
@@ -632,6 +650,7 @@ software or copy path):
 | `clipboard_get` / `clipboard_set` | yes | yes | yes |
 | `set_cursor` | yes | yes | yes (host CSS cursor) |
 | `get_content_scale` | yes (render/screen ratio) | yes (`SDL_GetWindowDisplayScale`) | yes (`devicePixelRatio`) |
+| `set_text_input_area` | - (committed text only, no composition) | yes (`SDL_StartTextInputWithProperties`, `SDL_SetTextInputArea`, `SDL_EVENT_TEXT_EDITING`) | yes (a hidden text proxy at the caret; composition and dead keys through it) |
 
 ### `wlx_backend_is_ready`
 
@@ -799,6 +818,9 @@ image+text `wlx_button` and image+text `wlx_label`.
 ### `WLX_Input_State`
 
 ```c
+#define WLX_INPUT_TEXT_BYTES    128   // text_input capacity, NUL included (fixed)
+#define WLX_INPUT_PREEDIT_BYTES 128   // preedit capacity, NUL included (fixed)
+
 typedef struct {
     int   mouse_x, mouse_y;
     bool  mouse_down;        // Left button is down this frame
@@ -807,7 +829,7 @@ typedef struct {
     float wheel_delta;       // Vertical wheel detents (positive = up)
     bool  keys_down[WLX_KEY_COUNT];     // Current held-down states
     bool  keys_pressed[WLX_KEY_COUNT];  // True for one frame on press
-    char  text_input[32];              // Text typed this frame (for inputbox)
+    char  text_input[WLX_INPUT_TEXT_BYTES]; // Committed text this frame (a stream)
     bool  keys_repeated[WLX_KEY_COUNT]; // True on each OS auto-repeat tick
     uint32_t modifiers;                // Active WLX_Key_Mod bits this frame
     float wheel_delta_x;     // Horizontal wheel detents (same polarity family)
@@ -815,6 +837,9 @@ typedef struct {
     bool  mouse_right_clicked;   // True for one frame on right press
     bool  mouse_middle_down;
     bool  mouse_middle_clicked;  // True for one frame on middle press
+    char    preedit[WLX_INPUT_PREEDIT_BYTES]; // The composition string (state, not a stream)
+    int32_t preedit_cursor;      // Caret inside it, in codepoints; -1 unknown
+    int32_t preedit_sel_len;     // Selected clause after the caret, in codepoints; -1 unknown
 } WLX_Input_State;
 ```
 
@@ -837,9 +862,30 @@ semantics and never affect focus or the left-press ownership. Query with
 `wlx_is_mouse_right_down()` and friends, or read `right_clicked` on a
 `WLX_Interaction` for the topmost-wins widget resolution.
 
+**Text channels.** `text_input` is a *stream*: the backend accumulates the
+frame's committed text into it (NUL terminated, whole UTF-8 sequences
+only, a codepoint that does not fit is dropped with the rest of the burst
+and never split at the cap) and the core drains it once per frame.
+`preedit` is *state*: the whole composition string the platform's input
+method currently shows, as of the end of the frame's event pump, replaced
+by each update and empty when no composition is in flight, under the same
+NUL and whole-codepoint rules. `preedit_cursor` is the caret inside the
+composition and `preedit_sel_len` the length of the selected clause after
+it, both in codepoints from the start of `preedit`, `-1` when the platform
+gives none; the core maps them to bytes, snaps the caret forward to a
+grapheme-cluster boundary and clamps to the string's end. Committed text
+keeps arriving through `text_input`, including the commit that ends a
+composition. The two capacities are the fixed constants
+`WLX_INPUT_TEXT_BYTES` and `WLX_INPUT_PREEDIT_BYTES` (128, not
+overridable: the WASM host asserts the layout at build time). See
+[Composition input](WIDGETS.md#composition-input) for what the widgets
+do with the string.
+
 **Layout is append-only.** New fields are added at the end so earlier byte
 offsets stay put for hosts that write the struct directly (the WASM host);
-`wollix_wasm.h` static-asserts the layout.
+`wollix_wasm.h` static-asserts the layout. v0.9 grew `text_input` from 32
+bytes and appended the composition fields; this is the shape that
+freezes after 0.9.
 
 ### `WLX_Input_Handler`
 
@@ -898,6 +944,28 @@ typedef enum {
 Mouse cursor shape the core asks the backend to show through the optional
 `set_cursor` callback. `ARROW` is `0` so a zero-initialized context matches
 every platform's default cursor; the enum is append-only.
+
+### `WLX_Text_Input_Area`
+
+```c
+typedef struct {
+    bool     active;     // an editable text widget holds focus this frame
+    WLX_Rect line;       // the caret's visual line, clipped to the widget's text band (units)
+    float    cursor;     // caret x offset from line.x (units)
+    bool     multiline;  // textarea / editor
+    bool     password;   // masked field
+} WLX_Text_Input_Area;
+```
+
+Where the platform's input method should anchor itself: the caret line
+of the editable text widget that holds focus this frame, assembled by the
+core from the widget's caret geometry and pushed through the optional
+`WLX_Backend.set_text_input_area` callback from `wlx_end`, only when it
+changed. With `active` false the other members are zero. `multiline` and
+`password` let a platform pick its keyboard and prediction behaviour
+(SDL3 takes them as start-time properties, so the adapter restarts text
+input when they change). Read the last pushed value with
+`wlx_text_input_area`.
 
 ### `WLX_Interaction`
 
@@ -1571,6 +1639,33 @@ itself; the layout, the theme and every option field stay in units. See
 Because deferred draw commands replay inside `wlx_end()`, keep it inside the
 backend's active frame scope. In Raylib that means calling `wlx_end(ctx)`
 before `EndDrawing()`.
+
+### `wlx_text_input_area`
+
+```c
+WLX_Text_Input_Area wlx_text_input_area(const WLX_Context *ctx);
+```
+
+The composition anchor last pushed to the backend (see
+[`WLX_Text_Input_Area`](#wlx_text_input_area)): `active` with the focused
+editable text widget's caret line and caret offset, or inactive. A host
+whose backend table has no `set_text_input_area` callback reads it after
+`wlx_end` to start and stop the platform's text input and anchor its
+candidate window itself.
+
+### `wlx_text_composing`
+
+```c
+bool wlx_text_composing(const WLX_Context *ctx);
+```
+
+True while a text widget holds a composition string as a tentative span
+in its buffer, as of the last widget that ran this frame. While it is
+true the caller's buffer contains bytes the input method may still
+replace or withdraw; an application that mirrors a buffer on every
+change (live search, validation, autosave) can wait for it to turn false,
+which it does on the commit or the cancel. See
+[Composition input](WIDGETS.md#composition-input).
 
 ### Frame Loop Pattern
 
@@ -4520,11 +4615,17 @@ static inline WLX_Input_State *wlx_wasm_get_input_ptr(void);
 The host writes `WLX_Input_State` straight into wasm memory before each
 `wlx_wasm_frame` call (pointer events with pointer capture, touch, raw wheel
 on both axes, three buttons with one-frame press edges, key codes incl.
-F-keys, modifiers, UTF-8 text); `wlx_process_wasm_input` copies that block
-into `ctx->input`. The header `_Static_assert`s the field offsets the host's
+F-keys, modifiers, UTF-8 committed text and the composition string with
+its cursor and clause); `wlx_process_wasm_input` copies that block into
+`ctx->input`. The header `_Static_assert`s the field offsets the host's
 `INPUT_OFFSETS` table relies on (`keys_down` 16, `text_input` 144,
-`modifiers` 240, `wheel_delta_x` 244, `mouse_right_down` 248, size 252), so a
-layout change fails the build until the JS table is updated. The app exports
+`keys_repeated` 272, `modifiers` 336, `wheel_delta_x` 340,
+`mouse_right_down` 344, `preedit` 348, `preedit_cursor` 476,
+`preedit_sel_len` 480, size 484) and the two text capacities, so a layout
+change fails the build until the JS table is updated. The host's
+`set_text_input_area` import places and focuses a hidden text proxy at
+the caret line so the browser's input method engages there; composition
+and dead keys reach the widgets through it. The app exports
 `wlx_wasm_init` / `wlx_wasm_frame(width, height)` (see
 `demos/dashboard/dashboard.c`).
 

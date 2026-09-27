@@ -172,6 +172,7 @@ steps may coalesce (section 6) and marks replayed entries.
 | `WLX_TEXT_UNDO_CLS_PASTE` | command+V | no |
 | `WLX_TEXT_UNDO_CLS_CUT` | command+X | no |
 | `WLX_TEXT_UNDO_CLS_REPLAY` | recorded while an undo or redo replays | no, and it ends any run |
+| `WLX_TEXT_UNDO_CLS_COMPOSE` | a composition commit (and a span adopted when focus left) | no: one step per committed clause |
 
 ### 3.2 `WLX_Text_Undo_Entry` (72 bytes)
 
@@ -715,6 +716,19 @@ wlx_editor_impl frame
     caret-follow: the restored caret is a keyboard caret change, so the view follows it
 ```
 
+**Composition.** An input method's string is applied as a tentative span
+through the same two primitives with the journal pointer `NULL`, so no
+tentative byte is ever recorded; each frame the previous span is
+deleted (journal off) before the commit lands, and the transaction
+re-opens at the span's start so the commit's before-caret is real. The
+commit records under `WLX_TEXT_UNDO_CLS_COMPOSE`, which never coalesces,
+and a cancelled composition records nothing, leaving the stack and
+`expected_len` (the transaction still closes at the true length) exactly
+as before. Composing over a selection deletes it first under `SELECTION`.
+Focus leaving with a span in place adopts it as one `COMPOSE` step. The
+span is guarded like the journal: a length or `.revision` change forgets
+it (bytes kept), never deletes on stale evidence.
+
 So undoing a multi-line paste shifts the retained geometry by exactly the
 paste's span, the wrapped bottom anchor keeps its end-relative distance
 when the replay lands before its line, and a caret restored far outside
@@ -852,8 +866,8 @@ Beside it: `tests/test_undo_disabled.c` (own translation unit,
 - **Keyboard only.** No programmatic API, save-point query or app-driven
   grouping (section 11); recorded as future work in the project's
   development notes.
-- **IME.** When composition input lands, preedit text must never enter
-  the journal; only the commit is an insert.
+- **Composition is journaled by rule, not by limit** (section 10): the
+  tentative span records nothing, the commit is one `COMPOSE` step.
 - **Whole-journal eviction** belongs to the planned widget-state prune;
   the `touch` stamp is ready for it.
 - **Storage.** The journal hooks the two primitives, which are exactly the

@@ -1136,6 +1136,46 @@ shares all of this; the editor adds Tab and Enter as steps of their own.
 The machinery (entries, stacks, transactions, replay, eviction, the guard)
 is described in [UNDO_MODEL.md](UNDO_MODEL.md).
 
+### Composition input
+
+Input methods (Japanese, Chinese, Korean and any other composing
+keyboard) and dead keys work in the inputbox, the textarea and the
+editor on the SDL3 and web backends. The composition string the platform
+is building lands in the field's buffer at the caret as a *tentative
+span*: ordinary bytes to everything that lays out and draws, underlined,
+with the caret inside it where the input method says and the selected
+clause (when the platform reports one) drawn in the selection colour. Each
+update replaces the span in place; a commit lands where the span began as
+one undo step of its own, never merged with a typed run on either side;
+a cancel removes the span and leaves the buffer and the undo history
+exactly as they were. While a span exists the keyboard and the mouse
+belong to the input method: no caret motion, deletion, shortcut or click
+reaches the field until the composition ends. Composing over a live
+selection deletes the selection first, as its own undo step. Focus
+leaving the field with a span in place keeps the bytes, as platforms do,
+and records the step a commit would have. The span follows the field's
+`.revision` and length like the undo journal: a change outside the widget
+forgets the span without touching any byte.
+
+Two consequences for the application. The buffer holds tentative bytes
+between frames while a composition is in flight, so code that reacts to
+every change (live search, validation, autosave) should consult
+`wlx_text_composing(ctx)` and act when it turns false. And a fixed
+buffer that cannot hold the string truncates it on a grapheme-cluster
+boundary like any insert.
+
+Text input is engaged on the platform only while an editable text
+widget has focus (a `.read_only` or `.disabled` field never composes and
+never asks for it); a `.password` field composes with its span masked
+like the rest, and tells the platform the field is a hidden password so
+it may disable prediction. On SDL3 call `wlx_sdl3_ime_hints()` before
+`SDL_Init()` so the platform draws no composition window of its own.
+Candidate lists stay the platform's. Raylib receives committed text
+only: its platform draws the composition, nothing is drawn inline. The
+contract the backends implement is in
+[API_REFERENCE.md](API_REFERENCE.md#wlx_text_input_area); how the span
+is applied is in [EDITOR_MODEL.md](EDITOR_MODEL.md#12-composition).
+
 ### Password and read-only modes
 
 `.password = true` renders one `*` per plaintext grapheme cluster (so one
@@ -1457,6 +1497,12 @@ viewport. Mouse: click places the caret, double-click selects the word,
 triple-click selects all, dragging extends the selection with auto-scroll on
 both axes past the band edges. Focus follows the inputbox contract (click to
 focus, Escape or click-elsewhere to blur; Enter never blurs).
+
+Composition input (input methods and dead keys) works as in the inputbox
+([Composition input](#composition-input)): the string is a tentative span
+in the document at the caret, underlined, wrapped and indexed like any
+bytes, the commit one undo step; while a span exists none of the keys or
+clicks above reach the editor.
 
 Under `.wrap`, UP/DOWN and PageUp/PageDown step **visual rows** with a
 row-relative sticky column, and drag auto-scroll is vertical only; HOME/END

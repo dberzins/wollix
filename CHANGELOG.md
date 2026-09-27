@@ -34,11 +34,32 @@ release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
   removed in the first minor after 0.9); or, for good, append `void *user`
   to each callback and set `.contract_version`. An application that
   overrides individual callbacks of an adapter-installed table forwards
-  `user` unchanged and never repoints `backend.user`. The v2 table's last
-  member is the optional `float (*get_content_scale)(void *user)` (device
-  pixels per unit; NULL or a zero-initialised table means 1.0; the shim
-  leaves it NULL). The version stays `2`, and this shape, member included,
-  is the one that freezes after 0.9.
+  `user` unchanged and never repoints `backend.user`. The v2 table gains
+  two optional members this release: `float (*get_content_scale)(void
+  *user)` (device pixels per unit; NULL or a zero-initialised table means
+  1.0) and, last, `void (*set_text_input_area)(const WLX_Text_Input_Area
+  *area, void *user)` (the composition anchor, below; NULL never tells
+  the platform); the shim leaves both NULL. The version stays `2`, and
+  this shape, members included, is the one that freezes after 0.9.
+- **`WLX_Input_State` grows for composition input, and text input is
+  focus-gated on SDL3.** `text_input` grows from 32 to 128 bytes
+  (`WLX_INPUT_TEXT_BYTES`), so a committed CJK clause is no longer cut at
+  ~10 characters, and three fields are appended: `preedit[128]`
+  (`WLX_INPUT_PREEDIT_BYTES`), the input method's current composition
+  string as *state* (the whole string, replaced by each update, empty when
+  none is in flight), with `preedit_cursor` and `preedit_sel_len` in
+  codepoints (-1 unknown). Every offset after `text_input` moves; a
+  recompile is the whole migration for C callers, and the WASM host's
+  `INPUT_OFFSETS` table and `wollix_wasm.h`'s asserts moved together
+  (`keys_repeated` 272, `modifiers` 336, `wheel_delta_x` 340,
+  `mouse_right_down` 344, `preedit` 348, cursor 476, clause 480, size
+  484). Both capacities are fixed constants, not configuration macros.
+  On SDL3 the adapter no longer calls `SDL_StartTextInput` at init: text
+  input starts when an editable text widget takes focus and stops when
+  focus leaves (through the composition anchor), so the input method and
+  any on-screen keyboard follow the focused field. An application that
+  read `ctx->input.text_input` on SDL3 with no field focused stops
+  receiving it; key codes are unaffected.
 - **`.align` is `.content_align`; `.widget_align` is `.slot_align`.** The
   two alignment fields never said what they aligned: `content_align`
   places the text or image inside the widget rect (the typography field,
@@ -167,6 +188,35 @@ your own pace before the next minor.
    `wlx_grid_begin_auto_tile_impl` calls; macro callers change nothing.
 
 ### Added
+- **Composition (IME) input on the inputbox, textarea and editor.** The
+  platform's composition string lands in the widget's buffer at the caret
+  as a tentative span - ordinary bytes to layout, wrap, the line index,
+  caret-follow and the colour spans - underlined, with the caret inside it
+  where the input method says (codepoints snapped to a grapheme-cluster
+  boundary) and the selected clause in the selection colour. Each update
+  replaces the span; a commit lands where it began as one undo step of the
+  new `COMPOSE` class, which never coalesces; a cancel leaves buffer and
+  journal exactly as before; composing over a selection deletes it first
+  as its own step; focus leaving with a span in place keeps the bytes and
+  records the step a commit would have. While a span exists the keys and
+  the mouse belong to the input method. The span follows the widget's
+  length and `.revision` like the undo journal: an outside change forgets
+  it without touching a byte. `wlx_text_composing(ctx)` reports a
+  composition in flight for callers that mirror the buffer. Backends:
+  `WLX_Text_Input_Area` and the optional `WLX_Backend.set_text_input_area`
+  carry the focused editable widget's caret line, pushed from `wlx_end`
+  only on change, with `wlx_text_input_area(ctx)` for hosts without the
+  callback. SDL3: `SDL_EVENT_TEXT_EDITING` as state, focus-gated
+  `SDL_StartTextInputWithProperties` (text or hidden password, multiline)
+  and `SDL_StopTextInput`, `SDL_SetTextInputArea` at the caret, and
+  `wlx_sdl3_ime_hints()` to call before `SDL_Init` so the platform draws
+  no composition window (the SDL3 demos do). Web host: a hidden text
+  proxy at the caret receives composition and dead keys, which produced
+  no text before. Raylib stays commit-only. `make perf-editor` gains
+  composing and commit rows inside twice the typing bounds with no index
+  rebuild; `tests/test_ime.c` pins the no-composition identity of the
+  three widgets and the composition behaviour in twenty-one tests. The
+  README's text-entry disclaimer is rewritten accordingly.
 - **`WLX_DEBUG` report for decreasing advances.** A `measure_text_advances`
   chunk whose advances decrease (a font shaped right to left, or a lost
   splice) reports the new `WLX_ERR_BACKEND_ANSWER` once per site through

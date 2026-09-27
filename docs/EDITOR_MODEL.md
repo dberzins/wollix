@@ -35,6 +35,7 @@ invariant registry contributors must preserve, see
 9. [Performance](#9-performance)
 10. [Configuration](#10-configuration)
 11. [Per-Span Colour](#11-per-span-colour)
+12. [Composition](#12-composition)
 
 ---
 
@@ -623,3 +624,59 @@ count — rows times pieces — and, on the native backends, the number of
 distinct cached runs (one per distinct piece instead of one per row;
 token runs repeat heavily in source code, and the dashboard's sample
 document sits at a hundred entries against caches of thousands).
+
+---
+
+## 12. Composition
+
+An input method builds text in stages: a string the person can still
+change (the *composition*, or preedit), then a commit. The editor has no
+composition concept of its own. The shared key handler applies the
+platform's current string, delivered as state in `WLX_Input_State.preedit`,
+as a **tentative span** in the document through the same two span
+primitives every keystroke uses, with the undo journal switched off:
+
+```
+frame with a composition string
+    drop the previous span      delete [preedit_start, +preedit_len), journal off
+    land the commit             text_input inserts at preedit_start, class COMPOSE
+    re-apply the string         insert preedit at the caret, journal off
+    place the caret             preedit_start + codepoints -> bytes, snapped to a unit boundary
+    stop                        the key vocabulary, the motion keys and the pointer do not run
+```
+
+The document therefore always holds the string as ordinary bytes, and
+the whole pipeline of this document sees it as such: the line index is
+patched from the frame's edit span (two edits, Section 2), the window
+build wraps and windows it (Sections 3 and 7), caret-follow scrolls to
+the caret inside it, the retained geometry shifts by the span's delta
+(Section 4), and the per-span colour hook colours it (Section 11). No
+geometry consumer learns about composition, which is why the feature
+costs nothing in wrapped mode where reflow would otherwise need a
+one-line scratch source. `make perf-editor` runs the composition script
+(three growing strings, then a commit) at offset 0 on the 10 MB
+document: a composition frame is two span edits, so its measure traffic
+sits inside twice the typing bounds and the index never rebuilds.
+
+Drawing adds two range visuals on the record walk the selection band
+already uses (`wlx_text_range_extents`): an underline along the row
+bottom of the span, and the input method's selected clause, when it
+reports one, through the selection band. Nothing is retained.
+
+The span carries the document length and the caller's `.revision` it was
+applied under. A frame that finds either changed forgets the span
+without touching a byte (the bytes are the application's now); a refocus
+after the editor was not drawn forgets it the same way. Focus leaving
+with a span in place adopts it: the bytes stay and gain the undo step a
+commit would have made. The commit itself records under the `COMPOSE`
+class, which never coalesces, so each committed clause undoes as one
+step and a cancelled composition leaves the journal exactly as it was
+(UNDO_MODEL.md, section 6). The caret's position inside the string comes
+from the platform in codepoints and is snapped forward to a grapheme
+cluster boundary, so it never lands inside a cluster the stepper treats
+as one unit (Section 1's unit model).
+
+The editor also records the caret's visual line into the frame's
+composition anchor (`WLX_Text_Input_Area`), which the core pushes to the
+backend on change so the platform starts text input while the editor has
+focus and anchors its candidate window at the caret.
