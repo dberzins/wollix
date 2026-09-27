@@ -1675,16 +1675,19 @@ typedef struct {
 // document, keyed by widget id. offsets[0] is always 0; a document ending in
 // a newline separator owns a trailing empty line starting at the document
 // length; count is the document line count (an empty document is one empty
-// line). Context-owned, rebuilt by a newline scan when the per-frame guard
-// detects a document change, freed with the context. Also home of the
-// retained line-geometry store, which follows the index's document
+// line). Context-owned: built by a newline scan on the widget's first
+// frame and rebuilt by one whenever the per-frame guard detects a document
+// change it cannot attribute; a widget-applied edit instead patches the
+// index from its edit span, exactly. Freed with the context. Also home of
+// the retained line-geometry store, which follows the index's document
 // identity.
 typedef struct {
     WLX_Id id;        // widget id
     size_t *offsets;  // hard line start offsets, count entries
     size_t count;
     size_t cap;
-    uint32_t rebuilds; // total rebuild count (guard/idle instrumentation)
+    uint32_t rebuilds; // full newline-scan rebuilds (guard/idle instrumentation)
+    uint32_t patches;  // widget edits applied by span patch (edit-frame instrumentation)
     WLX_Text_Geom_Store geom;
 } WLX_Editor_Line_Index;
 

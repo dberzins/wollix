@@ -65,8 +65,9 @@ typedef struct {
     // gutter): shapes the interaction rect so gutter presses never focus.
     float gutter_end_x;
     // Line-index guard snapshot: the index rebuilds when the document length
-    // or the caller's revision changes (plus a sampled hard-line-start probe
-    // as backstop for in-place mutations).
+    // or the caller's revision changes without a widget edit explaining it
+    // (plus a sampled hard-line-start probe as backstop for in-place
+    // mutations); a widget edit patches it from the edit span instead.
     bool index_seen;
     size_t guard_length;
     uint32_t guard_revision;
@@ -100,8 +101,9 @@ typedef struct {
 // Editor widget: a windowed text editor over a caller-owned flat buffer
 // with an explicit length in/out. The widget renders and edits only the
 // visible window, so frame cost is O(viewport) regardless of the document
-// size; geometry rests on a context-owned per-id line index that is
-// rebuilt by a newline scan when the document changes. Non-wrapping by
+// size; geometry rests on a context-owned per-id line index, patched from
+// each widget edit's span and rebuilt by a newline scan when the document
+// changes under the widget. Non-wrapping by
 // default (one visual line per hard line, horizontal scrolling); .wrap
 // breaks hard lines into band-wide rows instead.
 typedef struct {
@@ -161,7 +163,8 @@ typedef struct {
 
     // External-mutation guard: bump after mutating the buffer outside the
     // widget (same length included); the widget rebuilds its line index when
-    // the revision or the document length changes.
+    // the revision or the document length changes (its own edits patch the
+    // index from their span instead).
     uint32_t revision;
 
     // Explicit string ID (NULL = auto from call-site)
@@ -340,17 +343,24 @@ static WLX_Editor_Line_Index *wlx_editor_index_get(WLX_Context *ctx, WLX_Id id) 
     return idx;
 }
 
-// Append one hard-line-start offset to the index, growing the array
-// geometrically. Returns false on allocation failure (the caller
-// abandons the rebuild).
+// Make room for need entries, growing the array geometrically. Returns
+// false on allocation failure (the caller abandons the rebuild or the
+// patch).
+static bool wlx_editor_index_reserve(WLX_Editor_Line_Index *idx, size_t need) {
+    if (need <= idx->cap) return true;
+    size_t new_cap = idx->cap == 0 ? 64 : idx->cap;
+    while (new_cap < need) new_cap *= 2;
+    size_t *grown = (size_t *)wlx_realloc(idx->offsets, new_cap * sizeof(size_t));
+    if (grown == NULL) return false;
+    idx->offsets = grown;
+    idx->cap = new_cap;
+    return true;
+}
+
+// Append one hard-line-start offset to the index. Returns false on
+// allocation failure (the caller abandons the rebuild).
 static bool wlx_editor_index_push(WLX_Editor_Line_Index *idx, size_t offset) {
-    if (idx->count == idx->cap) {
-        size_t new_cap = idx->cap == 0 ? 64 : idx->cap * 2;
-        size_t *grown = (size_t *)wlx_realloc(idx->offsets, new_cap * sizeof(size_t));
-        if (grown == NULL) return false;
-        idx->offsets = grown;
-        idx->cap = new_cap;
-    }
+    if (!wlx_editor_index_reserve(idx, idx->count + 1)) return false;
     idx->offsets[idx->count++] = offset;
     return true;
 }
@@ -382,10 +392,12 @@ static inline const char *wlx_editor_scan_newline(const char *p, const char *end
     return NULL;
 }
 
-// Rebuild the hard-line-start index with one newline scan. The word scan
-// only locates candidate bytes; wlx_text_newline_at resolves the separator
-// itself (CRLF is one separator), so the scan and the line build can never
-// disagree about where lines start.
+// Rebuild the hard-line-start index with one newline scan: the first
+// frame, an external mutation, and a patch that refused take this path; a
+// widget edit patches the index instead (wlx_editor_index_patch). The word
+// scan only locates candidate bytes; wlx_text_newline_at resolves the
+// separator itself (CRLF is one separator), so the scan and the line build
+// can never disagree about where lines start.
 static bool wlx_editor_index_rebuild(WLX_Editor_Line_Index *idx, const char *text, size_t length) {
     idx->count = 0;
     idx->rebuilds++;
@@ -407,6 +419,88 @@ static bool wlx_editor_index_rebuild(WLX_Editor_Line_Index *idx, const char *tex
         }
         p = text + sep_end;
     }
+    return true;
+}
+
+// Patch the index for one widget-applied edit: the pre-edit bytes
+// [start, old_end) became [start, new_end) in text, whose post-edit
+// length is length. The result equals a rebuild of text (a standing test
+// contract). A separator's classification depends on at most the byte
+// after it, so an entry (a separator end) below start cannot change and
+// keeps; an entry at start may be a lone CR joined by a new LF and an
+// entry at old_end + 1 the LF at old_end joined by a new CR, so entries in
+// [start, old_end + 1] drop and are re-derived from the new bytes
+// [start - 1, new_end + 1) with the rebuild's own scan and grammar; entries
+// at or past old_end + 2 are untouched and shift by the delta. A
+// re-derived separator whose end reaches the first shifted entry is that
+// entry (a CR at new_end whose LF follows) and is not placed twice.
+// Cost: the rescan is O(span bytes), the shift O(entries after the edit).
+// Returns false when the patch cannot apply (a precondition or an
+// allocation failure) with the index untouched; the caller rebuilds.
+static bool wlx_editor_index_patch(WLX_Editor_Line_Index *idx, const char *text, size_t length,
+    size_t start, size_t old_end, size_t new_end)
+{
+    if (idx->count == 0 || text == NULL || old_end < start || new_end < start
+        || new_end > length) return false;
+    size_t old_len = length - (new_end - start) + (old_end - start);
+    if (old_end > old_len) return false;
+
+    // Entries below start keep; offsets[0] == 0 always stays.
+    size_t keep;
+    {
+        size_t lo = 1, hi = idx->count;
+        while (lo < hi) {
+            size_t mid = lo + (hi - lo) / 2;
+            if (idx->offsets[mid] < start) lo = mid + 1; else hi = mid;
+        }
+        keep = lo;
+    }
+    // Entries at or past old_end + 2 shift by the delta.
+    size_t first_after;
+    {
+        size_t lo = keep, hi = idx->count;
+        while (lo < hi) {
+            size_t mid = lo + (hi - lo) / 2;
+            if (idx->offsets[mid] < old_end + 2) lo = mid + 1; else hi = mid;
+        }
+        first_after = lo;
+    }
+    size_t after = idx->count - first_after;
+    size_t limit = after > 0 ? idx->offsets[first_after] - old_end + new_end : SIZE_MAX;
+
+    // Re-derive the dirty bytes of the new text: count, make room, place.
+    size_t scan_lo = start > 0 ? start - 1 : 0;
+    size_t scan_hi = new_end + 1 < length ? new_end + 1 : length;
+    size_t m = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass == 1) {
+            if (!wlx_editor_index_reserve(idx, keep + m + after)) return false;
+            if (after > 0 && first_after != keep + m) {
+                memmove(&idx->offsets[keep + m], &idx->offsets[first_after],
+                    after * sizeof(size_t));
+            }
+            if (new_end != old_end) {
+                for (size_t i = 0; i < after; i++) {
+                    idx->offsets[keep + m + i] = idx->offsets[keep + m + i] - old_end + new_end;
+                }
+            }
+        }
+        size_t n = 0;
+        const char *p = text + scan_lo;
+        const char *end = text + scan_hi;
+        while (p < end) {
+            const char *sep = wlx_editor_scan_newline(p, end);
+            if (sep == NULL) break;
+            size_t sep_end = 0;
+            wlx_text_newline_at(text, length, (size_t)(sep - text), &sep_end);
+            if (sep_end >= limit) break;
+            if (pass == 1) idx->offsets[keep + n] = sep_end;
+            n++;
+            p = text + sep_end;
+        }
+        m = n;
+    }
+    idx->count = keep + m + after;
     return true;
 }
 
@@ -2199,8 +2293,8 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
         WLX_Text_Geom_Store *geom = idx != NULL ? &idx->geom : NULL;
         bool doc_rebuilt = false;
         if (idx != NULL) {
-            // The retained geometry may survive a rebuild only when the
-            // rebuild's one cause is this frame's widget edit: the edit
+            // The retained geometry may survive an index update only when
+            // the update's one cause is this frame's widget edit: the edit
             // span then shifts entry keys precisely. Any other signal
             // (first sight, external length/revision change, probe fail)
             // clears the store outright.
@@ -2213,7 +2307,19 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
                 || state->guard_length != doc_len
                 || state->guard_revision != opt.revision
                 || !wlx_editor_index_probe_ok(idx, doc, doc_len);
-            if (stale && wlx_editor_index_rebuild(idx, doc, doc_len)) {
+            bool indexed = false;
+            if (stale) {
+                // A widget edit with a known span patches the index in
+                // place; every other signal, and a patch that refuses,
+                // takes the full newline scan.
+                if (edit_only) {
+                    indexed = wlx_editor_index_patch(idx, doc, doc_len,
+                        edit_span.start, edit_span.old_end, edit_span.new_end);
+                    if (indexed) idx->patches++;
+                }
+                if (!indexed) indexed = wlx_editor_index_rebuild(idx, doc, doc_len);
+            }
+            if (indexed) {
                 state->index_seen = true;
                 state->guard_length = doc_len;
                 state->guard_revision = opt.revision;

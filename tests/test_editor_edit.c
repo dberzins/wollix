@@ -1,10 +1,10 @@
 // test_editor_edit.c - wlx_editor editing: typing, Enter, Tab, Backspace/
 // Delete with word variants, clipboard cut/copy/paste through the shared
 // transport, the explicit length in/out contract (full-buffer rejection,
-// UTF-8 boundary truncation, opportunistic trailing NUL), index rebuild on
-// every widget edit (including same-length replaces the length guard cannot
-// see), revision-guard interplay, read-only rejection, and next-tab-stop
-// geometry.
+// UTF-8 boundary truncation, opportunistic trailing NUL), the line index
+// patched from every widget edit's span (including same-length replaces the
+// length guard cannot see) and its equivalence with a full rebuild,
+// revision-guard interplay, read-only rejection, and next-tab-stop geometry.
 //
 // Reuses ev_state / ev_index / ev_fill_lines / _ev_capture* from
 // test_editor_view.c and test_command_mod from test_mock_backend.h (same
@@ -59,7 +59,7 @@ static bool ed_type(WLX_Context *ctx, char *buf, size_t cap, size_t *len, const 
 // Insert / delete classes
 // ============================================================================
 
-TEST(edit_typing_inserts_at_caret_and_rebuilds) {
+TEST(edit_typing_inserts_at_caret_and_patches) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 100);
 
@@ -75,13 +75,17 @@ TEST(edit_typing_inserts_at_caret_and_rebuilds) {
     ASSERT_TRUE(st != NULL && idx != NULL);
     ASSERT_EQ_INT(1, (long)st->caret.cursor_pos);
     uint32_t rebuilds_before = idx->rebuilds;
+    uint32_t patches_before = idx->patches;
 
     ed_type(&ctx, buf, sizeof(buf), &len, "XY");
     ASSERT_EQ_INT(9, (long)len);
     ASSERT_TRUE(memcmp(buf, "aXYbc\ndef", 9) == 0);
     ASSERT_EQ_INT(0, buf[9]); // opportunistic trailing NUL
     ASSERT_EQ_INT(3, (long)st->caret.cursor_pos);
-    ASSERT_EQ_INT((long)(rebuilds_before + 1), (long)idx->rebuilds);
+    // A widget edit patches the index from its span; the full rescan is
+    // for the guard.
+    ASSERT_EQ_INT((long)rebuilds_before, (long)idx->rebuilds);
+    ASSERT_EQ_INT((long)(patches_before + 1), (long)idx->patches);
     ASSERT_EQ_INT(2, (long)idx->count);
     wlx_context_destroy(&ctx);
 }
@@ -101,12 +105,16 @@ TEST(edit_enter_inserts_newline_and_grows_index) {
     ASSERT_TRUE(st != NULL && idx != NULL);
     ASSERT_EQ_INT(2, (long)st->caret.cursor_pos);
     ASSERT_EQ_INT(1, (long)idx->count);
+    uint32_t rebuilds_before = idx->rebuilds;
+    uint32_t patches_before = idx->patches;
 
     ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_ENTER, 0);
     ASSERT_EQ_INT(5, (long)len);
     ASSERT_TRUE(memcmp(buf, "ab\ncd", 5) == 0);
     ASSERT_EQ_INT(3, (long)st->caret.cursor_pos);
     ASSERT_EQ_INT(2, (long)idx->count);
+    ASSERT_EQ_INT((long)rebuilds_before, (long)idx->rebuilds);
+    ASSERT_EQ_INT((long)(patches_before + 1), (long)idx->patches);
     wlx_context_destroy(&ctx);
 }
 
@@ -143,7 +151,7 @@ TEST(edit_backspace_delete_codepoint_and_word) {
     wlx_context_destroy(&ctx);
 }
 
-TEST(edit_same_length_replace_still_rebuilds_index) {
+TEST(edit_same_length_replace_still_patches_index) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 100);
 
@@ -158,13 +166,15 @@ TEST(edit_same_length_replace_still_rebuilds_index) {
     ASSERT_TRUE(st != NULL && idx != NULL);
 
     // Select "a", replace with "x": the length does not change, so only the
-    // explicit edit trigger can rebuild the index.
+    // explicit edit trigger can update the index, and it patches.
     ed_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_RIGHT, WLX_MOD_SHIFT);
     uint32_t rebuilds_before = idx->rebuilds;
+    uint32_t patches_before = idx->patches;
     ed_type(&ctx, buf, sizeof(buf), &len, "x");
     ASSERT_EQ_INT(5, (long)len);
     ASSERT_TRUE(memcmp(buf, "xb\ncd", 5) == 0);
-    ASSERT_EQ_INT((long)(rebuilds_before + 1), (long)idx->rebuilds);
+    ASSERT_EQ_INT((long)rebuilds_before, (long)idx->rebuilds);
+    ASSERT_EQ_INT((long)(patches_before + 1), (long)idx->patches);
     wlx_context_destroy(&ctx);
 }
 
@@ -358,14 +368,17 @@ TEST(edit_revision_guard_interplay_with_edits) {
     ASSERT_TRUE(idx != NULL);
     ASSERT_EQ_INT(1, (long)idx->rebuilds);
 
-    // Widget edit under a constant revision rebuilds via the edit trigger.
+    // Widget edit under a constant revision patches via the edit trigger;
+    // the rescan is not run.
     ed_frame_ex(&ctx, buf, sizeof(buf), &len, 1, 200, 50, false, false, WLX_KEY_NONE, 0, "x");
-    ASSERT_EQ_INT(2, (long)idx->rebuilds);
+    ASSERT_EQ_INT(1, (long)idx->rebuilds);
+    ASSERT_EQ_INT(1, (long)idx->patches);
 
-    // A later external mutation with a revision bump still rebuilds.
+    // A later external mutation with a revision bump rebuilds.
     buf[0] = '\n';
     ed_frame_ex(&ctx, buf, sizeof(buf), &len, 2, 0, 0, false, false, WLX_KEY_NONE, 0, NULL);
-    ASSERT_EQ_INT(3, (long)idx->rebuilds);
+    ASSERT_EQ_INT(2, (long)idx->rebuilds);
+    ASSERT_EQ_INT(1, (long)idx->patches);
     ASSERT_EQ_INT(3, (long)idx->count);
     wlx_context_destroy(&ctx);
 }
@@ -534,12 +547,146 @@ TEST(edit_cluster_keys_step_and_delete_whole) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Index patch equivalence: a widget edit's span patch yields exactly the
+// array a rebuild of the same bytes yields - over the pipeline corpora
+// with every span and six replacements, the named separator shapes the
+// patch's bounds were derived from, and a randomised separator-dense
+// alphabet with CR at both document ends
+// ============================================================================
+
+static size_t ed_apply_edit(char *buf, size_t len, size_t start, size_t old_end,
+                            const char *rep, size_t rep_len) {
+    memmove(buf + start + rep_len, buf + old_end, len - old_end);
+    memcpy(buf + start, rep, rep_len);
+    return len - (old_end - start) + rep_len;
+}
+
+static void ed_print_doc(const char *buf, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        if (buf[i] == '\n') printf("\\n");
+        else if (buf[i] == '\r') printf("\\r");
+        else putchar(buf[i]);
+    }
+}
+
+// Apply the edit, patch one index, rebuild the other; true when equal. A
+// mismatch prints the document, the span and both arrays.
+static bool ed_patch_matches_rebuild(WLX_Editor_Line_Index *patched, WLX_Editor_Line_Index *ref,
+                                     char *buf, size_t *len, size_t start, size_t old_end,
+                                     const char *rep, size_t rep_len) {
+    *len = ed_apply_edit(buf, *len, start, old_end, rep, rep_len);
+    size_t new_end = start + rep_len;
+    if (!wlx_editor_index_patch(patched, buf, *len, start, old_end, new_end)) {
+        printf("  patch refused: start=%zu old_end=%zu new_end=%zu len=%zu\n",
+            start, old_end, new_end, *len);
+        return false;
+    }
+    if (!wlx_editor_index_rebuild(ref, buf, *len)) return false;
+    bool equal = patched->count == ref->count;
+    for (size_t i = 0; equal && i < ref->count; i++) equal = patched->offsets[i] == ref->offsets[i];
+    if (equal) return true;
+    printf("  mismatch: start=%zu old_end=%zu new_end=%zu len=%zu\n  doc: ",
+        start, old_end, new_end, *len);
+    ed_print_doc(buf, *len);
+    printf("\n  patched:");
+    for (size_t i = 0; i < patched->count; i++) printf(" %zu", patched->offsets[i]);
+    printf("\n  rebuilt:");
+    for (size_t i = 0; i < ref->count; i++) printf(" %zu", ref->offsets[i]);
+    printf("\n");
+    return false;
+}
+
+static uint64_t ed_rng_state = 0x9E3779B97F4A7C15ULL;
+static uint64_t ed_rng(void) {
+    ed_rng_state ^= ed_rng_state << 13;
+    ed_rng_state ^= ed_rng_state >> 7;
+    ed_rng_state ^= ed_rng_state << 17;
+    return ed_rng_state;
+}
+
+TEST(editor_index_patch_equals_rebuild) {
+    static const char *reps[] = { "", "x", "\n", "\r", "\r\n", "x\r\ny\n" };
+    const size_t rep_count = sizeof(reps) / sizeof(reps[0]);
+    char buf[256];
+    WLX_Editor_Line_Index patched = {0}, ref = {0};
+    bool ok = true;
+
+    // Corpus half: every (start, old_end) pair of every pipeline corpus with
+    // every replacement, the index rebuilt fresh before each edit.
+    for (size_t c = 0; ok && c < EP_CORPUS_COUNT_; c++) {
+        size_t base_len = strlen(ep_corpora[c]);
+        for (size_t start = 0; ok && start <= base_len; start++) {
+            for (size_t old_end = start; ok && old_end <= base_len; old_end++) {
+                for (size_t r = 0; ok && r < rep_count; r++) {
+                    memcpy(buf, ep_corpora[c], base_len);
+                    size_t len = base_len;
+                    ok = wlx_editor_index_rebuild(&patched, buf, len)
+                        && ed_patch_matches_rebuild(&patched, &ref, buf, &len,
+                            start, old_end, reps[r], strlen(reps[r]));
+                }
+            }
+        }
+    }
+
+    // Named cases: the separator shapes the bounds were derived from.
+    static const struct { const char *doc; size_t start, old_end; const char *rep; } named[] = {
+        { "abc\ndef", 0, 0, "\n" },        // Enter at offset 0
+        { "abc\ndef", 2, 2, "x\r\ny\n" }, // a paste containing separators
+        { "ab\r\ncd", 1, 4, "" },          // delete across a CRLF pair
+        { "ab\r\ncd", 3, 3, "x" },         // split a CR from its LF
+        { "ab\rx\ncd", 3, 4, "" },         // re-join the pair by deleting the byte between
+        { "ab\ncd", 0, 5, "" },            // the document emptied
+        { "abc", 3, 3, "\n" },             // trailing separator added
+        { "abc\n", 3, 4, "" },             // trailing separator removed
+        { "abc\ndef", 7, 7, "x" },         // edit at the document end
+        { "abc\r", 4, 4, "\n" },           // lone CR at the end joined by an appended LF
+        { "\nabc", 0, 0, "x" },            // insert at offset 0 of a document starting with LF
+        { "a\r\nb", 2, 2, "\r" },          // a CR inserted between a CR and its LF
+        { "a\nb", 1, 1, "\r" },            // a CR inserted before an LF forms a pair
+        { "a\r\nb", 1, 2, "" },            // the CR of a pair deleted, the LF stays a separator
+        { "a\r\nb", 2, 3, "" },            // the LF of a pair deleted, the CR stays a separator
+    };
+    for (size_t i = 0; ok && i < sizeof(named) / sizeof(named[0]); i++) {
+        size_t len = strlen(named[i].doc);
+        memcpy(buf, named[i].doc, len);
+        ok = wlx_editor_index_rebuild(&patched, buf, len)
+            && ed_patch_matches_rebuild(&patched, &ref, buf, &len, named[i].start,
+                named[i].old_end, named[i].rep, strlen(named[i].rep));
+        if (!ok) printf("  named case %zu\n", i);
+    }
+
+    // Randomised half: fixed seed, an alphabet dense in separators, four
+    // sequential edits per document so a patch operates on a patched index.
+    static const char alphabet[] = "ab\n\r\r\n\nx\r";
+    const size_t alen = sizeof(alphabet) - 1;
+    ed_rng_state = 0x9E3779B97F4A7C15ULL;
+    for (size_t it = 0; ok && it < 50000; it++) {
+        size_t len = ed_rng() % 40;
+        for (size_t i = 0; i < len; i++) buf[i] = alphabet[ed_rng() % alen];
+        ok = wlx_editor_index_rebuild(&patched, buf, len);
+        for (int e = 0; ok && e < 4; e++) {
+            size_t start = ed_rng() % (len + 1);
+            size_t old_end = start + ed_rng() % (len - start + 1);
+            char rep[8];
+            size_t rep_len = ed_rng() % 7;
+            for (size_t i = 0; i < rep_len; i++) rep[i] = alphabet[ed_rng() % alen];
+            ok = ed_patch_matches_rebuild(&patched, &ref, buf, &len, start, old_end, rep, rep_len);
+            if (!ok) printf("  random document %zu edit %d\n", it, e);
+        }
+    }
+
+    wlx_free(patched.offsets);
+    wlx_free(ref.offsets);
+    ASSERT_TRUE(ok);
+}
+
 SUITE(editor_edit) {
     RUN_TEST(edit_cluster_keys_step_and_delete_whole);
-    RUN_TEST(edit_typing_inserts_at_caret_and_rebuilds);
+    RUN_TEST(edit_typing_inserts_at_caret_and_patches);
     RUN_TEST(edit_enter_inserts_newline_and_grows_index);
     RUN_TEST(edit_backspace_delete_codepoint_and_word);
-    RUN_TEST(edit_same_length_replace_still_rebuilds_index);
+    RUN_TEST(edit_same_length_replace_still_patches_index);
     RUN_TEST(edit_crlf_pairs_delete_bytewise_and_by_selection);
     RUN_TEST(edit_select_all_replace_whole_document);
     RUN_TEST(edit_paste_multiline_block);
@@ -547,6 +694,7 @@ SUITE(editor_edit) {
     RUN_TEST(edit_read_only_rejects_mutations_allows_copy);
     RUN_TEST(edit_full_buffer_rejects_and_truncates_on_utf8_boundary);
     RUN_TEST(edit_revision_guard_interplay_with_edits);
+    RUN_TEST(editor_index_patch_equals_rebuild);
     RUN_TEST(edit_tab_prefix_measure_hits_next_stop);
     RUN_TEST(edit_tab_key_inserts_and_segments_draw_at_stops);
 }
