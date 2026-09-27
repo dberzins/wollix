@@ -505,8 +505,15 @@ policy (approximated grapheme clusters: combining marks, ZWJ sequences,
 variation selectors and regional-indicator pairs join; malformed bytes
 are one-byte units), so a backend never re-implements it — it walks its
 own glyph or cluster geometry and reports the advance at (or snapped to
-the nearest cluster edge after) each requested byte end. Reported advances should be
-non-decreasing; the core clamps regardless. Requests are capped at
+the nearest cluster edge after) each requested byte end, **in logical
+byte order, laid out left to right**. Text geometry is logical-order
+(ADR_055): every consumer maps a byte offset to a non-decreasing x and
+back, so a backend fills advances in that order from the same shaped pass
+it draws with. Reported advances must be non-decreasing; the core clamps
+any other order (the run then measures as if its glyphs had zero advance)
+and, in `WLX_DEBUG` builds, reports the chunk once as `WLX_ERR_BACKEND`.
+An application must not set a right-to-left or vertical shaping direction
+on a font it hands to Wollix (see the SDL3 section). Requests are capped at
 `WLX_TEXT_ADVANCES_CHUNK` units (default 256, `#ifndef`-overridable);
 consecutive chunks of one line are spliced by adding the previous
 chunk's final advance, so shaping context does not carry across a chunk
@@ -1401,7 +1408,7 @@ typedef enum {
     WLX_ERR_NO_LAYOUT,        // widget placed with no layout open
     WLX_ERR_BAD_ARGUMENT,     // count 0 or negative, px <= 0, required NULL
     WLX_ERR_LIMIT,            // a documented limit exceeded (WLX_CONTENT_SLOTS_MAX ...)
-    WLX_ERR_BACKEND,          // backend table not ready at wlx_begin
+    WLX_ERR_BACKEND,          // backend table not ready at wlx_begin, or (WLX_DEBUG) a backend answer outside its contract
     WLX_ERR_COUNT
 } WLX_Error_Code;
 
@@ -1478,6 +1485,7 @@ sites the default prints one suppression line and stays silent.
 | A required pointer that is NULL (`buffer`, `value`, `active`, `selected`, `open`, `length`) | `WLX_ERR_BAD_ARGUMENT` | The widget returns `false` and draws nothing; a dropdown with `options == NULL` and a nonzero count shows no options |
 | More slots than `WLX_CONTENT_SLOTS_MAX` with CONTENT sizes | `WLX_ERR_LIMIT` | CONTENT tracking is off for that layout; its CONTENT slots take their minimum size |
 | No usable backend table at `wlx_begin` | `WLX_ERR_BACKEND` | Reported, then fatal (`WLX_HARD_ASSERT`): there is no frame without a table |
+| A `measure_text_advances` chunk whose advances decrease (`WLX_DEBUG` builds only) | `WLX_ERR_BACKEND` | Reported once per site; the chunk is clamped to non-decreasing (release builds clamp silently) |
 | A NULL input handler at `wlx_begin` | `WLX_ERR_BAD_ARGUMENT` | The frame runs with no input |
 
 ### Examples
@@ -3049,11 +3057,23 @@ explicit length in/out — non-wrapping by default, with an opt-in wrapped
 mode (`.wrap`) that breaks hard lines into band-wide rows (`size_t *length` is authoritative in both
 directions; the buffer need not be NUL-terminated, though the widget
 maintains a trailing NUL opportunistically when `*length < buffer_cap`).
+The contiguous caller-owned buffer is the permanent document contract
+(ADR_054): the library never owns, copies or re-materialises the document,
+and a library-managed document, if one is ever added, is a separate entry
+point rather than a change to this signature.
 Only the visible window of lines is measured, built, and drawn, so frame
 cost is O(viewport) at any document size; geometry rests on a context-owned
-per-widget line index (hard line start offsets) rebuilt by a single newline
-scan on the first frame, after every widget edit, and when the guard fires
-(`*length` change, `.revision` change, or a sampled hard-line-start probe).
+per-widget line index (hard line start offsets) built by a single newline
+scan on the first frame and whenever the guard fires (`*length` change,
+`.revision` change, or a sampled hard-line-start probe), and patched from
+the edit span after every widget edit: entries before the edit keep, the
+dirty bytes are re-derived, entries after it shift by the delta, and the
+result is identical to a rebuild (a test contract). A keystroke therefore
+costs the buffer memmove (O(bytes after the caret)) plus the index shift
+(O(lines after the caret)): on a 10 MB / 1,000,000-line document a
+keystroke at offset 0 measures about 3.5 ms on the reference machine
+(8 ms when it rescanned the document), mid-document edits proportionally
+less, and idle frames run no O(document) work.
 Bump `.revision` after mutating the buffer outside the widget.
 
 Editing and navigation follow the `wlx_inputbox` vocabulary (typing, Enter,
@@ -4273,6 +4293,16 @@ handle to widget options or theme fields:
 TTF_Font *font = TTF_OpenFont("myfont.ttf", 18.0f);
 ctx->theme_copy.font = wlx_font_from_sdl3(font);
 ```
+
+SDL_ttf shapes text (through HarfBuzz when it is linked) in the font's
+default, left-to-right direction. Do not call `TTF_SetFontDirection` with
+`TTF_DIRECTION_RTL`, `TTF_DIRECTION_TTB` or `TTF_DIRECTION_BTT` on a font
+handed to Wollix: the core's text geometry is logical-order and left to
+right (ADR_055), a right-to-left direction makes `measure_text_advances`
+report visual-order cluster edges, and the core clamps such a run to zero
+advance (reporting `WLX_ERR_BACKEND` in `WLX_DEBUG` builds). Right-to-left
+text renders in logical order, which for a Hebrew or Arabic run means
+mirrored.
 
 ### `WLX_SDL3_FONT_VARIANT_CAP`
 

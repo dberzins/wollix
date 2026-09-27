@@ -107,11 +107,18 @@ document as on its first frame.
   fractional line — never a document-height pixel float, so precision
   holds at any document height.
 
-The index is rebuilt by a single newline scan on any edit the widget
-applies (no incremental patching), and external buffer mutation between
-frames is caught by a cheap guard (length change or boundary-byte probe)
-plus the explicit `.revision` opt as the escape hatch. Idle frames pay no
-scan: no O(document) work of any kind happens on a frame without an edit.
+The index is built by a single newline scan on the first frame and
+rebuilt by one when external buffer mutation between frames is caught by
+the cheap guard (length change or boundary-byte probe) or by the explicit
+`.revision` opt as the escape hatch. A widget-applied edit patches it from
+the edit span instead: entries before the edit keep, the dirty bytes
+`[start - 1, new_end + 1)` are re-derived with the rebuild's own scan and
+separator grammar (a separator's kind depends on at most the byte after
+it, which is what the one-byte margins cover), and entries after the edit
+shift by the delta; the patched array is identical to a rebuild, a
+standing test contract. Idle frames pay no scan: no O(document) work of
+any kind happens on a frame without an edit, and an edit pays the buffer
+memmove plus an index shift of one offset per line after it.
 The undo journal (shared with the inputbox through the same key handler)
 rides the same guard: a rebuild the widget's own edit did not cause drops
 the history with the geometry, and an undo or redo is an ordinary edit to
@@ -137,7 +144,9 @@ Windowing bounds how much text a frame measures; retention makes the
 next frame stop measuring it again. Next to the line index, the same
 per-id cache holds a **retained geometry store**: one entry per hard
 line the window has touched, holding the line's cumulative unit-advance
-array ([LINE_RUN_MODEL.md §5](LINE_RUN_MODEL.md#5-the-line-build-pipeline)),
+array in logical byte order ([LINE_RUN_MODEL.md §5](LINE_RUN_MODEL.md#5-the-line-build-pipeline);
+text geometry is logical-order and left to right,
+[LINE_RUN_MODEL.md §16](LINE_RUN_MODEL.md#16-guarantees-and-limitations)),
 its fit results, and — under `.wrap` — its row
 table. Window builds, caret x, hit tests, selection spans, and wrapped
 row walks replay these floats instead of re-asking the backend; a miss
@@ -471,8 +480,9 @@ documented in
   are asserted bounds in `make perf-editor`, not tendencies.
 - **The editor is O(viewport).** Window build, caret follow, and
   scrollbars are independent of document size, scroll depth, and caret
-  offset; only edits pay a document-length byte scan (index rebuild +
-  memmove, the same order as the edit itself).
+  offset; an edit pays the buffer memmove (O(bytes after the caret)) plus
+  the index shift (O(lines after the caret)), and only the first frame
+  and a guard-detected external change pay a document-length scan.
 
 The authoritative instrument is `make perf-editor`: it counts backend
 measure calls and bytes per frame class (cold, idle, vertical scroll,

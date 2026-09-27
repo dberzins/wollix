@@ -264,7 +264,10 @@ deletes and hit tests step by grapheme cluster under a four-rule
 approximation (combining marks, ZWJ sequences, variation selectors and
 regional-indicator pairs). Wollix does not provide Hangul jamo composition,
 the segmentation of Indic and other scripts that need full UAX #29 or
-shaping, or bidirectional text.
+shaping, or bidirectional text (text renders in logical order, left to
+right: a right-to-left run appears mirrored on the native backends, and on
+the web host the canvas reorders the drawn run while caret geometry stays
+logical).
 
 **Text entry** targets ASCII and European keyboard layouts: there is no
 input-method (IME) or composition support, so no inline preedit is drawn,

@@ -124,6 +124,14 @@ release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
   `wlx_grid_begin_auto_tile` macros pass `__FILE__, __LINE__`; macro callers
   are unaffected. Migration: struct-form (C++) callers of those three
   entries append `__FILE__, __LINE__`.
+- **The `wlx_editor` document contract is frozen.** The document is the
+  caller's contiguous byte buffer with an explicit length, permanently: the
+  library never owns, copies or re-materialises it, and byte offsets into
+  it are the shared coordinate system of the line index, the retained
+  geometry, the undo journal and the edit span. Library-managed storage (a
+  gap buffer, rope or piece table), if ever added, is a separate entry
+  point over a document interface, never a change to this signature.
+  Migration: none; nothing changes for callers.
 
 #### Migrating from 0.8
 
@@ -159,6 +167,11 @@ your own pace before the next minor.
    `wlx_grid_begin_auto_tile_impl` calls; macro callers change nothing.
 
 ### Added
+- **`WLX_DEBUG` report for decreasing advances.** A `measure_text_advances`
+  chunk whose advances decrease (a font shaped right to left, or a lost
+  splice) reports `WLX_ERR_BACKEND` once per site through the error
+  handler before the clamp flattens it; release builds clamp silently as
+  before.
 - **Coordinate units and content scale.** One Wollix unit is a logical
   pixel; the backend maps it to device pixels by its content scale (2.0 on
   a 2x display, 1.5 at a 150% setting). `WLX_Backend.get_content_scale`
@@ -383,6 +396,33 @@ your own pace before the next minor.
   edge. Two tests in `tests/test_tab_traversal.c`.
 
 ### Changed
+- **A widget keystroke patches the editor's line index from its edit span.**
+  The index of hard line starts is no longer rescanned over the whole
+  document after every widget edit: entries before the edit keep, the
+  dirty bytes are re-derived with the rebuild's own separator grammar, and
+  entries after the edit shift by the delta, exactly equal to a rebuild (a
+  test contract over the LF, CRLF and mixed corpora, fifteen named
+  separator shapes and 50,000 randomised documents). The first frame and a
+  guard-detected external change (`.revision`, an unexplained length
+  change, a failed hard-line-start probe) still rebuild. On the 10 MB /
+  1,000,000-line acceptance document a keystroke at offset 0 drops from
+  8.0 ms to 3.5 ms on the reference machine (the 6.8 ms rescan replaced by
+  a 1.6 ms shift of the offsets after the edit, beside the 1.6 ms buffer
+  memmove); `make perf-editor` now prices its edit floor as memmove plus
+  index shift and asserts that typing frames never rebuild.
+- **Text geometry is logical-order, left to right, by contract.** Every
+  consumer of a line's advances (fit, caret, hit test, selection, colour
+  spans, wrapped rows, the windowed origin) maps a byte offset to a
+  non-decreasing x and back; `measure_text_advances` fills advances in
+  logical byte order from the shaped pass the backend draws with, and the
+  core clamps any other order. Right-to-left runs render in logical order
+  (mirrored on the native adapters; the web host's canvas reorders the
+  drawn run while caret geometry stays logical). An application must not
+  set a right-to-left shaping direction on a font it hands to Wollix
+  (SDL3: no `TTF_SetFontDirection` other than left to right). A future
+  visual-run layer keeps the same per-run primitive and carries a
+  direction as an additive `WLX_Text_Style` field, so the frozen backend
+  contract does not change for it.
 - **Slot boundaries snap to the device-pixel grid.** The layout's
   integer snap of slot boundaries now snaps to multiples of one device
   pixel in units (`floorf(v * scale + 0.5f) / scale`). At content scale

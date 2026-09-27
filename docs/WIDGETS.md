@@ -1298,7 +1298,9 @@ windowed origin, wrapped rows) is documented in
 [EDITOR_MODEL.md](EDITOR_MODEL.md); this section covers the widget API.
 
 Windowed text editor over a **caller-owned flat buffer** with an explicit
-length in/out. Only the visible window of lines is measured, built, and
+length in/out; the contiguous buffer is the permanent document contract,
+and a library-managed document, if ever added, would be a separate entry
+point, never a change to this signature. Only the visible window of lines is measured, built, and
 drawn each frame, so frame cost is O(viewport) regardless of the document
 size — the acceptance envelope is a 10 MB / 1,000,000-line document with no
 O(document) work on idle frames. Non-wrapping by default (one visual line
@@ -1498,10 +1500,13 @@ position — clicking there places the caret at the next row's start.
 
 ### Performance envelope and per-line cap
 
-- Idle frames run no O(document) work; the only O(document) step is the
-  line-index newline scan on the first frame and after each edit (measured
-  at ~9 ms for a 10 MB / 1M-line document, single-digit ms per keystroke,
-  flat O(viewport) frame cost otherwise).
+- Idle frames run no O(document) work. The line index is built by one
+  newline scan on the first frame and whenever the external-mutation guard
+  fires (about 7 ms for a 10 MB / 1M-line document); a widget keystroke
+  patches it from the edit span instead, shifting the offsets after the
+  edit beside the buffer memmove (about 3.5 ms for a keystroke at the top
+  of that document, nothing extra at its end; 8 ms when it rescanned).
+  Frame cost is flat O(viewport) otherwise.
 - Line geometry is **retained across frames** in a bounded per-widget
   store: steady frames (idle, held scroll, parked caret) re-measure
   nothing, typing re-measures only the edited line, scrolling only the

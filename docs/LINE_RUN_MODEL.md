@@ -582,7 +582,10 @@ One call fills the cumulative advance width of the run prefixes ending
 at each core-supplied `unit_ends[i]` (Section 5). The core owns the
 unit policy and the tab splitting; the backend walks its own
 glyph/cluster geometry and reports the advance at (or snapped to the
-cluster edge after) each requested byte end. `NULL` keeps the per-unit
+cluster edge after) each requested byte end, in logical byte order laid
+out left to right (the geometry model of Section 16); an answer in any
+other order is clamped, and in `WLX_DEBUG` builds reported once as
+`WLX_ERR_BACKEND`. `NULL` keeps the per-unit
 prefix fallback — external backends work unmodified. See
 `docs/API_REFERENCE.md` for the full contract. An application that
 reshapes text styles (e.g. a font-size scale) does so through
@@ -711,9 +714,20 @@ Not attempted (deliberately, until evidence demands more):
   base followed by an emoji joins where UAX #29 would break. The full
   `Grapheme_Extend` table and the remaining rules are additions behind
   the one predicate when evidence asks for them.
-- **Complex-script shaping and bidi.** Runs are passed to the backend
-  as-is, left to right. Contextual shaping across a break point is not
-  reconsidered, and right-to-left text is not reordered.
+- **Complex-script shaping and bidi.** Decided, not merely unattempted
+  (ADR_055): text geometry is logical-order and left to right. Runs are
+  passed to the backend as-is; every consumer maps a byte offset to a
+  non-decreasing x and back, and the batched advances fetch clamps a
+  backend answer in any other order (a font shaped right to left). A
+  right-to-left run therefore renders in logical order on the native
+  adapters (mirrored, for Hebrew or Arabic), while the web host's canvas
+  reorders the drawn run by its own bidi algorithm and the caret geometry
+  stays logical, so caret and drawing can disagree there. Contextual
+  shaping across a break point is not reconsidered. The recorded path is
+  a visual-run layer: per-line UAX #9 runs above the same per-run
+  primitive, with a direction hint as an additive `WLX_Text_Style` field.
+  An application must not set a right-to-left shaping direction on a font
+  it hands to Wollix.
 - **Break opportunities beyond whitespace.** Word wrap breaks after
   spaces and tabs only: no ideographic break-anywhere class (a CJK run
   on a row that holds an earlier space moves whole to the next row; a
@@ -723,9 +737,10 @@ Not attempted (deliberately, until evidence demands more):
 - **Per-span styling.** A build has one `WLX_Text_Style`; there is no
   rich-text run model.
 
-These boundaries come from ADR_008 (first-pass scope), ADR_034 (editor
-scope) and ADR_047 (word-wrap scope); richer typography is future ADR
-territory.
+These boundaries come from ADR_008 (first-pass scope), ADR_034 and
+ADR_054 (editor scope and the document storage contract), ADR_047
+(word-wrap scope) and ADR_055 (logical-order geometry); richer typography
+is future ADR territory.
 
 ---
 
