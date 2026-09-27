@@ -169,9 +169,12 @@ your own pace before the next minor.
 ### Added
 - **`WLX_DEBUG` report for decreasing advances.** A `measure_text_advances`
   chunk whose advances decrease (a font shaped right to left, or a lost
-  splice) reports `WLX_ERR_BACKEND` once per site through the error
-  handler before the clamp flattens it; release builds clamp silently as
-  before.
+  splice) reports the new `WLX_ERR_BACKEND_ANSWER` once per site through
+  the error handler before the clamp flattens it (every unit edge inside
+  the chunk onto the first value below it); negative `spacing` is exempt,
+  since an additive backend's prefix widths may legitimately dip there,
+  and release builds clamp silently as before. `WLX_ERR_BACKEND` keeps
+  its fatal meaning (no usable table at `wlx_begin`).
 - **Coordinate units and content scale.** One Wollix unit is a logical
   pixel; the backend maps it to device pixels by its content scale (2.0 on
   a 2x display, 1.5 at a 150% setting). `WLX_Backend.get_content_scale`

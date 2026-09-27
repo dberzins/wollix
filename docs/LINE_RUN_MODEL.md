@@ -585,7 +585,7 @@ glyph/cluster geometry and reports the advance at (or snapped to the
 cluster edge after) each requested byte end, in logical byte order laid
 out left to right (the geometry model of Section 16); an answer in any
 other order is clamped, and in `WLX_DEBUG` builds reported once as
-`WLX_ERR_BACKEND`. `NULL` keeps the per-unit
+`WLX_ERR_BACKEND_ANSWER`. `NULL` keeps the per-unit
 prefix fallback — external backends work unmodified. See
 `docs/API_REFERENCE.md` for the full contract. An application that
 reshapes text styles (e.g. a font-size scale) does so through

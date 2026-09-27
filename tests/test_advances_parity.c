@@ -610,7 +610,7 @@ static int ap_err_other_code;
 static void ap_err_capture(const WLX_Error *e, void *user) {
     (void)user;
     ap_err_count++;
-    if (e->code != WLX_ERR_BACKEND) ap_err_other_code++;
+    if (e->code != WLX_ERR_BACKEND_ANSWER) ap_err_other_code++;
 }
 
 // The mock's advances reversed within the chunk: the shape a run shaped
@@ -642,7 +642,7 @@ TEST(advances_decreasing_backend_is_clamped_and_reported) {
     size_t len = 6;
     ap_frame(&ctx, buf, sizeof(buf), &len, false, 0, 0, false, 0.0f, 0, NULL, NULL);
 
-    // Reported as a backend contract violation, and nothing else.
+    // Reported as a backend answer outside its contract, and nothing else.
     ASSERT_TRUE(ap_err_count >= 1);
     ASSERT_EQ_INT(0, (long)ap_err_other_code);
 

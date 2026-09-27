@@ -510,8 +510,11 @@ byte order, laid out left to right**. Text geometry is logical-order
 (ADR_055): every consumer maps a byte offset to a non-decreasing x and
 back, so a backend fills advances in that order from the same shaped pass
 it draws with. Reported advances must be non-decreasing; the core clamps
-any other order (the run then measures as if its glyphs had zero advance)
-and, in `WLX_DEBUG` builds, reports the chunk once as `WLX_ERR_BACKEND`.
+any other order (every unit edge inside the chunk collapses onto the
+first value below it, so the run keeps one width and every caret offset
+inside it lands on the same x) and, in `WLX_DEBUG` builds, reports the
+chunk once as `WLX_ERR_BACKEND_ANSWER`, except under negative `spacing`,
+where an additive backend's prefix widths may legitimately dip.
 An application must not set a right-to-left or vertical shaping direction
 on a font it hands to Wollix (see the SDL3 section). Requests are capped at
 `WLX_TEXT_ADVANCES_CHUNK` units (default 256, `#ifndef`-overridable);
@@ -1408,7 +1411,8 @@ typedef enum {
     WLX_ERR_NO_LAYOUT,        // widget placed with no layout open
     WLX_ERR_BAD_ARGUMENT,     // count 0 or negative, px <= 0, required NULL
     WLX_ERR_LIMIT,            // a documented limit exceeded (WLX_CONTENT_SLOTS_MAX ...)
-    WLX_ERR_BACKEND,          // backend table not ready at wlx_begin, or (WLX_DEBUG) a backend answer outside its contract
+    WLX_ERR_BACKEND,          // backend table not ready at wlx_begin
+    WLX_ERR_BACKEND_ANSWER,   // (WLX_DEBUG) a backend callback answered outside its contract; the call degrades
     WLX_ERR_COUNT
 } WLX_Error_Code;
 
@@ -1485,7 +1489,7 @@ sites the default prints one suppression line and stays silent.
 | A required pointer that is NULL (`buffer`, `value`, `active`, `selected`, `open`, `length`) | `WLX_ERR_BAD_ARGUMENT` | The widget returns `false` and draws nothing; a dropdown with `options == NULL` and a nonzero count shows no options |
 | More slots than `WLX_CONTENT_SLOTS_MAX` with CONTENT sizes | `WLX_ERR_LIMIT` | CONTENT tracking is off for that layout; its CONTENT slots take their minimum size |
 | No usable backend table at `wlx_begin` | `WLX_ERR_BACKEND` | Reported, then fatal (`WLX_HARD_ASSERT`): there is no frame without a table |
-| A `measure_text_advances` chunk whose advances decrease (`WLX_DEBUG` builds only) | `WLX_ERR_BACKEND` | Reported once per site; the chunk is clamped to non-decreasing (release builds clamp silently) |
+| A `measure_text_advances` chunk whose advances decrease (`WLX_DEBUG` builds only; negative `spacing` exempt) | `WLX_ERR_BACKEND_ANSWER` | Reported once per site; the chunk is clamped to non-decreasing (every unit edge inside it collapses onto the first value below it), and release builds clamp silently |
 | A NULL input handler at `wlx_begin` | `WLX_ERR_BAD_ARGUMENT` | The frame runs with no input |
 
 ### Examples
@@ -4299,8 +4303,10 @@ default, left-to-right direction. Do not call `TTF_SetFontDirection` with
 `TTF_DIRECTION_RTL`, `TTF_DIRECTION_TTB` or `TTF_DIRECTION_BTT` on a font
 handed to Wollix: the core's text geometry is logical-order and left to
 right (ADR_055), a right-to-left direction makes `measure_text_advances`
-report visual-order cluster edges, and the core clamps such a run to zero
-advance (reporting `WLX_ERR_BACKEND` in `WLX_DEBUG` builds). Right-to-left
+report visual-order cluster edges, and the core clamps such a run: every
+unit edge inside it collapses onto the first reported value, so the run
+keeps one width and every caret offset inside it lands on the same x
+(reported as `WLX_ERR_BACKEND_ANSWER` in `WLX_DEBUG` builds). Right-to-left
 text renders in logical order, which for a Hebrew or Arabic run means
 mirrored.
 

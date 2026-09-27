@@ -547,6 +547,36 @@ TEST(edit_cluster_keys_step_and_delete_whole) {
     wlx_context_destroy(&ctx);
 }
 
+TEST(edit_same_frame_in_place_mutation_rebuilds_not_patches) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+
+    char buf[64];
+    memcpy(buf, "abc\ndef\nghi", 12);
+    size_t len = 11;
+    ed_frame(&ctx, buf, sizeof(buf), &len);
+    ed_click(&ctx, buf, sizeof(buf), &len, 200, 9); // focus, caret at the end of line 0
+
+    WLX_Editor_Line_Index *idx = ev_index(&ctx);
+    ASSERT_TRUE(idx != NULL);
+    ASSERT_EQ_INT(3, (long)idx->count);
+    uint32_t rebuilds_before = idx->rebuilds;
+    uint32_t patches_before = idx->patches;
+
+    // The application overwrites a separator in place between frames: same
+    // length, no revision bump. The sampled probe sees it before the keys
+    // run, so the widget edit on this frame takes the full rescan instead
+    // of patching an index that is already wrong.
+    buf[3] = 'x';
+    ed_type(&ctx, buf, sizeof(buf), &len, "z");
+    ASSERT_EQ_INT(12, (long)len);
+    ASSERT_EQ_INT((long)(rebuilds_before + 1), (long)idx->rebuilds);
+    ASSERT_EQ_INT((long)patches_before, (long)idx->patches);
+    ASSERT_EQ_INT(2, (long)idx->count);
+    ASSERT_EQ_INT(9, (long)idx->offsets[1]);   // "abczxdef\nghi": one separator left
+    wlx_context_destroy(&ctx);
+}
+
 // ============================================================================
 // Index patch equivalence: a widget edit's span patch yields exactly the
 // array a rebuild of the same bytes yields - over the pipeline corpora
@@ -694,6 +724,7 @@ SUITE(editor_edit) {
     RUN_TEST(edit_read_only_rejects_mutations_allows_copy);
     RUN_TEST(edit_full_buffer_rejects_and_truncates_on_utf8_boundary);
     RUN_TEST(edit_revision_guard_interplay_with_edits);
+    RUN_TEST(edit_same_frame_in_place_mutation_rebuilds_not_patches);
     RUN_TEST(editor_index_patch_equals_rebuild);
     RUN_TEST(edit_tab_prefix_measure_hits_next_stop);
     RUN_TEST(edit_tab_key_inserts_and_segments_draw_at_stops);

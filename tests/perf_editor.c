@@ -62,7 +62,7 @@ static double now_ms(void) {
 static double edit_floor_ms(char *buf, size_t cap, size_t len, size_t lines, int reps) {
     if (lines == 0) lines = 1;
     size_t *offs = (size_t *)malloc(lines * sizeof(size_t));
-    if (offs == NULL) return 0.0;
+    if (offs == NULL) return -1.0;   // not measurable: the caller skips the relative gate
     for (size_t i = 0; i < lines; i++) offs[i] = i * 11;
     double memmove_ms = 0.0, shift_ms = 0.0;
     for (int r = 0; r < reps; r++) {
@@ -680,9 +680,11 @@ int main(void) {
     }
     // Typing frames patch the index from the edit span: the rebuild count
     // must not move across the edit loop in any case, and every case with
-    // room to type must have patched at least one frame per rep. The mega
-    // line fills its buffer to the headroom, so only its first keystrokes
-    // apply; it is held to the rebuild rule alone.
+    // room to type must have patched every typed frame (three reps of
+    // frames / 3; a rejected keystroke is faster, not slower, so the timing
+    // gate cannot see one). The mega line fills its buffer to the headroom,
+    // so only its first keystrokes apply; it is held to the rebuild rule
+    // alone.
     {
         const Perf_Result *typed[] = { &rs, &rl, &ws, &wl, &wm, &hs };
         for (size_t i = 0; i < sizeof(typed) / sizeof(typed[0]); i++) {
@@ -690,7 +692,7 @@ int main(void) {
                 fprintf(stderr, "FAIL: a typing frame rebuilt the line index (case %zu)\n", i);
                 failures++;
             }
-            if (typed[i] != &wm && typed[i]->patches_after_edits < (uint32_t)(frames / 3)) {
+            if (typed[i] != &wm && typed[i]->patches_after_edits < (uint32_t)(3 * (frames / 3))) {
                 fprintf(stderr, "FAIL: typing frames did not patch the line index (case %zu)\n", i);
                 failures++;
             }
@@ -728,14 +730,19 @@ int main(void) {
     // newline rescan alone adds about two floors. A loose absolute backstop
     // catches a floor measurement gone wrong.
     double floor_ms = edit_floor_ms(large, large_cap, large_len, large_lines + 1, 4);
-    double edit_bound_ms = floor_ms * 2.5 + 1.0;
-    printf("edit floor (memmove + index shift): %.4fms, bound %.4fms\n",
-        floor_ms, edit_bound_ms);
-    if (rl.edit_avg_ms > edit_bound_ms || wl.edit_avg_ms > edit_bound_ms) {
-        fprintf(stderr,
-            "FAIL: edit frame (%.4f / %.4fms) exceeds 2.5x the raw byte-work floor\n",
-            rl.edit_avg_ms, wl.edit_avg_ms);
-        failures++;
+    if (floor_ms < 0.0) {
+        printf("edit floor (memmove + index shift): not measurable (allocation failed); "
+               "relative gate skipped, absolute backstop only\n");
+    } else {
+        double edit_bound_ms = floor_ms * 2.5 + 1.0;
+        printf("edit floor (memmove + index shift): %.4fms, bound %.4fms\n",
+            floor_ms, edit_bound_ms);
+        if (rl.edit_avg_ms > edit_bound_ms || wl.edit_avg_ms > edit_bound_ms) {
+            fprintf(stderr,
+                "FAIL: edit frame (%.4f / %.4fms) exceeds 2.5x the raw byte-work floor\n",
+                rl.edit_avg_ms, wl.edit_avg_ms);
+            failures++;
+        }
     }
     if (rl.edit_avg_ms > 50.0 || wl.edit_avg_ms > 50.0) {
         fprintf(stderr, "FAIL: edit frame exceeds the 50ms absolute backstop\n");

@@ -2088,7 +2088,8 @@ typedef enum {
     WLX_ERR_NO_LAYOUT,        // widget placed with no layout open
     WLX_ERR_BAD_ARGUMENT,     // count 0 or negative, px <= 0, required NULL
     WLX_ERR_LIMIT,            // a documented limit exceeded (WLX_CONTENT_SLOTS_MAX ...)
-    WLX_ERR_BACKEND,          // backend table not ready at wlx_begin, or (WLX_DEBUG) a backend answer outside its contract
+    WLX_ERR_BACKEND,          // backend table not ready at wlx_begin
+    WLX_ERR_BACKEND_ANSWER,   // (WLX_DEBUG) a backend callback answered outside its contract; the call degrades
     WLX_ERR_COUNT
 } WLX_Error_Code;
 
@@ -10353,8 +10354,13 @@ static inline WLX_Text_Fit wlx_text_wrap_fit_step(WLX_Text_Wrap_Break *b, bool w
 //      is logical-order and left to right (every consumer maps a byte
 //      offset to a non-decreasing x and back), so a backend answer in any
 //      other order - a font shaped right to left reports visual-order
-//      cluster edges - is clamped rather than consumed; under WLX_DEBUG a
-//      decreasing chunk is reported once as WLX_ERR_BACKEND.
+//      cluster edges - is clamped rather than consumed: every unit edge
+//      inside the chunk collapses onto the first value below it, so the
+//      run keeps one width and every caret offset inside it lands on the
+//      same x. Under WLX_DEBUG a decreasing chunk is reported once as
+//      WLX_ERR_BACKEND_ANSWER, except under negative tracking, where an
+//      additive backend's prefix widths may legitimately dip on a unit
+//      narrower than the spacing.
 static size_t wlx_text_measure_advances_batch(const WLX_Text_Measure_Args *args,
     size_t pos, float base_x, size_t max_units, size_t *out_ends, float *out_adv,
     size_t *io_first_tab)
@@ -10410,13 +10416,17 @@ static size_t wlx_text_measure_advances_batch(const WLX_Text_Measure_Args *args,
     // A backend fills advances in logical byte order, left to right, from
     // the shaped pass it draws with; a decreasing chunk (a font shaped right
     // to left, or a lost splice) is a contract violation the clamp below
-    // degrades. The default sink reports it once per site.
-    for (size_t k = 0; k < n; k++) {
-        float before = k == 0 ? base_x : out_adv[k - 1];
-        if (!WLX_CONTRACT(ctx, out_adv[k] >= before, WLX_ERR_BACKEND,
-                "measure_text_advances: the backend returned decreasing advances for a run; "
-                "text geometry is logical-order, left to right, and the run is clamped")) {
-            break;
+    // degrades. The default sink reports it once per site. Negative
+    // tracking is exempt: an additive backend's prefix width legitimately
+    // dips on a unit narrower than the spacing, and the clamp covers it.
+    if (style.spacing >= 0) {
+        for (size_t k = 0; k < n; k++) {
+            float before = k == 0 ? base_x : out_adv[k - 1];
+            if (!WLX_CONTRACT(ctx, out_adv[k] >= before, WLX_ERR_BACKEND_ANSWER,
+                    "measure_text_advances: the backend returned decreasing advances for a run; "
+                    "text geometry is logical-order, left to right, and the run is clamped")) {
+                break;
+            }
         }
     }
 #endif

@@ -412,14 +412,32 @@ static bool wlx_editor_index_rebuild(WLX_Editor_Line_Index *idx, const char *tex
 
         size_t sep_end = 0;
         wlx_text_newline_at(text, length, (size_t)(sep - text), &sep_end);
-        if (idx->count < idx->cap) {
-            idx->offsets[idx->count++] = sep_end;
-        } else if (!wlx_editor_index_push(idx, sep_end)) {
-            return false;
-        }
+        if (!wlx_editor_index_push(idx, sep_end)) return false;
         p = text + sep_end;
     }
     return true;
+}
+
+// Separator ends of the new text in [lo, hi), each below limit, written to
+// out when out is non-NULL; returns how many. The one walk the patch runs
+// twice (count, then place), on the rebuild's scan and grammar.
+static size_t wlx_editor_index_scan(const char *text, size_t length, size_t lo, size_t hi,
+    size_t limit, size_t *out)
+{
+    size_t n = 0;
+    const char *p = text + lo;
+    const char *end = text + hi;
+    while (p < end) {
+        const char *sep = wlx_editor_scan_newline(p, end);
+        if (sep == NULL) break;
+        size_t sep_end = 0;
+        wlx_text_newline_at(text, length, (size_t)(sep - text), &sep_end);
+        if (sep_end >= limit) break;
+        if (out != NULL) out[n] = sep_end;
+        n++;
+        p = text + sep_end;
+    }
+    return n;
 }
 
 // Patch the index for one widget-applied edit: the pre-edit bytes
@@ -468,39 +486,26 @@ static bool wlx_editor_index_patch(WLX_Editor_Line_Index *idx, const char *text,
     size_t after = idx->count - first_after;
     size_t limit = after > 0 ? idx->offsets[first_after] - old_end + new_end : SIZE_MAX;
 
-    // Re-derive the dirty bytes of the new text: count, make room, place.
+    // Re-derive the dirty bytes of the new text: count, make room, move
+    // and shift the tail in one pass, place.
     size_t scan_lo = start > 0 ? start - 1 : 0;
     size_t scan_hi = new_end + 1 < length ? new_end + 1 : length;
-    size_t m = 0;
-    for (int pass = 0; pass < 2; pass++) {
-        if (pass == 1) {
-            if (!wlx_editor_index_reserve(idx, keep + m + after)) return false;
-            if (after > 0 && first_after != keep + m) {
-                memmove(&idx->offsets[keep + m], &idx->offsets[first_after],
-                    after * sizeof(size_t));
-            }
-            if (new_end != old_end) {
-                for (size_t i = 0; i < after; i++) {
-                    idx->offsets[keep + m + i] = idx->offsets[keep + m + i] - old_end + new_end;
-                }
-            }
-        }
-        size_t n = 0;
-        const char *p = text + scan_lo;
-        const char *end = text + scan_hi;
-        while (p < end) {
-            const char *sep = wlx_editor_scan_newline(p, end);
-            if (sep == NULL) break;
-            size_t sep_end = 0;
-            wlx_text_newline_at(text, length, (size_t)(sep - text), &sep_end);
-            if (sep_end >= limit) break;
-            if (pass == 1) idx->offsets[keep + n] = sep_end;
-            n++;
-            p = text + sep_end;
-        }
-        m = n;
+    size_t m = wlx_editor_index_scan(text, length, scan_lo, scan_hi, limit, NULL);
+    if (!wlx_editor_index_reserve(idx, keep + m + after)) return false;
+    size_t dst = keep + m;
+    if (dst < first_after) {
+        for (size_t i = 0; i < after; i++)
+            idx->offsets[dst + i] = idx->offsets[first_after + i] - old_end + new_end;
+    } else if (dst > first_after) {
+        for (size_t i = after; i > 0; i--)
+            idx->offsets[dst + i - 1] = idx->offsets[first_after + i - 1] - old_end + new_end;
+    } else if (new_end != old_end) {
+        for (size_t i = 0; i < after; i++)
+            idx->offsets[dst + i] = idx->offsets[dst + i] - old_end + new_end;
     }
+    (void)wlx_editor_index_scan(text, length, scan_lo, scan_hi, limit, idx->offsets + keep);
     idx->count = keep + m + after;
+    idx->patches++;
     return true;
 }
 
@@ -2246,6 +2251,15 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
     bool kb_caret_changed = false;
     WLX_Text_Edit_Span edit_span = {0};
     size_t pre_edit_len = *length;
+    // The line index, fetched before the keys run so the sampled
+    // hard-line-start probe can read the pre-edit bytes: an in-place
+    // external mutation the length guard cannot see (a separator
+    // overwritten without a revision bump) must send this frame to the
+    // full rescan even when the widget also edits, since a patch assumes
+    // the index it starts from is exact.
+    WLX_Editor_Line_Index *idx = wlx_editor_index_get(ctx, persistent.id);
+    bool pre_probe_ok = idx != NULL && state->index_seen
+        && wlx_editor_index_probe_ok(idx, buffer, *length);
     if (inter.focused) {
         size_t pre_cursor = state->caret.cursor_pos;
         size_t pre_anchor = state->caret.selection_anchor;
@@ -2287,9 +2301,8 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
         float border_inset = opt.border_width > 0 ? opt.border_width + 1.0f : 0.0f;
 
         // Line index: rebuilt on first sight and whenever the guard detects a
-        // document change; untouched on idle frames so no O(document) work
-        // runs outside edits.
-        WLX_Editor_Line_Index *idx = wlx_editor_index_get(ctx, persistent.id);
+        // document change, patched from the span of a widget edit; untouched
+        // on idle frames so no O(document) work runs outside edits.
         WLX_Text_Geom_Store *geom = idx != NULL ? &idx->geom : NULL;
         bool doc_rebuilt = false;
         if (idx != NULL) {
@@ -2298,7 +2311,7 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
             // span then shifts entry keys precisely. Any other signal
             // (first sight, external length/revision change, probe fail)
             // clears the store outright.
-            bool edit_only = changed && edit_span.edited && state->index_seen
+            bool edit_only = changed && edit_span.edited && pre_probe_ok
                 && state->guard_length == pre_edit_len
                 && state->guard_revision == opt.revision
                 && pre_edit_len - (edit_span.old_end - edit_span.start)
@@ -2315,7 +2328,6 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
                 if (edit_only) {
                     indexed = wlx_editor_index_patch(idx, doc, doc_len,
                         edit_span.start, edit_span.old_end, edit_span.new_end);
-                    if (indexed) idx->patches++;
                 }
                 if (!indexed) indexed = wlx_editor_index_rebuild(idx, doc, doc_len);
             }
