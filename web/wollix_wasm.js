@@ -221,6 +221,27 @@ function probeCtxFilterSupported() {
     }
     const ctx = canvas.getContext("2d");
 
+    // The text proxy: a hidden, focusable textarea the host focuses while an
+    // editable text widget holds focus (set_text_input_area below). A canvas
+    // never receives composition events and never engages the browser's
+    // input method, so every character - plain, dead-key composed, IME
+    // committed - is read from this element's events while it has focus, and
+    // the keydown collector stands down. It is a funnel, never a store: its
+    // value is cleared every frame outside a composition.
+    const proxy = document.createElement("textarea");
+    proxy.setAttribute("aria-hidden", "true");
+    proxy.setAttribute("autocapitalize", "off");
+    proxy.setAttribute("autocomplete", "off");
+    proxy.setAttribute("autocorrect", "off");
+    proxy.setAttribute("spellcheck", "false");
+    proxy.setAttribute("tabindex", "-1");
+    proxy.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;" +
+        "padding:0;border:0;margin:0;resize:none;overflow:hidden;pointer-events:none;" +
+        "background:transparent;color:transparent;caret-color:transparent;z-index:-1";
+    document.body.appendChild(proxy);
+    let proxyActive = false;      // the core's anchor says an editable field has focus
+    let proxyComposing = false;   // between compositionstart and compositionend
+
     // Shared state written by DOM events, read by writeInputToWasm()
     const input = {
         mouseX: 0, mouseY: 0,
@@ -234,11 +255,60 @@ function probeCtxFilterSupported() {
         modifiers: 0,
         textInput: "",
         // Composition state (WLX_Input_State.preedit*): the whole current
-        // composition string, replaced on each update; empty = none.
+        // composition string, replaced on each update; empty = none. The
+        // cursor and clause come from the proxy's selection in UTF-16 units,
+        // -1 when the browser gives none.
         preedit: "",
         preeditCursor: -1,
         preeditSel: -1,
     };
+
+    // The proxy's composition and text events. compositionupdate carries the
+    // whole current string (state, like SDL's editing event); compositionend
+    // carries the committed text, which lands in the frame's text_input;
+    // plain typing and Firefox's resolved dead keys arrive as insertText.
+    // insertCompositionText is the browser mirroring the composition into
+    // the proxy's own value and is ignored, so nothing is delivered twice.
+    function readProxyComposition(e) {
+        input.preedit = e.data || "";
+        try {
+            const start = proxy.selectionStart, end = proxy.selectionEnd;
+            input.preeditCursor = (typeof start === "number") ? start : -1;
+            input.preeditSel = (typeof end === "number" && end > start) ? end - start : -1;
+        } catch (_) {
+            input.preeditCursor = -1;
+            input.preeditSel = -1;
+        }
+    }
+    proxy.addEventListener("compositionstart", (e) => {
+        proxyComposing = true;
+        readProxyComposition(e);
+    });
+    proxy.addEventListener("compositionupdate", readProxyComposition);
+    proxy.addEventListener("compositionend", (e) => {
+        proxyComposing = false;
+        input.preedit = "";
+        input.preeditCursor = -1;
+        input.preeditSel = -1;
+        if (e.data) input.textInput += e.data;
+    });
+    proxy.addEventListener("input", (e) => {
+        if (e.isComposing || e.inputType !== "insertText") return;
+        if (e.data) input.textInput += e.data;
+    });
+    proxy.addEventListener("beforeinput", (e) => {
+        // The widget pastes through clipboard_get from the cache the paste
+        // listener refreshed; the proxy must not swallow the text.
+        if (e.inputType === "insertFromPaste") e.preventDefault();
+    });
+    proxy.addEventListener("blur", () => {
+        // A composition interrupted by a focus change ends through
+        // compositionend first (with its text); anything left is over.
+        proxyComposing = false;
+        input.preedit = "";
+        input.preeditCursor = -1;
+        input.preeditSel = -1;
+    });
 
     // Best-effort clipboard cache. The async Clipboard API cannot be read
     // synchronously mid-frame, so in-app copies populate this cache directly and
@@ -708,6 +778,28 @@ function probeCtxFilterSupported() {
         set_cursor(shape) {
             canvas.style.cursor = (shape === 1) ? "text" : "default";
         },
+
+        // Composition anchor (WLX_Text_Input_Area). The core calls this only
+        // when the anchor changes: place the proxy at the caret (canvas
+        // coordinates are CSS pixels inside the canvas rect) and focus it, or
+        // blur it when no editable field has focus. The frame loop re-asserts
+        // the focus while active.
+        set_text_input_area(active, x, y, w, h, cursor, multiline, password) {
+            proxyActive = active !== 0;
+            if (!proxyActive) {
+                if (document.activeElement === proxy) proxy.blur();
+                proxy.value = "";
+                return;
+            }
+            const r = canvas.getBoundingClientRect();
+            proxy.style.left = `${Math.round(r.left + x + cursor)}px`;
+            proxy.style.top = `${Math.round(r.top + y)}px`;
+            proxy.style.height = `${Math.max(1, Math.round(h))}px`;
+            proxy.style.width = `${Math.max(1, Math.round(w - cursor))}px`;
+            if (document.activeElement !== proxy) {
+                try { proxy.focus({ preventScroll: true }); } catch (_) { proxy.focus(); }
+            }
+        },
     };
 
     // ========================================================================
@@ -946,6 +1038,10 @@ function probeCtxFilterSupported() {
         updatePointerPos(e);
         setPointerButton(e.button, true);
         try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* capture unsupported */ }
+        // While a text field has focus the proxy must keep the browser's
+        // focus through canvas clicks, or a click mid-composition would blur
+        // it; the widget layer decides focus from the press itself.
+        if (proxyActive) e.preventDefault();
     });
 
     canvas.addEventListener("pointerup", (e) => {
@@ -1003,14 +1099,20 @@ function probeCtxFilterSupported() {
     document.addEventListener("keydown", (e) => {
         input.modifiers = readModifiers(e);
         const wlxKey = KEY_MAP[e.code];
+        const proxyFocused = document.activeElement === proxy;
         if (wlxKey !== undefined) {
             const cmd = e.ctrlKey || e.metaKey;
             // Let the browser handle command-modifier shortcuts (copy/cut/paste/
             // select-all) so the native copy/cut/paste events can carry the
             // system clipboard, and leave F-keys to the browser; still record
             // the key for the widget. Other mapped keys keep their default
-            // suppressed (e.g. arrows must not scroll the page).
-            if (!cmd && !BROWSER_OWNED_KEYS.has(wlxKey)) e.preventDefault();
+            // suppressed (e.g. arrows must not scroll the page) - except
+            // printable keys while the proxy has focus, which must reach it
+            // so the browser turns them (and dead keys) into text.
+            const printable = e.key.length === 1;
+            if (!cmd && !BROWSER_OWNED_KEYS.has(wlxKey) && !(proxyFocused && printable)) {
+                e.preventDefault();
+            }
             if (e.repeat) {
                 input.keysRepeated[wlxKey] = 1;
             } else if (!input.keysDown[wlxKey]) {
@@ -1023,8 +1125,9 @@ function probeCtxFilterSupported() {
                 pumpClipboardFrame();
             }
         }
-        // Collect text input from printable keys
-        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+        // Collect text input from printable keys - unless the proxy has
+        // focus, in which case the browser delivers the text through it.
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !proxyFocused) {
             input.textInput += e.key;
         }
     });
@@ -1062,6 +1165,14 @@ function probeCtxFilterSupported() {
     // Write JS input state into wasm memory
     // ========================================================================
     function writeInputToWasm() {
+        // Keep the proxy focused while a field has focus (a page click or a
+        // tab switch can take it) and empty outside a composition, so its
+        // value never accumulates and never interferes with the next one.
+        if (proxyActive && document.activeElement !== proxy && document.hasFocus()) {
+            try { proxy.focus({ preventScroll: true }); } catch (_) { /* no focus */ }
+        }
+        if (!proxyComposing && proxy.value !== "") proxy.value = "";
+
         const i32 = new Int32Array(memory.buffer);
         const u8  = new Uint8Array(memory.buffer);
         const f32 = new Float32Array(memory.buffer);

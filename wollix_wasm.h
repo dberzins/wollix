@@ -310,6 +310,16 @@ extern void wlx_wasm_import_clipboard_set(const char *text, uint32_t len);
 WLX_WASM_IMPORT("set_cursor")
 extern void wlx_wasm_import_set_cursor(uint32_t shape);
 
+// Composition anchor: the host focuses its hidden text proxy at the caret
+// line of the focused editable text widget (or blurs it when active is 0),
+// so the browser's input method engages and its candidate window sits at
+// the caret. Units are CSS pixels inside the canvas. Called by the core only
+// when the anchor changes.
+WLX_WASM_IMPORT("set_text_input_area")
+extern void wlx_wasm_import_set_text_input_area(int32_t active, float x, float y, float w,
+                                                float h, float cursor, int32_t multiline,
+                                                int32_t password);
+
 #if defined(WLX_PERF) && defined(WLX_WASM_PERF_TIMESTAMP)
 WLX_WASM_IMPORT("perf_now_ns")
 extern uint64_t wlx_wasm_import_perf_now_ns(void);
@@ -651,6 +661,14 @@ static inline void wlx_wasm_set_cursor(WLX_Cursor_Shape shape, void *user) {
     wlx_wasm_import_set_cursor((uint32_t)shape);
 }
 
+static inline void wlx_wasm_set_text_input_area(const WLX_Text_Input_Area *area, void *user) {
+    WLX_UNUSED(user);
+    if (area == NULL) return;
+    wlx_wasm_import_set_text_input_area(area->active ? 1 : 0,
+        area->line.x, area->line.y, area->line.w, area->line.h, area->cursor,
+        area->multiline ? 1 : 0, area->password ? 1 : 0);
+}
+
 // ============================================================================
 // Backend factory
 // ============================================================================
@@ -679,6 +697,7 @@ static inline WLX_Backend wlx_backend_wasm(void) {
         .clipboard_set     = wlx_wasm_clipboard_set,
         .set_cursor        = wlx_wasm_set_cursor,
         .get_content_scale = wlx_wasm_get_content_scale,
+        .set_text_input_area = wlx_wasm_set_text_input_area,
     };
 }
 
