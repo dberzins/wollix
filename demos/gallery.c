@@ -4272,6 +4272,7 @@ static bool gallery_icon_atlas_ready(void) {
 
 static bool gallery_platform_init(Gallery_State *gs) {
     printf("Wollix Widget Gallery (SDL3)\n");
+    wlx_sdl3_ime_hints();   // before SDL_Init: the composition string is drawn inline
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return false;

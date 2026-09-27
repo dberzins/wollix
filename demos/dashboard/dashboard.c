@@ -3036,6 +3036,7 @@ static void dashboard_sdl3_load_fonts(void) {
 
 static bool dashboard_platform_init(void) {
     printf("Wollix dashboard demo (SDL3)\n");
+    wlx_sdl3_ime_hints();   // before SDL_Init: the composition string is drawn inline
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return false;

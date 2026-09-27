@@ -31,6 +31,17 @@ static float g_wlx_sdl3_wheel_delta = 0.0f;
 static float g_wlx_sdl3_wheel_delta_x = 0.0f;
 static char g_wlx_sdl3_text_input[WLX_INPUT_TEXT_BYTES] = {0};
 static size_t g_wlx_sdl3_text_len = 0;
+// Composition state from SDL_EVENT_TEXT_EDITING: the whole current string
+// (replaced on each event, not appended), its codepoint cursor and selected
+// clause; cleared when text input stops. Copied into every frame's input.
+static char g_wlx_sdl3_preedit[WLX_INPUT_PREEDIT_BYTES] = {0};
+static int32_t g_wlx_sdl3_preedit_cursor = -1;
+static int32_t g_wlx_sdl3_preedit_sel = -1;
+// Text input as the adapter last set it from the core's composition anchor:
+// started while an editable text widget has focus, stopped otherwise.
+static bool g_wlx_sdl3_text_active = false;
+static bool g_wlx_sdl3_text_multiline = false;
+static bool g_wlx_sdl3_text_password = false;
 static bool g_wlx_sdl3_event_watch_installed = false;
 static Uint64 g_wlx_sdl3_last_counter = 0;
 // OS auto-repeat ticks accumulated by the event watch between frames. SDL only
@@ -278,6 +289,23 @@ static inline SDL_Scancode wlx_sdl3_to_scancode(WLX_Key_Code key) {
         default: return SDL_SCANCODE_UNKNOWN;
     }
 }
+// Append src to a NUL-terminated field of cap bytes holding len bytes,
+// whole UTF-8 sequences only: a codepoint that does not fit is dropped with
+// the rest of src, never split at the cap. Returns the new length.
+static size_t wlx_sdl3_append_codepoints(char *dst, size_t cap, size_t len, const char *src) {
+    size_t room = cap - 1;
+    while (*src != '\0') {
+        size_t seq = 1;
+        while (src[seq] != '\0' && ((unsigned char)src[seq] & 0xC0) == 0x80) seq++;
+        if (len + seq > room) break;
+        memcpy(&dst[len], src, seq);
+        len += seq;
+        src += seq;
+    }
+    dst[len] = '\0';
+    return len;
+}
+
 
 static bool wlx_sdl3_event_watch(void *userdata, SDL_Event *event) {
     WLX_UNUSED(userdata);
@@ -301,20 +329,21 @@ static bool wlx_sdl3_event_watch(void *userdata, SDL_Event *event) {
             break;
         }
         case SDL_EVENT_TEXT_INPUT: {
-            // Append whole UTF-8 sequences only: a codepoint that does not
-            // fit in the remaining room is dropped with the rest of the
-            // event text, never split at the byte cap.
-            const char *src = event->text.text;
-            size_t room = sizeof(g_wlx_sdl3_text_input) - 1;
-            while (*src != '\0') {
-                size_t seq = 1;
-                while (src[seq] != '\0' && ((unsigned char)src[seq] & 0xC0) == 0x80) seq++;
-                if (g_wlx_sdl3_text_len + seq > room) break;
-                memcpy(&g_wlx_sdl3_text_input[g_wlx_sdl3_text_len], src, seq);
-                g_wlx_sdl3_text_len += seq;
-                src += seq;
-            }
-            g_wlx_sdl3_text_input[g_wlx_sdl3_text_len] = '\0';
+            // Committed text accumulates across the frame's events.
+            g_wlx_sdl3_text_len = wlx_sdl3_append_codepoints(g_wlx_sdl3_text_input,
+                sizeof(g_wlx_sdl3_text_input), g_wlx_sdl3_text_len, event->text.text);
+            break;
+        }
+        case SDL_EVENT_TEXT_EDITING: {
+            // The composition string is state: each event carries the whole
+            // current string, an empty one ends the composition. Ignored
+            // while text input is off (a stale event after a stop).
+            if (!g_wlx_sdl3_text_active) break;
+            g_wlx_sdl3_preedit[0] = '\0';
+            (void)wlx_sdl3_append_codepoints(g_wlx_sdl3_preedit, sizeof(g_wlx_sdl3_preedit), 0,
+                event->edit.text != NULL ? event->edit.text : "");
+            g_wlx_sdl3_preedit_cursor = (int32_t)event->edit.start;
+            g_wlx_sdl3_preedit_sel = (int32_t)event->edit.length;
             break;
         }
         case SDL_EVENT_KEY_DOWN: {
@@ -413,6 +442,12 @@ static inline void wlx_process_sdl3_input(WLX_Context *ctx) {
     }
     wlx_zero_struct(g_wlx_sdl3_text_input);
     g_wlx_sdl3_text_len = 0;
+
+    // The composition string persists between frames until the input
+    // method replaces or ends it; it is state, not a per-frame stream.
+    memcpy(ctx->input.preedit, g_wlx_sdl3_preedit, sizeof(ctx->input.preedit));
+    ctx->input.preedit_cursor = g_wlx_sdl3_preedit_cursor;
+    ctx->input.preedit_sel_len = g_wlx_sdl3_preedit_sel;
 }
 
 static inline void wlx_sdl3_draw_texture(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
@@ -1783,6 +1818,67 @@ static inline void wlx_sdl3_set_cursor(WLX_Cursor_Shape shape, void *user) {
     SDL_SetCursor(cursors[shape]);
 }
 
+// The core's composition anchor: start text input (engaging the platform's
+// input method and, on mobile, its keyboard) while an editable text widget
+// has focus, stop it otherwise, and anchor the candidate window at the
+// caret line. Units convert to render coordinates (WLX_SDL3_PX) and then
+// to window coordinates, the reverse of the pump's mouse path. A change of
+// field kind (multiline, password) while active restarts text input, since
+// SDL takes those as start-time properties.
+static inline void wlx_sdl3_set_text_input_area(const WLX_Text_Input_Area *area, void *user) {
+    WLX_UNUSED(user);
+    SDL_Window *window = (g_wlx_sdl3_renderer != NULL)
+        ? SDL_GetRenderWindow(g_wlx_sdl3_renderer) : NULL;
+    if (window == NULL || area == NULL) return;
+    if (!area->active) {
+        if (g_wlx_sdl3_text_active) {
+            SDL_StopTextInput(window);
+            g_wlx_sdl3_text_active = false;
+        }
+        // Whatever the input method still held is gone with the session.
+        g_wlx_sdl3_preedit[0] = '\0';
+        g_wlx_sdl3_preedit_cursor = -1;
+        g_wlx_sdl3_preedit_sel = -1;
+        return;
+    }
+    if (!g_wlx_sdl3_text_active || g_wlx_sdl3_text_multiline != area->multiline
+            || g_wlx_sdl3_text_password != area->password) {
+        if (g_wlx_sdl3_text_active) SDL_StopTextInput(window);
+        SDL_PropertiesID props = SDL_CreateProperties();
+        if (props != 0) {
+            SDL_SetNumberProperty(props, SDL_PROP_TEXTINPUT_TYPE_NUMBER,
+                area->password ? SDL_TEXTINPUT_TYPE_TEXT_PASSWORD_HIDDEN : SDL_TEXTINPUT_TYPE_TEXT);
+            SDL_SetBooleanProperty(props, SDL_PROP_TEXTINPUT_MULTILINE_BOOLEAN, area->multiline);
+            SDL_StartTextInputWithProperties(window, props);
+            SDL_DestroyProperties(props);
+        } else {
+            SDL_StartTextInput(window);
+        }
+        g_wlx_sdl3_text_active = true;
+        g_wlx_sdl3_text_multiline = area->multiline;
+        g_wlx_sdl3_text_password = area->password;
+    }
+    float x0, y0, x1, y1, cx, cy;
+    SDL_RenderCoordinatesToWindow(g_wlx_sdl3_renderer,
+        WLX_SDL3_PX(area->line.x), WLX_SDL3_PX(area->line.y), &x0, &y0);
+    SDL_RenderCoordinatesToWindow(g_wlx_sdl3_renderer,
+        WLX_SDL3_PX(area->line.x + area->line.w), WLX_SDL3_PX(area->line.y + area->line.h), &x1, &y1);
+    SDL_RenderCoordinatesToWindow(g_wlx_sdl3_renderer,
+        WLX_SDL3_PX(area->line.x + area->cursor), WLX_SDL3_PX(area->line.y), &cx, &cy);
+    SDL_Rect rect = { (int)x0, (int)y0, (int)(x1 - x0), (int)(y1 - y0) };
+    if (rect.w < 1) rect.w = 1;
+    if (rect.h < 1) rect.h = 1;
+    SDL_SetTextInputArea(window, &rect, (int)(cx - x0));
+}
+
+// Call before SDL_Init: Wollix draws the composition string inline in its
+// text widgets, so the platform must not draw its own composition window
+// (SDL_HINT_IME_IMPLEMENTED_UI is read at initialisation). Candidate lists
+// stay the platform's.
+static inline void wlx_sdl3_ime_hints(void) {
+    SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
+}
+
 static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer) {
     g_wlx_sdl3_renderer = renderer;
     g_wlx_sdl3_last_counter = 0;
@@ -1809,6 +1905,7 @@ static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer) {
         .clipboard_set = wlx_sdl3_clipboard_set,
         .set_cursor = wlx_sdl3_set_cursor,
         .get_content_scale = wlx_sdl3_get_content_scale,
+        .set_text_input_area = wlx_sdl3_set_text_input_area,
     };
     // Registered only where it can actually fill: cluster geometry needs
     // the font-variant machinery (SDL_ttf >= 3.3.0); a TTF build without
@@ -1837,7 +1934,10 @@ static inline void wlx_context_init_sdl3(WLX_Context *ctx, SDL_Window *window, S
         g_wlx_sdl3_event_watch_installed = true;
     }
 
-    SDL_StartTextInput(window);
+    // Text input is not started here: the core's composition anchor starts
+    // it when an editable text widget takes focus and stops it when focus
+    // leaves (wlx_sdl3_set_text_input_area), so the input method and any
+    // on-screen keyboard follow the focused field.
     ctx->backend = wlx_backend_sdl3(renderer);
     wlx_sdl3_refresh_scale();
 #ifdef WLX_PERF

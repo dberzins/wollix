@@ -14,6 +14,7 @@
 #define WINDOW_HEIGHT 640
 
 int main(void) {
+    wlx_sdl3_ime_hints();   // before SDL_Init: the composition string is drawn inline
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return 1;
