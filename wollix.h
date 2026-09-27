@@ -599,6 +599,20 @@ typedef enum {
     WLX_CURSOR_COUNT
 } WLX_Cursor_Shape;
 
+// Where the platform's input method should anchor itself: the caret line
+// of the editable text widget that holds focus this frame. The core
+// assembles it from the focused widget's caret geometry and pushes it
+// through WLX_Backend.set_text_input_area from wlx_end, only when it
+// changed. active is false when no editable text widget has focus, and
+// the other members are then zero.
+typedef struct {
+    bool     active;     // an editable text widget holds focus this frame
+    WLX_Rect line;       // the caret's visual line, clipped to the widget's text band (units)
+    float    cursor;     // caret x offset from line.x (units)
+    bool     multiline;  // textarea / editor (the platform may show a return key)
+    bool     password;   // masked field (the platform may disable prediction)
+} WLX_Text_Input_Area;
+
 // Backend contract version. A table must carry WLX_BACKEND_CONTRACT_VERSION
 // in `contract_version`; wlx_begin refuses any other value in every build,
 // since calling a table of the wrong shape through these signatures is
@@ -716,6 +730,13 @@ typedef struct {
     // [WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]; anything else reports
     // WLX_ERR_BAD_ARGUMENT and the frame runs at 1.0.
     float (*get_content_scale)(void *user); /* optional */
+    // Optional composition anchor. The core pushes the focused editable
+    // text widget's caret line (WLX_Text_Input_Area) once per frame from
+    // wlx_end and only when it changed, so implementations stay
+    // stateless: start or stop the platform's text input on the active
+    // edge and re-anchor its candidate window on every call. NULL -> the
+    // platform is never told.
+    void (*set_text_input_area)(const WLX_Text_Input_Area *area, void *user); /* optional */
 } WLX_Backend;
 
 // Deprecated: the v0.8 backend table (contract v1), kept so an existing
@@ -1533,6 +1554,20 @@ typedef struct {
     // Scrollbar thumb drag gesture (primary axis).
     bool dragging_scrollbar;
     float sb_drag_offset;  // pointer offset from thumb start at drag start
+    // Composition: the tentative span the input method's current string
+    // occupies in the buffer. Ordinary bytes to every consumer, never
+    // journaled; dropped and re-applied by the key handler each frame the
+    // string changes, adopted as typed text when focus leaves with one in
+    // place. preedit_doc_len is the document length right after the span
+    // was applied and preedit_revision the caller's revision then: a
+    // different length or revision next frame means the buffer changed
+    // outside the widget, and the span is forgotten rather than deleted.
+    // Zero = no composition.
+    size_t preedit_start;
+    size_t preedit_len;
+    size_t preedit_doc_len;
+    uint32_t preedit_revision;
+    bool composing;        // a span exists: keys and the mouse belong to the input method
 } WLX_Text_Edit_State;
 
 typedef struct {
@@ -1741,7 +1776,8 @@ typedef enum {
     WLX_TEXT_UNDO_CLS_TAB,
     WLX_TEXT_UNDO_CLS_PASTE,
     WLX_TEXT_UNDO_CLS_CUT,
-    WLX_TEXT_UNDO_CLS_REPLAY        // recorded while an undo or redo replays
+    WLX_TEXT_UNDO_CLS_REPLAY,       // recorded while an undo or redo replays
+    WLX_TEXT_UNDO_CLS_COMPOSE       // a composition commit: one step per committed clause
 } WLX_Text_Undo_Class;
 
 typedef struct {
@@ -2216,6 +2252,15 @@ typedef struct WLX_Context {
     // platform default, so no first-frame push is needed).
     uint8_t cursor_applied;
 
+    // Composition anchor: the focused editable text widget records its
+    // caret line here during the frame; wlx_end compares it with the value
+    // last pushed through backend.set_text_input_area and pushes on change.
+    WLX_Text_Input_Area text_input_area;
+    WLX_Text_Input_Area text_input_applied;
+    // The widget that applied this frame's composition string (0 = none),
+    // so a string the backend still carries reaches no other widget.
+    WLX_Id composing_id;
+
     // Per-frame buffer pool. Owns layouts, commands, cmd_ranges, scratch,
     // slot offsets, scroll-panel stack, id stack, and opacity stack.
     WLX_Arena_Pool arena;
@@ -2585,6 +2630,15 @@ WLXDEF void wlx_end(WLX_Context *ctx);
 // backend has no get_content_scale, or when its value was unusable). Read it
 // to pick a scaled asset or to size drawing the application does itself.
 WLXDEF float wlx_content_scale(const WLX_Context *ctx);
+// The composition anchor last pushed to the backend (see
+// WLX_Text_Input_Area): active with the focused editable text widget's
+// caret line, or inactive. Hosts without a set_text_input_area callback
+// read it after wlx_end to drive the platform themselves.
+WLXDEF WLX_Text_Input_Area wlx_text_input_area(const WLX_Context *ctx);
+// True while a text widget holds a composition string as a tentative span
+// in its buffer (this frame, once the widget ran). Callers that mirror a
+// buffer on every change can wait for the commit instead.
+WLXDEF bool wlx_text_composing(const WLX_Context *ctx);
 WLXDEF void wlx_context_init(WLX_Context *ctx);
 WLXDEF void wlx_context_init_ex(WLX_Context *ctx, const WLX_Arena_Pool_Config *cfg);
 WLXDEF void wlx_context_destroy(WLX_Context *ctx);
@@ -6877,6 +6931,9 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
     ctx->interaction.focus_id_seen = false;
     ctx->interaction.focus_gained_id = 0;
     ctx->interaction.tab_consumed = false;
+    // The composition anchor and owner are rebuilt by this frame's widgets.
+    memset(&ctx->text_input_area, 0, sizeof(ctx->text_input_area));
+    ctx->composing_id = 0;
     // The frame's single backend time sample; adapters may measure time
     // since their own previous call because the core calls exactly once.
     ctx->frame_dt = ctx->backend.get_frame_time != NULL
@@ -6929,6 +6986,39 @@ WLXDEF void wlx_begin_immediate(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler 
 WLXDEF float wlx_content_scale(const WLX_Context *ctx) {
     assert(ctx != NULL);
     return wlx_content_scale_of(ctx);
+}
+
+WLXDEF WLX_Text_Input_Area wlx_text_input_area(const WLX_Context *ctx) {
+    assert(ctx != NULL);
+    return ctx->text_input_applied;
+}
+
+WLXDEF bool wlx_text_composing(const WLX_Context *ctx) {
+    assert(ctx != NULL);
+    return ctx->composing_id != 0;
+}
+
+static inline bool wlx_text_input_area_equal(const WLX_Text_Input_Area *a,
+    const WLX_Text_Input_Area *b)
+{
+    return a->active == b->active && a->multiline == b->multiline
+        && a->password == b->password && a->cursor == b->cursor
+        && a->line.x == b->line.x && a->line.y == b->line.y
+        && a->line.w == b->line.w && a->line.h == b->line.h;
+}
+
+// Record the focused editable text widget's caret line for this frame's
+// composition anchor. One widget holds focus, so the last record wins.
+static inline void wlx_text_input_area_record(WLX_Context *ctx, WLX_Rect line,
+    float cursor, bool multiline, bool password)
+{
+    WLX_Text_Input_Area a;
+    a.active = true;
+    a.line = line;
+    a.cursor = cursor;
+    a.multiline = multiline;
+    a.password = password;
+    ctx->text_input_area = a;
 }
 
 // ----------------------------------------------------------------------------
@@ -7233,6 +7323,15 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
     }
     if (ctx->interaction.focus_id != 0 && !ctx->interaction.focus_id_seen) {
         ctx->interaction.focus_id = 0;
+    }
+
+    // Composition anchor: pushed to the backend only when it changed since
+    // the last push (an inactive frame after an active one pushes once).
+    if (!wlx_text_input_area_equal(&ctx->text_input_area, &ctx->text_input_applied)) {
+        ctx->text_input_applied = ctx->text_input_area;
+        if (ctx->backend.set_text_input_area != NULL) {
+            ctx->backend.set_text_input_area(&ctx->text_input_applied, ctx->backend.user);
+        }
     }
 
     // Every begin must have met its end by now; the report names the
@@ -13629,10 +13728,50 @@ static inline size_t wlx_editor_line_next(const WLX_Editor_Line_Index *idx,
     return line + 1 < idx->count ? idx->offsets[line + 1] : len;
 }
 
-// Draw the selection band over the given records. idx and geom are the
-// editor's retained-geometry hooks: with both present, span edges that
-// land on measured unit boundaries resolve from stored advances; the
-// inputbox passes NULL for both and every edge measures.
+// Resolve the byte range [lo, hi) of one visible record to x extents from
+// the record's origin. idx and geom are the editor's retained-geometry
+// hooks: with both present and a covering entry, edges on measured unit
+// boundaries resolve from the stored advances; otherwise (and always for
+// the inputbox, which passes NULL for both) the prefixes measure. Returns
+// false when the range has no width on this record or cannot be measured.
+static bool wlx_text_range_extents(WLX_Context *ctx, const char *text, size_t len,
+    WLX_Text_Style ts, float tab_advance, const WLX_Editor_Line_Index *idx,
+    WLX_Text_Geom_Store *geom, const WLX_Text_Line_Record *line,
+    size_t lo, size_t hi, float *out_x0, float *out_x1)
+{
+    float lead_w = 0.0f, hi_w = 0.0f, unused_h = 0.0f;
+    bool replayed = false;
+    if (geom != NULL && idx != NULL && idx->count > 0 && !line->empty_visual) {
+        size_t li = wlx_editor_index_line_of(idx, line->visible_start);
+        size_t lnext = wlx_editor_line_next(idx, li, len);
+        WLX_Text_Geom_Entry *e = lnext > line->visible_start
+            ? wlx_text_geom_find_containing(geom, line->visible_start, lnext)
+            : NULL;
+        if (e != NULL && e->units > 0) {
+            bool ok = true;
+            if (lo > line->visible_start)
+                ok = wlx_text_geom_advance_at(e, lo - e->line_start, &lead_w);
+            if (ok && wlx_text_geom_advance_at(e, hi - e->line_start, &hi_w))
+                replayed = true;
+        }
+    }
+    if (!replayed) {
+        lead_w = 0.0f;
+        if (lo > line->visible_start) {
+            wlx_text_measure_prefix_tabs(ctx, text, len, line->visible_start, lo, ts, tab_advance,
+                &lead_w, &unused_h);
+        }
+        if (!wlx_text_measure_prefix_tabs(ctx, text, len, line->visible_start, hi, ts, tab_advance,
+                &hi_w, &unused_h)) return false;
+    }
+    if (hi_w - lead_w <= 0.0f) return false;
+    *out_x0 = lead_w;
+    *out_x1 = hi_w;
+    return true;
+}
+
+// Draw the selection band over the given records (see
+// wlx_text_range_extents for the idx / geom hooks).
 static void wlx_text_draw_selection(WLX_Context *ctx, WLX_Rect band, const char *text, size_t len,
     WLX_Text_Style ts, float tab_advance, const WLX_Editor_Line_Index *idx,
     WLX_Text_Geom_Store *geom, const WLX_Text_Line_Record *lines, size_t count,
@@ -13647,36 +13786,36 @@ static void wlx_text_draw_selection(WLX_Context *ctx, WLX_Rect band, const char 
         size_t lo = sel_min > line->visible_start ? sel_min : line->visible_start;
         size_t hi = sel_max < line->visible_end ? sel_max : line->visible_end;
         if (lo >= hi) continue;
+        float x0, x1;
+        if (!wlx_text_range_extents(ctx, text, len, ts, tab_advance, idx, geom, line, lo, hi, &x0, &x1))
+            continue;
+        wlx_draw_rect(ctx, (WLX_Rect){ line->origin_x + x0, line->origin_y, x1 - x0, line->line_h }, color);
+    }
+    wlx_scissor_scope_end(ctx, sc);
+}
 
-        float lead_w = 0.0f, hi_w = 0.0f, unused_h = 0.0f;
-        bool replayed = false;
-        if (geom != NULL && idx != NULL && idx->count > 0 && !line->empty_visual) {
-            size_t li = wlx_editor_index_line_of(idx, line->visible_start);
-            size_t lnext = wlx_editor_line_next(idx, li, len);
-            WLX_Text_Geom_Entry *e = lnext > line->visible_start
-                ? wlx_text_geom_find_containing(geom, line->visible_start, lnext)
-                : NULL;
-            if (e != NULL && e->units > 0) {
-                bool ok = true;
-                if (lo > line->visible_start)
-                    ok = wlx_text_geom_advance_at(e, lo - e->line_start, &lead_w);
-                if (ok && wlx_text_geom_advance_at(e, hi - e->line_start, &hi_w))
-                    replayed = true;
-            }
-        }
-        if (!replayed) {
-            lead_w = 0.0f;
-            if (lo > line->visible_start) {
-                wlx_text_measure_prefix_tabs(ctx, text, len, line->visible_start, lo, ts, tab_advance,
-                    &lead_w, &unused_h);
-            }
-            if (!wlx_text_measure_prefix_tabs(ctx, text, len, line->visible_start, hi, ts, tab_advance,
-                    &hi_w, &unused_h)) continue;
-        }
-        float span_w = hi_w - lead_w;
-        if (span_w <= 0.0f) continue;
+// Underline the byte range [lo, hi) over the given records: a caret-width
+// line along the bottom of each record's row, the visual of a composition
+// string in progress. Same extents as the selection band.
+static void wlx_text_draw_underline(WLX_Context *ctx, WLX_Rect band, const char *text, size_t len,
+    WLX_Text_Style ts, float tab_advance, const WLX_Editor_Line_Index *idx,
+    WLX_Text_Geom_Store *geom, const WLX_Text_Line_Record *lines, size_t count,
+    size_t lo_byte, size_t hi_byte, WLX_Color color)
+{
+    if (lo_byte >= hi_byte || len == 0 || color.a == 0) return;
+    if (lines == NULL || count == 0) return;
 
-        wlx_draw_rect(ctx, (WLX_Rect){ line->origin_x + lead_w, line->origin_y, span_w, line->line_h }, color);
+    WLX_Scissor_Scope sc = wlx_scissor_scope_begin(ctx, band);
+    for (size_t i = 0; i < count; i++) {
+        const WLX_Text_Line_Record *line = &lines[i];
+        size_t lo = lo_byte > line->visible_start ? lo_byte : line->visible_start;
+        size_t hi = hi_byte < line->visible_end ? hi_byte : line->visible_end;
+        if (lo >= hi) continue;
+        float x0, x1;
+        if (!wlx_text_range_extents(ctx, text, len, ts, tab_advance, idx, geom, line, lo, hi, &x0, &x1))
+            continue;
+        float y = line->origin_y + line->line_h - WLX_TEXT_CARET_WIDTH * 0.5f;
+        wlx_draw_line(ctx, line->origin_x + x0, y, line->origin_x + x1, y, WLX_TEXT_CARET_WIDTH, color);
     }
     wlx_scissor_scope_end(ctx, sc);
 }
@@ -14485,6 +14624,110 @@ typedef struct {
     bool mask_clipboard;  // password: suppress copy AND cut (hard gate)
 } WLX_Text_Edit_Caps;
 
+// Step `count` codepoints forward from `from` inside a byte slice and
+// snap the result forward to a text unit boundary, so a caret placed by
+// codepoint count (an input method's cursor) never lands inside a
+// grapheme cluster. A negative count means "the end".
+static size_t wlx_text_step_codepoints(const char *text, size_t len, size_t from, int32_t count) {
+    if (count < 0) return len;
+    size_t at = from < len ? from : len;
+    while (count > 0 && at < len) {
+        at = wlx_text_codepoint_next(text, len, at);
+        count--;
+    }
+    if (at < len && !wlx_text_unit_boundary(text, len, at)) at = wlx_text_unit_next(text, len, at);
+    return at;
+}
+
+// Byte offset of the composition caret inside a tentative span of `len`
+// bytes, from the input method's codepoint cursor (-1 = the end).
+static inline size_t wlx_preedit_cursor_bytes(const char *span, size_t len, int32_t cursor_cp) {
+    return wlx_text_step_codepoints(span, len, 0, cursor_cp);
+}
+
+// Byte end of the selected clause that starts at byte `at` of a tentative
+// span, from the input method's codepoint length (<= 0 = no clause).
+static inline size_t wlx_preedit_clause_end(const char *span, size_t len, size_t at, int32_t sel_cp) {
+    if (sel_cp <= 0) return at;
+    return wlx_text_step_codepoints(span, len, at, sel_cp);
+}
+
+// Forget a tentative span without touching the buffer: the bytes stay
+// where they are and stop being ours.
+static inline void wlx_text_edit_forget_preedit(WLX_Text_Edit_State *st) {
+    st->preedit_start = 0;
+    st->preedit_len = 0;
+    st->preedit_doc_len = 0;
+    st->preedit_revision = 0;
+    st->composing = false;
+}
+
+// True when the recorded span still describes bytes this widget put in
+// the buffer: the document is the length it was left at, the caller's
+// revision is the one it was applied under, and the span fits. Anything
+// else means an outside change, and no byte is deleted on that evidence.
+static inline bool wlx_text_edit_preedit_intact(const WLX_Text_Edit_State *st, size_t length,
+    uint32_t revision)
+{
+    return st->preedit_len > 0 && st->preedit_doc_len == length
+        && st->preedit_revision == revision
+        && st->preedit_start + st->preedit_len <= length;
+}
+
+// The frame's committed text lands at the caret, replacing a live
+// selection, as one TYPING-class mutation. Returns true when bytes changed.
+static bool wlx_text_edit_apply_typed(WLX_Context *ctx, WLX_Text_Edit_State *st,
+    char *buffer, size_t buffer_cap, size_t *length, WLX_Text_Edit_Caps caps,
+    WLX_Text_Edit_Span *span, WLX_Text_Undo_Journal *undo)
+{
+    size_t type_len = 0;
+    while (type_len < sizeof(ctx->input.text_input) && ctx->input.text_input[type_len] != '\0') {
+        type_len++;
+    }
+    if (type_len == 0 || caps.read_only) return false;
+    bool text_changed = false;
+    wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_TYPING);
+    if (wlx_text_edit_delete_selection(buffer, length,
+            &st->cursor_pos, &st->selection_anchor, span, undo)) {
+        text_changed = true;
+    }
+    if (wlx_text_edit_insert(buffer, buffer_cap, length,
+            &st->cursor_pos, &st->selection_anchor,
+            ctx->input.text_input, type_len, span, undo) > 0) {
+        text_changed = true;
+    }
+    return text_changed;
+}
+
+// A tentative span that outlives its composition (focus left the widget
+// with one in place) becomes ordinary text: the bytes stay and gain the
+// journal step a commit would have made, the caret parks after them.
+// Nothing runs on stale evidence. Returns true when the span was adopted.
+static bool wlx_text_edit_adopt_preedit(WLX_Text_Edit_State *st, char *buffer,
+    size_t buffer_cap, size_t *length, WLX_Text_Edit_Span *span, WLX_Text_Undo_Journal *undo,
+    uint32_t revision)
+{
+    if (st->preedit_len == 0) return false;
+    if (!wlx_text_edit_preedit_intact(st, *length, revision)) {
+        wlx_text_edit_forget_preedit(st);
+        return false;
+    }
+    char keep[WLX_INPUT_PREEDIT_BYTES];
+    size_t n = st->preedit_len < sizeof(keep) ? st->preedit_len : sizeof(keep);
+    memcpy(keep, buffer + st->preedit_start, n);
+    size_t s = st->preedit_start, e = st->preedit_start + st->preedit_len;
+    wlx_text_edit_delete_selection(buffer, length, &s, &e, span, NULL);
+    size_t cur = st->preedit_start, anc = st->preedit_start;
+    wlx_text_undo_txn_begin(undo, cur, anc);
+    wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_COMPOSE);
+    size_t ins = wlx_text_edit_insert(buffer, buffer_cap, length, &cur, &anc, keep, n, span, undo);
+    wlx_text_undo_txn_end(undo, *length);
+    st->cursor_pos = cur;
+    st->selection_anchor = anc;
+    wlx_text_edit_forget_preedit(st);
+    return ins > 0;
+}
+
 // Shared editing vocabulary on an explicit-length byte slice: clipboard
 // shortcuts and select-all on the platform command modifier, typing
 // (replacing a live selection), Enter/Tab inserts, Backspace/Delete with
@@ -14494,10 +14737,15 @@ typedef struct {
 // the sticky UP/DOWN column - every caret change here is horizontal, and a
 // key that changes nothing (LEFT at the start, RIGHT at the end) leaves the
 // column latched. Every mutation records into the undo journal when one
-// is given (NULL keeps no history). Returns true when the text mutated.
+// is given (NULL keeps no history). A composition string in the input
+// applies as a tentative span (see WLX_Text_Edit_State) and hands the
+// keyboard to the input method: the vocabulary does not run that frame.
+// `id` names the widget for wlx_text_composing and `revision` is the
+// caller's external-mutation counter the span is checked against. Returns
+// true when the text mutated.
 static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     char *buffer, size_t buffer_cap, size_t *length, WLX_Text_Edit_Caps caps,
-    WLX_Text_Edit_Span *span, WLX_Text_Undo_Journal *undo)
+    WLX_Text_Edit_Span *span, WLX_Text_Undo_Journal *undo, WLX_Id id, uint32_t revision)
 {
     bool text_changed = false;
     bool moved = false;
@@ -14508,6 +14756,93 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     // One handler invocation is one undo transaction: every mutation below
     // records under one step, so typing over a selection undoes as a unit.
     wlx_text_undo_txn_begin(undo, st->cursor_pos, st->selection_anchor);
+
+    // Composition. Each frame: drop the previous tentative span (never
+    // journaled, so not recorded here either), land any committed text
+    // where the span began, then re-apply the input method's current
+    // string as the new span and stop - while a span exists the keys and
+    // the mouse belong to the input method. A span the buffer no longer
+    // accounts for is forgotten, never deleted.
+    size_t pre_len = 0;
+    while (pre_len < sizeof(ctx->input.preedit) && ctx->input.preedit[pre_len] != '\0') pre_len++;
+    bool had_span = false;
+    if (st->preedit_len > 0) {
+        if (!wlx_text_edit_preedit_intact(st, *length, revision)) {
+            wlx_text_edit_forget_preedit(st);
+        } else {
+            size_t s = st->preedit_start, e = st->preedit_start + st->preedit_len;
+            wlx_text_edit_delete_selection(buffer, length, &s, &e, span, NULL);
+            st->cursor_pos = st->preedit_start;
+            st->selection_anchor = st->preedit_start;
+            wlx_text_edit_forget_preedit(st);
+            text_changed = true;
+            had_span = true;
+            // The transaction re-opens at the real caret: a commit's
+            // before-caret must not point inside bytes that are gone.
+            wlx_text_undo_txn_begin(undo, st->cursor_pos, st->selection_anchor);
+        }
+    }
+    bool commit_consumed = false;
+    if ((had_span || pre_len > 0) && !caps.read_only) {
+        // Committed text in a composition frame is the previous clause
+        // landing where its span began: one step of its own, never
+        // coalesced into a typed run on either side.
+        size_t type_len = 0;
+        while (type_len < sizeof(ctx->input.text_input) && ctx->input.text_input[type_len] != '\0') {
+            type_len++;
+        }
+        if (type_len > 0) {
+            wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_COMPOSE);
+            if (wlx_text_edit_delete_selection(buffer, length,
+                    &st->cursor_pos, &st->selection_anchor, span, undo)) {
+                text_changed = true;
+            }
+            if (wlx_text_edit_insert(buffer, buffer_cap, length,
+                    &st->cursor_pos, &st->selection_anchor,
+                    ctx->input.text_input, type_len, span, undo) > 0) {
+                text_changed = true;
+            }
+        }
+        commit_consumed = true;
+    }
+    if (pre_len > 0 && !caps.read_only) {
+        // Composing over a selection replaces it, as typing would; the
+        // delete stands as its own step so a cancelled composition still
+        // undoes it.
+        if (wlx_text_edit_has_selection(st)) {
+            wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_SELECTION);
+            if (wlx_text_edit_delete_selection(buffer, length,
+                    &st->cursor_pos, &st->selection_anchor, span, undo)) {
+                text_changed = true;
+            }
+        }
+        size_t start = st->cursor_pos;
+        size_t ins = wlx_text_edit_insert(buffer, buffer_cap, length,
+            &st->cursor_pos, &st->selection_anchor, ctx->input.preedit, pre_len, span, NULL);
+        if (ins > 0) {
+            size_t at = wlx_preedit_cursor_bytes(buffer + start, ins, ctx->input.preedit_cursor);
+            st->preedit_start = start;
+            st->preedit_len = ins;
+            st->preedit_doc_len = *length;
+            st->preedit_revision = revision;
+            st->composing = true;
+            st->cursor_pos = start + at;
+            st->selection_anchor = st->cursor_pos;
+            ctx->composing_id = id;
+            text_changed = true;
+        } else {
+            st->composing = false;
+        }
+#ifdef WLX_DEBUG
+        assert(wlx_text_unit_boundary(buffer, *length, st->cursor_pos)
+            && "text edit: composition caret off a unit boundary");
+#endif
+        st->cursor_blink_time = 0.0f;
+        st->preferred_x_valid = false;
+        wlx_text_undo_txn_end(undo, *length);
+        return text_changed;
+    }
+    st->composing = false;
 
     // SHIFT keeps the anchor in place so caret motion extends the selection;
     // Ctrl or Alt stretches motion and deletes to word granularity (Alt
@@ -14585,24 +14920,11 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
         }
     }
 
-    // Typed characters land at the caret, replacing a live selection.
-    {
-        size_t type_len = 0;
-        while (type_len < sizeof(ctx->input.text_input) && ctx->input.text_input[type_len] != '\0') {
-            type_len++;
-        }
-        if (type_len > 0 && !caps.read_only) {
-            wlx_text_undo_set_class(undo, WLX_TEXT_UNDO_CLS_TYPING);
-            if (wlx_text_edit_delete_selection(buffer, length,
-                    &st->cursor_pos, &st->selection_anchor, span, undo)) {
-                text_changed = true;
-            }
-            if (wlx_text_edit_insert(buffer, buffer_cap, length,
-                    &st->cursor_pos, &st->selection_anchor,
-                    ctx->input.text_input, type_len, span, undo) > 0) {
-                text_changed = true;
-            }
-        }
+    // Typed characters land at the caret, replacing a live selection (a
+    // composition frame consumed them above).
+    if (!commit_consumed
+        && wlx_text_edit_apply_typed(ctx, st, buffer, buffer_cap, length, caps, span, undo)) {
+        text_changed = true;
     }
 
     // Enter inserts a hard newline (replacing a live selection). Actuated on
@@ -14782,6 +15104,12 @@ static bool wlx_text_edit_handle_mouse(WLX_Context *ctx, WLX_Text_Edit_State *st
     WLX_Rect band, size_t text_len, bool shift, bool press,
     const WLX_Text_Mouse_Ops *ops)
 {
+    // While a composition string is in the buffer the pointer belongs to
+    // the input method: no caret placement, no drag.
+    if (st->composing) {
+        st->mouse_selecting = false;
+        return false;
+    }
     float mx = (float)ctx->input.mouse_x;
     float my = (float)ctx->input.mouse_y;
     bool changed = false;
@@ -14872,12 +15200,14 @@ static bool wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state
 {
     size_t len = strlen(buffer);
 
-    // Initialize cursor position when first focused
+    // Initialize cursor position when first focused. A tentative span
+    // recorded before the focus was lost is forgotten, never deleted.
     if (just_focused) {
         state->caret.cursor_pos = len;
         state->caret.selection_anchor = len;
         state->caret.cursor_blink_time = 0.0f;
         state->caret.preferred_x_valid = false;
+        wlx_text_edit_forget_preedit(&state->caret);
     }
 
     WLX_Text_Undo_Journal *undo = wlx_text_undo_get(ctx, id, len, revision, password);
@@ -14886,9 +15216,22 @@ static bool wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state
         (WLX_Text_Edit_Caps){ .read_only = read_only,
                               .allow_newline = multiline,
                               .word_delete = true,
-                              .mask_clipboard = password }, NULL, undo);
+                              .mask_clipboard = password }, NULL, undo, id, revision);
     buffer[len] = '\0';
     return text_changed;
+}
+
+// Focus left the field with a composition string still in the buffer:
+// adopt it as typed text (see wlx_text_edit_adopt_preedit).
+static bool wlx_inputbox_adopt_preedit(WLX_Context *ctx, WLX_Inputbox_State *state,
+    char *buffer, size_t buffer_size, bool password, WLX_Id id, uint32_t revision)
+{
+    size_t len = strlen(buffer);
+    WLX_Text_Undo_Journal *undo = wlx_text_undo_get(ctx, id, len, revision, password);
+    bool adopted = wlx_text_edit_adopt_preedit(&state->caret, buffer, buffer_size - 1, &len,
+        NULL, undo, revision);
+    buffer[len] = '\0';
+    return adopted;
 }
 
 // Pointer-driver hooks for the inputbox: hits resolve through the frame's
@@ -15207,7 +15550,7 @@ static void wlx_inputbox_caret_input(WLX_Context *ctx, const WLX_Inputbox_Opt *o
     // SHIFT extends the selection instead of collapsing it.
     bool home_hit = wlx_is_key_actuated(ctx, WLX_KEY_HOME);
     bool end_hit  = wlx_is_key_actuated(ctx, WLX_KEY_END);
-    if (home_hit || end_hit) {
+    if ((home_hit || end_hit) && !state->caret.composing) {
         if (wlx_mod_command_down(ctx)) {
             state->caret.cursor_pos = end_hit ? buf_len : 0;
         } else {
@@ -15233,7 +15576,7 @@ static void wlx_inputbox_caret_input(WLX_Context *ctx, const WLX_Inputbox_Opt *o
     // selection; without it the anchor follows the caret.
     bool up_hit   = opt->multiline && wlx_is_key_actuated(ctx, WLX_KEY_UP);
     bool down_hit = opt->multiline && wlx_is_key_actuated(ctx, WLX_KEY_DOWN);
-    if (up_hit != down_hit && line_count > 0) {
+    if (up_hit != down_hit && line_count > 0 && !state->caret.composing) {
         size_t disp_cursor = wlx_text_normalize_cursor_offset(disp_text, il->line_array.text_length,
             wlx_inputbox_display_offset(buffer, buf_len, state->caret.cursor_pos, opt->password));
 
@@ -15352,6 +15695,30 @@ static void wlx_inputbox_draw_content(WLX_Context *ctx, const WLX_Inputbox_Opt *
             opt->selection_color);
     }
 
+    // A composition string in progress: underlined, its selected clause
+    // in the selection colour. Display offsets, so a masked field
+    // underlines its mask glyphs.
+    if (inter.focused && state->caret.composing && state->caret.preedit_len > 0) {
+        size_t p_lo = state->caret.preedit_start;
+        size_t p_hi = p_lo + state->caret.preedit_len;
+        if (p_hi <= ib->buf_len && state->caret.cursor_pos >= p_lo && state->caret.cursor_pos <= p_hi) {
+            size_t clause_end = wlx_preedit_clause_end(buffer + p_lo, state->caret.preedit_len,
+                state->caret.cursor_pos - p_lo, ctx->input.preedit_sel_len);
+            if (clause_end > state->caret.cursor_pos - p_lo) {
+                wlx_text_draw_selection(ctx, text_rect, disp_text, disp_len, ts, 0.0f,
+                    NULL, NULL, il->lines, il->line_count,
+                    wlx_inputbox_display_offset(buffer, ib->buf_len, state->caret.cursor_pos, opt->password),
+                    wlx_inputbox_display_offset(buffer, ib->buf_len, p_lo + clause_end, opt->password),
+                    opt->selection_color);
+            }
+            wlx_text_draw_underline(ctx, text_rect, disp_text, disp_len, ts, 0.0f,
+                NULL, NULL, il->lines, il->line_count,
+                wlx_inputbox_display_offset(buffer, ib->buf_len, p_lo, opt->password),
+                wlx_inputbox_display_offset(buffer, ib->buf_len, p_hi, opt->password),
+                ts.color);
+        }
+    }
+
     wlx_draw_text_lines_fitted(ctx, text_rect, disp_text, disp_len, ts, il->lines, il->line_count);
 
     if (cursor_x > text_rect.x)
@@ -15379,6 +15746,16 @@ static void wlx_inputbox_draw_content(WLX_Context *ctx, const WLX_Inputbox_Opt *
     float caret_y = caret_top;
     if (inter.focused) {
         state->caret.cursor_blink_time += wlx_get_frame_time(ctx);
+    }
+
+    // The composition anchor: the caret's visual line and the caret's
+    // offset in it, for the platform's input method (an editable field
+    // only; the blink plays no part).
+    if (inter.focused && !inter.disabled && !opt->read_only
+        && (cursor_y + line_h) > text_rect.y && cursor_y < (text_rect.y + text_rect.h)) {
+        wlx_text_input_area_record(ctx,
+            (WLX_Rect){ text_rect.x, cursor_y, text_rect.w, line_h },
+            cursor_x - text_rect.x, opt->multiline, opt->password);
     }
 
     // Draw cursor if focused and its line intersects the text rect. The
@@ -15446,6 +15823,9 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
     if (inter.focused) {
         changed = wlx_inputbox_handle_keys(ctx, state, buffer, buffer_size, inter.just_focused,
             opt.read_only, opt.password, opt.multiline, persistent.id, opt.revision);
+    } else if (inter.just_unfocused && state->caret.preedit_len > 0) {
+        changed = wlx_inputbox_adopt_preedit(ctx, state, buffer, buffer_size,
+            opt.password, persistent.id, opt.revision);
     }
     if (opt.out_focused != NULL) *opt.out_focused = inter.focused;
 

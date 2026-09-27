@@ -217,6 +217,37 @@ static inline void test_reset_mock_cursor(void) {
     _mock_cursor_calls = 0;
 }
 
+// Composition anchor log: every value the core pushed through
+// set_text_input_area, in order, so a test can assert the edge sequence
+// (inactive -> active -> moved -> inactive) and the pushed geometry.
+#define MOCK_TIA_LOG_CAP 32
+static WLX_Text_Input_Area _mock_tia_log[MOCK_TIA_LOG_CAP];
+static int _mock_tia_count = 0;
+
+static void mock_set_text_input_area(const WLX_Text_Input_Area *area, void *user) {
+    (void)user;
+    if (_mock_tia_count < MOCK_TIA_LOG_CAP) _mock_tia_log[_mock_tia_count] = *area;
+    _mock_tia_count++;
+}
+
+static inline int mock_tia_calls(void) { return _mock_tia_count; }
+
+// The i-th pushed anchor (0-based); a zero anchor past the log.
+static inline WLX_Text_Input_Area mock_tia_at(int i) {
+    WLX_Text_Input_Area zero;
+    memset(&zero, 0, sizeof(zero));
+    return (i >= 0 && i < _mock_tia_count && i < MOCK_TIA_LOG_CAP) ? _mock_tia_log[i] : zero;
+}
+
+static inline WLX_Text_Input_Area mock_tia_last(void) {
+    return mock_tia_at(_mock_tia_count - 1);
+}
+
+static inline void test_reset_mock_tia(void) {
+    memset(_mock_tia_log, 0, sizeof(_mock_tia_log));
+    _mock_tia_count = 0;
+}
+
 // ============================================================================
 // Mock backend constructor
 // ============================================================================
@@ -244,6 +275,7 @@ static inline WLX_Backend mock_backend(void) {
     b.clipboard_get           = mock_clipboard_get;
     b.clipboard_set           = mock_clipboard_set;
     b.set_cursor              = mock_set_cursor;
+    b.set_text_input_area     = mock_set_text_input_area;
     return b;
 }
 

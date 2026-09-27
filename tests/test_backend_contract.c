@@ -93,6 +93,7 @@ TEST(backend_v1_shim_forwards_and_keeps_null_optionals) {
     ASSERT_TRUE(ctx.backend.clipboard_get == NULL);
     ASSERT_TRUE(ctx.backend.set_cursor == NULL);
     ASSERT_TRUE(ctx.backend.get_content_scale == NULL);  // the v2 slot stays optional
+    ASSERT_TRUE(ctx.backend.set_text_input_area == NULL); // and so does the composition anchor
 
     _v1_rect_calls = _v1_text_calls = _v1_frame_calls = 0;
     test_frame_begin(&ctx, 0, 0, false, false);

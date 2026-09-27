@@ -686,6 +686,35 @@ TEST(editor_index_patch_equals_rebuild) {
         if (!ok) printf("  named case %zu\n", i);
     }
 
+    // Composition sequences: a tentative span applied, replaced in place
+    // and removed at the same start, the shape of a composition string
+    // being typed, converted and cancelled, at every offset of documents
+    // with LF, CRLF and mixed separators; replacements that carry
+    // separators too, so the equivalence holds whatever the input method
+    // hands over.
+    static const char *comp_docs[] = { "ab\ncd", "ab\r\ncd", "a\nb\r\nc\rd", "" };
+    static const struct { const char *first, *second; } comp_seqs[] = {
+        { "ni", "nihon" }, { "x\ny", "x\r\ny" }, { "\r", "\r\n" },
+    };
+    for (size_t d = 0; ok && d < sizeof(comp_docs) / sizeof(comp_docs[0]); d++) {
+        size_t base_len = strlen(comp_docs[d]);
+        for (size_t start = 0; ok && start <= base_len; start++) {
+            for (size_t q = 0; ok && q < sizeof(comp_seqs) / sizeof(comp_seqs[0]); q++) {
+                memcpy(buf, comp_docs[d], base_len);
+                size_t len = base_len;
+                size_t n1 = strlen(comp_seqs[q].first), n2 = strlen(comp_seqs[q].second);
+                ok = wlx_editor_index_rebuild(&patched, buf, len)
+                    && ed_patch_matches_rebuild(&patched, &ref, buf, &len, start, start,
+                        comp_seqs[q].first, n1)
+                    && ed_patch_matches_rebuild(&patched, &ref, buf, &len, start, start + n1,
+                        comp_seqs[q].second, n2)
+                    && ed_patch_matches_rebuild(&patched, &ref, buf, &len, start, start + n2,
+                        "", 0);
+                if (!ok) printf("  composition sequence doc %zu start %zu seq %zu\n", d, start, q);
+            }
+        }
+    }
+
     // Randomised half: fixed seed, an alphabet dense in separators, four
     // sequential edits per document so a patch operates on a patched index.
     static const char alphabet[] = "ab\n\r\r\n\nx\r";

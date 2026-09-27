@@ -1964,6 +1964,11 @@ static void wlx_editor_draw_carets_and_bars(const WLX_Editor_Frame *f,
                 float caret_px = lines[i].origin_x + prefix;
                 if (prefix > 0.0f) caret_px += WLX_TEXT_CARET_PADDING;
                 float caret_py = lines[i].origin_y;
+                if (caret_py + line_h > band.y && caret_py < band.y + band.h
+                    && !opt->read_only && !f->inter.disabled) {
+                    wlx_text_input_area_record(ctx, (WLX_Rect){ band.x, caret_py, band.w, line_h },
+                        caret_px - band.x, true, false);
+                }
                 if (caret_px >= band.x && caret_px <= band.x + band.w
                     && caret_py + line_h > band.y && caret_py < band.y + band.h) {
                     wlx_text_caret_draw(ctx, band, caret_px,
@@ -1987,6 +1992,11 @@ static void wlx_editor_draw_carets_and_bars(const WLX_Editor_Frame *f,
         if (prefix > 0.0f) caret_px += WLX_TEXT_CARET_PADDING;
         float caret_py = band.y
             + ((float)((long)caret_line - (long)state->first_line) - state->y_frac) * line_h;
+        if (caret_py + line_h > band.y && caret_py < band.y + band.h
+            && !opt->read_only && !f->inter.disabled) {
+            wlx_text_input_area_record(ctx, (WLX_Rect){ band.x, caret_py, band.w, line_h },
+                caret_px - band.x, true, false);
+        }
         if (wlx_text_caret_blink_on(state->caret.cursor_blink_time)
             && caret_px >= band.x && caret_px <= band.x + band.w
             && caret_py + line_h > band.y && caret_py < band.y + band.h) {
@@ -2101,7 +2111,10 @@ static bool wlx_editor_caret_input(const WLX_Editor_Frame *f, WLX_Editor_Scroll 
     const WLX_Editor_Band *eb = &f->eb;
     bool caret_moved = false;
     WLX_Rect band = eb->band;
-    if (inter.focused && !inter.disabled && idx != NULL && idx->count > 0) {
+    // While a composition string is in the buffer the keys and the pointer
+    // belong to the input method.
+    if (inter.focused && !inter.disabled && idx != NULL && idx->count > 0
+        && !state->caret.composing) {
         if (inter.just_focused) {
             state->caret.cursor_blink_time = 0.0f;
             state->caret.preferred_x_valid = false;
@@ -2263,6 +2276,9 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
     if (inter.focused) {
         size_t pre_cursor = state->caret.cursor_pos;
         size_t pre_anchor = state->caret.selection_anchor;
+        // A tentative span recorded before the focus was lost is
+        // forgotten, never deleted.
+        if (inter.just_focused) wlx_text_edit_forget_preedit(&state->caret);
         // The undo journal is found by widget id under the caller's
         // revision, so history the buffer outgrew is dropped before the
         // chords could replay it. Undo and redo replay through the same
@@ -2272,10 +2288,19 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
         changed = wlx_text_edit_handle_keys(ctx, &state->caret, buffer, buffer_cap, length,
             (WLX_Text_Edit_Caps){ .read_only = opt.read_only,
                                   .allow_newline = true, .allow_tab = true,
-                                  .word_delete = true }, &edit_span, undo);
+                                  .word_delete = true }, &edit_span, undo, persistent.id,
+            opt.revision);
         if (changed && *length < buffer_cap) buffer[*length] = '\0';
         kb_caret_changed = pre_cursor != state->caret.cursor_pos
             || pre_anchor != state->caret.selection_anchor;
+    } else if (inter.just_unfocused && state->caret.preedit_len > 0) {
+        // Focus left with a composition string in the buffer: it becomes
+        // typed text, and the edit span carries it to the index patch.
+        WLX_Text_Undo_Journal *undo = wlx_text_undo_get(ctx, persistent.id, *length,
+            opt.revision, false);
+        changed = wlx_text_edit_adopt_preedit(&state->caret, buffer, buffer_cap, length,
+            &edit_span, undo, opt.revision);
+        if (changed && *length < buffer_cap) buffer[*length] = '\0';
     }
 
     // Optional leading label, placed by the vertical component of opt.content_align
@@ -2506,6 +2531,26 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
             size_t sel_max = wlx_text_edit_selection_max(&state->caret);
             wlx_text_draw_selection(ctx, band, doc, doc_len, ts, tab_advance,
                 idx, geom, lines, win_count, sel_min, sel_max, opt.selection_color);
+        }
+
+        // A composition string in progress: underlined, its selected
+        // clause in the selection colour.
+        if (win_count > 0 && inter.focused && state->caret.composing
+            && state->caret.preedit_len > 0
+            && state->caret.preedit_start + state->caret.preedit_len <= doc_len
+            && state->caret.cursor_pos >= state->caret.preedit_start
+            && state->caret.cursor_pos <= state->caret.preedit_start + state->caret.preedit_len) {
+            size_t p_lo = state->caret.preedit_start;
+            size_t p_hi = p_lo + state->caret.preedit_len;
+            size_t clause_end = wlx_preedit_clause_end(doc + p_lo, state->caret.preedit_len,
+                state->caret.cursor_pos - p_lo, ctx->input.preedit_sel_len);
+            if (clause_end > state->caret.cursor_pos - p_lo) {
+                wlx_text_draw_selection(ctx, band, doc, doc_len, ts, tab_advance,
+                    idx, geom, lines, win_count, state->caret.cursor_pos, p_lo + clause_end,
+                    opt.selection_color);
+            }
+            wlx_text_draw_underline(ctx, band, doc, doc_len, ts, tab_advance,
+                idx, geom, lines, win_count, p_lo, p_hi, ts.color);
         }
 
         if (win_count > 0) {
