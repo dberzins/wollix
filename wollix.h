@@ -2211,8 +2211,8 @@ typedef struct WLX_Context {
         // recorded no candidates (first frame of a context) - acquisition
         // then falls back to query-time capture.
         bool     arbitrate;
-        size_t   press_owner;
-        size_t   right_press_owner; // topmost candidate under a fresh right press; read on the press frame (right_clicked), latched until release so a right-drag could own it; never touches focus or hot
+        WLX_Id   press_owner;
+        WLX_Id   right_press_owner; // topmost candidate under a fresh right press; read on the press frame (right_clicked), latched until release so a right-drag could own it; never touches focus or hot
         int      pointer_layer;     // layer of the pointer's topmost candidate (0 when none): the wheel belongs to this layer
         bool     press_claimed;     // set when this frame's press owner's own query runs; popups snapshot it around their subtree to detect outside presses
         bool     active_is_focus;   // active_id holder is focus-class (inputbox/editor)
@@ -6829,7 +6829,7 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
 
     // While a widget is active (pressed or focused), only it may be
     // hot - the pre-arbitration rule, preserved.
-    size_t hover_owner = owner;
+    WLX_Id hover_owner = owner;
     if (ctx->interaction.active_id != 0
             && hover_owner != ctx->interaction.active_id) {
         hover_owner = 0;
