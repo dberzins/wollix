@@ -668,7 +668,8 @@ applied under. A frame that finds either changed forgets the span
 without touching a byte (the bytes are the application's now); a refocus
 after the editor was not drawn forgets it the same way. Focus leaving
 with a span in place adopts it: the bytes stay and gain the undo step a
-commit would have made. The commit itself records under the `COMPOSE`
+commit would have made; a string the backend still carries on that frame
+is the leaving widget's and is applied by no other. The commit itself records under the `COMPOSE`
 class, which never coalesces, so each committed clause undoes as one
 step and a cancelled composition leaves the journal exactly as it was
 (UNDO_MODEL.md, section 6). The caret's position inside the string comes

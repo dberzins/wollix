@@ -1966,7 +1966,7 @@ static void wlx_editor_draw_carets_and_bars(const WLX_Editor_Frame *f,
                 float caret_py = lines[i].origin_y;
                 if (caret_py + line_h > band.y && caret_py < band.y + band.h
                     && !opt->read_only && !f->inter.disabled) {
-                    wlx_text_input_area_record(ctx, (WLX_Rect){ band.x, caret_py, band.w, line_h },
+                    wlx_text_input_area_record(ctx, f->inter.id, (WLX_Rect){ band.x, caret_py, band.w, line_h },
                         caret_px - band.x, true, false);
                 }
                 if (caret_px >= band.x && caret_px <= band.x + band.w
@@ -1994,7 +1994,7 @@ static void wlx_editor_draw_carets_and_bars(const WLX_Editor_Frame *f,
             + ((float)((long)caret_line - (long)state->first_line) - state->y_frac) * line_h;
         if (caret_py + line_h > band.y && caret_py < band.y + band.h
             && !opt->read_only && !f->inter.disabled) {
-            wlx_text_input_area_record(ctx, (WLX_Rect){ band.x, caret_py, band.w, line_h },
+            wlx_text_input_area_record(ctx, f->inter.id, (WLX_Rect){ band.x, caret_py, band.w, line_h },
                 caret_px - band.x, true, false);
         }
         if (wlx_text_caret_blink_on(state->caret.cursor_blink_time)

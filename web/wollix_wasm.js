@@ -241,6 +241,7 @@ function probeCtxFilterSupported() {
     document.body.appendChild(proxy);
     let proxyActive = false;      // the core's anchor says an editable field has focus
     let proxyComposing = false;   // between compositionstart and compositionend
+    let proxyDiscardEnd = false;  // the core ended this composition itself: its end text is not a commit
 
     // Shared state written by DOM events, read by writeInputToWasm()
     const input = {
@@ -282,6 +283,7 @@ function probeCtxFilterSupported() {
     }
     proxy.addEventListener("compositionstart", (e) => {
         proxyComposing = true;
+        proxyDiscardEnd = false;
         readProxyComposition(e);
     });
     proxy.addEventListener("compositionupdate", readProxyComposition);
@@ -290,7 +292,11 @@ function probeCtxFilterSupported() {
         input.preedit = "";
         input.preeditCursor = -1;
         input.preeditSel = -1;
-        if (e.data) input.textInput += e.data;
+        // A composition the core ended by taking focus off the field (the
+        // inactive anchor) is already settled there: the field kept its
+        // string, so the browser's end text must not land a second time.
+        if (e.data && !proxyDiscardEnd) input.textInput += e.data;
+        proxyDiscardEnd = false;
     });
     proxy.addEventListener("input", (e) => {
         if (e.isComposing || e.inputType !== "insertText") return;
@@ -787,6 +793,7 @@ function probeCtxFilterSupported() {
         set_text_input_area(active, x, y, w, h, cursor, multiline, password) {
             proxyActive = active !== 0;
             if (!proxyActive) {
+                if (proxyComposing) proxyDiscardEnd = true;
                 if (document.activeElement === proxy) proxy.blur();
                 proxy.value = "";
                 return;

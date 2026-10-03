@@ -604,7 +604,9 @@ typedef enum {
 // assembles it from the focused widget's caret geometry and pushes it
 // through WLX_Backend.set_text_input_area from wlx_end, only when it
 // changed. active is false when no editable text widget has focus, and
-// the other members are then zero.
+// the other members are then zero. Focus moving straight from one text
+// widget to another is pushed as a loss first: one inactive frame, then
+// the new widget's line on the next.
 typedef struct {
     bool     active;     // an editable text widget holds focus this frame
     WLX_Rect line;       // the caret's visual line, clipped to the widget's text band (units)
@@ -734,8 +736,9 @@ typedef struct {
     // text widget's caret line (WLX_Text_Input_Area) once per frame from
     // wlx_end and only when it changed, so implementations stay
     // stateless: start or stop the platform's text input on the active
-    // edge and re-anchor its candidate window on every call. NULL -> the
-    // platform is never told.
+    // edge and re-anchor its candidate window on every call. The inactive
+    // edge ends any composition in flight: drop the string, so the next
+    // frame's preedit is empty. NULL -> the platform is never told.
     void (*set_text_input_area)(const WLX_Text_Input_Area *area, void *user); /* optional */
 } WLX_Backend;
 
@@ -2257,9 +2260,16 @@ typedef struct WLX_Context {
     // last pushed through backend.set_text_input_area and pushes on change.
     WLX_Text_Input_Area text_input_area;
     WLX_Text_Input_Area text_input_applied;
-    // The widget that applied this frame's composition string (0 = none),
-    // so a string the backend still carries reaches no other widget.
+    // The widgets behind the recorded and the pushed anchor: a change of
+    // owner is pushed as a loss of focus first (see wlx_end).
+    WLX_Id text_input_owner;
+    WLX_Id text_input_applied_owner;
+    // The widget that applied this frame's composition string (0 = none)
+    // and the one that applied the previous frame's: a string the backend
+    // still carries after focus moved belongs to that widget's composition
+    // and reaches no other.
     WLX_Id composing_id;
+    WLX_Id composing_prev_id;
 
     // Per-frame buffer pool. Owns layouts, commands, cmd_ranges, scratch,
     // slot offsets, scroll-panel stack, id stack, and opacity stack.
@@ -6933,6 +6943,8 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
     ctx->interaction.tab_consumed = false;
     // The composition anchor and owner are rebuilt by this frame's widgets.
     memset(&ctx->text_input_area, 0, sizeof(ctx->text_input_area));
+    ctx->text_input_owner = 0;
+    ctx->composing_prev_id = ctx->composing_id;
     ctx->composing_id = 0;
     // The frame's single backend time sample; adapters may measure time
     // since their own previous call because the core calls exactly once.
@@ -7009,7 +7021,7 @@ static inline bool wlx_text_input_area_equal(const WLX_Text_Input_Area *a,
 
 // Record the focused editable text widget's caret line for this frame's
 // composition anchor. One widget holds focus, so the last record wins.
-static inline void wlx_text_input_area_record(WLX_Context *ctx, WLX_Rect line,
+static inline void wlx_text_input_area_record(WLX_Context *ctx, WLX_Id id, WLX_Rect line,
     float cursor, bool multiline, bool password)
 {
     WLX_Text_Input_Area a;
@@ -7019,6 +7031,7 @@ static inline void wlx_text_input_area_record(WLX_Context *ctx, WLX_Rect line,
     a.multiline = multiline;
     a.password = password;
     ctx->text_input_area = a;
+    ctx->text_input_owner = id;
 }
 
 // ----------------------------------------------------------------------------
@@ -7327,8 +7340,17 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
 
     // Composition anchor: pushed to the backend only when it changed since
     // the last push (an inactive frame after an active one pushes once).
+    // Focus moving straight from one text widget to another is a loss
+    // first: the backend gets one inactive frame, which ends the leaving
+    // widget's composition on the platform, and the new owner's anchor
+    // follows on the next frame.
+    if (ctx->text_input_area.active && ctx->text_input_applied.active
+            && ctx->text_input_owner != ctx->text_input_applied_owner) {
+        memset(&ctx->text_input_area, 0, sizeof(ctx->text_input_area));
+    }
     if (!wlx_text_input_area_equal(&ctx->text_input_area, &ctx->text_input_applied)) {
         ctx->text_input_applied = ctx->text_input_area;
+        ctx->text_input_applied_owner = ctx->text_input_area.active ? ctx->text_input_owner : 0;
         if (ctx->backend.set_text_input_area != NULL) {
             ctx->backend.set_text_input_area(&ctx->text_input_applied, ctx->backend.user);
         }
@@ -14765,6 +14787,10 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     // accounts for is forgotten, never deleted.
     size_t pre_len = 0;
     while (pre_len < sizeof(ctx->input.preedit) && ctx->input.preedit[pre_len] != '\0') pre_len++;
+    // A string another widget applied last frame is that widget's
+    // composition: focus moved here in mid-composition and the backend
+    // learns of it at this frame's end. It is not this widget's to show.
+    if (ctx->composing_prev_id != 0 && ctx->composing_prev_id != id) pre_len = 0;
     bool had_span = false;
     if (st->preedit_len > 0) {
         if (!wlx_text_edit_preedit_intact(st, *length, revision)) {
@@ -15753,7 +15779,7 @@ static void wlx_inputbox_draw_content(WLX_Context *ctx, const WLX_Inputbox_Opt *
     // only; the blink plays no part).
     if (inter.focused && !inter.disabled && !opt->read_only
         && (cursor_y + line_h) > text_rect.y && cursor_y < (text_rect.y + text_rect.h)) {
-        wlx_text_input_area_record(ctx,
+        wlx_text_input_area_record(ctx, inter.id,
             (WLX_Rect){ text_rect.x, cursor_y, text_rect.w, line_h },
             cursor_x - text_rect.x, opt->multiline, opt->password);
     }

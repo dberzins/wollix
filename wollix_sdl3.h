@@ -33,7 +33,8 @@ static char g_wlx_sdl3_text_input[WLX_INPUT_TEXT_BYTES] = {0};
 static size_t g_wlx_sdl3_text_len = 0;
 // Composition state from SDL_EVENT_TEXT_EDITING: the whole current string
 // (replaced on each event, not appended), its codepoint cursor and selected
-// clause; cleared when text input stops. Copied into every frame's input.
+// clause; cleared when text input stops or the window loses focus. Copied
+// into every frame's input.
 static char g_wlx_sdl3_preedit[WLX_INPUT_PREEDIT_BYTES] = {0};
 static int32_t g_wlx_sdl3_preedit_cursor = -1;
 static int32_t g_wlx_sdl3_preedit_sel = -1;
@@ -42,6 +43,11 @@ static int32_t g_wlx_sdl3_preedit_sel = -1;
 static bool g_wlx_sdl3_text_active = false;
 static bool g_wlx_sdl3_text_multiline = false;
 static bool g_wlx_sdl3_text_password = false;
+// The anchor as last handed to SDL (window coordinates), kept so it can be
+// handed over again after the window moves.
+static SDL_Rect g_wlx_sdl3_area_rect = {0};
+static int g_wlx_sdl3_area_cursor = 0;
+static bool g_wlx_sdl3_area_moved = false;
 static bool g_wlx_sdl3_event_watch_installed = false;
 static Uint64 g_wlx_sdl3_last_counter = 0;
 // OS auto-repeat ticks accumulated by the event watch between frames. SDL only
@@ -306,6 +312,31 @@ static size_t wlx_sdl3_append_codepoints(char *dst, size_t cap, size_t len, cons
     return len;
 }
 
+// The composition is over: the next frame's input carries no string, so the
+// focused widget drops its tentative span.
+static void wlx_sdl3_clear_preedit(void) {
+    g_wlx_sdl3_preedit[0] = '\0';
+    g_wlx_sdl3_preedit_cursor = -1;
+    g_wlx_sdl3_preedit_sel = -1;
+}
+
+// Hand SDL the stored anchor again after the window moved. SDL's X11
+// driver forwards the caret position only when its window coordinates
+// change, and the input method turned them into a screen position when it
+// received them, so its candidate window would stay where the window was
+// until the caret next moves. The one-pixel detour makes SDL forward the
+// unchanged position. Other video drivers anchor relative to the window.
+static void wlx_sdl3_resend_text_input_area(void) {
+    if (!g_wlx_sdl3_text_active || g_wlx_sdl3_renderer == NULL) return;
+    const char *driver = SDL_GetCurrentVideoDriver();
+    if (driver == NULL || strcmp(driver, "x11") != 0) return;
+    SDL_Window *window = SDL_GetRenderWindow(g_wlx_sdl3_renderer);
+    if (window == NULL) return;
+    SDL_Rect nudged = g_wlx_sdl3_area_rect;
+    nudged.h += 1;
+    SDL_SetTextInputArea(window, &nudged, g_wlx_sdl3_area_cursor);
+    SDL_SetTextInputArea(window, &g_wlx_sdl3_area_rect, g_wlx_sdl3_area_cursor);
+}
 
 static bool wlx_sdl3_event_watch(void *userdata, SDL_Event *event) {
     WLX_UNUSED(userdata);
@@ -346,6 +377,19 @@ static bool wlx_sdl3_event_watch(void *userdata, SDL_Event *event) {
             g_wlx_sdl3_preedit_sel = (int32_t)event->edit.length;
             break;
         }
+        case SDL_EVENT_WINDOW_FOCUS_LOST: {
+            // The input method ends or abandons its composition when the
+            // window loses focus, and an unfocused window is sent no editing
+            // event to say so. Without this the string would stay in the
+            // widget while the next key press is no longer the method's.
+            wlx_sdl3_clear_preedit();
+            break;
+        }
+        case SDL_EVENT_WINDOW_MOVED: {
+            // Acted on in the pump, once per frame however many arrive.
+            g_wlx_sdl3_area_moved = true;
+            break;
+        }
         case SDL_EVENT_KEY_DOWN: {
             // Record OS auto-repeat ticks; the initial press is reported through
             // the polled keyboard state in the pump instead.
@@ -376,6 +420,11 @@ static inline void wlx_process_sdl3_input(WLX_Context *ctx) {
     static bool prev_middle_down = false;
 
     SDL_PumpEvents();
+
+    if (g_wlx_sdl3_area_moved) {
+        g_wlx_sdl3_area_moved = false;
+        wlx_sdl3_resend_text_input_area();
+    }
 
     // Touch arrives through the same mouse state: SDL3 synthesizes mouse
     // events for single-finger touch by default (SDL_TOUCH_MOUSEID), so no
@@ -1836,9 +1885,7 @@ static inline void wlx_sdl3_set_text_input_area(const WLX_Text_Input_Area *area,
             g_wlx_sdl3_text_active = false;
         }
         // Whatever the input method still held is gone with the session.
-        g_wlx_sdl3_preedit[0] = '\0';
-        g_wlx_sdl3_preedit_cursor = -1;
-        g_wlx_sdl3_preedit_sel = -1;
+        wlx_sdl3_clear_preedit();
         return;
     }
     if (!g_wlx_sdl3_text_active || g_wlx_sdl3_text_multiline != area->multiline
@@ -1868,7 +1915,9 @@ static inline void wlx_sdl3_set_text_input_area(const WLX_Text_Input_Area *area,
     SDL_Rect rect = { (int)x0, (int)y0, (int)(x1 - x0), (int)(y1 - y0) };
     if (rect.w < 1) rect.w = 1;
     if (rect.h < 1) rect.h = 1;
-    SDL_SetTextInputArea(window, &rect, (int)(cx - x0));
+    g_wlx_sdl3_area_rect = rect;
+    g_wlx_sdl3_area_cursor = (int)(cx - x0);
+    SDL_SetTextInputArea(window, &g_wlx_sdl3_area_rect, g_wlx_sdl3_area_cursor);
 }
 
 // Call before SDL_Init: Wollix draws the composition string inline in its

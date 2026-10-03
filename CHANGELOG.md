@@ -198,7 +198,10 @@ your own pace before the next minor.
   new `COMPOSE` class, which never coalesces; a cancel leaves buffer and
   journal exactly as before; composing over a selection deletes it first
   as its own step; focus leaving with a span in place keeps the bytes and
-  records the step a commit would have. While a span exists the keys and
+  records the step a commit would have, and when focus moves straight
+  into another text field the composition ends there: the backend gets
+  one inactive anchor between the two owners and the entering field never
+  shows the leaving field's string. While a span exists the keys and
   the mouse belong to the input method. The span follows the widget's
   length and `.revision` like the undo journal: an outside change forgets
   it without touching a byte. `wlx_text_composing(ctx)` reports a
@@ -208,14 +211,18 @@ your own pace before the next minor.
   only on change, with `wlx_text_input_area(ctx)` for hosts without the
   callback. SDL3: `SDL_EVENT_TEXT_EDITING` as state, focus-gated
   `SDL_StartTextInputWithProperties` (text or hidden password, multiline)
-  and `SDL_StopTextInput`, `SDL_SetTextInputArea` at the caret, and
+  and `SDL_StopTextInput`, `SDL_SetTextInputArea` at the caret (handed
+  over again after the window moves on X11, where the input method holds
+  a screen position), the
+  composition ended when the window loses focus (the input method drops
+  it there without an editing event), and
   `wlx_sdl3_ime_hints()` to call before `SDL_Init` so the platform draws
   no composition window (the SDL3 demos do). Web host: a hidden text
   proxy at the caret receives composition and dead keys, which produced
   no text before. Raylib stays commit-only. `make perf-editor` gains
   composing and commit rows inside twice the typing bounds with no index
   rebuild; `tests/test_ime.c` pins the no-composition identity of the
-  three widgets and the composition behaviour in twenty-one tests. The
+  three widgets and the composition behaviour in twenty-three tests. The
   README's text-entry disclaimer is rewritten accordingly.
 - **`WLX_DEBUG` report for decreasing advances.** A `measure_text_advances`
   chunk whose advances decrease (a font shaped right to left, or a lost

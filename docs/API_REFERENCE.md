@@ -457,13 +457,22 @@ from the focused editable text widget's caret line (the inputbox, the
 textarea, the editor; never a read-only or disabled one) and pushes it
 from `wlx_end` **only when it changed**: `active` turns true when such a
 widget takes focus, the line and cursor follow the caret, and one push
-with `active` false follows the loss of focus. An adapter starts the
+with `active` false follows the loss of focus. Focus moving straight
+from one text widget to another is a loss first: the push for that frame
+is the inactive one, and the new widget's anchor follows on the next
+frame, so the platform ends the leaving widget's composition before the
+entering widget can receive one. An adapter starts the
 platform's text input on the active edge (engaging the input method and,
-on mobile, the keyboard), stops it on the inactive edge, and anchors the
+on mobile, the keyboard), stops it on the inactive edge and drops any
+composition string it still holds, and anchors the
 candidate window at the caret on every call; the SDL3 adapter does
 exactly this through `SDL_StartTextInputWithProperties`,
 `SDL_StopTextInput` and `SDL_SetTextInputArea`, the web host by
-focusing and placing its hidden text proxy. Hosts without the callback
+focusing and placing its hidden text proxy. The anchor is in units
+relative to the window, and a window move changes nothing in it, so the
+core does not push; an adapter whose platform turned the anchor into a
+screen position hands it over again itself (the SDL3 adapter does on
+X11, after `SDL_EVENT_WINDOW_MOVED`). Hosts without the callback
 read the last pushed value with `wlx_text_input_area`. The table's
 shape, this member included, is the frozen v2 contract.
 
@@ -875,7 +884,11 @@ it, both in codepoints from the start of `preedit`, `-1` when the platform
 gives none; the core maps them to bytes, snaps the caret forward to a
 grapheme-cluster boundary and clamps to the string's end. Committed text
 keeps arriving through `text_input`, including the commit that ends a
-composition. The two capacities are the fixed constants
+composition. A backend empties `preedit` when its window loses focus:
+the input method ends or abandons the composition there and an unfocused
+window is told nothing, so a string left in place would outlive it (the
+SDL3 adapter does this on `SDL_EVENT_WINDOW_FOCUS_LOST`, the web host on
+its proxy's `blur`). The two capacities are the fixed constants
 `WLX_INPUT_TEXT_BYTES` and `WLX_INPUT_PREEDIT_BYTES` (128, not
 overridable: the WASM host asserts the layout at build time). See
 [Composition input](WIDGETS.md#composition-input) for what the widgets

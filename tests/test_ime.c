@@ -1089,6 +1089,98 @@ TEST(ime_editor_linear_span_and_index_patch) {
     wlx_context_destroy(&ctx);
 }
 
+// One frame over two inputboxes stacked in the 400x100 context (the first
+// in the upper half, the second in the lower), from a staged pointer and
+// composition string (NULL = none).
+static void ime_two_fields(WLX_Context *ctx, char *first, char *second, size_t cap,
+                           int my, bool clicked, const char *preedit)
+{
+    WLX_Input_State in;
+    memset(&in, 0, sizeof(in));
+    in.mouse_x = 200;
+    in.mouse_y = my;
+    in.mouse_down = clicked;
+    in.mouse_clicked = clicked;
+    in.mouse_held = clicked;
+    if (preedit != NULL) {
+        size_t n = strlen(preedit);
+        if (n >= sizeof(in.preedit)) n = sizeof(in.preedit) - 1;
+        memcpy(in.preedit, preedit, n);
+    }
+    in.preedit_cursor = -1;
+    in.preedit_sel_len = -1;
+    test_frame_begin_input(ctx, &in);
+    wlx_layout_begin(ctx, 2, WLX_VERT, .padding = 0, .gap = 0);
+    wlx_inputbox_impl(ctx, NULL, first, cap,
+        wlx_default_inputbox_opt(.height = 40, .content_padding = 4, .font_size = 10,
+            .border_width = 0), __FILE__, __LINE__);
+    wlx_inputbox_impl(ctx, NULL, second, cap,
+        wlx_default_inputbox_opt(.height = 40, .content_padding = 4, .font_size = 10,
+            .border_width = 0), __FILE__, __LINE__);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
+// Compose in the field at from_y, then press the field at to_y while the
+// backend still carries the string: the leaving field keeps it as a commit
+// would, the entering field never shows it, and the backend gets one
+// inactive frame between the two owners before the new anchor.
+static void ime_focus_move_body(int from_y, int to_y) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    char upper[64] = "ab";
+    char lower[64] = "cd";
+    char *from = from_y < 50 ? upper : lower;
+    char *to = from_y < 50 ? lower : upper;
+    const char *from_composed = from_y < 50 ? "abho" : "cdho";
+    const char *to_plain = from_y < 50 ? "cd" : "ab";
+    const char *to_composed = from_y < 50 ? "cdx" : "abx";
+
+    ime_two_fields(&ctx, upper, lower, sizeof(upper), from_y, false, NULL);
+    ime_two_fields(&ctx, upper, lower, sizeof(upper), from_y, true, NULL);
+    ime_two_fields(&ctx, upper, lower, sizeof(upper), from_y, false, NULL);
+    ASSERT_EQ_INT(1, mock_tia_calls());
+    ASSERT_TRUE(mock_tia_last().active);
+    float from_line_y = mock_tia_last().line.y;
+    ime_two_fields(&ctx, upper, lower, sizeof(upper), from_y, false, "ho");
+    ASSERT_EQ_STR(from, from_composed);
+    ASSERT_TRUE(wlx_text_composing(&ctx));
+    int calls = mock_tia_calls();
+
+    // The press on the other field; the string is still in the input.
+    ime_two_fields(&ctx, upper, lower, sizeof(upper), to_y, true, "ho");
+    ASSERT_EQ_STR(from, from_composed);                     // adopted
+    ASSERT_EQ_STR(to, to_plain);                            // never shown
+    ASSERT_FALSE(wlx_text_composing(&ctx));
+    ASSERT_EQ_INT(calls + 1, mock_tia_calls());
+    ASSERT_FALSE(mock_tia_last().active);                   // the loss, alone
+    ASSERT_FALSE(wlx_text_input_area(&ctx).active);
+
+    // The backend dropped its string on the inactive edge; the new owner's
+    // anchor follows.
+    ime_two_fields(&ctx, upper, lower, sizeof(upper), to_y, false, NULL);
+    ASSERT_EQ_INT(calls + 2, mock_tia_calls());
+    ASSERT_TRUE(mock_tia_last().active);
+    ASSERT_TRUE(mock_tia_last().line.y != from_line_y);
+    ASSERT_EQ_STR(from, from_composed);
+    ASSERT_EQ_STR(to, to_plain);
+
+    // A composition started now is the entering field's own.
+    ime_two_fields(&ctx, upper, lower, sizeof(upper), to_y, false, "x");
+    ASSERT_EQ_STR(to, to_composed);
+    ASSERT_EQ_STR(from, from_composed);
+    ASSERT_TRUE(wlx_text_composing(&ctx));
+    ime_two_fields(&ctx, upper, lower, sizeof(upper), to_y, false, NULL);
+    ASSERT_EQ_STR(to, to_plain);
+    ASSERT_FALSE(wlx_text_composing(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+// Both layout orders: the entering field runs after the leaving one, and
+// before it.
+TEST(ime_focus_move_to_a_later_field_ends_the_composition) { ime_focus_move_body(25, 75); }
+TEST(ime_focus_move_to_an_earlier_field_ends_the_composition) { ime_focus_move_body(75, 25); }
+
 // ============================================================================
 // Suite
 // ============================================================================
@@ -1113,6 +1205,8 @@ SUITE(ime) {
     RUN_TEST(ime_forget_on_focus_and_on_external_change);
     RUN_TEST(ime_keys_and_mouse_are_off_while_composing);
     RUN_TEST(ime_area_pushed_on_edges_and_change);
+    RUN_TEST(ime_focus_move_to_a_later_field_ends_the_composition);
+    RUN_TEST(ime_focus_move_to_an_earlier_field_ends_the_composition);
     RUN_TEST(ime_editor_wrapped_span_reflows);
     RUN_TEST(ime_editor_linear_span_and_index_patch);
 }
