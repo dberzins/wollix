@@ -217,7 +217,10 @@ your own pace before the next minor.
   composition ended when the window loses focus (the input method drops
   it there without an editing event), and
   `wlx_sdl3_ime_hints()` to call before `SDL_Init` so the platform draws
-  no composition window (the SDL3 demos do). Web host: a hidden text
+  no composition window (the SDL3 demos do); on X11 the helper also takes
+  the environment's `LC_CTYPE` when the process still has the `"C"`
+  default, without which Xlib's inline-composition path hangs on a
+  composition with ASCII before non-ASCII text. Web host: a hidden text
   proxy at the caret receives composition and dead keys, which produced
   no text before. Raylib stays commit-only. `make perf-editor` gains
   composing and commit rows inside twice the typing bounds with no index

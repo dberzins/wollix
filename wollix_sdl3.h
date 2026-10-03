@@ -16,6 +16,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <locale.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -1924,7 +1925,26 @@ static inline void wlx_sdl3_set_text_input_area(const WLX_Text_Input_Area *area,
 // text widgets, so the platform must not draw its own composition window
 // (SDL_HINT_IME_IMPLEMENTED_UI is read at initialisation). Candidate lists
 // stay the platform's.
+//
+// On X11 platforms the process also takes the environment's character type
+// (LC_CTYPE alone) when it still has the "C" default; a host that already
+// chose a locale keeps it. Inline composition makes Xlib walk every
+// composition string with mblen() and no error check: under "C" a string
+// with an ASCII character before a non-ASCII one never ends that walk and
+// the application hangs inside the event pump. SDL selects the environment
+// locale only while it opens the input method and then restores the old
+// one, so the process has to hold it itself. Where no other character type
+// is available the hint is left unset and the platform draws the
+// composition.
 static inline void wlx_sdl3_ime_hints(void) {
+#if defined(SDL_PLATFORM_UNIX) && !defined(SDL_PLATFORM_APPLE) \
+    && !defined(SDL_PLATFORM_ANDROID) && !defined(SDL_PLATFORM_EMSCRIPTEN)
+    const char *ctype = setlocale(LC_CTYPE, NULL);
+    if (ctype == NULL || strcmp(ctype, "C") == 0 || strcmp(ctype, "POSIX") == 0) {
+        ctype = setlocale(LC_CTYPE, "");
+        if (ctype == NULL || strcmp(ctype, "C") == 0 || strcmp(ctype, "POSIX") == 0) return;
+    }
+#endif
     SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
 }
 

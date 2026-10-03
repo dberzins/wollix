@@ -247,7 +247,11 @@ layout_end(&ctx);
 > **SDL3 and input methods:** call `wlx_sdl3_ime_hints()` before
 > `SDL_Init()` (the demos do). Wollix draws the composition string inline
 > in its text widgets, and the hint tells the platform not to open a
-> composition window of its own.
+> composition window of its own. On X11 the helper also gives the process
+> the environment's character type (`setlocale(LC_CTYPE, "")`) when it
+> still has the `"C"` default: Xlib's inline-composition path hangs under
+> `"C"` on a composition that mixes ASCII and non-ASCII text. A host that
+> sets `SDL_HINT_IME_IMPLEMENTED_UI` itself must do the same.
 
 ## Text Rendering
 

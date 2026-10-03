@@ -1174,7 +1174,11 @@ widget has focus (a `.read_only` or `.disabled` field never composes and
 never asks for it); a `.password` field composes with its span masked
 like the rest, and tells the platform the field is a hidden password so
 it may disable prediction. On SDL3 call `wlx_sdl3_ime_hints()` before
-`SDL_Init()` so the platform draws no composition window of its own.
+`SDL_Init()` so the platform draws no composition window of its own; on
+X11 it also takes the environment's `LC_CTYPE` when the process still has
+the `"C"` default, which Xlib's inline-composition path needs (under
+`"C"` it hangs on a string with ASCII before non-ASCII text), and leaves
+the hint unset when no other character type is available.
 Candidate lists stay the platform's. Raylib receives committed text
 only: its platform draws the composition, nothing is drawn inline. The
 contract the backends implement is in
