@@ -1132,7 +1132,8 @@ typedef struct WLX_Layout {
 
 // Growable slot sizes buffer for layout slot offsets - reused across frames,
 // reset each frame in wlx_begin(). Layouts reserve slices from this buffer
-// via wlx_scratch_alloc(), so there is zero per-layout heap traffic.
+// via wlx_scratch_reserve(), which returns an index (the buffer moves when it
+// grows), so there is zero per-layout heap traffic.
 typedef struct {
     float *items;
     size_t count;
@@ -6018,28 +6019,20 @@ static inline void wlx_scissor_scope_end(WLX_Context *ctx, WLX_Scissor_Scope sco
     if (scope.parent_active) wlx_begin_scissor(ctx, scope.parent_rect);
 }
 
-// Reserve `n` floats from the context slot sizes buffer, returning a pointer
-// to the first element. The buffer grows as needed but is never freed -
-// it is simply reset (count = 0) each frame in wlx_begin().
-static inline float *wlx_scratch_alloc(WLX_Context *ctx, size_t n) {
+// Reserve `n` floats from the slot-size-offsets sub-arena and return the
+// index of the first. Only the index leaves: the arena is realloc-grown,
+// so a pointer taken here dangles after the next reservation. Re-derive
+// with wlx_pool_slot_size_offsets(ctx) + index at each use. The arena is
+// never freed - it is reset (count = 0) each frame in wlx_begin().
+static inline size_t wlx_scratch_reserve(WLX_Context *ctx, size_t n) {
     assert(ctx != NULL);
-    assert(n > 0 && n <= WLX_MAX_SLOT_COUNT && "unreasonable scratch alloc - did you pass a negative count?");
-    size_t base = wlx_sub_arena_alloc(&ctx->arena.slot_size_offsets, n);
-    return &wlx_pool_slot_size_offsets(ctx)[base];
-}
-
-// Reserve `n` floats from the dynamic-layout offset buffer, returning a pointer
-// to the first element. Mirrors wlx_scratch_alloc but uses the separate
-// dyn_offsets arena so dynamic-layout growth cannot corrupt static offsets.
-static inline float *wlx_dyn_scratch_alloc(WLX_Context *ctx, size_t n) {
-    assert(ctx != NULL);
-    assert(n > 0 && n <= WLX_MAX_SLOT_COUNT && "unreasonable dyn scratch alloc");
-    size_t base = wlx_sub_arena_alloc(&ctx->arena.dyn_offsets, n);
-    return &wlx_pool_dyn_offsets(ctx)[base];
+    assert(n > 0 && n <= WLX_MAX_SLOT_COUNT && "unreasonable scratch reserve - did you pass a negative count?");
+    return wlx_sub_arena_alloc(&ctx->arena.slot_size_offsets, n);
 }
 
 // Reserve `size` bytes (with `align` alignment) from the generic byte scratch
-// arena. Same lifetime as wlx_scratch_alloc - reset each frame in wlx_begin().
+// arena, reset each frame in wlx_begin() like the slot-size-offsets arena.
+// The pointer is valid until the next byte-scratch allocation.
 static inline void *wlx_scratch_alloc_bytes(WLX_Context *ctx, size_t size, size_t align) {
     assert(ctx != NULL);
     assert(size > 0);
@@ -6322,8 +6315,7 @@ WLXDEF WLX_Layout wlx_create_layout(WLX_Context *ctx, WLX_Rect r, size_t count, 
     count = wlx_contract_count(ctx, count,
         "layout slot count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", NULL, 0);
 
-    size_t offsets_base = ctx->arena.slot_size_offsets.count;
-    (void)wlx_scratch_alloc(ctx, count + 1);
+    size_t offsets_base = wlx_scratch_reserve(ctx, count + 1);
 
     WLX_Layout l = {
         .kind = WLX_LAYOUT_LINEAR,
@@ -6388,13 +6380,14 @@ WLXDEF WLX_Layout wlx_create_grid(WLX_Context *ctx, WLX_Rect r,
     cols = wlx_contract_count(ctx, cols,
         "grid column count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", NULL, 0);
 
-    size_t row_base = ctx->arena.slot_size_offsets.count;
-    float *row_off = wlx_scratch_alloc(ctx, rows + 1);
-    size_t col_base = ctx->arena.slot_size_offsets.count;
-    float *col_off = wlx_scratch_alloc(ctx, cols + 1);
-
-    wlx_compute_offsets_ctx(ctx, row_off, rows, r.h, r.h, row_sizes, gap);
-    wlx_compute_offsets_ctx(ctx, col_off, cols, r.w, r.w, col_sizes, gap);
+    // Both reservations first: the second may move the arena, so each
+    // offsets array is derived from its index only after it.
+    size_t row_base = wlx_scratch_reserve(ctx, rows + 1);
+    size_t col_base = wlx_scratch_reserve(ctx, cols + 1);
+    wlx_compute_offsets_ctx(ctx, wlx_pool_slot_size_offsets(ctx) + row_base,
+        rows, r.h, r.h, row_sizes, gap);
+    wlx_compute_offsets_ctx(ctx, wlx_pool_slot_size_offsets(ctx) + col_base,
+        cols, r.w, r.w, col_sizes, gap);
 
     return (WLX_Layout){
         .kind        = WLX_LAYOUT_GRID,
@@ -6424,9 +6417,9 @@ WLXDEF WLX_Layout wlx_create_grid_auto(WLX_Context *ctx, WLX_Rect r,
         "auto grid row size must be positive; using 1 px", NULL, 0);
 
     // Column offsets: fixed, computed immediately
-    size_t col_base = ctx->arena.slot_size_offsets.count;
-    float *col_off = wlx_scratch_alloc(ctx, cols + 1);
-    wlx_compute_offsets_ctx(ctx, col_off, cols, r.w, r.w, col_sizes, gap);
+    size_t col_base = wlx_scratch_reserve(ctx, cols + 1);
+    wlx_compute_offsets_ctx(ctx, wlx_pool_slot_size_offsets(ctx) + col_base,
+        cols, r.w, r.w, col_sizes, gap);
 
     // Row offsets: dynamic, starts with sentinel only (on dyn_offsets arena)
     size_t row_base = ctx->arena.dyn_offsets.count;
@@ -8075,7 +8068,9 @@ static inline bool wlx_has_content_sizes(const WLX_Slot_Size *sizes, size_t coun
 //  - asserts count <= WLX_CONTENT_SLOTS_MAX
 //  - fetches persistent WLX_Content_Slot_State via wlx_get_state_impl
 //  - fills resolved[0..count-1] replacing CONTENT -> PX(measured)
-//  - copies original sizes to the byte scratch arena
+//  - copies original sizes to the byte scratch arena and writes the copy's
+//    byte offset to *out_sizes_off (an offset, never a pointer: the solver
+//    the caller runs next may grow and move that arena)
 // resolved must point to a caller-allocated buffer of at least WLX_CONTENT_SLOTS_MAX elements.
 // Returns false (and zeroes out-params) when no CONTENT slot is found.
 static inline bool wlx_prepare_content_sizes(
@@ -8083,11 +8078,11 @@ static inline bool wlx_prepare_content_sizes(
     const WLX_Slot_Size *sizes, size_t count,
     const char *file, int line,
     WLX_Content_Slot_State **out_state,
-    WLX_Slot_Size **out_sizes_copy,
+    size_t *out_sizes_off,
     WLX_Slot_Size *resolved)
 {
     *out_state     = NULL;
-    *out_sizes_copy = NULL;
+    *out_sizes_off = 0;
 
     if (!wlx_has_content_sizes(sizes, count)) return false;
 
@@ -8116,25 +8111,20 @@ static inline bool wlx_prepare_content_sizes(
         }
     }
 
-    WLX_Slot_Size *sizes_copy = (WLX_Slot_Size *)wlx_scratch_alloc_bytes(
-        ctx, count * sizeof(WLX_Slot_Size), _Alignof(WLX_Slot_Size));
-
-    memcpy(sizes_copy, sizes, count * sizeof(WLX_Slot_Size));
-    *out_sizes_copy = sizes_copy;
+    size_t off = wlx_sub_arena_alloc_bytes(&ctx->arena.scratch,
+        count * sizeof(WLX_Slot_Size), _Alignof(WLX_Slot_Size));
+    memcpy(wlx_pool_scratch(ctx) + off, sizes, count * sizeof(WLX_Slot_Size));
+    *out_sizes_off = off;
 
     return true;
 }
 
-// Allocates a zeroed float buffer of `count` floats from the slot-size-offsets
-// scratch arena. Writes the buffer's starting index to *out_offset.
-// Returns a pointer to the first element.
-static inline float *wlx_alloc_content_measure_buffer(
-    WLX_Context *ctx, size_t count, size_t *out_offset)
-{
-    *out_offset = ctx->arena.slot_size_offsets.count;
-    float *buf = wlx_scratch_alloc(ctx, count);
-    wlx_zero_array(count, buf);
-    return buf;
+// Reserves a zeroed buffer of `count` floats from the slot-size-offsets
+// scratch arena and returns its starting index.
+static inline size_t wlx_alloc_content_measure_buffer(WLX_Context *ctx, size_t count) {
+    size_t off = wlx_scratch_reserve(ctx, count);
+    wlx_zero_array(count, wlx_pool_slot_size_offsets(ctx) + off);
+    return off;
 }
 
 // Writes accumulated per-slot or per-row content measurements back to the
@@ -8175,15 +8165,14 @@ WLXDEF void wlx_layout_begin_impl(WLX_Context *ctx, size_t count, WLX_Orient ori
 
     // --- CONTENT slot pre-resolution ---
     WLX_Content_Slot_State *cstate = NULL;
-    WLX_Slot_Size *sizes_copy = NULL;
+    size_t sizes_off = 0;
     WLX_Slot_Size resolved[WLX_CONTENT_SLOTS_MAX];
     if (wlx_prepare_content_sizes(ctx, opt.sizes, count, file, line,
-            &cstate, &sizes_copy, resolved)) {
+            &cstate, &sizes_off, resolved)) {
         wlx_compute_slot_offsets(ctx, &l, resolved);
-        size_t slot_measures_off;
-        wlx_alloc_content_measure_buffer(ctx, count, &slot_measures_off);
+        size_t slot_measures_off = wlx_alloc_content_measure_buffer(ctx, count);
         l.has_content_sizes = true;
-        l.content_sizes_scratch_off = (size_t)((uint8_t *)sizes_copy - wlx_pool_scratch(ctx));
+        l.content_sizes_scratch_off = sizes_off;
         l.content_state = cstate;
         l.content_slot_measures_off = slot_measures_off;
         l.has_content_slot_measures = true;
@@ -8382,17 +8371,12 @@ WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_
 
     // --- CONTENT row pre-resolution ---
     WLX_Content_Slot_State *cstate = NULL;
-    WLX_Slot_Size *sizes_copy = NULL;
     WLX_Slot_Size resolved[WLX_CONTENT_SLOTS_MAX];
     const WLX_Slot_Size *effective_row_sizes = opt.row_sizes;
     size_t sizes_copy_off = 0;
     if (wlx_prepare_content_sizes(ctx, opt.row_sizes, rows, file, line,
-            &cstate, &sizes_copy, resolved)) {
+            &cstate, &sizes_copy_off, resolved)) {
         effective_row_sizes = resolved;
-        // Capture the scratch offset now: wlx_create_grid may grow the byte
-        // scratch arena (wide constrained column sets allocate redistribution
-        // working buffers there), which would invalidate sizes_copy.
-        sizes_copy_off = (size_t)((uint8_t *)sizes_copy - wlx_pool_scratch(ctx));
     }
 
     WLX_Layout l = wlx_create_grid(ctx, frame.rect, rows, cols,
@@ -8411,9 +8395,7 @@ WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_
     // measurement write-back and for intrinsic-height contribution when
     // the grid's own rect is starved (frame-1 bootstrap inside CONTENT slot).
     if (rows > 0) {
-        size_t rch_off;
-        wlx_alloc_content_measure_buffer(ctx, rows, &rch_off);
-        l.grid_row_content_heights_off = rch_off;
+        l.grid_row_content_heights_off = wlx_alloc_content_measure_buffer(ctx, rows);
         l.has_grid_row_content_heights = true;
     }
 

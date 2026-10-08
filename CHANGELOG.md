@@ -478,6 +478,17 @@ your own pace before the next minor.
   constructors, so `-1` keeps working as "unset" on gaps too. No report: a
   computed gap that goes negative reads as 0 like any other non-negative
   Rule U field.
+- **A grid's first frame past the offsets buffer keeps its row offsets.**
+  `wlx_create_grid` reserved its row offsets, then its column offsets, and
+  wrote the rows through a pointer taken before the second reservation. On
+  the frame the two outgrew the slot-offsets buffer, the rows went into the
+  freed block (wrong row positions, or a crash under an allocator that
+  moves the block). A CONTENT layout under a lowered
+  `WLX_OFFSET_STACK_LIMIT` (or a raised `WLX_CONTENT_SLOTS_MAX`) read its
+  slot kinds from a stale offset the same way once the solver grew the byte
+  scratch. Scratch reservations now return an index and every pointer is
+  re-derived at its use. A grid test and a new
+  `tests/test_offset_stack_override.c` pin both.
 
 ### Changed
 - **A widget keystroke patches the editor's line index from its edit span.**

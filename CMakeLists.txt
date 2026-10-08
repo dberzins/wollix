@@ -126,6 +126,7 @@ if(WOLLIX_BUILD_TESTS)
     wollix_add_test(test_hard_assert SOURCES tests/test_hard_assert.c DEFINES NDEBUG)
   endif()
   wollix_add_test(test_config_override SOURCES tests/test_config_override.c)
+  wollix_add_test(test_offset_stack_override SOURCES tests/test_offset_stack_override.c)
   wollix_add_test(test_undo_disabled SOURCES tests/test_undo_disabled.c)
   # The declarations TU is built with the override warning promoted to an
   # error (every default macro sets each designator once); the implementation
