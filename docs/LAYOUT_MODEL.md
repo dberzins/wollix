@@ -239,7 +239,7 @@ arguments:
 | Field     | Default | Description |
 |-----------|---------|-------------|
 | `pos`     | `WLX_UNSET`    | Target slot index (unset = next sequential) |
-| `span`    | `1`     | Number of consecutive slots to occupy |
+| `span`    | `1`     | Number of consecutive slots to occupy (`0` takes one; a negative value is reported and takes one) |
 | `overflow`| `false` | Allow widget to exceed slot bounds |
 | `padding` | `0`     | Uniform inset applied to the slot rect |
 | `padding_top/right/bottom/left` | `WLX_UNSET` | Per-side slot inset; values `>= 0` override `padding` |
@@ -382,6 +382,9 @@ A widget contributes to its parent's CONTENT measurement as follows:
 - **No explicit `.height`:** contributes `max(min_h, cell.h)`, where
   `min_h` is the widget's declared minimum height and `cell.h` is the
   space allocated by the parent.
+- **A span of several slots:** in a linear layout, a widget, nested layout
+  or scroll panel with `.span > 1` contributes to the first slot of its
+  span.
 
 Built-in widgets (label, button, checkbox, inputbox, slider, progress,
 toggle, radio) default `min_height` to the resolved `font_size` when

@@ -1049,6 +1049,10 @@ typedef struct WLX_Layout {
     WLX_Rect rect;
     size_t count;
     size_t index;
+    // First slot the last successful fetch served (WLX_SLOT_SKIP before
+    // any). The child that fetched reads it to credit its parent's
+    // CONTENT bucket; an overrun fetch leaves it alone (slot_clamped).
+    size_t fetch_first;
     // Call site of the begin that opened this layout; NULL/0 for a layout
     // built through wlx_create_* directly. Contract-error reports name it.
     const char *file;
@@ -5698,15 +5702,15 @@ static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layo
         WLX_Layout *parent_l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
         float h_contrib = (ly.height > 0) ? ly.height
                        : (ly.min_h > cell.h) ? ly.min_h : cell.h;
-        // l->index was just advanced by wlx_get_slot_rect, so the slot this
-        // widget occupies is at (index - span).
+        // The fetch above recorded the first slot it served (fetch_first):
+        // a spanning widget credits the first slot of its span.
         // Width: explicit size wins, else the widget's intrinsic width; no
         // cell fallback - for a CONTENT slot the provisional cell width is
         // last frame's measurement, and feeding it back would be circular.
         wlx_contribute_to_parent_layout(ctx, parent_l, (WLX_Parent_Contribution){
             .h_contrib  = h_contrib,
             .w_contrib  = (ly.width > 0) ? ly.width : ly.intrinsic_w,
-            .slot_index = parent_l->index - ly.span,
+            .slot_index = parent_l->fetch_first,
             .grid_row   = parent_l->grid.last_placed_row,
         });
     }
@@ -6316,6 +6320,7 @@ WLXDEF WLX_Layout wlx_create_layout(WLX_Context *ctx, WLX_Rect r, size_t count, 
         .kind = WLX_LAYOUT_LINEAR,
         .rect = r,
         .index = 0,
+        .fetch_first = WLX_SLOT_SKIP,
         .count = count,
         .gap = gap,
         .cmd_range_idx = -1,
@@ -6350,6 +6355,7 @@ WLXDEF WLX_Layout wlx_create_layout_auto(WLX_Context *ctx, WLX_Rect r, WLX_Orien
         .kind         = WLX_LAYOUT_LINEAR,
         .rect         = r,
         .index        = 0,
+        .fetch_first  = WLX_SLOT_SKIP,
         .count        = 0,
         .cmd_range_idx = -1,
         .linear = {
@@ -6385,6 +6391,7 @@ WLXDEF WLX_Layout wlx_create_grid(WLX_Context *ctx, WLX_Rect r,
         .rect        = r,
         .count       = rows * cols,
         .index       = 0,
+        .fetch_first = WLX_SLOT_SKIP,
         .gap         = gap,
         .cmd_range_idx = -1,
         .grid = {
@@ -6420,6 +6427,7 @@ WLXDEF WLX_Layout wlx_create_grid_auto(WLX_Context *ctx, WLX_Rect r,
         .rect  = r,
         .count = 0,
         .index = 0,
+        .fetch_first = WLX_SLOT_SKIP,
         .gap   = gap,
         .cmd_range_idx = -1,
         .grid  = {
@@ -6516,6 +6524,15 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
     assert(l != NULL);
     l->slot_clamped = false;
 
+    // A span is a slot count. 0 takes one slot (a zeroed option struct;
+    // wlx_grid_cell reads it the same way), and a span past
+    // WLX_MAX_SLOT_COUNT - a negative int converted - is reported and takes
+    // one slot, before any sum below can wrap.
+    if (span == 0) span = 1;
+    else if (!WLX_CONTRACT(ctx, span <= WLX_MAX_SLOT_COUNT, WLX_ERR_BAD_ARGUMENT,
+            "slot span exceeds WLX_MAX_SLOT_COUNT (a negative int?); using 1"))
+        span = 1;
+
     if (l->kind == WLX_LAYOUT_GRID) {
         size_t row, col, rspan, cspan;
 
@@ -6581,6 +6598,7 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
         }
 
         l->grid.last_placed_row = row;
+        l->fetch_first = row * l->grid.cols + col;
 
         // Advance cursor past this cell (row-major order)
         l->grid.cursor_col = col + cspan;
@@ -6645,6 +6663,7 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
     }
 
     l->index = cell_index + span;
+    l->fetch_first = cell_index;
 
     return slot_rect;
 }
@@ -8503,9 +8522,12 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
         // VERT parents only: the bucket stores the parent's main-axis extent,
         // and a nested layout has no intrinsic width to offer a HORZ parent
         // (elastic layouts cannot report a natural width).
+        // The slot is the first one this layout's own fetch served (a
+        // spanning layout credits the first slot of its span, as a widget
+        // does); WLX_SLOT_SKIP fails the bound.
         bool parent_horz = wlx_layout_is_horz(parent);
-        if (parent->has_content_slot_measures && !parent_horz && parent->index > 0) {
-            size_t slot_idx = parent->index - 1;
+        if (parent->has_content_slot_measures && !parent_horz) {
+            size_t slot_idx = parent->fetch_first;
             if (slot_idx < WLX_CONTENT_SLOTS_MAX && slot_idx < parent->count) {
                 wlx_layout_content_measures(ctx, parent)[slot_idx] +=
                     l->accumulated_content_height + l->padding_top + l->padding_bottom;
@@ -8784,6 +8806,14 @@ WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Styl
 
     size_t rs = (opt.row_span == 0) ? 1 : opt.row_span;
     size_t cs = (opt.col_span == 0) ? 1 : opt.col_span;
+    // A span past WLX_MAX_SLOT_COUNT (a negative int converted) is reported
+    // and takes one cell, before the sums below can wrap.
+    if (!WLX_CONTRACT(ctx, rs <= WLX_MAX_SLOT_COUNT && cs <= WLX_MAX_SLOT_COUNT,
+            WLX_ERR_BAD_ARGUMENT,
+            "wlx_grid_cell: a span exceeds WLX_MAX_SLOT_COUNT (a negative int?); using 1")) {
+        if (rs > WLX_MAX_SLOT_COUNT) rs = 1;
+        if (cs > WLX_MAX_SLOT_COUNT) cs = 1;
+    }
     // An out-of-range placement is reported and ignored: the cursor stands.
     if (!WLX_CONTRACT(ctx, r + rs <= l->grid.rows && c + cs <= l->grid.cols, WLX_ERR_GRID_BOUNDS,
             "wlx_grid_cell: the cell or span lies outside the grid; the placement is ignored"))
@@ -16628,13 +16658,11 @@ static inline void wlx_scroll_panel_contribute_to_parent(WLX_Context *ctx, float
     // A panel whose slot fetch reported an overrun occupies no slot and
     // contributes nothing, like a widget or a nested layout.
     if (parent_l->slot_clamped) return;
-    // Per-slot bucket needs parent_l->index > 0 (index was already advanced
-    // by wlx_get_slot_rect); guard by clamping the index when not eligible.
-    size_t slot_index = (parent_l->index > 0) ? (parent_l->index - 1) : WLX_SLOT_SKIP;
+    // The panel's own fetch recorded the first slot it served.
     wlx_contribute_to_parent_layout(ctx, parent_l, (WLX_Parent_Contribution){
         .h_contrib  = vp_contrib,
         .w_contrib  = w_contrib,
-        .slot_index = slot_index,
+        .slot_index = parent_l->fetch_first,
         .grid_row   = parent_l->grid.last_placed_row,
     });
 }

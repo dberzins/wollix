@@ -595,6 +595,150 @@ TEST(content_limit_reports_through_channel) {
     wlx_context_destroy(&ctx);
 }
 
+// --- Slot spans ---
+
+// A span past WLX_MAX_SLOT_COUNT (a negative int converted, or WLX_UNSET)
+// is reported and takes one slot, and the next child takes the next slot:
+// the wrapped sum neither rewinds a fixed layout or grid nor writes past a
+// dynamic layout's offsets.
+TEST(span_wrapped_reports_and_takes_one_slot) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    // Fixed layout: index stays sequential.
+    wlx_layout_begin(&ctx, 3, WLX_VERT);
+    WLX_Layout *top = es_top_mut(&ctx);
+    (void)wlx_get_slot_rect(&ctx, top, -1, 1);
+    WLX_Rect b = wlx_get_slot_rect(&ctx, top, -1, (size_t)-1);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 100, 400, 100 }), b, 0.001f);
+    ASSERT_EQ_INT(2, (int)top->index);
+    ASSERT_EQ_INT(1, (int)top->fetch_first);
+    WLX_Rect c = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 200, 400, 100 }), c, 0.001f);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_layout_end(&ctx);
+
+    // Grid auto-advance: the cursor moves one cell on.
+    wlx_grid_begin(&ctx, 2, 2);
+    top = es_top_mut(&ctx);
+    (void)wlx_get_slot_rect(&ctx, top, -1, 1);
+    WLX_Rect g = wlx_get_slot_rect(&ctx, top, -1, (size_t)WLX_UNSET);
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_EQ_RECT(((WLX_Rect){ 200, 0, 200, 150 }), g, 0.001f);
+    ASSERT_EQ_INT(1, (int)top->fetch_first);
+    WLX_Rect h = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 150, 200, 150 }), h, 0.001f);
+    ASSERT_EQ_INT(2, es_count);
+    wlx_grid_end(&ctx);
+
+    // Auto layout, through a widget: one slot appended, reported at the
+    // widget's line.
+    wlx_layout_begin_auto(&ctx, WLX_VERT, 20);
+    top = es_top_mut(&ctx);
+    (void)wlx_label(&ctx, "a");
+    (void)wlx_label(&ctx, "b", .span = (size_t)-1); int lw = __LINE__;
+    ASSERT_EQ_INT(3, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(lw, es_last.line);
+    ASSERT_EQ_INT(2, (int)top->count);
+    ASSERT_EQ_INT(2, (int)top->index);
+    WLX_Rect d = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 40, 400, 20 }), d, 0.001f);
+    ASSERT_EQ_INT(3, es_count);
+    wlx_layout_end(&ctx);
+
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// Span 0 (what a zero-initialised option struct carries) takes one slot,
+// silently, on every layout kind. A full fixed layout then reports the
+// next fetch as an ordinary overrun.
+TEST(span_zero_takes_one_slot) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 2, WLX_VERT);
+    WLX_Layout *top = es_top_mut(&ctx);
+    WLX_Rect a = wlx_get_slot_rect(&ctx, top, -1, 0);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 0, 400, 150 }), a, 0.001f);
+    WLX_Rect b = wlx_get_slot_rect(&ctx, top, -1, 0);   // the last slot
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 150, 400, 150 }), b, 0.001f);
+    ASSERT_EQ_INT(2, (int)top->index);
+    ASSERT_EQ_INT(0, es_count);
+    WLX_Rect over = wlx_get_slot_rect(&ctx, top, -1, 0);   // the layout is full
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_SLOT_OVERRUN, (int)es_last.code);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 300, 400, 0 }), over, 0.001f);
+    wlx_layout_end(&ctx);
+
+    wlx_grid_begin(&ctx, 2, 2);
+    top = es_top_mut(&ctx);
+    WLX_Rect g0 = wlx_get_slot_rect(&ctx, top, -1, 0);
+    WLX_Rect g1 = wlx_get_slot_rect(&ctx, top, -1, 0);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 0, 200, 150 }), g0, 0.001f);
+    ASSERT_EQ_RECT(((WLX_Rect){ 200, 0, 200, 150 }), g1, 0.001f);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_grid_end(&ctx);
+
+    wlx_layout_begin_auto(&ctx, WLX_VERT, 20);
+    top = es_top_mut(&ctx);
+    WLX_Rect d0 = wlx_get_slot_rect(&ctx, top, -1, 0);
+    WLX_Rect d1 = wlx_get_slot_rect(&ctx, top, -1, 0);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 0, 400, 20 }), d0, 0.001f);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 20, 400, 20 }), d1, 0.001f);
+    ASSERT_EQ_INT(2, (int)top->count);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_layout_end(&ctx);
+
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// wlx_grid_cell bounds its spans before the range check: a wrapped span
+// is reported as a bad argument and placed with span 1, never passed on
+// as a wrapped sum (from column 1) or misreported as a placement outside
+// the grid (from column 0).
+TEST(grid_cell_span_wrapped_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin(&ctx, 2, 2);
+    WLX_Layout *top = es_top_mut(&ctx);
+
+    wlx_grid_cell(&ctx, 0, 0, .col_span = (size_t)-1);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_TRUE(top->grid.cell_set);
+    ASSERT_EQ_INT(1, (int)top->grid.next_col_span);
+    WLX_Rect a = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 0, 200, 150 }), a, 0.001f);
+
+    wlx_grid_cell(&ctx, 0, 1, .col_span = (size_t)-1);
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    WLX_Rect b = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_RECT(((WLX_Rect){ 200, 0, 200, 150 }), b, 0.001f);
+
+    wlx_grid_cell(&ctx, 1, 0, .row_span = (size_t)-1);
+    ASSERT_EQ_INT(3, es_count);
+    WLX_Rect c = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 150, 200, 150 }), c, 0.001f);
+    ASSERT_EQ_INT(1, (int)top->grid.cursor_row);
+    ASSERT_EQ_INT(1, (int)top->grid.cursor_col);
+
+    wlx_grid_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(3, es_count);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(error_surface) {
     RUN_TEST(error_handler_receives_record);
     RUN_TEST(error_handler_null_restores_default);
@@ -619,4 +763,7 @@ SUITE(error_surface) {
     RUN_TEST(non_positive_pixel_sizes_clamp);
     RUN_TEST(required_null_pointers_are_inert);
     RUN_TEST(content_limit_reports_through_channel);
+    RUN_TEST(span_wrapped_reports_and_takes_one_slot);
+    RUN_TEST(span_zero_takes_one_slot);
+    RUN_TEST(grid_cell_span_wrapped_reports);
 }

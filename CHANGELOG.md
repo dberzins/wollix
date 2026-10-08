@@ -457,6 +457,17 @@ your own pace before the next minor.
   ring wraps its visible part instead of stroking over the neighbouring
   content, and a widget filling its popup gets a ring that hugs the popup
   edge. Two tests in `tests/test_tab_traversal.c`.
+- **An out-of-range `.span` takes one slot.** A negative `.span` or
+  `WLX_UNSET` (a huge `size_t` once converted) wrapped the slot sums: an
+  auto layout wrote that many offsets past its buffer, and a fixed layout
+  or a grid passed its overrun check and rewound, so later children drew
+  over earlier ones. A span above `WLX_MAX_SLOT_COUNT` is now reported
+  (`WLX_ERR_BAD_ARGUMENT`) and takes one slot, in the slot fetch and in
+  `wlx_grid_cell`. Span 0 (what a zeroed option struct carries) takes one
+  slot silently, as `wlx_grid_cell` already did, instead of a zero-size
+  cell (or a debug abort on an auto or full layout). A nested layout with
+  `.span > 1` now credits its CONTENT measurement to the first slot of its
+  span, like a widget, instead of the last. Four tests.
 
 ### Changed
 - **A widget keystroke patches the editor's line index from its edit span.**

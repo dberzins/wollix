@@ -1565,6 +1565,7 @@ sites the default prints one suppression line and stays silent.
 | A widget with no layout open | `WLX_ERR_NO_LAYOUT` | The widget takes the root rect (`ctx->rect`), as a root container does |
 | `wlx_layout_auto_slot`, `wlx_grid_auto_row_px`, `wlx_grid_cell`, `wlx_slot_style`, `wlx_grid_cell_style` with no layout open, or inside a layout of the wrong kind | `WLX_ERR_NO_LAYOUT` / `WLX_ERR_BAD_ARGUMENT` | Returns |
 | A slot, row or column count of `0` or above `WLX_MAX_SLOT_COUNT` (a negative `int`, converted) | `WLX_ERR_BAD_ARGUMENT` | Clamped to 1 |
+| A `.span`, or a `wlx_grid_cell` `row_span` / `col_span`, above `WLX_MAX_SLOT_COUNT` (a negative `int` or `WLX_UNSET`, converted) | `WLX_ERR_BAD_ARGUMENT` | Takes one slot (one cell); a span of `0` takes one slot without a report |
 | A non-positive auto slot, row or tile size; a variable-size auto layout child with no `wlx_layout_auto_slot_px` before it | `WLX_ERR_BAD_ARGUMENT` | 1 px |
 | Positional `.pos` on a dynamic layout | `WLX_ERR_BAD_ARGUMENT` | Taken in sequence |
 | A required pointer that is NULL (`buffer`, `value`, `active`, `selected`, `open`, `length`) | `WLX_ERR_BAD_ARGUMENT` | The widget returns `false` and draws nothing; a dropdown with `options == NULL` and a nonzero count shows no options |
@@ -2055,8 +2056,8 @@ A cell or span outside the grid is a contract error: reported (see
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `row_span` | `size_t` | `1` | Number of rows to span |
-| `col_span` | `size_t` | `1` | Number of columns to span |
+| `row_span` | `size_t` | `1` | Number of rows to span (`0` spans one; above `WLX_MAX_SLOT_COUNT` is reported and spans one) |
+| `col_span` | `size_t` | `1` | Number of columns to span (same rule) |
 | `back_color` | `WLX_Color` | `{0}` | One-shot background fill for this cell only |
 | `border_color` | `WLX_Color` | `{0}` | One-shot border color for this cell only |
 | `border_width` | `float` | `0` | One-shot border thickness for this cell only |
@@ -2579,7 +2580,9 @@ WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size_t span
 Compute the rect for slot `pos` (spanning `span` slots) in layout `l`. A slot
 past the layout's count is a contract error: reported (see
 [Error Reporting](#error-reporting)), and the rect returned is zero-size
-at the layout's far edge with the layout's cursor unchanged.
+at the layout's far edge with the layout's cursor unchanged. A `span` of 0
+takes one slot; a `span` above `WLX_MAX_SLOT_COUNT` is reported and takes
+one slot.
 
 ### `wlx_get_parent_rect`
 
