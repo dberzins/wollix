@@ -1722,6 +1722,7 @@ parent layout.
 | `overflow` | `bool` | `false` | Allow exceeding slot bounds |
 | `padding` | `float` | `0` | Uniform inset on the slot |
 | `sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `count` slot sizes. `NULL` = equal division |
+| `gap` | `float` | `0` | Spacing between adjacent slots; a negative value (`WLX_UNSET`, `WLX_FLOAT_UNSET`) reads as `0` |
 | `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every slot |
 | `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every slot |
 | `slot_border_width` | `float` | `0` | Border thickness in units (`0` = no border) |
@@ -1974,7 +1975,7 @@ Push a fixed-size grid layout.
 | `corner_radius` | `float` | `0` | Absolute corner radius in units; `> 0` overrides `roundness`, `0` = unset |
 | `rounded_segments` | `int` | `0` | Segment count for rounded corners (`0` = theme default) |
 | `rounded_corners` | `int` | `0` | `WLX_CORNERS_*` mask of which corners use the radius; `0` = all four. Omitted corners are squared off (fill only) |
-| `gap` | `float` | `0` | Spacing between adjacent cells |
+| `gap` | `float` | `0` | Spacing between adjacent cells; a negative value reads as `0` |
 | `row_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `rows` row sizes. `NULL` = equal division. Supports `WLX_SLOT_CONTENT` (with min/max) for rows that adapt to the tallest widget per row (one-frame delay). Max 32 CONTENT rows. |
 | `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes. `NULL` = equal division |
 | `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every cell |
@@ -2013,7 +2014,7 @@ Push a dynamic grid whose row count grows as children are added.
 | `corner_radius` | `float` | `0` | Absolute corner radius in units; `> 0` overrides `roundness`, `0` = unset |
 | `rounded_segments` | `int` | `0` | Segment count for rounded corners (`0` = theme default) |
 | `rounded_corners` | `int` | `0` | `WLX_CORNERS_*` mask of which corners use the radius; `0` = all four. Omitted corners are squared off (fill only) |
-| `gap` | `float` | `0` | Spacing between adjacent cells |
+| `gap` | `float` | `0` | Spacing between adjacent cells; a negative value reads as `0` |
 | `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes |
 | `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every cell |
 | `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every cell |
@@ -2560,7 +2561,8 @@ Returns `true` if all four color components are zero (the sentinel meaning
 ### Low-Level Layout Constructors
 
 These create `WLX_Layout` values without pushing them onto the stack. Rarely
-needed — prefer the `wlx_layout_begin` / `wlx_grid_begin` macros.
+needed — prefer the `wlx_layout_begin` / `wlx_grid_begin` macros. A negative
+`gap` reads as `0`, as it does on every begin.
 
 ```c
 WLX_Layout wlx_create_layout(WLX_Context *ctx, WLX_Rect r, size_t count, WLX_Orient orient, float gap);
@@ -3542,7 +3544,7 @@ the user creates their own inner layout inside each pane.
 | `content_padding_right` | `float` | `WLX_UNSET` | Right padding override. Negative = inherit `content_padding` |
 | `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom padding override. Negative = inherit `content_padding` |
 | `content_padding_left` | `float` | `WLX_UNSET` | Left padding override. Negative = inherit `content_padding` |
-| `gap` | `float` | `0` | Space between the two pane slots |
+| `gap` | `float` | `0` | Space between the two pane slots; a negative value reads as `0` |
 | `first_back_color` | `WLX_Color` | `{0}` | First pane scroll panel background. `{0}` = theme default |
 | `second_back_color` | `WLX_Color` | `{0}` | Second pane scroll panel background. `{0}` = theme default |
 | `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full split body (both panes). `NULL` = no scoping |
@@ -3598,7 +3600,7 @@ impact. Adding or removing child widgets requires no slot-count updates.
 | `border_color_top` / `_right` / `_bottom` / `_left` | `WLX_Color` | `{0}` | Per-side border color. `{0}` inherits `border_color`. See [Per-side container decor](#per-side-container-decor) |
 | `border_width_top` / `_right` / `_bottom` / `_left` | `float` | `WLX_UNSET` | Per-side border width. `< 0` inherits `border_width`; `0` switches that edge off |
 | `rounded_segments` | `int` | `0` | Corner tessellation for rounded chrome. `0` = theme default |
-| `gap` | `float` | `0` | Inter-slot spacing in the panel body |
+| `gap` | `float` | `0` | Inter-slot spacing in the panel body; a negative value reads as `0` |
 | *shadow / glow / gradient* | | off | Full container decor: `shadow_*`, `glow_*`, `gradient_top` / `gradient_bottom` fields, forwarded to the body layout. See [Shared Option Field Macros](#shared-option-field-macros) |
 | `slot_back_color` / `slot_border_color` / `slot_border_width` | | `{0}` / `0` | Per-slot decor applied to every body slot |
 | `clip` | `bool` | `false` | Clip panel content to the post-padding inner rect. Use when children might overflow the panel bounds |
@@ -3654,7 +3656,7 @@ position (`WLX_DEBUG` warns once per site).
 | `id` | `const char *` | `NULL` | Scope id for the overlay body |
 | `sizes` | `const WLX_Slot_Size *` | `NULL` | Per-slot sizes (`NULL` = equal split); CONTENT unsupported |
 | `orient` | `WLX_Orient` | `WLX_VERT` | Body orientation |
-| `gap` | `float` | `0` | Gap between body slots |
+| `gap` | `float` | `0` | Gap between body slots; a negative value reads as `0` |
 | `clip` | `bool` | `true` | Scissor body content to `rect` |
 | `back_color` | `WLX_Color` | `{0}` | Panel fill (`{0}` = none) |
 | `border_color` / `border_width` | | `{0}` / `0` | Panel border |

@@ -1953,13 +1953,15 @@ static inline void wlx_arena_pool_destroy(WLX_Arena_Pool *pool) {
 //     (font_size, track_height, shadow_blur, min/max sizes, ...).
 //   - Rule U: WLX_UNSET is unset. For every numeric field where zero is a
 //     meaningful explicit value (border widths, roundness, opacity, width
-//     and height, content padding, brightness shifts, ...). The option
-//     macro installs WLX_UNSET; the resolver replaces it with the field's
-//     documented fallback and passes every value >= 0 through unchanged.
+//     and height, content padding, brightness shifts, container gaps, ...).
+//     The option macro installs WLX_UNSET (container gaps: 0, which is also
+//     their fallback); the resolver replaces it with the field's documented
+//     fallback and passes every value >= 0 through unchanged.
 //     Brightness shifts are the one signed-domain Rule U family: their
 //     domain is -1 < b <= 1 and -1 is the sentinel.
 //   - Everything else is a literal default installed by the macro and used
 //     as written (span, wrap, the align fields, container chrome, knobs).
+//     A span of 0 takes one slot.
 // A designator follows the same rule in every option struct. New fields
 // must follow these rules; the request tokens below are explicit values,
 // not unset markers.
@@ -6308,8 +6310,15 @@ static inline float wlx_contract_positive_px(WLX_Context *ctx, float px, const c
     return px;
 }
 
+// A layout gap is a non-negative spacing (Rule U, unset = 0): WLX_UNSET,
+// WLX_FLOAT_UNSET and any other negative value read as 0, silently.
+static inline float wlx_layout_gap(float gap) {
+    return wlx_is_negative_unset(gap) ? 0.0f : gap;
+}
+
 WLXDEF WLX_Layout wlx_create_layout(WLX_Context *ctx, WLX_Rect r, size_t count, WLX_Orient orient, float gap) {
     assert(ctx != NULL);
+    gap = wlx_layout_gap(gap);
     count = wlx_contract_count(ctx, count,
         "layout slot count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", NULL, 0);
 
@@ -6373,6 +6382,7 @@ WLXDEF WLX_Layout wlx_create_grid(WLX_Context *ctx, WLX_Rect r,
     size_t rows, size_t cols, const WLX_Slot_Size *row_sizes, const WLX_Slot_Size *col_sizes, float gap)
 {
     assert(ctx != NULL);
+    gap = wlx_layout_gap(gap);
     rows = wlx_contract_count(ctx, rows,
         "grid row count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", NULL, 0);
     cols = wlx_contract_count(ctx, cols,
@@ -6407,6 +6417,7 @@ WLXDEF WLX_Layout wlx_create_grid_auto(WLX_Context *ctx, WLX_Rect r,
     size_t cols, float row_px, const WLX_Slot_Size *col_sizes, float gap)
 {
     assert(ctx != NULL);
+    gap = wlx_layout_gap(gap);
     cols = wlx_contract_count(ctx, cols,
         "grid column count is 0 or exceeds WLX_MAX_SLOT_COUNT (a negative int?)", NULL, 0);
     row_px = wlx_contract_positive_px(ctx, row_px,
@@ -8039,7 +8050,7 @@ static inline void wlx_layout_apply_common(
     l->padding           = co.padding;
     l->padding_top       = frame.padding.top;
     l->padding_bottom    = frame.padding.bottom;
-    l->gap               = co.gap;
+    l->gap               = wlx_layout_gap(co.gap);
     l->slot_back_color   = co.slot_back_color;
     l->slot_border_color = co.slot_border_color;
     l->slot_border_width = co.slot_border_width;

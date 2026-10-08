@@ -468,6 +468,16 @@ your own pace before the next minor.
   cell (or a debug abort on an auto or full layout). A nested layout with
   `.span > 1` now credits its CONTENT measurement to the first slot of its
   span, like a widget, instead of the last. Four tests.
+- **A negative `.gap` reads as 0 on every layout.** v0.8.0's split clamped a
+  negative gap to 0, but the other containers used it as written: `-1`
+  overlapped adjacent cells by one unit and `WLX_FLOAT_UNSET` collapsed the
+  layout (the split's first pane went to zero width). A container gap now
+  follows Rule U with unset = 0 on `wlx_layout_begin`,
+  `wlx_layout_begin_auto`, the three grid begins, `wlx_overlay_begin`,
+  `wlx_split_begin`, `wlx_panel_begin` and the `wlx_create_*`
+  constructors, so `-1` keeps working as "unset" on gaps too. No report: a
+  computed gap that goes negative reads as 0 like any other non-negative
+  Rule U field.
 
 ### Changed
 - **A widget keystroke patches the editor's line index from its edit span.**

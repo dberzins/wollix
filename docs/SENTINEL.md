@@ -66,6 +66,7 @@ fallback and passes every value `>= 0` through unchanged. Writing
 | `content_padding` (uniform) | `0` on leaf widgets; the compound widget's own default (inputbox and editor 10, split 4, panel 2, tooltip 6) | no inset |
 | `content_padding_top/right/bottom/left` | the resolved uniform | no inset on that side |
 | `image_text_gap`, `item_padding`, `delay` | widget constants | zero gap / inset / delay |
+| container `gap` (layouts, grids, overlay, split, panel) | `0` | no spacing |
 | `hover_brightness`, `thumb_hover_brightness`, `scrollbar_hover_brightness`, theme `disabled_brightness` | theme `hover_brightness` (thumb: half of it; disabled: no shift) | no hover / disabled shift |
 
 **Signed-domain note.** Brightness shifts are the one Rule U family whose
@@ -88,7 +89,8 @@ wlx_slider(ctx, "Vol", &v, .hover_brightness = -0.1f);  // darken on hover
 ## Literal defaults
 
 Every other field has no unset state: the macro installs its documented
-value and the widget uses it as written. This covers `span` (1), `wrap`,
+value and the widget uses it as written. This covers `span` (1; a span of
+0 takes one slot), `wrap`,
 `show_value`, `show_scrollbar`, `wheel_scroll_speed`, `thickness`,
 `max_value`, tooltip `offset_x` / `offset_y`, `texture_scale`,
 `image_placement`, `orient`, `vertical_metric`, `clip`, the align fields,
@@ -96,13 +98,20 @@ panel `title_align` (`WLX_CENTER`; an explicit `WLX_ALIGN_NONE` is honoured)
 and the split sizes (`first_size = WLX_SLOT_PX(280)`, `second_size` and
 `fill_size = WLX_SLOT_FLEX(1)`; an explicit `WLX_SLOT_AUTO` is honoured).
 
-**Containers are literal on purpose.** `WLX_Layout_Opt`, `WLX_Grid_Opt`,
-`WLX_Grid_Auto_Opt` and `WLX_Slot_Style_Opt` have no theme chrome: their
-`border_width`, `roundness`, `rounded_segments` and `gap` default to `0`
-and are used as literal values, because a layout is invisible unless the
+**Container chrome is literal on purpose.** `WLX_Layout_Opt`,
+`WLX_Grid_Opt`, `WLX_Grid_Auto_Opt` and `WLX_Slot_Style_Opt` have no theme
+chrome: their `border_width`, `roundness` and `rounded_segments` default to
+`0` and are used as literal values, because a layout is invisible unless the
 caller decorates it. `wlx_panel_begin` is a widget with theme chrome and
-follows Rule U for the same three chrome fields; its `gap`, like every
-container gap, is literal.
+follows Rule U for the same three chrome fields.
+
+**Container gaps follow Rule U with unset = 0.** A gap is a non-negative
+spacing on every container (layouts, grids, the overlay body, the split and
+the panel): `0` and any value above it are used as written, and a negative
+value (`WLX_UNSET`, `WLX_FLOAT_UNSET`, a computed gap that went below zero)
+reads as `0`, silently, as the other non-negative Rule U fields do. The
+direct constructors (`wlx_create_layout`, `wlx_create_grid`,
+`wlx_create_grid_auto`) apply the same rule.
 
 ```c
 wlx_layout_begin(ctx, 3, WLX_VERT, .roundness = 0.3f, .back_color = bg);

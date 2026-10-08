@@ -211,6 +211,107 @@ TEST(split_gap_literal_zero) {
     wlx_context_destroy(&ctx);
 }
 
+// A negative gap reads as 0 on every layout kind: -1 and WLX_FLOAT_UNSET
+// give the .gap = 0 rects, with no contract report.
+static int sentinel_err_count;
+static void sentinel_err_capture(const WLX_Error *e, void *user) {
+    (void)e; (void)user;
+    sentinel_err_count++;
+}
+
+typedef enum {
+    SENTINEL_GAP_LAYOUT, SENTINEL_GAP_AUTO, SENTINEL_GAP_GRID, SENTINEL_GAP_GRID_AUTO,
+    SENTINEL_GAP_TILE, SENTINEL_GAP_OVERLAY, SENTINEL_GAP_SPLIT,
+} Sentinel_Gap_Kind;
+
+// One frame of `kind` built with `gap`: the slot rects of its first three
+// children (for the split, its two pane slots and its stored gap in
+// out[2].x). Returns the number of contract errors the frame reported.
+static int sentinel_gap_rects(Sentinel_Gap_Kind kind, float gap, WLX_Rect out[3]) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    wlx_set_error_handler(&ctx, sentinel_err_capture, NULL);
+    sentinel_err_count = 0;
+    memset(out, 0, 3 * sizeof *out);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    switch (kind) {
+    case SENTINEL_GAP_LAYOUT:    wlx_layout_begin(&ctx, 3, WLX_VERT, .gap = gap); break;
+    case SENTINEL_GAP_AUTO:      wlx_layout_begin_auto(&ctx, WLX_VERT, 20, .gap = gap); break;
+    case SENTINEL_GAP_GRID:      wlx_grid_begin(&ctx, 2, 2, .gap = gap); break;
+    case SENTINEL_GAP_GRID_AUTO: wlx_grid_begin_auto(&ctx, 2, 20, .gap = gap); break;
+    case SENTINEL_GAP_TILE:      wlx_grid_begin_auto_tile(&ctx, 100, 20, .gap = gap); break;
+    case SENTINEL_GAP_OVERLAY:
+        wlx_overlay_begin(&ctx, 3, ((WLX_Rect){ 10, 10, 200, 150 }), .gap = gap);
+        break;
+    case SENTINEL_GAP_SPLIT:
+        wlx_layout_begin(&ctx, 1, WLX_VERT);
+        wlx_split_begin(&ctx, .gap = gap);
+        break;
+    }
+    if (kind == SENTINEL_GAP_SPLIT) {
+        WLX_Layout *h = sentinel_horz_layout(&ctx);
+        out[0] = wlx_calc_layout_slot_rect(&ctx, h, 0, 1);
+        out[1] = wlx_calc_layout_slot_rect(&ctx, h, 1, 1);
+        out[2].x = h->gap;
+        wlx_split_next(&ctx);
+        wlx_split_end(&ctx);
+        wlx_layout_end(&ctx);
+    } else {
+        WLX_Layout *top = sentinel_top_layout(&ctx);
+        for (int i = 0; i < 3; i++) out[i] = wlx_get_slot_rect(&ctx, top, -1, 1);
+        if (kind == SENTINEL_GAP_OVERLAY) wlx_overlay_end(&ctx);
+        else if (kind == SENTINEL_GAP_LAYOUT || kind == SENTINEL_GAP_AUTO) wlx_layout_end(&ctx);
+        else wlx_grid_end(&ctx);
+    }
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+    return sentinel_err_count;
+}
+
+static void sentinel_gap_case(Sentinel_Gap_Kind kind) {
+    WLX_Rect zero[3], neg[3], unset[3];
+    ASSERT_EQ_INT(0, sentinel_gap_rects(kind, 0.0f, zero));
+    ASSERT_EQ_INT(0, sentinel_gap_rects(kind, -1.0f, neg));
+    ASSERT_EQ_INT(0, sentinel_gap_rects(kind, WLX_FLOAT_UNSET, unset));
+    for (int i = 0; i < 3; i++) {
+        ASSERT_EQ_RECT(zero[i], neg[i], 0.0001f);
+        ASSERT_EQ_RECT(zero[i], unset[i], 0.0001f);
+    }
+}
+
+TEST(layout_negative_gap_reads_zero)      { sentinel_gap_case(SENTINEL_GAP_LAYOUT); }
+TEST(layout_auto_negative_gap_reads_zero) { sentinel_gap_case(SENTINEL_GAP_AUTO); }
+TEST(grid_negative_gap_reads_zero)        { sentinel_gap_case(SENTINEL_GAP_GRID); }
+TEST(grid_auto_negative_gap_reads_zero)   { sentinel_gap_case(SENTINEL_GAP_GRID_AUTO); }
+TEST(grid_tile_negative_gap_reads_zero)   { sentinel_gap_case(SENTINEL_GAP_TILE); }
+TEST(overlay_negative_gap_reads_zero)     { sentinel_gap_case(SENTINEL_GAP_OVERLAY); }
+TEST(split_negative_gap_reads_zero)       { sentinel_gap_case(SENTINEL_GAP_SPLIT); }
+
+// A direct constructor call normalises the gap too: the begins are not the
+// only callers.
+TEST(create_layout_negative_gap_reads_zero) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    WLX_Rect r = { 0, 0, 400, 300 };
+    WLX_Layout zero = wlx_create_layout(&ctx, r, 3, WLX_VERT, 0.0f);
+    WLX_Layout neg  = wlx_create_layout(&ctx, r, 3, WLX_VERT, -4.0f);
+    ASSERT_EQ_F(0.0f, neg.gap, 0.0001f);
+    for (size_t i = 0; i < 3; i++) {
+        ASSERT_EQ_RECT(wlx_calc_layout_slot_rect(&ctx, &zero, i, 1),
+                       wlx_calc_layout_slot_rect(&ctx, &neg, i, 1), 0.0001f);
+    }
+    WLX_Layout gneg = wlx_create_grid(&ctx, r, 2, 2, NULL, NULL, WLX_FLOAT_UNSET);
+    WLX_Layout gzero = wlx_create_grid(&ctx, r, 2, 2, NULL, NULL, 0.0f);
+    ASSERT_EQ_F(0.0f, gneg.gap, 0.0001f);
+    ASSERT_EQ_RECT(wlx_calc_grid_slot_rect(&ctx, &gzero, 1, 1, 1, 1),
+                   wlx_calc_grid_slot_rect(&ctx, &gneg, 1, 1, 1, 1), 0.0001f);
+    WLX_Layout aneg = wlx_create_grid_auto(&ctx, r, 2, 20.0f, NULL, -1.0f);
+    ASSERT_EQ_F(0.0f, aneg.gap, 0.0001f);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
 // Menu width follows Rule U: unset resolves to the default, 0 is 0.
 TEST(menu_width_rule_u) {
     WLX_Context ctx;
@@ -430,6 +531,14 @@ SUITE(sentinel) {
     RUN_TEST(sentinel_padding_theme_token);
     RUN_TEST(panel_roundness_inherits_theme);
     RUN_TEST(split_gap_literal_zero);
+    RUN_TEST(layout_negative_gap_reads_zero);
+    RUN_TEST(layout_auto_negative_gap_reads_zero);
+    RUN_TEST(grid_negative_gap_reads_zero);
+    RUN_TEST(grid_auto_negative_gap_reads_zero);
+    RUN_TEST(grid_tile_negative_gap_reads_zero);
+    RUN_TEST(overlay_negative_gap_reads_zero);
+    RUN_TEST(split_negative_gap_reads_zero);
+    RUN_TEST(create_layout_negative_gap_reads_zero);
     RUN_TEST(menu_width_rule_u);
     RUN_TEST(panel_title_align_none_honoured);
     RUN_TEST(split_explicit_auto_honoured);
