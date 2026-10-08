@@ -1834,7 +1834,7 @@ typedef struct {
     bool last_was_replay;
     uint8_t cls;            // class the current handler path declared
     uint32_t txn_group;
-    size_t txn_caret0;      // caret pair at transaction start
+    size_t txn_caret0;      // caret pair at transaction start (re-seated by a replay)
     size_t txn_anchor0;
     bool alloc_failed;      // a record could not be kept; the step is void
     // Replay: the direction being applied and the caret pairs its mirror
@@ -14554,8 +14554,9 @@ static size_t wlx_text_edit_insert(char *buffer, size_t buffer_cap, size_t *leng
 // all-or-nothing: every entry is validated against the live length and the
 // capacity before any byte moves, and a step that cannot apply (the buffer
 // changed under the journal) drops the history instead. The caret pair is
-// restored to the step's before-state (undo) or after-state (redo). Returns
-// true when the buffer changed.
+// restored to the step's before-state (undo) or after-state (redo); on
+// either exit it is then bounded to the length and becomes the open
+// transaction's before-pair. Returns true when the buffer changed.
 static bool wlx_text_undo_apply(WLX_Text_Undo_Journal *j, bool redo,
     WLX_Text_Edit_State *st, char *buffer, size_t buffer_cap, size_t *length,
     WLX_Text_Edit_Span *span)
@@ -14614,13 +14615,21 @@ static bool wlx_text_undo_apply(WLX_Text_Undo_Journal *j, bool redo,
     j->replaying = false;
     // A later record in this same transaction opens a step of its own.
     j->txn_first = true;
-    if (!intact) {
+    if (intact) {
+        st->cursor_pos = redo ? j->rep_caret_after : j->rep_caret_before;
+        st->selection_anchor = redo ? j->rep_anchor_after : j->rep_anchor_before;
+        j->last_was_replay = true;
+    } else {
         wlx_text_undo_clear(j, *length);
-        return changed;
     }
-    st->cursor_pos = redo ? j->rep_caret_after : j->rep_caret_before;
-    st->selection_anchor = redo ? j->rep_anchor_after : j->rep_anchor_before;
-    j->last_was_replay = true;
+    // The replay moved the document under the handler's entry clamp: bound
+    // the caret pair to what is left and re-open the transaction there, so
+    // a later record in this frame stamps a before-caret inside this
+    // document (the replay-side twin of the composition re-open).
+    if (st->cursor_pos > *length) st->cursor_pos = *length;
+    if (st->selection_anchor > *length) st->selection_anchor = *length;
+    j->txn_caret0 = st->cursor_pos;
+    j->txn_anchor0 = st->selection_anchor;
     return changed;
 }
 #else

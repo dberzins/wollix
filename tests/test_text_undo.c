@@ -77,17 +77,23 @@ static void tu_key(WLX_Context *ctx, char *buf, size_t buf_size,
 // buffer goes in a single handler pass: between frames the inputbox pins
 // a caret beyond its visible-width text run back to the run's end, so a
 // two-frame sequence would delete only the visible prefix of a long line.
-static void tu_keys2(WLX_Context *ctx, char *buf, size_t buf_size,
-                     WLX_Key_Code key1, WLX_Key_Code key2, uint32_t mods) {
+static void tu_keys2_text(WLX_Context *ctx, char *buf, size_t buf_size,
+                          WLX_Key_Code key1, WLX_Key_Code key2, uint32_t mods,
+                          const char *text) {
     bool keys_pressed[WLX_KEY_COUNT] = {0};
-    keys_pressed[key1] = true;
-    keys_pressed[key2] = true;
+    if (key1 != WLX_KEY_NONE) keys_pressed[key1] = true;
+    if (key2 != WLX_KEY_NONE) keys_pressed[key2] = true;
     test_frame_begin_full(ctx, 200, 150, false, false, false, 0.0f, NULL,
-        keys_pressed, NULL, mods, NULL);
+        keys_pressed, NULL, mods, text);
     wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
     tu_inputbox(ctx, buf, buf_size);
     wlx_layout_end(ctx);
     test_frame_end(ctx);
+}
+
+static void tu_keys2(WLX_Context *ctx, char *buf, size_t buf_size,
+                     WLX_Key_Code key1, WLX_Key_Code key2, uint32_t mods) {
+    tu_keys2_text(ctx, buf, buf_size, key1, key2, mods, NULL);
 }
 
 // The fixture widget's journal (the context holds one widget), or NULL.
@@ -140,6 +146,23 @@ static WLX_Inputbox_State *tu_state(WLX_Context *ctx) {
 
 static uint32_t tu_undo_mod(void) { return test_command_mod(); }
 static uint32_t tu_redo_mod(void) { return test_command_mod() | WLX_MOD_SHIFT; }
+
+// The newest undo step's before-pair lies inside the document that step
+// found. The newest undo step always ends at the live document (an edit
+// or a replay put it there), so its pre-step length is the live length
+// with the step's net change taken back out.
+static bool tu_newest_step_before_in_document(const WLX_Text_Undo_Journal *j, size_t len) {
+    if (j == NULL || j->undo.count == 0) return true;
+    const WLX_Text_Undo_Stack *s = &j->undo;
+    uint32_t group = s->entries[s->count - 1].group;
+    size_t first = s->count;
+    size_t pre = len;
+    while (first > 0 && s->entries[first - 1].group == group) {
+        const WLX_Text_Undo_Entry *e = &s->entries[--first];
+        pre = pre + e->removed_len - e->inserted_len;
+    }
+    return s->entries[first].caret_before <= pre && s->entries[first].anchor_before <= pre;
+}
 
 // ============================================================================
 // Recording
@@ -733,6 +756,37 @@ TEST(undo_new_edit_clears_redo_and_replay_ends_coalescing) {
     wlx_context_destroy(&ctx);
 }
 
+// An undo chord and a second editing key in one frame: the replay shortens
+// the document under the caret the handler entered with, and the key's
+// record must stamp a before-caret inside the document it found. Undoing
+// that step then restores a caret the next key can use. The second key
+// runs under the command modifier (a word delete off Apple, a unit
+// delete on it); either way it is a mutation recorded after the replay.
+TEST(undo_chord_plus_key_keeps_before_caret_in_document) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    tu_reset_fixture();
+    char buf[64] = "";
+
+    tu_focus(&ctx, buf, sizeof(buf));
+    tu_type(&ctx, buf, sizeof(buf), "hello");
+    test_set_clipboard(" world");
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_V, test_command_mod());
+    ASSERT_EQ_STR(buf, "hello world");
+    WLX_Text_Undo_Journal *j = tu_journal(&ctx);
+    ASSERT_TRUE(j != NULL);
+
+    for (int frame = 0; frame < 2; frame++) {
+        tu_keys2(&ctx, buf, sizeof(buf), WLX_KEY_Z, WLX_KEY_BACKSPACE, tu_undo_mod());
+        ASSERT_TRUE(tu_last_changed);
+        size_t len = strlen(buf);
+        ASSERT_TRUE(tu_newest_step_before_in_document(j, len));
+        ASSERT_TRUE(tu_state(&ctx)->caret.cursor_pos <= len);
+        ASSERT_TRUE(tu_state(&ctx)->caret.selection_anchor <= len);
+    }
+    wlx_context_destroy(&ctx);
+}
+
 TEST(undo_held_chord_repeats_and_empty_stack_is_noop) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
@@ -900,6 +954,21 @@ static void tue_type(WLX_Context *ctx, char *buf, size_t cap, size_t *len, const
 static void tue_key(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
                     WLX_Key_Code key, uint32_t mods) {
     tue_frame_ex(ctx, buf, cap, len, 200, 50, false, false, key, mods, NULL);
+}
+
+// Two keys and typed text in one frame (either key may be WLX_KEY_NONE).
+static void tue_keys2_text(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
+                           WLX_Key_Code key1, WLX_Key_Code key2, uint32_t mods,
+                           const char *text) {
+    bool keys_pressed[WLX_KEY_COUNT] = {0};
+    if (key1 != WLX_KEY_NONE) keys_pressed[key1] = true;
+    if (key2 != WLX_KEY_NONE) keys_pressed[key2] = true;
+    test_frame_begin_full(ctx, 200, 50, false, false, false, 0.0f, NULL,
+        keys_pressed, NULL, mods, text);
+    wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+    tue_editor(ctx, buf, cap, len);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
 }
 
 static void tue_reset_fixture(void) {
@@ -1241,14 +1310,18 @@ static uint32_t tup_next(uint32_t *seed) {
 }
 
 // One operation on whichever widget the fixture drives (editor when
-// `editor`, else the textarea). Returns true when the buffer changed.
+// `editor`, else the textarea). With `multikey`, undo and redo chords join
+// the draw and about one frame in eight carries a second key (or typed
+// text beside a key) under the first draw's modifiers; without it the
+// draw is the single-key sequence the seed tables were captured on.
+// Returns true when the buffer changed.
 static bool tup_op(WLX_Context *ctx, bool editor, char *buf, size_t cap, size_t *len,
-                   uint32_t *seed) {
+                   uint32_t *seed, bool multikey) {
     static const char *const alphabet[] = {
         "a", "b", "c", " ", "e", "\xC3\xA9", "\xE2\x82\xAC", "ab", "xyz"
     };
     static const char *const clips[] = { "P", "pq\nr", "\xC3\xA9\xC3\xA9", "12345678" };
-    uint32_t r = tup_next(seed) % 20;
+    uint32_t r = tup_next(seed) % (multikey ? 23u : 20u);
     WLX_Key_Code key = WLX_KEY_NONE;
     uint32_t mods = 0;
     const char *text = NULL;
@@ -1271,13 +1344,39 @@ static bool tup_op(WLX_Context *ctx, bool editor, char *buf, size_t cap, size_t 
         break;
     case 17: key = WLX_KEY_X; mods = test_command_mod(); break;
     case 18: key = WLX_KEY_BACKSPACE; mods = WLX_MOD_CTRL; break;
+    case 20: key = WLX_KEY_Z; mods = tu_undo_mod(); break;
+    case 21: key = WLX_KEY_Z; mods = tu_redo_mod(); break;
+    case 22: key = WLX_KEY_Y; mods = tu_undo_mod(); break;
     default: key = WLX_KEY_A; mods = test_command_mod(); break;
     }
+    WLX_Key_Code key2 = WLX_KEY_NONE;
+    if (multikey && tup_next(seed) % 8 == 0) {
+        static const WLX_Key_Code seconds[] = {
+            WLX_KEY_BACKSPACE, WLX_KEY_DELETE, WLX_KEY_LEFT, WLX_KEY_RIGHT,
+            WLX_KEY_ENTER, WLX_KEY_V, WLX_KEY_X, WLX_KEY_Z, WLX_KEY_Y
+        };
+        uint32_t s = tup_next(seed) % 10;
+        if (s < 9) key2 = seconds[s];
+        else if (text == NULL) text = alphabet[tup_next(seed) % 9];
+        else key2 = WLX_KEY_BACKSPACE;
+        if (key == WLX_KEY_NONE) {
+            key = key2;
+            key2 = WLX_KEY_NONE;
+        }
+    }
     if (editor) {
-        tue_frame_ex(ctx, buf, cap, len, 200, 50, false, false, key, mods, text);
+        if (key2 == WLX_KEY_NONE) {
+            tue_frame_ex(ctx, buf, cap, len, 200, 50, false, false, key, mods, text);
+        } else {
+            tue_keys2_text(ctx, buf, cap, len, key, key2, mods, text);
+        }
         return tue_last_changed;
     }
-    tu_frame_ex(ctx, buf, cap, 200, 150, false, false, key, mods, text);
+    if (key2 == WLX_KEY_NONE) {
+        tu_frame_ex(ctx, buf, cap, 200, 150, false, false, key, mods, text);
+    } else {
+        tu_keys2_text(ctx, buf, cap, key, key2, mods, text);
+    }
     *len = strlen(buf);
     return tu_last_changed;
 }
@@ -1303,7 +1402,17 @@ static bool tup_chord(WLX_Context *ctx, bool editor, char *buf, size_t cap, size
     return tu_last_changed;
 }
 
-static void tup_run(bool editor, uint32_t seed, int ops) {
+// Every frame leaves the caret pair inside the document and the newest
+// step's before-pair inside the document that step found. At the end,
+// undo runs to the history's base and redo to its tip. Single-key runs
+// pin both ends byte for byte and caret for caret: the base is the
+// document before the first edit, the tip the document after the last.
+// With `multikey` the random phase replays too, so both ends move: the
+// base is the document whenever the undo stack is empty, the tip the
+// document whenever the redo stack is empty. Bytes are pinned at both;
+// the caret pair only within bounds, since a second key in an edit's
+// frame can move the caret after the step recorded its pair.
+static void tup_run(bool editor, uint32_t seed, int ops, bool multikey) {
     WLX_Context ctx;
     if (editor) {
         tue_ctx_init(&ctx);
@@ -1333,41 +1442,65 @@ static void tup_run(bool editor, uint32_t seed, int ops) {
         tup_caret(&ctx, editor, &pc, &pa);
         memcpy(before, buf, len);
         size_t before_len = len;
-        bool changed = tup_op(&ctx, editor, buf, CAP, &len, &seed);
+        WLX_Text_Undo_Journal *j = tu_journal(&ctx);
+        bool at_base = j == NULL || j->undo.count == 0;
+        bool changed = tup_op(&ctx, editor, buf, CAP, &len, &seed, multikey);
+        size_t nc, na;
+        tup_caret(&ctx, editor, &nc, &na);
+        ASSERT_TRUE(nc <= len && na <= len);
+        j = tu_journal(&ctx);
+        ASSERT_TRUE(tu_newest_step_before_in_document(j, len));
+        if (multikey && (j == NULL || j->redo.count == 0)) {
+            memcpy(final_, buf, len);
+            final_len = len;
+        }
         if (!changed) continue;
-        if (!any) {
+        if (!any || (multikey && at_base)) {
             any = true;
             memcpy(initial, before, before_len);
             initial_len = before_len;
             ic = pc;
             ia = pa;
         }
-        memcpy(final_, buf, len);
-        final_len = len;
-        tup_caret(&ctx, editor, &fc, &fa);
+        if (!multikey) {
+            memcpy(final_, buf, len);
+            final_len = len;
+            fc = nc;
+            fa = na;
+        }
         steps_seen++;
     }
     ASSERT_TRUE(any);
 
     int undone = 0;
     while (tup_chord(&ctx, editor, buf, CAP, &len, tu_undo_mod())) undone++;
-    ASSERT_TRUE(undone > 0 && undone <= steps_seen);
+    ASSERT_TRUE(undone <= steps_seen);
+    if (!multikey) ASSERT_TRUE(undone > 0);
     ASSERT_EQ_INT((long)initial_len, (long)len);
     ASSERT_TRUE(memcmp(buf, initial, initial_len) == 0);
     size_t c, a;
     tup_caret(&ctx, editor, &c, &a);
-    ASSERT_EQ_INT((long)ic, (long)c);
-    ASSERT_EQ_INT((long)ia, (long)a);
+    if (multikey) {
+        ASSERT_TRUE(c <= len && a <= len);
+    } else {
+        ASSERT_EQ_INT((long)ic, (long)c);
+        ASSERT_EQ_INT((long)ia, (long)a);
+    }
     if (editor) ASSERT_TRUE(tue_index_consistent(&ctx, buf, len));
 
     int redone = 0;
     while (tup_chord(&ctx, editor, buf, CAP, &len, tu_redo_mod())) redone++;
-    ASSERT_EQ_INT(undone, redone);
+    if (multikey) ASSERT_TRUE(redone >= undone);
+    else ASSERT_EQ_INT(undone, redone);
     ASSERT_EQ_INT((long)final_len, (long)len);
     ASSERT_TRUE(memcmp(buf, final_, final_len) == 0);
     tup_caret(&ctx, editor, &c, &a);
-    ASSERT_EQ_INT((long)fc, (long)c);
-    ASSERT_EQ_INT((long)fa, (long)a);
+    if (multikey) {
+        ASSERT_TRUE(c <= len && a <= len);
+    } else {
+        ASSERT_EQ_INT((long)fc, (long)c);
+        ASSERT_EQ_INT((long)fa, (long)a);
+    }
     if (editor) ASSERT_TRUE(tue_consistent(&ctx, buf, CAP, &len));
 
     wlx_context_destroy(&ctx);
@@ -1378,13 +1511,33 @@ static void tup_run(bool editor, uint32_t seed, int ops) {
 }
 
 TEST(undo_property_editor_sequences_round_trip) {
-    tup_run(true, 0x5eed0001u, 300);
-    tup_run(true, 0x00c0ffeeu, 300);
+    tup_run(true, 0x5eed0001u, 300, false);
+    tup_run(true, 0x00c0ffeeu, 300, false);
 }
 
 TEST(undo_property_textarea_sequences_round_trip) {
-    tup_run(false, 0x5eed0002u, 150);
-    tup_run(false, 0x0badf00du, 150);
+    tup_run(false, 0x5eed0002u, 150, false);
+    tup_run(false, 0x0badf00du, 150, false);
+}
+
+// Multi-key frames with undo and redo chords inside the random phase: a
+// chord beside an editing key is the frame shape that once left a
+// replayed document under a stale transaction caret. Every seed in the
+// table reached that shape in both widgets.
+static const uint32_t tup_multikey_seeds[] = {
+    0x5eed0010u, 0x5eed0019u, 0x5eed001bu, 0x5eed0024u
+};
+
+TEST(undo_property_multikey_editor) {
+    for (size_t i = 0; i < sizeof(tup_multikey_seeds) / sizeof(tup_multikey_seeds[0]); i++) {
+        tup_run(true, tup_multikey_seeds[i], 300, true);
+    }
+}
+
+TEST(undo_property_multikey_textarea) {
+    for (size_t i = 0; i < sizeof(tup_multikey_seeds) / sizeof(tup_multikey_seeds[0]); i++) {
+        tup_run(false, tup_multikey_seeds[i], 150, true);
+    }
 }
 
 // ============================================================================
@@ -1458,6 +1611,7 @@ SUITE(text_undo) {
     RUN_TEST(undo_word_and_selection_deletes_are_single_steps);
     RUN_TEST(undo_typing_over_selection_restores_selection);
     RUN_TEST(undo_new_edit_clears_redo_and_replay_ends_coalescing);
+    RUN_TEST(undo_chord_plus_key_keeps_before_caret_in_document);
     RUN_TEST(undo_held_chord_repeats_and_empty_stack_is_noop);
     RUN_TEST(undo_multibyte_runs_restore_on_boundaries);
     RUN_TEST(undo_read_only_rejects_chords_and_keeps_history);
@@ -1471,4 +1625,6 @@ SUITE(text_undo) {
     RUN_TEST(undo_editor_typing_run_splits_at_the_step_bound);
     RUN_TEST(undo_property_editor_sequences_round_trip);
     RUN_TEST(undo_property_textarea_sequences_round_trip);
+    RUN_TEST(undo_property_multikey_editor);
+    RUN_TEST(undo_property_multikey_textarea);
 }

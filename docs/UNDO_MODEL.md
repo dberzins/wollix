@@ -271,7 +271,7 @@ typedef struct {
     bool     last_was_replay; // the newest transaction was an undo/redo: no coalescing into it
     uint8_t  cls;             // class the current handler path declared
     uint32_t txn_group;       // step id records in this transaction carry
-    size_t   txn_caret0, txn_anchor0;   // caret pair at transaction start
+    size_t   txn_caret0, txn_anchor0;   // caret pair at transaction start (re-seated by a replay)
     bool     alloc_failed;    // a record could not be kept; the step is void
 
     // replay (section 7)
@@ -375,7 +375,8 @@ wlx_text_edit_handle_keys(ctx, st, buffer, buffer_cap, length, caps, span, undo)
     clamp caret pair to *length
     txn_begin(undo, caret, anchor)        <- snapshot the before-state, class = NONE
     command modifier block:
-        undo/redo chords (section 7)      <- first, so a chord frame never also pastes
+        undo/redo chords (section 7)      <- first, so a chord frame never also pastes;
+                                             a replay re-opens the before-state at its clamped caret
         copy; cut [CUT]; paste [PASTE]; select-all
     typing            [TYPING]
     Enter             [NEWLINE]
@@ -391,6 +392,14 @@ Each bracketed path calls `wlx_text_undo_set_class` before its primitive
 calls. The class is per path, not per key: Backspace on a live selection
 is `SELECTION`, a word delete is `WORD_DELETE`, and only the plain
 unit delete is `BACKSPACE`.
+
+A replay moves the document under the entry clamp, so the before-state
+snapshot is not final. `apply` clamps the caret pair to the new length
+and re-seats `txn_caret0` / `txn_anchor0` from it (section 7.2 step 6).
+A key later in the same frame then records a before-pair inside the
+document it found, and undoing that step restores a caret the document
+can hold. The composition path re-opens the transaction the same way
+after it drops a tentative span.
 
 Every primitive call inside a transaction records under the transaction's
 `txn_group`, so a frame that runs two primitives makes a two-entry step:
@@ -521,11 +530,20 @@ apply(j, redo, st, buffer, buffer_cap, length, span)
              delete_selection(...)          -> records a mirror entry on the other stack
          if removed_len > 0: caret = anchor = start;
              insert(arena + arena_off, removed_len)   -> records a mirror entry
-         a primitive that could not do exactly its job voids the step: clear, return
+         a primitive that could not do exactly its job voids the step: clear the
+             history, keep the handler's caret pair, continue at step 6
   6. replaying = false; txn_first = true (a later record in this frame starts its own step)
-     caret pair = rep before-pair (undo) or after-pair (redo)
-     last_was_replay = true; return true
+     intact: caret pair = rep before-pair (undo) or after-pair (redo); last_was_replay = true
+     both exits: caret pair clamped to *length; txn_caret0 / txn_anchor0 re-seated from it
+     return whether the buffer changed
 ```
+
+The re-seat runs on both exits. A step voided mid-replay (a mirror record
+that could not allocate) has already moved bytes, so the handler's caret
+pair can lie past the shortened document as well. `wlx_text_undo_clear`
+leaves the transaction fields alone, so the re-seat after it holds.
+Coalescing cannot use the re-seated pair: `last_was_replay` blocks it on
+the intact exit, and the history is empty on the other.
 
 Pop-first is safe because nothing writes the source stack during the
 replay: the mirror recording goes to the other stack's arrays, and the
@@ -836,7 +854,9 @@ suites so it can reuse the view fixtures):
   cut, word and selection deletes standing alone; typing over a selection
   restoring the selection; a new edit clearing redo; a replay ending
   coalescing; held chords; multibyte runs; read-only, password and stale
-  buffers rejecting the chords.
+  buffers rejecting the chords; an undo chord sharing a frame with an
+  editing key, twice, keeping the new step's before-pair inside the
+  document it found.
 - **Editor.** Every edit class round-trips in no-wrap and wrapped mode
   with index parity (fresh scan) and build parity (fresh context); the
   wrapped bottom anchor survives a replay before its line; caret-follow
@@ -846,7 +866,14 @@ suites so it can reuse the view fixtures):
   incl. multibyte, Backspace, Delete, arrows, selections, select-all,
   Enter, Tab, paste, cut, word delete) on the editor and on the textarea:
   undo until nothing changes restores the initial bytes and caret pair,
-  redo until nothing changes restores the final ones.
+  redo until nothing changes restores the final ones. Every frame keeps
+  the caret pair inside the document and the newest step's before-pair
+  inside the document that step found. A multi-key variant adds undo and
+  redo chords to the draw and puts a second key (or typed text beside a
+  key) into about one frame in eight. Its replays move both ends of the
+  history, so it pins the bytes at the base (the document whenever the
+  undo stack was empty) and the tip (whenever the redo stack was empty),
+  and the caret pair within bounds.
 
 Beside it: `tests/test_undo_disabled.c` (own translation unit,
 `WLX_TEXT_UNDO_ENTRIES 0`: builds, edits, no cache, chords inert) and
