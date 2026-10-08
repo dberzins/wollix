@@ -11,6 +11,8 @@
 //     menu stack instead of indexing menu_stack[-1]
 //   - the sub-arena size_t-overflow guards abort instead of wrapping to an
 //     undersized reserve (out-of-bounds writes)
+//   - the two text edit primitives abort on an offset past the document
+//     length instead of wrapping a memmove size
 //   - with no handler installed, a contract error's default handler prints
 //     once per site through WLX_ERROR_PRINT and returns (it aborts only in a
 //     build without NDEBUG), and a hard assert's text reaches the sink
@@ -193,6 +195,29 @@ TEST(hard_assert_fires_on_sub_arena_reserve_overflow) {
 
 TEST(hard_assert_fires_on_sub_arena_alloc_count_overflow) {
     ASSERT_TRUE(run_in_child(trigger_sub_arena_alloc_count_overflow) == CHILD_ABORTED);
+}
+
+// The edit primitives own their bounds: a caret or selection end past the
+// length is fatal before any record or byte move (SIGABRT, not the SIGSEGV
+// of a wrapped memmove size).
+static void trigger_text_insert_past_length(void) {
+    char buf[8] = "abc";
+    size_t length = 3, cursor = 5, anchor = 5;
+    wlx_text_edit_insert(buf, sizeof buf, &length, &cursor, &anchor, "x", 1, NULL, NULL);
+}
+
+static void trigger_text_delete_past_length(void) {
+    char buf[8] = "abc";
+    size_t length = 3, cursor = 5, anchor = 1;
+    wlx_text_edit_delete_selection(buf, &length, &cursor, &anchor, NULL, NULL);
+}
+
+TEST(hard_assert_fires_on_insert_past_length) {
+    ASSERT_TRUE(run_in_child(trigger_text_insert_past_length) == CHILD_ABORTED);
+}
+
+TEST(hard_assert_fires_on_delete_past_length) {
+    ASSERT_TRUE(run_in_child(trigger_text_delete_past_length) == CHILD_ABORTED);
 }
 
 // A backend table that never declared the v2 contract (a pre-0.9 table
@@ -391,6 +416,8 @@ SUITE(hard_assert) {
     RUN_TEST(hard_assert_fires_on_menu_end_without_begin);
     RUN_TEST(hard_assert_fires_on_sub_arena_reserve_overflow);
     RUN_TEST(hard_assert_fires_on_sub_arena_alloc_count_overflow);
+    RUN_TEST(hard_assert_fires_on_insert_past_length);
+    RUN_TEST(hard_assert_fires_on_delete_past_length);
     RUN_TEST(hard_assert_fires_on_backend_contract_mismatch);
     RUN_TEST(default_handler_returns_under_ndebug);
     RUN_TEST(default_sink_prints_once_per_site);

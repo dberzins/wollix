@@ -302,7 +302,9 @@ final.
 
 ```
 wlx_text_edit_delete_selection(buffer, length, cursor, anchor, span, undo)
-    sel_min, sel_max from the caret pair; nothing to do if equal
+    sel_min, sel_max from the caret pair
+    WLX_HARD_ASSERT(sel_max <= *length)        <- the primitive's own bound, release-live
+    nothing to do if sel_min == sel_max
     record(undo, sel_min, &buffer[sel_min], sel_max - sel_min, 0, *cursor, *anchor)
     memmove: close the gap                     <- the removed bytes are gone after this
     *length -= n; caret = anchor = sel_min
@@ -310,6 +312,7 @@ wlx_text_edit_delete_selection(buffer, length, cursor, anchor, span, undo)
     note_caret_after(undo, *cursor, *anchor, *length)
 
 wlx_text_edit_insert(buffer, buffer_cap, length, cursor, anchor, text, len, span, undo)
+    WLX_HARD_ASSERT(*cursor <= *length)        <- the primitive's own bound, release-live
     ins = len clipped to the capacity and backed off to a UTF-8 boundary; nothing to do if 0
     record(undo, *cursor, NULL, 0, ins, *cursor, *anchor)
     memmove: open the gap; memcpy the bytes
@@ -696,9 +699,13 @@ Three more layers back it up:
 - **Replay validation.** `apply` checks every entry of a step against the
   live length and capacity before moving a byte; an infeasible step clears
   the history instead of applying part of it.
-- **The primitives clamp.** Nothing in the replay can index past the live
-  length, so even history the guard could not see is memory-safe; it is
-  merely wrong, which is why `.revision` exists.
+- **The primitives clamp and guard.** Nothing in the replay can index past
+  the live length, so even history the guard could not see is memory-safe;
+  it is merely wrong, which is why `.revision` exists. Each primitive also
+  bounds its own offsets with a release-live `WLX_HARD_ASSERT` (a caret or
+  selection end past the length is fatal before any record or byte move),
+  so a caller whose own check slipped aborts instead of wrapping a
+  `memmove` size.
 
 What the guard cannot see, and the caller's contract: a same-length
 rewrite that keeps every hard-line start in place (any change inside a
@@ -876,8 +883,10 @@ suites so it can reuse the view fixtures):
   and the caret pair within bounds.
 
 Beside it: `tests/test_undo_disabled.c` (own translation unit,
-`WLX_TEXT_UNDO_ENTRIES 0`: builds, edits, no cache, chords inert) and
-`tests/test_config_override.c` (both caps honoured when predefined).
+`WLX_TEXT_UNDO_ENTRIES 0`: builds, edits, no cache, chords inert),
+`tests/test_config_override.c` (both caps honoured when predefined) and
+`tests/test_hard_assert.c` (`NDEBUG`: each primitive called with an offset
+past the length dies with `SIGABRT`, not `SIGSEGV`).
 
 ---
 

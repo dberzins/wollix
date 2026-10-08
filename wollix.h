@@ -14500,12 +14500,15 @@ static void wlx_text_edit_span_add(WLX_Text_Edit_Span *span, size_t start,
 // Remove the byte range [min(*cursor, *anchor), max(*cursor, *anchor)) from
 // a length-explicit buffer, collapsing caret and anchor to the range start.
 // The buffer is treated as a byte slice: no NUL is read or written. The
-// removed bytes are journaled before they move. Returns true when bytes
-// were removed.
+// removed bytes are journaled before they move. The range bound is this
+// primitive's own, not its callers': an end past the length is fatal.
+// Returns true when bytes were removed.
 static bool wlx_text_edit_delete_selection(char *buffer, size_t *length, size_t *cursor,
     size_t *anchor, WLX_Text_Edit_Span *span, WLX_Text_Undo_Journal *undo) {
     size_t sel_min = *cursor < *anchor ? *cursor : *anchor;
     size_t sel_max = *cursor > *anchor ? *cursor : *anchor;
+    WLX_HARD_ASSERT(sel_max <= *length,
+        "text edit delete: selection end past the document length");
     if (sel_min == sel_max) return false;
 
     wlx_text_undo_record(undo, sel_min, &buffer[sel_min], sel_max - sel_min, 0,
@@ -14523,11 +14526,14 @@ static bool wlx_text_edit_delete_selection(char *buffer, size_t *length, size_t 
 // buffer_cap, truncating on a unit boundary of the slice so only whole
 // units (grapheme clusters) land. No NUL is read or written. The insert is
 // journaled by position and length only (the bytes live in the document).
-// Returns the number of bytes inserted.
+// The caret bound is this primitive's own, not its callers': a caret past
+// the length is fatal. Returns the number of bytes inserted.
 static size_t wlx_text_edit_insert(char *buffer, size_t buffer_cap, size_t *length,
     size_t *cursor, size_t *anchor, const char *text, size_t len,
     WLX_Text_Edit_Span *span, WLX_Text_Undo_Journal *undo)
 {
+    WLX_HARD_ASSERT(*cursor <= *length,
+        "text edit insert: caret past the document length");
     size_t room = buffer_cap > *length ? buffer_cap - *length : 0;
     size_t ins = len < room ? len : room;
     while (ins > 0 && !wlx_text_unit_boundary(text, len, ins)) ins--;
