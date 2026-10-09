@@ -268,6 +268,17 @@ static void ime_key(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
 static void ime_blur(WLX_Context *ctx, char *buf, size_t cap, size_t *len) {
     ime_frame(ctx, buf, cap, len, 2, 98, true, WLX_KEY_NONE, 0, NULL);
 }
+// One wheel notch set with the pointer on the widget (negative scrolls the
+// view down); Shift turns it horizontal in the editor.
+static void ime_wheel(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
+                      float delta, uint32_t mods) {
+    test_frame_begin_full(ctx, 200, 50, false, false, false, delta, NULL,
+        NULL, NULL, mods, NULL);
+    wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+    ime_place_widget(ctx, buf, cap, len);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
 
 // The fixture widget's caret state (the context holds one widget).
 static WLX_Text_Edit_State *ime_caret(WLX_Context *ctx) {
@@ -1182,6 +1193,112 @@ TEST(ime_focus_move_to_a_later_field_ends_the_composition) { ime_focus_move_body
 TEST(ime_focus_move_to_an_earlier_field_ends_the_composition) { ime_focus_move_body(75, 25); }
 
 // ============================================================================
+// Composition anchor: active follows focus alone. The caret blinking off,
+// a caret line scrolled out of the text band and an empty buffer keep it;
+// the line stays inside the band and the cursor inside the line.
+// ============================================================================
+
+static const Ime_Widget ime_anchor_shapes[] = { IME_W_INPUTBOX, IME_W_TEXTAREA };
+static const Ime_Widget ime_anchor_multiline_shapes[] = { IME_W_TEXTAREA };
+#define IME_ANCHOR_SHAPE_COUNT(a) (sizeof(a) / sizeof((a)[0]))
+
+// How far the fixture widget's view is scrolled down from the top: the
+// inputbox's pixel offset, the editor's first visible line and row.
+static float ime_view_scrolled(WLX_Context *ctx) {
+    void *data = (void *)ime_caret(ctx);
+    if (data == NULL) return 0.0f;
+    if (ime_widget == IME_W_INPUTBOX || ime_widget == IME_W_TEXTAREA) {
+        return ((WLX_Inputbox_State *)data)->scroll_y;
+    }
+    const WLX_Editor_State *e = (const WLX_Editor_State *)data;
+    return (float)(e->first_line + e->first_row) + e->y_frac;
+}
+
+// 150 idle frames at the mock's 60 fps cross five blink half-periods: the
+// anchor stays active and nothing is pushed.
+static void ime_anchor_idle_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[64] = "ab";
+    size_t len = 2;
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ime_idle(&ctx, buf, sizeof(buf), &len);
+    ASSERT_TRUE(wlx_text_input_area(&ctx).active);
+    int calls = mock_tia_calls();
+    for (int i = 0; i < 150; i++) {
+        ime_idle(&ctx, buf, sizeof(buf), &len);
+        ASSERT_TRUE(wlx_text_input_area(&ctx).active);
+        ASSERT_EQ_INT(calls, mock_tia_calls());
+    }
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_anchor_holds_across_idle_frames) {
+    for (size_t i = 0; i < IME_ANCHOR_SHAPE_COUNT(ime_anchor_shapes); i++) {
+        ime_anchor_idle_case(ime_anchor_shapes[i]);
+    }
+}
+
+// The caret parked on the first line, the view wheeled down past it: the
+// anchor stays active, its line pinned to the top of the band where the
+// first line sat, the cursor inside the line.
+static void ime_anchor_scrolled_out_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[256];
+    size_t len = 0;
+    for (int i = 0; i < 20; i++) len += (size_t)snprintf(buf + len, sizeof(buf) - len, "l%02d\n", i);
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    for (int i = 0; i < 25; i++) ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_UP, 0);
+    ime_idle(&ctx, buf, sizeof(buf), &len);
+    ASSERT_EQ_F(0.0f, ime_view_scrolled(&ctx), 0.001f);
+    WLX_Text_Input_Area top = wlx_text_input_area(&ctx);
+    ASSERT_TRUE(top.active);
+    for (int i = 0; i < 3; i++) ime_wheel(&ctx, buf, sizeof(buf), &len, -3.0f, 0);
+    ime_idle(&ctx, buf, sizeof(buf), &len);
+    ASSERT_TRUE(ime_view_scrolled(&ctx) > 0.0f);           // the first line left the view
+    WLX_Text_Input_Area a = wlx_text_input_area(&ctx);
+    ASSERT_TRUE(a.active);
+    ASSERT_EQ_F(top.line.x, a.line.x, 0.001f);
+    ASSERT_EQ_F(top.line.w, a.line.w, 0.001f);
+    ASSERT_EQ_F(top.line.h, a.line.h, 0.001f);
+    ASSERT_EQ_F(top.line.y, a.line.y, 0.001f);
+    ASSERT_TRUE(a.cursor >= 0.0f && a.cursor <= a.line.w);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_anchor_holds_with_caret_scrolled_out) {
+    for (size_t i = 0; i < IME_ANCHOR_SHAPE_COUNT(ime_anchor_multiline_shapes); i++) {
+        ime_anchor_scrolled_out_case(ime_anchor_multiline_shapes[i]);
+    }
+}
+
+// An empty buffer: the focus frame already pushes an active anchor with
+// the caret at the line start.
+static void ime_anchor_empty_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[64] = "";
+    size_t len = 0;
+    ime_idle(&ctx, buf, sizeof(buf), &len);
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ASSERT_TRUE(mock_tia_calls() >= 1);
+    ASSERT_TRUE(mock_tia_last().active);
+    ASSERT_TRUE(wlx_text_input_area(&ctx).active);
+    ASSERT_EQ_F(0.0f, wlx_text_input_area(&ctx).cursor, 0.001f);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_anchor_active_on_empty_focus_frame) {
+    for (size_t i = 0; i < IME_ANCHOR_SHAPE_COUNT(ime_anchor_shapes); i++) {
+        ime_anchor_empty_case(ime_anchor_shapes[i]);
+    }
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
@@ -1205,6 +1322,9 @@ SUITE(ime) {
     RUN_TEST(ime_forget_on_focus_and_on_external_change);
     RUN_TEST(ime_keys_and_mouse_are_off_while_composing);
     RUN_TEST(ime_area_pushed_on_edges_and_change);
+    RUN_TEST(ime_anchor_holds_across_idle_frames);
+    RUN_TEST(ime_anchor_holds_with_caret_scrolled_out);
+    RUN_TEST(ime_anchor_active_on_empty_focus_frame);
     RUN_TEST(ime_focus_move_to_a_later_field_ends_the_composition);
     RUN_TEST(ime_focus_move_to_an_earlier_field_ends_the_composition);
     RUN_TEST(ime_editor_wrapped_span_reflows);

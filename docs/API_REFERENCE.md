@@ -457,7 +457,11 @@ from the focused editable text widget's caret line (the inputbox, the
 textarea, the editor; never a read-only or disabled one) and pushes it
 from `wlx_end` **only when it changed**: `active` turns true when such a
 widget takes focus, the line and cursor follow the caret, and one push
-with `active` false follows the loss of focus. Focus moving straight
+with `active` false follows the loss of focus. `active` follows focus
+alone: the caret blinking off, a caret line scrolled out of view and an
+empty buffer all keep it. The line stays inside the widget's text band (a
+caret outside the band pins to the nearer edge) and the cursor inside the
+line. Focus moving straight
 from one text widget to another is a loss first: the push for that frame
 is the inactive one, and the new widget's anchor follows on the next
 frame, so the platform ends the leaving widget's composition before the
@@ -963,7 +967,8 @@ every platform's default cursor; the enum is append-only.
 ```c
 typedef struct {
     bool     active;     // an editable text widget holds focus this frame
-    WLX_Rect line;       // the caret's visual line, clipped to the widget's text band (units)
+    WLX_Rect line;       // the caret's visual line, kept inside the widget's text band (units;
+                         // a caret outside the band pins to the nearer edge)
     float    cursor;     // caret x offset from line.x (units)
     bool     multiline;  // textarea / editor
     bool     password;   // masked field
@@ -974,7 +979,9 @@ Where the platform's input method should anchor itself: the caret line
 of the editable text widget that holds focus this frame, assembled by the
 core from the widget's caret geometry and pushed through the optional
 `WLX_Backend.set_text_input_area` callback from `wlx_end`, only when it
-changed. With `active` false the other members are zero. `multiline` and
+changed. `active` is focus: it does not follow the caret's blink or
+whether the caret line is in view. With `active` false the other members
+are zero. `multiline` and
 `password` let a platform pick its keyboard and prediction behaviour
 (SDL3 takes them as start-time properties, so the adapter restarts text
 input when they change). Read the last pushed value with

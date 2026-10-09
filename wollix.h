@@ -609,7 +609,8 @@ typedef enum {
 // the new widget's line on the next.
 typedef struct {
     bool     active;     // an editable text widget holds focus this frame
-    WLX_Rect line;       // the caret's visual line, clipped to the widget's text band (units)
+    WLX_Rect line;       // the caret's visual line, kept inside the widget's text band (units;
+                         // a caret outside the band pins to the nearer edge)
     float    cursor;     // caret x offset from line.x (units)
     bool     multiline;  // textarea / editor (the platform may show a return key)
     bool     password;   // masked field (the platform may disable prediction)
@@ -12665,6 +12666,25 @@ static void wlx_text_caret_draw(WLX_Context *ctx, WLX_Rect clip,
     wlx_scissor_scope_end(ctx, sc);
 }
 
+// The composition anchor of a focused, editable text widget: its caret
+// line pinned inside the text band and the caret's offset clamped to the
+// band width, recorded on every frame the widget holds focus. Placement
+// is geometry, not drawing: a blink-off frame, a caret scrolled out of
+// view and an empty buffer all keep the anchor active. A disabled widget
+// never reports focus, so focus alone is the gate.
+static void wlx_text_edit_anchor(WLX_Context *ctx, WLX_Interaction inter, bool read_only,
+    WLX_Rect band, float caret_x, float caret_top, float line_h, bool multiline, bool password)
+{
+    if (!inter.focused || read_only) return;
+    float max_top = band.y + band.h - line_h;
+    if (max_top < band.y) max_top = band.y;
+    float top = wlx_clampf(caret_top, band.y, max_top);
+    float width = band.w > 0.0f ? band.w : 0.0f;
+    float cursor = wlx_clampf(caret_x - band.x, 0.0f, width);
+    wlx_text_input_area_record(ctx, inter.id, (WLX_Rect){ band.x, top, band.w, line_h },
+        cursor, multiline, password);
+}
+
 // Thumb fill with hover/drag brightness, shared by every text-widget
 // scrollbar.
 static void wlx_scrollbar_thumb_draw(WLX_Context *ctx, WLX_Rect thumb, bool dragging) {
@@ -15813,14 +15833,10 @@ static void wlx_inputbox_draw_content(WLX_Context *ctx, const WLX_Inputbox_Opt *
     }
 
     // The composition anchor: the caret's visual line and the caret's
-    // offset in it, for the platform's input method (an editable field
-    // only; the blink plays no part).
-    if (inter.focused && !inter.disabled && !opt->read_only
-        && (cursor_y + line_h) > text_rect.y && cursor_y < (text_rect.y + text_rect.h)) {
-        wlx_text_input_area_record(ctx, inter.id,
-            (WLX_Rect){ text_rect.x, cursor_y, text_rect.w, line_h },
-            cursor_x - text_rect.x, opt->multiline, opt->password);
-    }
+    // offset in it, for the platform's input method. After the caret
+    // padding, so the offset is where the caret is drawn.
+    wlx_text_edit_anchor(ctx, inter, opt->read_only, text_rect,
+        cursor_x, cursor_y, line_h, opt->multiline, opt->password);
 
     // Draw cursor if focused and its line intersects the text rect. The
     // top-side check runs on the unclamped line top: a caret line
