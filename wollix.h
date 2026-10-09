@@ -12604,6 +12604,10 @@ static float wlx_thumb_drag_update(WLX_Context *ctx, WLX_Rect track, WLX_Rect th
 static const float WLX_TEXT_DRAG_SCROLL_GAIN = 15.0f;
 static const float WLX_TEXT_DRAG_SCROLL_MAX_OVERSHOOT = 60.0f;
 
+// The caret is a WLX_TEXT_CARET_WIDTH line centred on the cell boundary
+// at its offset, the gap between two glyph cells. WLX_TEXT_CARET_PADDING
+// is the room a line reserves past its text, beside the caret's width, so
+// a caret at the line end stays inside wrap widths and scroll extents.
 static const float WLX_TEXT_CARET_WIDTH = 2.0f;
 static const float WLX_TEXT_CARET_PADDING = 2.0f;
 static const float WLX_TEXT_CARET_BLINK_PERIOD = 1.0f;
@@ -15805,8 +15809,6 @@ static void wlx_inputbox_draw_content(WLX_Context *ctx, const WLX_Inputbox_Opt *
 
     wlx_draw_text_lines_fitted(ctx, text_rect, disp_text, disp_len, ts, il->lines, il->line_count);
 
-    if (cursor_x > text_rect.x)
-        cursor_x += WLX_TEXT_CARET_PADDING;
 
     // cursor_y is the top of the line band (line_h tall). Center a
     // font_size-tall caret on the line so it tracks the vertically
@@ -15833,8 +15835,7 @@ static void wlx_inputbox_draw_content(WLX_Context *ctx, const WLX_Inputbox_Opt *
     }
 
     // The composition anchor: the caret's visual line and the caret's
-    // offset in it, for the platform's input method. After the caret
-    // padding, so the offset is where the caret is drawn.
+    // offset in it, for the platform's input method.
     wlx_text_edit_anchor(ctx, inter, opt->read_only, text_rect,
         cursor_x, cursor_y, line_h, opt->multiline, opt->password);
 

@@ -500,6 +500,14 @@ your own pace before the next minor.
   (the rect minus the glyph's bearing, the run end from
   `TTF_GetTextSize`) and stops its fill at a glyph it cannot place, such
   as a ligature alternate, so the core measures the rest. Since v0.7.0.
+- **The text caret sits in the gap between two glyphs.** The inputbox,
+  textarea and editor drew the 2-unit caret 2 units past its cell
+  boundary. With advances that report the cell boundary (every backend,
+  SDL3 after the fix above), that put it on the next glyph's ink for
+  nearly every character pair: in JetBrains Mono at 13 px, 98% of pairs
+  (a caret before `D` covered its stem). The caret is now centred on the
+  boundary. `WLX_TEXT_CARET_PADDING` keeps reserving its room past the
+  line end, so wrap widths and scroll extents do not move.
 - **An empty wrapped editor draws its caret.** The wrapped caret was
   placed from the window records alone, and an empty document builds none,
   so a focused empty editor with `.wrap = true` showed no caret. It now

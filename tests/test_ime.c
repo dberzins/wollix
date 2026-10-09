@@ -993,13 +993,13 @@ TEST(ime_area_pushed_on_edges_and_change) {
     float cursor0 = a.cursor;
     ime_type(&ctx, buf, sizeof(buf), &len, "ab");
     ASSERT_EQ_INT(2, mock_tia_calls());
-    ASSERT_EQ_F(mock_tia_last().cursor, cursor0 + 10.0f + WLX_TEXT_CARET_PADDING, 0.01f);
+    ASSERT_EQ_F(mock_tia_last().cursor, cursor0 + 10.0f, 0.01f);
     ime_idle(&ctx, buf, sizeof(buf), &len);
     ime_idle(&ctx, buf, sizeof(buf), &len);
     ASSERT_EQ_INT(2, mock_tia_calls());                     // unchanged frames push nothing
     ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, 0);
     ASSERT_EQ_INT(3, mock_tia_calls());
-    ASSERT_EQ_F(mock_tia_last().cursor, cursor0 + 5.0f + WLX_TEXT_CARET_PADDING, 0.01f);
+    ASSERT_EQ_F(mock_tia_last().cursor, cursor0 + 5.0f, 0.01f);
     ime_blur(&ctx, buf, sizeof(buf), &len);
     ASSERT_EQ_INT(4, mock_tia_calls());
     ASSERT_FALSE(mock_tia_last().active);

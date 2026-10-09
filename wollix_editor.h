@@ -1949,7 +1949,6 @@ static void wlx_editor_caret_place(const WLX_Editor_Frame *f,
             float prefix = wlx_editor_wrap_caret_x(f->wrap_inputs, &lines[i],
                 wlx_editor_wrap_line_next(f->wrap_inputs, idx, caret_line), caret);
             *out_x = lines[i].origin_x + prefix;
-            if (prefix > 0.0f) *out_x += WLX_TEXT_CARET_PADDING;
             *out_top = lines[i].origin_y;
             return;
         }
@@ -1963,7 +1962,6 @@ static void wlx_editor_caret_place(const WLX_Editor_Frame *f,
         f->geom, wlx_editor_line_next(idx, caret_line, doc_len),
         idx->offsets[caret_line], cx_off, false);
     *out_x = band.x - state->scroll_x + prefix;
-    if (prefix > 0.0f) *out_x += WLX_TEXT_CARET_PADDING;
     *out_top = band.y
         + ((float)((long)caret_line - (long)state->first_line) - state->y_frac) * line_h;
 }

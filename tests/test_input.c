@@ -965,13 +965,11 @@ TEST(input_cursor_position_uses_full_buffer_layout) {
     // reference cursor layout must use the same alignment to match the draw.
     ASSERT_TRUE(wlx_calc_cursor_position_for_text(&ctx, text_rect, buf, ts, WLX_LEFT, true, 520,
         &expected_x, &expected_y));
-    if (expected_x > text_rect.x) expected_x += WLX_TEXT_CARET_PADDING;
 
     memcpy(legacy_prefix, buf, TEST_INPUT_CURSOR_TEMP_SIZE - 1);
     legacy_prefix[TEST_INPUT_CURSOR_TEMP_SIZE - 1] = '\0';
     ASSERT_TRUE(wlx_calc_cursor_position(&ctx, text_rect, legacy_prefix, ts, WLX_LEFT, true,
         &legacy_x, &legacy_y));
-    if (legacy_x > text_rect.x) legacy_x += WLX_TEXT_CARET_PADDING;
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
@@ -1037,7 +1035,7 @@ TEST(inputbox_draws_when_line_height_exceeds_text_rect) {
     ASSERT_EQ_INT(1, _input_text_draw_count);
     ASSERT_EQ_STR(_input_text_draw_text, "abc");
     ASSERT_EQ_INT(1, _input_cursor_draw_count);
-    ASSERT_EQ_F(_input_cursor_x1, 41.0f, 0.1f);
+    ASSERT_EQ_F(_input_cursor_x1, 39.0f, 0.1f);   // the cell boundary after "abc"
     // The 20px reported line height exceeds the 16px (border-inset) interior,
     // so a 16px caret centered on the line would span the whole box and sit on
     // both borders. The caret is clamped to the interior with a 1px breathing
