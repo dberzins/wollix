@@ -1921,10 +1921,57 @@ static void wlx_editor_draw_gutter(const WLX_Editor_Frame *f,
     wlx_scissor_scope_end(ctx, gutter_clip);
 }
 
-// Caret and scrollbars, drawn last from the final scroll offsets. The
-// caret x comes from a cap-bounded prefix measure of its line; its y from
-// the window records (wrapped) or index arithmetic against the anchor
-// (linear); both clipped to the band.
+// Where the caret sits this frame, whether or not it is drawn: its x and
+// the top of its line. Wrapped: the first built window record that covers
+// it (the same affinity as the helpers); a caret outside the window builds
+// no row and lands just past the band edge on its side, at the band's left
+// edge; an empty document builds no record and puts it at the band origin.
+// Linear: index arithmetic against the anchor line and the horizontal
+// scroll. The placement is a passive consumer: it must never move a
+// settled origin, or a caret parked outside the horizontal view would
+// ping-pong the origin against the window build every frame.
+static void wlx_editor_caret_place(const WLX_Editor_Frame *f,
+    const WLX_Text_Line_Record *lines, size_t win_count, float *out_x, float *out_top)
+{
+    const WLX_Editor_State *state = f->state;
+    const WLX_Editor_Line_Index *idx = f->idx;
+    size_t doc_len = f->doc_len;
+    float line_h = f->line_h;
+    WLX_Rect band = f->eb.band;
+    size_t caret = state->caret.cursor_pos;
+    if (f->opt->wrap) {
+        *out_x = band.x;
+        *out_top = band.y;
+        if (!f->wrap_geom || win_count == 0 || lines == NULL) return;
+        for (size_t i = 0; i < win_count; i++) {
+            if (!wlx_editor_wrap_caret_on_row(&lines[i], caret, doc_len)) continue;
+            size_t caret_line = wlx_editor_index_line_of(idx, lines[i].visible_start);
+            float prefix = wlx_editor_wrap_caret_x(f->wrap_inputs, &lines[i],
+                wlx_editor_wrap_line_next(f->wrap_inputs, idx, caret_line), caret);
+            *out_x = lines[i].origin_x + prefix;
+            if (prefix > 0.0f) *out_x += WLX_TEXT_CARET_PADDING;
+            *out_top = lines[i].origin_y;
+            return;
+        }
+        *out_top = caret < lines[0].source_start ? band.y - line_h : band.y + band.h;
+        return;
+    }
+    size_t caret_line = wlx_editor_index_line_of(idx, caret);
+    size_t text_end = wlx_editor_line_text_end(f->doc, doc_len, idx, caret_line);
+    size_t cx_off = caret < text_end ? caret : text_end;
+    float prefix = wlx_editor_caret_x(f->ctx, f->doc, doc_len, f->ts, f->tab_advance,
+        f->geom, wlx_editor_line_next(idx, caret_line, doc_len),
+        idx->offsets[caret_line], cx_off, false);
+    *out_x = band.x - state->scroll_x + prefix;
+    if (prefix > 0.0f) *out_x += WLX_TEXT_CARET_PADDING;
+    *out_top = band.y
+        + ((float)((long)caret_line - (long)state->first_line) - state->y_frac) * line_h;
+}
+
+// Caret and scrollbars, drawn last from the final scroll offsets. A
+// focused editor places its caret every frame and records the
+// composition anchor from that placement; the caret itself is drawn on
+// blink-on frames when it lies inside the band.
 static void wlx_editor_draw_carets_and_bars(const WLX_Editor_Frame *f,
     const WLX_Text_Line_Record *lines, size_t win_count,
     const WLX_Editor_Scroll *scr)
@@ -1934,69 +1981,19 @@ static void wlx_editor_draw_carets_and_bars(const WLX_Editor_Frame *f,
     WLX_Editor_State *state = f->state;
     bool focused = f->inter.focused;
     const WLX_Editor_Line_Index *idx = f->idx;
-    WLX_Text_Geom_Store *geom = f->geom;
-    const char *doc = f->doc;
-    size_t doc_len = f->doc_len;
-    WLX_Text_Style ts = f->ts;
-    float tab_advance = f->tab_advance;
     float line_h = f->line_h;
     const WLX_Editor_Band *eb = &f->eb;
-    bool wrap_geom = f->wrap_geom;
-    const WLX_Text_Build_Inputs *wrap_inputs = f->wrap_inputs;
     float content_h = f->content_h;
     float scroll_y = scr->scroll_y;
     WLX_Rect band = eb->band;
     if (focused) {
         state->caret.cursor_blink_time += wlx_get_frame_time(ctx);
     }
-    if (focused && idx != NULL && idx->count > 0 && line_h > 0.0f && opt->wrap) {
-        // Wrapped caret: its row is one of the built window records
-        // (first covering record wins, the same affinity as the
-        // helpers); a caret outside the window is simply not drawn.
-        if (wlx_text_caret_blink_on(state->caret.cursor_blink_time)
-            && wrap_geom && win_count > 0 && lines != NULL) {
-            for (size_t i = 0; i < win_count; i++) {
-                if (!wlx_editor_wrap_caret_on_row(&lines[i], state->caret.cursor_pos, doc_len)) continue;
-                size_t caret_line = wlx_editor_index_line_of(idx, lines[i].visible_start);
-                float prefix = wlx_editor_wrap_caret_x(wrap_inputs, &lines[i],
-                    wlx_editor_wrap_line_next(wrap_inputs, idx, caret_line),
-                    state->caret.cursor_pos);
-                float caret_px = lines[i].origin_x + prefix;
-                if (prefix > 0.0f) caret_px += WLX_TEXT_CARET_PADDING;
-                float caret_py = lines[i].origin_y;
-                if (caret_py + line_h > band.y && caret_py < band.y + band.h
-                    && !opt->read_only && !f->inter.disabled) {
-                    wlx_text_input_area_record(ctx, f->inter.id, (WLX_Rect){ band.x, caret_py, band.w, line_h },
-                        caret_px - band.x, true, false);
-                }
-                if (caret_px >= band.x && caret_px <= band.x + band.w
-                    && caret_py + line_h > band.y && caret_py < band.y + band.h) {
-                    wlx_text_caret_draw(ctx, band, caret_px,
-                        caret_py + (line_h - (float)opt->font_size) * 0.5f,
-                        (float)opt->font_size, opt->cursor_color);
-                }
-                break;
-            }
-        }
-    } else if (focused && idx != NULL && idx->count > 0 && line_h > 0.0f) {
-        size_t caret_line = wlx_editor_index_line_of(idx, state->caret.cursor_pos);
-        size_t text_end = wlx_editor_line_text_end(doc, doc_len, idx, caret_line);
-        size_t cx_off = state->caret.cursor_pos < text_end ? state->caret.cursor_pos : text_end;
-        // The draw is a passive consumer: it must never move a settled
-        // origin, or a caret parked outside the horizontal view would
-        // ping-pong the origin against the window build every frame.
-        float prefix = wlx_editor_caret_x(ctx, doc, doc_len, ts, tab_advance,
-            geom, wlx_editor_line_next(idx, caret_line, doc_len),
-            idx->offsets[caret_line], cx_off, false);
-        float caret_px = band.x - state->scroll_x + prefix;
-        if (prefix > 0.0f) caret_px += WLX_TEXT_CARET_PADDING;
-        float caret_py = band.y
-            + ((float)((long)caret_line - (long)state->first_line) - state->y_frac) * line_h;
-        if (caret_py + line_h > band.y && caret_py < band.y + band.h
-            && !opt->read_only && !f->inter.disabled) {
-            wlx_text_input_area_record(ctx, f->inter.id, (WLX_Rect){ band.x, caret_py, band.w, line_h },
-                caret_px - band.x, true, false);
-        }
+    if (focused && idx != NULL && idx->count > 0 && line_h > 0.0f) {
+        float caret_px = 0.0f, caret_py = 0.0f;
+        wlx_editor_caret_place(f, lines, win_count, &caret_px, &caret_py);
+        wlx_text_edit_anchor(ctx, f->inter, opt->read_only, band, caret_px, caret_py,
+            line_h, true, false);
         if (wlx_text_caret_blink_on(state->caret.cursor_blink_time)
             && caret_px >= band.x && caret_px <= band.x + band.w
             && caret_py + line_h > band.y && caret_py < band.y + band.h) {

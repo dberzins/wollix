@@ -1198,8 +1198,12 @@ TEST(ime_focus_move_to_an_earlier_field_ends_the_composition) { ime_focus_move_b
 // the line stays inside the band and the cursor inside the line.
 // ============================================================================
 
-static const Ime_Widget ime_anchor_shapes[] = { IME_W_INPUTBOX, IME_W_TEXTAREA };
-static const Ime_Widget ime_anchor_multiline_shapes[] = { IME_W_TEXTAREA };
+static const Ime_Widget ime_anchor_shapes[] = {
+    IME_W_INPUTBOX, IME_W_TEXTAREA, IME_W_EDITOR, IME_W_EDITOR_WRAP
+};
+static const Ime_Widget ime_anchor_multiline_shapes[] = {
+    IME_W_TEXTAREA, IME_W_EDITOR, IME_W_EDITOR_WRAP
+};
 #define IME_ANCHOR_SHAPE_COUNT(a) (sizeof(a) / sizeof((a)[0]))
 
 // How far the fixture widget's view is scrolled down from the top: the
@@ -1269,14 +1273,48 @@ static void ime_anchor_scrolled_out_case(Ime_Widget w) {
     wlx_context_destroy(&ctx);
 }
 
+// The linear editor's caret at column 0 of a long line, the view wheeled
+// right past it: the cursor pins to the line start, never negative.
+static void ime_anchor_scrolled_out_horizontal_case(void) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = IME_W_EDITOR;
+    char buf[256];
+    memset(buf, 'x', 200);
+    buf[200] = '\0';
+    size_t len = 200;
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, 0);
+    for (int i = 0; i < 3; i++) ime_wheel(&ctx, buf, sizeof(buf), &len, -3.0f, WLX_MOD_SHIFT);
+    ime_idle(&ctx, buf, sizeof(buf), &len);
+    ASSERT_EQ_INT(0, (int)ime_caret(&ctx)->cursor_pos);
+    ASSERT_TRUE(((WLX_Editor_State *)(void *)ime_caret(&ctx))->scroll_x > 0.0f);
+    WLX_Text_Input_Area a = wlx_text_input_area(&ctx);
+    ASSERT_TRUE(a.active);
+    ASSERT_EQ_F(0.0f, a.cursor, 0.001f);
+    wlx_context_destroy(&ctx);
+}
+
 TEST(ime_anchor_holds_with_caret_scrolled_out) {
     for (size_t i = 0; i < IME_ANCHOR_SHAPE_COUNT(ime_anchor_multiline_shapes); i++) {
         ime_anchor_scrolled_out_case(ime_anchor_multiline_shapes[i]);
     }
+    ime_anchor_scrolled_out_horizontal_case();
+}
+
+// Index of the first captured vertical line (a caret) whose x lies in
+// [x_lo, x_hi], or -1.
+static int ime_find_caret_line(float x_lo, float x_hi) {
+    for (int i = 0; i < ime_draw_count; i++) {
+        if (ime_draws[i].kind == 2 && ime_draws[i].x == ime_draws[i].x2
+            && ime_draws[i].y2 > ime_draws[i].y
+            && ime_draws[i].x >= x_lo && ime_draws[i].x <= x_hi) return i;
+    }
+    return -1;
 }
 
 // An empty buffer: the focus frame already pushes an active anchor with
-// the caret at the line start.
+// the caret at the line start, and draws the caret there.
 static void ime_anchor_empty_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
@@ -1284,11 +1322,17 @@ static void ime_anchor_empty_case(Ime_Widget w) {
     char buf[64] = "";
     size_t len = 0;
     ime_idle(&ctx, buf, sizeof(buf), &len);
+    ime_reset_draws();
     ime_focus(&ctx, buf, sizeof(buf), &len);
     ASSERT_TRUE(mock_tia_calls() >= 1);
     ASSERT_TRUE(mock_tia_last().active);
-    ASSERT_TRUE(wlx_text_input_area(&ctx).active);
-    ASSERT_EQ_F(0.0f, wlx_text_input_area(&ctx).cursor, 0.001f);
+    WLX_Text_Input_Area a = wlx_text_input_area(&ctx);
+    ASSERT_TRUE(a.active);
+    ASSERT_EQ_F(0.0f, a.cursor, 0.001f);
+    int caret = ime_find_caret_line(a.line.x, a.line.x + 2.0f);
+    ASSERT_TRUE(caret >= 0);
+    ASSERT_TRUE(ime_draws[caret].y >= a.line.y - 0.01f);
+    ASSERT_TRUE(ime_draws[caret].y2 <= a.line.y + a.line.h + 0.01f);
     wlx_context_destroy(&ctx);
 }
 

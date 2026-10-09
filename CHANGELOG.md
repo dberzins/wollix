@@ -489,6 +489,10 @@ your own pace before the next minor.
   scratch. Scratch reservations now return an index and every pointer is
   re-derived at its use. A grid test and a new
   `tests/test_offset_stack_override.c` pin both.
+- **An empty wrapped editor draws its caret.** The wrapped caret was
+  placed from the window records alone, and an empty document builds none,
+  so a focused empty editor with `.wrap = true` showed no caret. It now
+  sits at the text origin, as in the linear editor.
 
 ### Changed
 - **A widget keystroke patches the editor's line index from its edit span.**

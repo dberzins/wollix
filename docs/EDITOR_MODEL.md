@@ -680,4 +680,11 @@ as one unit (Section 1's unit model).
 The editor also records the caret's visual line into the frame's
 composition anchor (`WLX_Text_Input_Area`), which the core pushes to the
 backend on change so the platform starts text input while the editor has
-focus and anchors its candidate window at the caret.
+focus and anchors its candidate window at the caret. It records on every
+frame it holds focus, whether or not the caret is drawn: the caret is
+placed first (wrapped: the window record that covers it; linear: index
+arithmetic), then drawn on blink-on frames when its line is in view. A
+caret outside the built window is placed just past the band edge on its
+side without building its row, and the anchor pins it to that edge. An
+empty document places and draws the caret at the band origin in both
+modes.
