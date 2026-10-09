@@ -1649,14 +1649,25 @@ static inline void wlx_sdl3_measure_text_slice(
 // shaped TTF_Text cluster geometry (requires SDL_ttf >= 3.3.0, the same
 // floor as the font-variant machinery this reuses). The run resolves one
 // TTF_Text - the retained draw-cache entry when available, a transient
-// otherwise - and walks TTF_GetTextSubStringsForRange clusters once: a unit
-// end on a cluster boundary reports that cluster's left edge, a unit end
-// inside a cluster (ligature/combining sequence) snaps to the cluster's
-// trailing edge, and the run end reports the last cluster's right edge.
-// Rect geometry is whole pixels, matching TTF_GetStringSize measures and
-// the shaped draw by construction. The debug-font path mirrors the slice
-// measure's codepoint estimation. Returns 0 (core falls back to per-unit
-// prefix measures) when the TTF machinery is unavailable.
+// otherwise - and walks its clusters once. A cluster's rect is the ink box
+// of its glyphs, not its advance cell: rect.x is the shaped pen position
+// plus the glyph's left bearing (SDL_ttf's sz_left, which
+// TTF_GetGlyphMetrics reports as minx), and a blank glyph carries its
+// advance box. So a unit end reports the pen position of the first cluster
+// starting at or after it - rect.x minus the bearing of the glyph the
+// cluster's first codepoint maps to - which puts carets and colour-span
+// edges on the cell boundaries the shaped draw used rather than on the
+// next glyph's ink. A unit end inside a cluster (ligature/combining
+// sequence) snaps to the cluster's trailing edge, the next cluster's pen,
+// and the run end reports the run's TTF_GetTextSize width, the value the
+// slice measure gives for the whole run. The bearing is known only for
+// the codepoint's own glyph, so a cluster whose ink width differs from it
+// (a contextual alternate or ligature glyph, a mark joined to its base)
+// ends the fill early, as do a right-to-left cluster and a decreasing
+// position: the core measures the rest of the run by prefix.
+// The debug-font path mirrors the slice measure's codepoint estimation.
+// Returns 0 (core falls back to per-unit prefix measures) when the TTF
+// machinery is unavailable.
 static inline size_t wlx_sdl3_measure_text_advances(const char *text, size_t len,
         WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
         float *out_advances, void *user) {
@@ -1691,24 +1702,48 @@ static inline size_t wlx_sdl3_measure_text_advances(const char *text, size_t len
                 // by cluster_index. (TTF_GetTextSubStringsForRange is a
                 // per-line merge, not per-cluster, so it cannot serve
                 // intra-line advances.)
+                int run_w = 0, run_h = 0;
+                int outline = TTF_GetFontOutline(variant);
                 TTF_SubString cluster;
-                if (TTF_GetTextSubString(ttext, 0, &cluster)) {
-                    bool walk_ok = true;
-                    for (size_t u = 0; u < unit_count && walk_ok; u++) {
+                if (TTF_GetTextSize(ttext, &run_w, &run_h)
+                    && TTF_GetTextSubString(ttext, 0, &cluster)) {
+                    float prev = 0.0f;
+                    for (size_t u = 0; u < unit_count; u++) {
                         size_t e = unit_ends[u];
+                        bool walk_ok = true;
                         while (!(cluster.flags & TTF_SUBSTRING_TEXT_END)
-                            && (size_t)cluster.offset + (size_t)cluster.length <= e) {
+                            && (size_t)cluster.offset < e) {
                             TTF_SubString next;
-                            if (!TTF_GetNextTextSubString(ttext, &cluster, &next)) {
+                            if (!TTF_GetNextTextSubString(ttext, &cluster, &next)
+                                || next.cluster_index == cluster.cluster_index) {
                                 walk_ok = false;
                                 break;
                             }
                             cluster = next;
                         }
                         if (!walk_ok) break;
-                        out_advances[u] = ((size_t)cluster.offset >= e
-                            ? (float)cluster.rect.x
-                            : (float)(cluster.rect.x + cluster.rect.w)) / g_wlx_sdl3_scale;
+                        float pen = (float)run_w;
+                        if (!(cluster.flags & TTF_SUBSTRING_TEXT_END) && (size_t)cluster.offset < len) {
+                            if ((cluster.flags & TTF_SUBSTRING_DIRECTION_MASK) == TTF_DIRECTION_RTL) break;
+                            // The cluster's first codepoint, decoded from a
+                            // zero-padded copy: the run is not terminated.
+                            char cp_bytes[5] = {0};
+                            size_t avail = len - (size_t)cluster.offset;
+                            memcpy(cp_bytes, text + cluster.offset, avail < 4 ? avail : 4);
+                            uint32_t cp = 0;
+                            (void)wlx_utf8_decode(cp_bytes, &cp);
+                            int minx = 0, maxx = 0;
+                            if (!TTF_GetGlyphMetrics(variant, cp, &minx, &maxx, NULL, NULL, NULL)) break;
+                            // An inked glyph must be the codepoint's own:
+                            // the same ink width (a blank glyph's rect is
+                            // its advance box instead).
+                            if (maxx > minx && cluster.rect.w + 2 * outline != maxx - minx) break;
+                            pen = (float)(cluster.rect.x - minx);
+                        }
+                        float advance = pen / g_wlx_sdl3_scale;
+                        if (advance < prev) break;
+                        out_advances[u] = advance;
+                        prev = advance;
                         filled = u + 1;
                     }
                 }

@@ -489,6 +489,17 @@ your own pace before the next minor.
   scratch. Scratch reservations now return an index and every pointer is
   re-derived at its use. A grid test and a new
   `tests/test_offset_stack_override.c` pin both.
+- **SDL3: carets and colour spans sit on the glyph cells the text is
+  drawn in.** The SDL3 adapter's `measure_text_advances` read SDL_ttf's
+  cluster rects as advances, but a cluster rect is the glyph's ink box,
+  so every position inside a line sat one left bearing too far right (and
+  the line end at the last glyph's ink edge). A caret in the middle of a
+  line landed on the next character, and with a `span_color` callback
+  each coloured piece was drawn shifted right, so the line's last piece
+  ran under the caret. The adapter now reports the shaped pen position
+  (the rect minus the glyph's bearing, the run end from
+  `TTF_GetTextSize`) and stops its fill at a glyph it cannot place, such
+  as a ligature alternate, so the core measures the rest. Since v0.7.0.
 - **An empty wrapped editor draws its caret.** The wrapped caret was
   placed from the window records alone, and an empty document builds none,
   so a focused empty editor with `.wrap = true` showed no caret. It now

@@ -4549,16 +4549,24 @@ The optional `WLX_Backend.measure_text_advances` callback
 (`wlx_sdl3_measure_text_advances`) resolves one shaped `TTF_Text` for the
 run — reusing the retained cache entry when present, creating a transient
 one on miss — and walks its cluster geometry (`TTF_GetTextSubString` /
-`TTF_GetNextTextSubString`) to fill unit-end advances, snapping unit ends
-that fall inside a shaped cluster to the cluster's trailing edge (with the
-core's grapheme-cluster units only ligatures and clusters beyond the
-core's four-rule approximation reach the snap). It registers
-only when SDL_ttf >= 3.3.0 (the same floor as the font-variant machinery);
-older builds stay on the per-unit measure fallback with no behavior change.
-Plain content matches whole-prefix measures within 1px glyph-placement
-quantization; shaped contexts (kern pairs, ligatures, malformed bytes,
-run-end ink-vs-pen width) can diverge by a few px — the documented
-cluster-snap approximation (see ADR_012's addendum).
+`TTF_GetNextTextSubString`) to fill unit-end advances. A cluster's rect
+is the ink box of its glyphs, so each unit end reports the shaped pen
+position: the rect's left edge minus the glyph's left bearing (the `minx`
+of `TTF_GetGlyphMetrics`). The run end reports the run's `TTF_GetTextSize`
+width. Unit ends that fall inside a shaped cluster snap to the cluster's
+trailing edge, the next cluster's pen (with the core's grapheme-cluster
+units only ligatures and clusters beyond the core's four-rule
+approximation reach the snap). A glyph whose bearing it cannot know (a
+contextual alternate or ligature glyph, a mark joined to its base), a
+right-to-left cluster or a decreasing position ends the fill early, and
+the core measures the rest of the run by prefix. It registers only when
+SDL_ttf >= 3.3.0 (the same floor as the font-variant machinery); older
+builds stay on the per-unit measure fallback with no behavior change.
+Advances are the cell positions the shaped draw uses, so carets and
+colour-span pieces land on them. They match whole-prefix measures except
+for rounding (the draw floors each pen, a prefix measure rounds its width
+up, so up to 1px where advances are fractional) and a kern pair across
+the cut, which the shaped position includes.
 
 Callers that close SDL_ttf fonts directly must call
 `wlx_sdl3_text_cache_clear()` before `TTF_CloseFont()` on any base font handle
