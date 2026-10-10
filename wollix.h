@@ -959,7 +959,7 @@ typedef enum {
 // modifiers qualify other keys rather than acting as glyph/navigation
 // actuations. Backends set WLX_Input_State.modifiers fresh each frame; query
 // with wlx_mod_down(). Editing shortcuts use wlx_mod_command_down(), which
-// resolves to SUPER (Cmd) on Apple platforms and CTRL elsewhere.
+// resolves to SUPER (Cmd) on Apple platforms and CTRL with ALT up elsewhere.
 typedef enum {
     WLX_MOD_SHIFT = 1 << 0,
     WLX_MOD_CTRL  = 1 << 1,
@@ -2551,7 +2551,8 @@ WLXDEF bool wlx_is_key_actuated(WLX_Context *ctx, WLX_Key_Code key);
 // True when all WLX_Key_Mod bits in mask are active this frame.
 WLXDEF bool wlx_mod_down(WLX_Context *ctx, uint32_t mask);
 // True when the platform "command" modifier for editing shortcuts is down:
-// SUPER (Cmd) on Apple platforms, CTRL elsewhere.
+// SUPER (Cmd) on Apple platforms, CTRL with ALT up elsewhere (Ctrl+Alt is
+// AltGr on Windows and types a character).
 WLXDEF bool wlx_mod_command_down(WLX_Context *ctx);
 // Id of the keyboard-focused widget (Tab traversal), 0 when none. Compare
 // against WLX_Interaction.id. Independent of hot (hover) and active (press /
@@ -6697,7 +6698,9 @@ WLXDEF bool wlx_mod_command_down(WLX_Context *ctx) {
 #if defined(__APPLE__)
     return wlx_mod_down(ctx, WLX_MOD_SUPER);
 #else
-    return wlx_mod_down(ctx, WLX_MOD_CTRL);
+    // Ctrl with Alt also down is AltGr on Windows (browsers, SDL3 and GLFW
+    // all report it so), which types the layout's character: not a chord.
+    return wlx_mod_down(ctx, WLX_MOD_CTRL) && !wlx_mod_down(ctx, WLX_MOD_ALT);
 #endif
 }
 

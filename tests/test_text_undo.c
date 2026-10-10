@@ -756,6 +756,33 @@ TEST(undo_new_edit_clears_redo_and_replay_ends_coalescing) {
     wlx_context_destroy(&ctx);
 }
 
+// AltGr arrives as Ctrl+Alt on Windows (browsers, SDL3, GLFW) and still
+// types the layout's character: Ctrl with Alt down is not a command chord.
+// Ctrl+Alt+Z with text types it and undoes nothing, Ctrl+Alt+A with text
+// inserts without selecting all, and Ctrl+Z alone still undoes.
+TEST(undo_altgr_chord_types_and_is_not_a_command) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    tu_reset_fixture();
+    char buf[64] = "";
+    uint32_t altgr = WLX_MOD_CTRL | WLX_MOD_ALT;
+
+    tu_focus(&ctx, buf, sizeof(buf));
+    tu_type(&ctx, buf, sizeof(buf), "ab");
+    ASSERT_EQ_STR(buf, "ab");
+    tu_frame_ex(&ctx, buf, sizeof(buf), 200, 150, false, false, WLX_KEY_Z, altgr, "\xC5\xBC");
+    ASSERT_EQ_STR(buf, "ab\xC5\xBC");
+    tu_frame_ex(&ctx, buf, sizeof(buf), 200, 150, false, false, WLX_KEY_A, altgr, "\xC4\x85");
+    ASSERT_EQ_STR(buf, "ab\xC5\xBC\xC4\x85");
+    ASSERT_EQ_INT((int)strlen(buf), (int)tu_state(&ctx)->caret.cursor_pos);
+    ASSERT_EQ_INT((int)tu_state(&ctx)->caret.cursor_pos, (int)tu_state(&ctx)->caret.selection_anchor);
+
+    tu_key(&ctx, buf, sizeof(buf), WLX_KEY_Z, tu_undo_mod());
+    ASSERT_TRUE(tu_last_changed);
+    ASSERT_EQ_STR(buf, "");
+    wlx_context_destroy(&ctx);
+}
+
 // An undo chord and a second editing key in one frame: the replay shortens
 // the document under the caret the handler entered with, and the key's
 // record must stamp a before-caret inside the document it found. Undoing
@@ -1612,6 +1639,7 @@ SUITE(text_undo) {
     RUN_TEST(undo_typing_over_selection_restores_selection);
     RUN_TEST(undo_new_edit_clears_redo_and_replay_ends_coalescing);
     RUN_TEST(undo_chord_plus_key_keeps_before_caret_in_document);
+    RUN_TEST(undo_altgr_chord_types_and_is_not_a_command);
     RUN_TEST(undo_held_chord_repeats_and_empty_stack_is_noop);
     RUN_TEST(undo_multibyte_runs_restore_on_boundaries);
     RUN_TEST(undo_read_only_rejects_chords_and_keeps_history);

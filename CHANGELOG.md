@@ -489,6 +489,14 @@ your own pace before the next minor.
   scratch. Scratch reservations now return an index and every pointer is
   re-derived at its use. A grid test and a new
   `tests/test_offset_stack_override.c` pin both.
+- **Ctrl+Alt is not an editing chord (AltGr typing on Windows).**
+  Browsers, SDL3 and GLFW report AltGr on Windows as Ctrl+Alt, and the
+  key still types the layout's character, but `wlx_mod_command_down` took
+  any Ctrl as the command modifier: AltGr+Z undid and then typed, and
+  AltGr+A selected all and replaced the document with one letter. Off
+  Apple the command modifier is now Ctrl with Alt up. An application that
+  relied on Ctrl+Alt+letter as an editing chord loses it, as in native
+  Windows edit controls.
 - **WASM: the page pool no longer serves a request above 1 MiB from a 1 MiB
   block.** `wlx_wasm_pool_alloc` clamped every request to its top class
   and `wlx_wasm_pool_realloc` kept the same block across growths inside

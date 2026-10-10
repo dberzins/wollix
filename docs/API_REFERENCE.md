@@ -782,7 +782,8 @@ Modifier-key state as an orthogonal bitfield (modifiers qualify other keys,
 they are not `WLX_Key_Code` entries). Backends refresh
 `WLX_Input_State.modifiers` each frame; query with `wlx_mod_down()`. Editing
 shortcuts use `wlx_mod_command_down()`, which resolves to `WLX_MOD_SUPER`
-(Cmd) on Apple platforms and `WLX_MOD_CTRL` elsewhere.
+(Cmd) on Apple platforms and `WLX_MOD_CTRL` with `WLX_MOD_ALT` up
+elsewhere.
 
 ### `WLX_Layout_Kind`
 
@@ -2459,8 +2460,11 @@ bool wlx_mod_command_down(WLX_Context *ctx);
 ```
 
 Returns `true` when the platform's editing command modifier is held:
-`WLX_MOD_SUPER` (Cmd) on Apple platforms, `WLX_MOD_CTRL` elsewhere. All
-inputbox clipboard shortcuts route through this helper.
+`WLX_MOD_SUPER` (Cmd) on Apple platforms, `WLX_MOD_CTRL` with `WLX_MOD_ALT`
+up elsewhere. Ctrl+Alt is AltGr on Windows (browsers, SDL3 and GLFW report
+it that way) and types the layout's character, so it is not an editing
+chord. The clipboard, select-all and undo / redo chords of the text widgets,
+and the command-modified HOME / END, route through this helper.
 
 ### `wlx_focused_id`
 
