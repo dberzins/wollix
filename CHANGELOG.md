@@ -420,8 +420,14 @@ your own pace before the next minor.
   state-size guard's abort. The id stack now stores per-push mixed running
   hashes from a nonzero seed and the combine passes through a full-avalanche
   mix (splitmix64), which also makes the stack read O(1); `WLX_DEBUG`
-  builds report two sites that share one key. `tests/test_widget_id.c`
-  pins both cases.
+  builds report two sites that share one key. Sites in two files met too,
+  at every id-stack depth: the site hash added the line to a linear hash
+  of the path, so a header and its `.c` (or `.m`) shared ids 165 lines
+  apart (`.cc` / `.hh`: 5,610), and two paths of equal length such as
+  `ab.c` / `bA.c` shared every id. The path is now hashed with FNV-1a and
+  mixed before the line is added, which also stops the contract-error
+  print-once key from merging such sites. `tests/test_widget_id.c` pins
+  every case.
 - **MSVC `/W4` warnings in the header.** The U+FFFD writer copies its three
   bytes instead of casting constants above 127 to `char` (C4310), and two
   `int` font sizes are cast where a `float` is wanted (C4244). No behaviour

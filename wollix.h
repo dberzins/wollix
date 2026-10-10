@@ -5740,14 +5740,20 @@ static inline WLX_Id wlx_id_mix(WLX_Id x) {
     return x;
 }
 
+// Call-site hash: FNV-1a 64 over the path (the step of wlx_hash_fnv1a64,
+// walked to the NUL), mixed, then the line added. The mix comes before the
+// line: a fold that stays linear in both lets two paths that differ in one
+// character meet a fixed number of lines apart (a .c and its .h, 165 lines
+// under djb2). FNV-1a rather than djb2 for the walk: djb2 maps paths of
+// equal length such as "ab" and "bA" to one value, and then every line.
 static WLX_Id wlx_hash_id(const char *file, int line) {
-    WLX_Id hash = 5381;
+    WLX_Id hash = 0xcbf29ce484222325ull;
     while (*file) {
-        hash = ((hash << 5) + hash) + (unsigned char)(*file);
+        hash ^= (unsigned char)(*file);
+        hash *= 0x100000001b3ull;
         file++;
     }
-    hash = ((hash << 5) + hash) + (WLX_Id)line;
-    return hash;
+    return wlx_id_mix(hash) + (WLX_Id)line;
 }
 
 // ============================================================================
@@ -8928,9 +8934,10 @@ static inline WLX_Id wlx_id_stack_hash(WLX_Context *ctx) {
 }
 
 // Combine a call-site hash with the id stack hash. The final mix removes the
-// structure of both inputs (djb2 puts adjacent lines one apart; an unmixed
-// combine let a line step be undone by a pushed value about 64 lower), so
-// no relation between a line step and a pushed value makes two sites meet.
+// structure of both inputs (the site hash puts adjacent lines one apart; an
+// unmixed combine let a line step be undone by a pushed value about 64
+// lower), so no relation between a line step and a pushed value makes two
+// sites meet.
 static inline WLX_Id wlx_combine_id_hash(WLX_Id base, WLX_Id stack) {
     return wlx_id_mix(base ^ stack);
 }
