@@ -5836,16 +5836,6 @@ static void wlx_error_report(WLX_Context *ctx, WLX_Error_Code code, const char *
     }
 }
 
-// djb2 hash for user-supplied string IDs.
-static inline WLX_Id wlx_hash_string(const char *s) {
-    if (!s) return 0;
-    WLX_Id h = 5381;
-    while (*s) {
-        h = ((h << 5) + h) + (unsigned char)(*s++);
-    }
-    return h;
-}
-
 // FNV-1a 64-bit over [bytes, bytes + len): the byte-content hash the backend
 // measurement caches key their text with.
 static inline uint64_t wlx_hash_fnv1a64(const char *bytes, size_t len) {
@@ -5855,6 +5845,15 @@ static inline uint64_t wlx_hash_fnv1a64(const char *bytes, size_t len) {
         h *= 0x100000001b3ULL;
     }
     return h;
+}
+
+// Hash for user-supplied string IDs (container `.id`, or a value for
+// wlx_push_id): FNV-1a 64; NULL hashes to 0. Not djb2, which gives "ab" and
+// "bA", and most short strings, the value of another string. No mix here:
+// wlx_push_id mixes every value it pushes.
+static inline WLX_Id wlx_hash_string(const char *s) {
+    if (!s) return 0;
+    return wlx_hash_fnv1a64(s, strlen(s));
 }
 
 // Scope-id push/pop helpers: convert an optional string `id` into an id-stack

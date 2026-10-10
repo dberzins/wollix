@@ -1036,7 +1036,7 @@ for (int i = 0; i < count; i++) {
 
 This is equivalent to wrapping the call in `wlx_push_id` / `wlx_pop_id` with
 `wlx_hash_string(names[i])`, but more concise. The string is hashed with
-`wlx_hash_string()` (djb2) and the resulting value is pushed/popped
+`wlx_hash_string()` (FNV-1a 64) and the resulting value is pushed/popped
 automatically inside the widget implementation.
 
 Layouts, grids, panels, and splits also accept `.id`; for those container APIs,

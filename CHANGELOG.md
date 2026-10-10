@@ -428,6 +428,12 @@ your own pace before the next minor.
   mixed before the line is added, which also stops the contract-error
   print-once key from merging such sites. `tests/test_widget_id.c` pins
   every case.
+- **String ids no longer collide.** `wlx_hash_string`, which container
+  `.id` scopes push, was djb2: `"ab"` and `"bA"` gave one value, so two
+  containers with those ids at one call site were one scope, and 5,828 of
+  the 9,025 two-character printable strings shared their value with
+  another. It is now FNV-1a 64 (`NULL` still hashes to 0). Present since
+  `wlx_hash_string` was added in v0.2.0.
 - **MSVC `/W4` warnings in the header.** The U+FFFD writer copies its three
   bytes instead of casting constants above 127 to `char` (C4310), and two
   `int` font sizes are cast where a `float` is wanted (C4244). No behaviour

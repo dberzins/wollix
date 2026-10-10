@@ -9,7 +9,8 @@
 //   state ids of one site agree; 0 is never handed out; and the WLX_DEBUG
 //   site table reports two sites that share one key. Sites in two files
 //   stay apart: a header and its .c (.m, .cc / .hh) at any line distance,
-//   and two paths of equal length such as ab.c / bA.c.
+//   and two paths of equal length such as ab.c / bA.c. String scopes of
+//   different strings stay apart ("ab" / "bA").
 
 #ifndef WOLLIX_H_
 #define WOLLIX_IMPLEMENTATION
@@ -256,6 +257,39 @@ TEST(id_equal_length_paths_distinct) {
     }
 }
 
+// Container .id scopes push wlx_hash_string(id). A djb2 string hash gives
+// "ab" and "bA", and most short strings, the value of another string; the
+// push mix keeps a collision, so the two scopes were one.
+TEST(id_string_scope_distinct) {
+    enum { CHARS = 95, N = CHARS * CHARS };
+    static WLX_Id hashes[N];
+    char s[3] = { 0 };
+    size_t k = 0;
+    for (int a = 0; a < CHARS; a++) {
+        for (int b = 0; b < CHARS; b++) {
+            s[0] = (char)(' ' + a);
+            s[1] = (char)(' ' + b);
+            hashes[k++] = wlx_hash_string(s);
+        }
+    }
+    ASSERT_EQ_INT((int)wid_duplicates(hashes, N), 0);
+
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    WLX_Id ab, ba;
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .id = "ab");
+        ab = wid_state_at(&ctx, "app/list.c", 12);
+    wlx_layout_end(&ctx);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .id = "bA");
+        ba = wid_state_at(&ctx, "app/list.c", 12);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+
+    ASSERT_TRUE(ab != ba);
+}
+
 #ifdef WLX_DEBUG
 TEST(id_debug_cross_site_warns) {
     WLX_Context ctx;
@@ -295,6 +329,7 @@ SUITE(widget_id) {
     RUN_TEST(id_zero_reserved);
     RUN_TEST(id_same_stem_sites_distinct);
     RUN_TEST(id_equal_length_paths_distinct);
+    RUN_TEST(id_string_scope_distinct);
 #ifdef WLX_DEBUG
     RUN_TEST(id_debug_cross_site_warns);
 #endif
