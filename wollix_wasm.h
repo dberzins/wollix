@@ -53,11 +53,15 @@ static inline uint32_t wlx_wasm_pack_color(WLX_Color c) {
 // cumulative heap waste.
 //
 // Sizing constants:
-//   - WLX_WASM_POOL_MIN_ORDER: 8  -> 256 byte minimum block
-//   - WLX_WASM_POOL_MAX_ORDER: 20 -> 1 MiB maximum block
-// Sub-arenas growing past 1 MiB use the upper class and revert to malloc on
-// every growth above the cap; this is acceptable because the affected
-// general-group buffers (commands, scratch, etc.) cap well below 1 MiB.
+//   - WLX_WASM_POOL_MIN_ORDER: 8  -> 256 byte smallest class
+//   - WLX_WASM_POOL_MAX_ORDER: 20 -> 1 MiB largest class
+// A request above the largest class (wlx_wasm_pool_oversize) is served by a
+// block of exactly its size, outside the classes: malloc'd, never pooled,
+// and handed to free() when released. A sub-arena growing past 1 MiB
+// therefore takes a fresh block on every growth, and on the bare-WASM
+// target (where free() is a no-op) each replaced one stays allocated. The
+// general-group buffers (commands, scratch, layouts, stacks) reach that
+// size only in frames with tens of thousands of draw commands.
 // ============================================================================
 
 // Both orders are overridable before including this header.
@@ -112,6 +116,11 @@ static inline size_t wlx_wasm_pool_class_size(int cls) {
     return (size_t)1 << ((size_t)cls + WLX_WASM_POOL_MIN_ORDER);
 }
 
+// True for a request no class can hold: it takes a block of its own size.
+static inline bool wlx_wasm_pool_oversize(size_t size) {
+    return size > ((size_t)1 << WLX_WASM_POOL_MAX_ORDER);
+}
+
 static inline void *wlx_wasm_pool_alloc(size_t size, void *user) {
     WLX_Wasm_Pool *pool = (WLX_Wasm_Pool *)user;
     int cls;
@@ -119,10 +128,15 @@ static inline void *wlx_wasm_pool_alloc(size_t size, void *user) {
     void *p;
 
     if (size == 0) size = 1;
-    cls = wlx_wasm_pool_class(size);
-    block_size = wlx_wasm_pool_class_size(cls);
+    if (wlx_wasm_pool_oversize(size)) {
+        cls = -1;
+        block_size = size;
+    } else {
+        cls = wlx_wasm_pool_class(size);
+        block_size = wlx_wasm_pool_class_size(cls);
+    }
 
-    if (cls < WLX_WASM_POOL_CLASSES && pool->free_list[cls] != NULL) {
+    if (cls >= 0 && pool->free_list[cls] != NULL) {
         WLX_Wasm_Block *blk = pool->free_list[cls];
         pool->free_list[cls] = blk->next;
         pool->reuse_count++;
@@ -147,12 +161,17 @@ static inline void wlx_wasm_pool_free(void *ptr, size_t size, void *user) {
     WLX_Wasm_Block *blk;
 
     if (ptr == NULL) return;
+    if (size == 0) size = 1;
+    pool->free_count++;
+    if (wlx_wasm_pool_oversize(size)) {
+        if (pool->bytes_in_use >= size) pool->bytes_in_use -= size;
+        free(ptr);
+        return;
+    }
     cls = wlx_wasm_pool_class(size);
     block_size = wlx_wasm_pool_class_size(cls);
-    pool->free_count++;
     if (pool->bytes_in_use >= block_size) pool->bytes_in_use -= block_size;
 
-    if (cls >= WLX_WASM_POOL_CLASSES) return;
     blk = (WLX_Wasm_Block *)ptr;
     blk->next = pool->free_list[cls];
     pool->free_list[cls] = blk;
@@ -172,10 +191,14 @@ static inline void *wlx_wasm_pool_realloc(void *ptr, size_t old_size,
         return NULL;
     }
 
-    old_cls = wlx_wasm_pool_class(old_size == 0 ? 1 : old_size);
-    new_cls = wlx_wasm_pool_class(new_size);
-    if (new_cls == old_cls) {
-        return ptr;
+    // A same-class resize keeps the block; an oversize block is exactly its
+    // request, so any resize to or from one moves.
+    if (!wlx_wasm_pool_oversize(old_size) && !wlx_wasm_pool_oversize(new_size)) {
+        old_cls = wlx_wasm_pool_class(old_size == 0 ? 1 : old_size);
+        new_cls = wlx_wasm_pool_class(new_size);
+        if (new_cls == old_cls) {
+            return ptr;
+        }
     }
 
     new_ptr = wlx_wasm_pool_alloc(new_size, user);

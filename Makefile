@@ -207,7 +207,7 @@ test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $
 	./$(DEFAULTS_ONCE_BIN)
 	./$(CPP_PATH_BIN)
 
-$(TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
+$(TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h wollix_wasm.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
 
 # Opt-out path: redistribution disabled via WLX_SLOT_SINGLE_PASS_CLAMP. Built as
@@ -264,7 +264,7 @@ PERF_TEST_BIN = $(TEST_DIR)/test_runner_perf
 perf-test: $(PERF_TEST_BIN)
 	./$(PERF_TEST_BIN)
 
-$(PERF_TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
+$(PERF_TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h wollix_wasm.h
 	$(CC) $(BASE_CFLAGS) -DWLX_PERF -I. -o $@ $(TEST_DIR)/test_main.c -lm
 
 # Sanitizer gate: the runner under ASan + UBSan with leak detection on. LSan
@@ -279,7 +279,7 @@ ASAN_DETECT_LEAKS ?= 1
 test-asan: $(TEST_ASAN_BIN)
 	ASAN_OPTIONS=detect_leaks=$(ASAN_DETECT_LEAKS) ./$(TEST_ASAN_BIN)
 
-$(TEST_ASAN_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
+$(TEST_ASAN_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h wollix_wasm.h
 	$(CC) $(BASE_CFLAGS) $(SANITIZE_FLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
 
 # Editor perf gate: frame cost flat with document size (100 KB vs 10 MB),

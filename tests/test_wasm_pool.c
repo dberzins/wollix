@@ -208,6 +208,57 @@ TEST(wasm_pool_via_sub_arena_recycles_on_growth) {
     pool_release(&pool);
 }
 
+// A request above the top class (1 MiB) gets a block of its own size, off
+// the free lists: writable end to end, and handed back to the C heap on
+// free rather than parked on a class list.
+TEST(wasm_pool_oversize_block_is_its_request_size) {
+    WLX_Wasm_Pool pool;
+    size_t big = (size_t)3 << 20;
+    unsigned char *a;
+
+    memset(&pool, 0, sizeof(pool));
+    a = (unsigned char *)wlx_wasm_pool_alloc(big, &pool);
+    ASSERT_TRUE(a != NULL);
+    memset(a, 0x5A, big);
+    ASSERT_EQ_INT(a[0], 0x5A);
+    ASSERT_EQ_INT(a[big - 1], 0x5A);
+    ASSERT_EQ_INT((long)pool.bytes_in_use, (long)big);
+    ASSERT_EQ_INT((long)pool.high_water, (long)big);
+
+    wlx_wasm_pool_free(a, big, &pool);
+    ASSERT_EQ_INT((int)pool.bytes_in_use, 0);
+    for (int cls = 0; cls < WLX_WASM_POOL_CLASSES; cls++) {
+        ASSERT_TRUE(pool.free_list[cls] == NULL);
+    }
+    pool_release(&pool);
+}
+
+// A byte sub-arena on the pool reserved in steps past the top class: each
+// growth is a new block as large as the capacity the arena records, so
+// the whole capacity is writable at every step.
+TEST(wasm_pool_sub_arena_grows_past_the_top_class) {
+    WLX_Wasm_Pool pool;
+    WLX_Allocator alloc;
+    WLX_Sub_Arena sa;
+    size_t target = (size_t)5 << 20;
+    size_t step = (size_t)512 << 10;
+
+    memset(&pool, 0, sizeof(pool));
+    alloc = wlx_wasm_allocator(&pool);
+    wlx_sub_arena_init(&sa, 1, &alloc);
+    while (sa.count < target) {
+        size_t base = wlx_sub_arena_alloc(&sa, step);
+        memset((unsigned char *)sa.items + base, 0xA5, step);
+        memset(sa.items, 0x3C, sa.capacity);
+    }
+    ASSERT_TRUE(sa.capacity >= target);
+    ASSERT_EQ_INT((long)pool.bytes_in_use, (long)sa.capacity);
+
+    wlx_sub_arena_destroy(&sa);
+    ASSERT_EQ_INT((int)pool.bytes_in_use, 0);
+    pool_release(&pool);
+}
+
 SUITE(wasm_pool) {
     RUN_TEST(wasm_pool_class_clamps_to_min_and_max);
     RUN_TEST(wasm_pool_alloc_then_free_reuses_block);
@@ -216,4 +267,6 @@ SUITE(wasm_pool) {
     RUN_TEST(wasm_pool_realloc_zero_frees_block);
     RUN_TEST(wasm_pool_steady_state_drives_reuse_only);
     RUN_TEST(wasm_pool_via_sub_arena_recycles_on_growth);
+    RUN_TEST(wasm_pool_oversize_block_is_its_request_size);
+    RUN_TEST(wasm_pool_sub_arena_grows_past_the_top_class);
 }

@@ -489,6 +489,14 @@ your own pace before the next minor.
   scratch. Scratch reservations now return an index and every pointer is
   re-derived at its use. A grid test and a new
   `tests/test_offset_stack_override.c` pin both.
+- **WASM: the page pool no longer serves a request above 1 MiB from a 1 MiB
+  block.** `wlx_wasm_pool_alloc` clamped every request to its top class
+  and `wlx_wasm_pool_realloc` kept the same block across growths inside
+  it, so a general-group arena (commands, scratch, layouts) growing past
+  1 MiB wrote past its block: a frame with more than about 20,000 draw
+  commands corrupted the heap of the bare-WASM build. A request above the
+  top class now gets a block of its own size, outside the classes, and is
+  handed to `free()` when released. Since v0.3.0.
 - **SDL3: carets and colour spans sit on the glyph cells the text is
   drawn in.** The SDL3 adapter's `measure_text_advances` read SDL_ttf's
   cluster rects as advances, but a cluster rect is the glyph's ink box,
