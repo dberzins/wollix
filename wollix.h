@@ -987,6 +987,9 @@ typedef struct {
     float wheel_delta;  // vertical wheel detents this frame (positive = up; 1.0 = one
                         // notch, fractional allowed from precision devices - backends
                         // must not quantize or debounce)
+    // Key edges and states. A backend does not report a key the platform's
+    // input method consumed (one that confirms, edits or cancels a
+    // composition): it belongs to the composition, not to the widget.
     bool keys_down[WLX_KEY_COUNT];     // current key states (held down)
     bool keys_pressed[WLX_KEY_COUNT];  // true for one frame when key pressed
     // Committed text this frame: a stream the backend accumulates across

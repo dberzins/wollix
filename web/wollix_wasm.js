@@ -1105,6 +1105,11 @@ function probeCtxFilterSupported() {
 
     document.addEventListener("keydown", (e) => {
         input.modifiers = readModifiers(e);
+        // A key the input method consumed (confirming, editing or cancelling
+        // a composition) belongs to the composition, not to the widget: the
+        // browser still dispatches its keydown. keyCode 229 also covers
+        // Safari, which ends the composition before the keydown.
+        if (e.isComposing || e.keyCode === 229) return;
         const wlxKey = KEY_MAP[e.code];
         const proxyFocused = document.activeElement === proxy;
         if (wlxKey !== undefined) {

@@ -860,6 +860,10 @@ Populated by the backend's input handler each frame. Access via `ctx->input`.
 `keys_repeated` fires on the platform's auto-repeat ticks (in addition to the
 one-shot `keys_pressed` on the initial press); widgets that should react to a
 held key use `wlx_is_key_actuated()` (= pressed or repeated).
+A backend does not report a key the platform's input method consumed, one
+that confirms, edits or cancels a composition: it belongs to the
+composition, not to the widget. The web host drops a keydown with
+`isComposing` set or keyCode 229; SDL3 delivers none for such keys.
 
 **Wheel contract.** Both wheel fields carry *unquantized float detents*:
 `1.0` is one notch of a clicky mouse wheel, and precision trackpads report
