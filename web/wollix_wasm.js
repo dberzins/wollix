@@ -257,8 +257,8 @@ function probeCtxFilterSupported() {
         textInput: "",
         // Composition state (WLX_Input_State.preedit*): the whole current
         // composition string, replaced on each update; empty = none. The
-        // cursor and clause come from the proxy's selection in UTF-16 units,
-        // -1 when the browser gives none.
+        // cursor and clause are -1 (unknown): the caret sits at the string's
+        // end and no clause is marked.
         preedit: "",
         preeditCursor: -1,
         preeditSel: -1,
@@ -270,16 +270,14 @@ function probeCtxFilterSupported() {
     // plain typing and Firefox's resolved dead keys arrive as insertText.
     // insertCompositionText is the browser mirroring the composition into
     // the proxy's own value and is ignored, so nothing is delivered twice.
+    // The cursor and clause stay -1: compositionstart and compositionupdate
+    // fire before the browser applies the update, so the proxy's selection
+    // then still holds the previous string (the range about to be replaced),
+    // not the input method's caret.
     function readProxyComposition(e) {
         input.preedit = e.data || "";
-        try {
-            const start = proxy.selectionStart, end = proxy.selectionEnd;
-            input.preeditCursor = (typeof start === "number") ? start : -1;
-            input.preeditSel = (typeof end === "number" && end > start) ? end - start : -1;
-        } catch (_) {
-            input.preeditCursor = -1;
-            input.preeditSel = -1;
-        }
+        input.preeditCursor = -1;
+        input.preeditSel = -1;
     }
     proxy.addEventListener("compositionstart", (e) => {
         proxyComposing = true;
