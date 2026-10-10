@@ -170,6 +170,9 @@ $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js: $(WASM_SRC_DIR)/wollix_wasm_
 # their own dirs first; the gallery's files are then copied alongside the
 # dashboard. All asset references are relative, so the gallery works under the
 # subpath unchanged. This is the target the GitHub Pages workflow deploys.
+# The packaged modules must import exactly what the host provides: env
+# abort and puts (puts carries diagnostics to the console), and every wlx
+# import from the host's table.
 pages-site: wasm-site gallery-wasm-site
 	mkdir -p $(WASM_SITE_DIR)/gallery
 	cp $(GALLERY_WASM_SITE_DIR)/gallery.wasm \
@@ -177,6 +180,8 @@ pages-site: wasm-site gallery-wasm-site
 	   $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js \
 	   $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js \
 	   $(WASM_SITE_DIR)/gallery/
+	node $(WASM_SRC_DIR)/check_wasm_imports.mjs $(WASM_SRC_DIR)/wollix_wasm.js \
+	   $(WASM_SITE_DIR)/dashboard.wasm $(WASM_SITE_DIR)/gallery/gallery.wasm
 
 debug: CFLAGS += -DDEBUG -O0
 debug: layout
