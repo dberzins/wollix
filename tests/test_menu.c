@@ -525,6 +525,86 @@ TEST(menu_button_face_draws_like_a_button) {
     wlx_context_destroy(&b);
 }
 
+// The same pair in a 10 px slot with no explicit height: each face
+// resolves its own min_height (font_size), so both grow to 20 px.
+static Test_Stream _mfe_record_slot(WLX_Context *ctx, bool menu_button, float slot_px) {
+    static bool open = false;
+    test_frame_begin(ctx, 300, 250, false, false);
+    test_stream_reset();
+    wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(slot_px)), .padding = 0);
+    if (menu_button) {
+        if (wlx_menu_button_begin(ctx, "open", &open, .font_size = 20,
+                .border_width = 2, .roundness = 0, .content_padding = 6)) {
+            wlx_menu_end(ctx);
+        }
+    } else {
+        (void)wlx_button(ctx, "open", .font_size = 20, .border_width = 2,
+            .roundness = 0, .content_padding = 6);
+    }
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+    return test_stream_take();
+}
+
+TEST(menu_button_face_draws_like_a_button_in_a_short_slot) {
+    WLX_Context a, b;
+    test_ctx_init(&a, 400, 300); test_stream_install(&a);
+    test_ctx_init(&b, 400, 300); test_stream_install(&b);
+    _mfe_record_slot(&a, true, 10.0f); _mfe_record_slot(&b, false, 10.0f);
+    Test_Stream da = _mfe_record_slot(&a, true, 10.0f);
+    Test_Stream db = _mfe_record_slot(&b, false, 10.0f);
+    ASSERT_TRUE(da.count >= 2 && db.count >= 2);
+    ASSERT_EQ_F(db.cmds[0].rect.h, 20.0f, 0.01f);
+    ASSERT_EQ_F(da.cmds[0].rect.h, db.cmds[0].rect.h, 0.01f);
+    ASSERT_TRUE(test_stream_equal(&da, &db));
+    wlx_context_destroy(&a);
+    wlx_context_destroy(&b);
+}
+
+// In a panel body every slot is CONTENT: the three button-like faces
+// (button, dropdown, menu button) measure their font_size tall.
+static float _mfe_fill_h(const Test_Stream *st, WLX_Color c) {
+    for (int i = 0; i < st->count; i++) {
+        const Test_Stream_Cmd *k = &st->cmds[i];
+        if ((k->kind == 1 || k->kind == 3) && k->color.r == c.r && k->color.g == c.g
+                && k->color.b == c.b && k->color.a == c.a) {
+            return k->rect.h;
+        }
+    }
+    return -1.0f;
+}
+
+TEST(menu_button_face_height_in_content_slot) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_stream_install(&ctx);
+    static const char *opts[] = { "a", "b" };
+    WLX_Color cb = { 200, 10, 10, 255 }, cd = { 10, 200, 10, 255 }, cm = { 10, 10, 200, 255 };
+    bool open = false;
+    int sel = 0;
+    for (int frame = 0; frame < 2; frame++) {
+        test_frame_begin(&ctx, 390, 290, false, false);
+        test_stream_reset();
+        wlx_panel_begin(&ctx);
+            (void)wlx_button(&ctx, "b", .font_size = 16, .back_color = cb, .border_width = 0);
+            (void)wlx_dropdown(&ctx, "d", &sel, opts, 2, .font_size = 16, .back_color = cd,
+                .border_width = 0);
+            if (wlx_menu_button_begin(&ctx, "m", &open, .font_size = 16, .back_color = cm,
+                    .border_width = 0)) {
+                wlx_menu_end(&ctx);
+            }
+        wlx_panel_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    float hb = _mfe_fill_h(&_test_stream, cb);
+    float hd = _mfe_fill_h(&_test_stream, cd);
+    float hm = _mfe_fill_h(&_test_stream, cm);
+    ASSERT_EQ_F(hb, 16.0f, 0.01f);
+    ASSERT_EQ_F(hd, 16.0f, 0.01f);
+    ASSERT_EQ_F(hm, 16.0f, 0.01f);
+    wlx_context_destroy(&ctx);
+}
+
 // The menu stack is heap-backed: NULL until a menu opens, allocated once
 // (the pointer never changes - frame pointers stay valid), and released by
 // wlx_context_destroy (leak-checked under ASan).
@@ -570,5 +650,7 @@ SUITE(menu) {
     RUN_TEST(submenu_flag_clears_when_parent_item_closes_chain);
     RUN_TEST(menu_inside_scroll_panel_item_below_viewport_clicks);
     RUN_TEST(menu_button_face_draws_like_a_button);
+    RUN_TEST(menu_button_face_draws_like_a_button_in_a_short_slot);
+    RUN_TEST(menu_button_face_height_in_content_slot);
     RUN_TEST(menu_stack_allocated_once_and_freed);
 }

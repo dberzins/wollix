@@ -17423,12 +17423,11 @@ WLXDEF bool wlx_menu_begin_impl(WLX_Context *ctx, bool *open, float x, float y,
 
 static void wlx_resolve_opt_menu_button(const WLX_Context *ctx, WLX_Menu_Button_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
-    float min_height = 0.0f;
 
     if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
 
-    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &min_height);
+    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
 
     if (wlx_is_float_unset(opt->hover_brightness))

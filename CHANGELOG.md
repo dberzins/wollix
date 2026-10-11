@@ -547,6 +547,11 @@ your own pace before the next minor.
   that tested the raw byte. The text pipeline treats a stray continuation
   byte as a unit of its own and lays it out, so the check is gone (since
   v0.7.0).
+- **A menu button's face is as tall as a button's.** Its resolver handed
+  the typography step a throwaway `min_height`, so the face never got the
+  font-size floor the button and dropdown faces get: 1 px tall in a
+  CONTENT slot (a panel body), the slot's height in a short fixed slot
+  (since v0.8.0).
 
 ### Changed
 - **A widget keystroke patches the editor's line index from its edit span.**
