@@ -506,9 +506,13 @@ static inline void test_frame_begin_ime(WLX_Context *ctx, const char *text_input
 
 // End the current frame.
 static inline void test_frame_end(WLX_Context *ctx) {
-    // Drain any open layouts so wlx_end doesn't assert
+    // Drain any open containers so wlx_end doesn't report, each with the end
+    // that closes it.
     while (ctx->arena.layouts.count > 0) {
-        wlx_layout_end(ctx);
+        const WLX_Layout *top = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+        if (top->owner == WLX_OWNER_SCROLL_PANEL)  wlx_scroll_panel_end(ctx);
+        else if (top->owner == WLX_OWNER_OVERLAY)  wlx_overlay_end(ctx);
+        else                                       wlx_layout_end(ctx);
     }
     wlx_end(ctx);
 }

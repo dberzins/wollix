@@ -1090,6 +1090,16 @@ typedef enum {
     WLX_LAYOUT_GRID,
 } WLX_Layout_Kind;
 
+// Which end call closes a layout record: the plain layout end (zero, so every
+// begin and wlx_create_* constructor gets it by default), wlx_overlay_end for
+// an overlay root, or wlx_scroll_panel_end for a scroll panel's content
+// wrapper.
+typedef enum {
+    WLX_OWNER_LAYOUT = 0,
+    WLX_OWNER_OVERLAY,
+    WLX_OWNER_SCROLL_PANEL,
+} WLX_Layout_Owner;
+
 // Start indices into the frame's open scroll panels, layouts and scissor
 // scopes from which the current layer's clip walkers iterate (all zero on
 // the base layer). Snapshotted on the overlay root at wlx_overlay_begin.
@@ -1129,7 +1139,8 @@ typedef struct WLX_Layout {
     int cmd_range_idx;     // command range table index for this layout (-1 = none)
     bool pushed_scope;  // true when a scope id was pushed at begin and must be popped at end
     bool clip_active;      // true when this layout began a clip scissor that wlx_layout_end must release
-    bool is_overlay_root;  // overlay subtree root: contributes nothing to parent content tracking
+    uint8_t owner;         // WLX_Layout_Owner: the end that closes this record; an overlay root
+                           // contributes nothing to parent content tracking
     bool overlay_clip;     // overlay root recorded a body scissor that wlx_overlay_end must release
     WLX_Rect clip_rect;    // rect this layout clips to (clip_active layouts and overlay_clip roots)
     WLX_Clip_Base overlay_saved_base;  // overlay root only: enclosing clip context, saved at begin / restored at end
@@ -6032,7 +6043,7 @@ static inline bool wlx_enclosing_clip(const WLX_Context *ctx, WLX_Clip_Query que
 
     for (size_t i = ctx->clip_base.layouts_from; i < ctx->arena.layouts.count; i++) {
         const WLX_Layout *layout = &wlx_pool_layouts(ctx)[i];
-        bool clips = (layout->is_overlay_root && layout->overlay_clip)
+        bool clips = (layout->owner == WLX_OWNER_OVERLAY && layout->overlay_clip)
                   || layout->clip_active;
         if (!clips) continue;
         clip = active ? wlx_rect_intersect(clip, layout->clip_rect) : layout->clip_rect;
@@ -8346,7 +8357,7 @@ WLXDEF void wlx_overlay_begin_impl(WLX_Context *ctx, size_t count, WLX_Rect rect
     l.line            = line;
     l.cmd_range_idx   = range_idx;
     l.pushed_scope    = pushed;
-    l.is_overlay_root = true;
+    l.owner           = WLX_OWNER_OVERLAY;
     l.overlay_clip    = opt.clip;
     l.clip_rect       = rect;     // the full overlay rect, not the padded body
     l.viewport = (opt.orient == WLX_HORZ) ? body.w : body.h;
@@ -8383,7 +8394,7 @@ WLXDEF void wlx_overlay_end(WLX_Context *ctx)
     WLX_HARD_ASSERT(ctx->arena.layouts.count > 0,
         "wlx_overlay_end without a matching begin");
     WLX_Layout *top = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-    assert(top->is_overlay_root && "wlx_overlay_end: innermost container is not an overlay");
+    assert(top->owner == WLX_OWNER_OVERLAY && "wlx_overlay_end: innermost container is not an overlay");
     bool had_clip = top->overlay_clip;
 
     if (had_clip) wlx_end_scissor(ctx);
@@ -8580,7 +8591,7 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
     // A layout whose own slot fetch reported an overrun (parent->slot_clamped,
     // still set: nothing fetches from the parent while its child is open)
     // occupies no slot and contributes nothing.
-    if (!l->is_overlay_root && ctx->arena.layouts.count > 1
+    if (l->owner != WLX_OWNER_OVERLAY && ctx->arena.layouts.count > 1
         && !wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2].slot_clamped) {
         WLX_Layout *parent = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2];
         // VERT parents only: the bucket stores the parent's main-axis extent,
@@ -8621,7 +8632,7 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
     // height into the parent's accumulated_content_height.  The wrapper
     // layout in wlx_scroll_panel_end reads the fully-aggregated tree total.
     // Overlay roots float outside the slot tree and contribute nothing.
-    if (!l->is_overlay_root && ctx->arena.layouts.count > 1
+    if (l->owner != WLX_OWNER_OVERLAY && ctx->arena.layouts.count > 1
         && !wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2].slot_clamped) {
         WLX_Layout *parent = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2];
         float child_h = l->accumulated_content_height + l->padding_top + l->padding_bottom;
@@ -16835,6 +16846,7 @@ static inline void wlx_scroll_panel_begin_content_layout(
     WLX_Layout l = wlx_create_layout(ctx, content_rect, 1, WLX_VERT, 0.0f);
     l.file = file;
     l.line = line;
+    l.owner = WLX_OWNER_SCROLL_PANEL;
     wlx_pool_push(&ctx->arena.layouts, WLX_Layout, l);
     // layout_begin: scroll panel - vb_force=!auto_height (bounded when not auto-sizing)
     WLX_DBG(layout_begin, ctx, !state->auto_height, NULL, 0, 0, -1, 1, NULL, 0);
