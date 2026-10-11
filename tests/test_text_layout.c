@@ -658,6 +658,29 @@ TEST(invalid_utf8_fallback_bytes_make_progress) {
     wlx_context_destroy(&ctx);
 }
 
+// Text whose first byte is a UTF-8 continuation byte (a Latin-1 file, a
+// truncated paste) starts with a one-byte stray unit, which the pipeline
+// treats as a boundary like any other: every text widget lays it out and
+// draws it.
+TEST(text_starting_with_continuation_byte) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 200, 120);
+    test_stream_install(&ctx);
+    test_stream_reset();
+    char buf[16] = "\xA9 x";
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 3, WLX_VERT);
+        wlx_label(&ctx, "\xA9 x");
+        (void)wlx_button(&ctx, "\xA9 x");
+        (void)wlx_inputbox(&ctx, NULL, buf, sizeof buf);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    int texts = 0;
+    for (int i = 0; i < _test_stream.count; i++) texts += _test_stream.cmds[i].kind == 5;
+    ASSERT_EQ_INT(texts, 3);
+    wlx_context_destroy(&ctx);
+}
+
 // ============================================================================
 // Conditional scissor coverage for wlx_draw_text_fitted
 // ============================================================================
@@ -980,6 +1003,7 @@ SUITE(text_layout) {
     RUN_TEST(range_measure_accepts_invalid_utf8_fallback_byte);
     RUN_TEST(range_measure_accepts_long_invalid_utf8_fallback_bytes);
     RUN_TEST(invalid_utf8_fallback_bytes_make_progress);
+    RUN_TEST(text_starting_with_continuation_byte);
     RUN_TEST(fitted_text_skips_scissor_when_lines_fit);
     RUN_TEST(fitted_text_scissors_when_first_unit_exceeds_width);
     RUN_TEST(fitted_text_scissors_partially_visible_line);

@@ -572,8 +572,38 @@ TEST(caret_cluster_click_and_vertical_motion_land_on_boundaries) {
     wlx_context_destroy(&ctx);
 }
 
+// A line whose first byte is a UTF-8 continuation byte (a Latin-1 file)
+// starts with a one-byte stray unit. A click on it and an arrow Down onto it
+// build the line from its start (the hit test enters there) and land on
+// unit boundaries.
+TEST(caret_lands_on_line_starting_with_continuation_byte) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+
+    // Line 0 "xyz"; line 1 is 0xA9 then "qr" (bytes 4..6), 5 px per byte.
+    char buf[32];
+    memcpy(buf, "xyz\n\xA9qr", 7);
+    size_t len = 7;
+    ev_frame(&ctx, buf, sizeof(buf), &len, 0);
+    ev_frame(&ctx, buf, sizeof(buf), &len, 0);
+    WLX_Editor_State *st = ev_state(&ctx);
+    ASSERT_TRUE(st != NULL);
+
+    // Line 1 at content x 10 (screen x 19, y 19): between 'q' and 'r'.
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 19, 19, true, true, 0.0f, 0, NULL);
+    ASSERT_EQ_INT(6, (long)st->caret.cursor_pos);
+    // Line 0 at content x 5 (offset 1), then Down onto line 1: x 5 is the
+    // stray byte's end.
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 14, 9, true, true, 0.0f, 0, NULL);
+    ASSERT_EQ_INT(1, (long)st->caret.cursor_pos);
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_DOWN, 0);
+    ASSERT_EQ_INT(5, (long)st->caret.cursor_pos);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(editor_caret) {
     RUN_TEST(caret_cluster_click_and_vertical_motion_land_on_boundaries);
+    RUN_TEST(caret_lands_on_line_starting_with_continuation_byte);
     RUN_TEST(caret_click_places_in_scrolled_window);
     RUN_TEST(caret_click_places_in_horizontally_scrolled_window);
     RUN_TEST(caret_multi_click_word_then_select_all);

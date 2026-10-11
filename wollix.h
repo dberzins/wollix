@@ -10436,7 +10436,8 @@ static inline WLX_Text_Fit wlx_text_fit_step(float advance_w, float fit_w,
 // function and nothing else. Separators never reach the fitter, so CR
 // and LF are not members. One byte suffices: both members are ASCII and
 // a unit starts on a codepoint boundary, so no multibyte sequence can
-// begin with either.
+// begin with either. Callers pass a unit's start: a whitespace unit may
+// end in a mark (a space carrying U+0301 is one unit).
 static inline bool wlx_text_wrap_ws_at(const char *text, size_t length, size_t pos) {
     return pos < length && (text[pos] == ' ' || text[pos] == '\t');
 }
@@ -12068,7 +12069,8 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
         step.line.advance_w = ink_w;
 #ifdef WLX_DEBUG
         assert(ink_w <= measured_w && "wrap: ink extent past the measured extent");
-        assert((!wrap_cut || wlx_text_wrap_ws_at(text, length, visible_end - 1))
+        assert((!wrap_cut || wlx_text_wrap_ws_at(text, length,
+                    wlx_text_unit_prev(text, length, visible_end)))
             && "wrap cut: row does not end after whitespace");
         assert((!inputs->wrap_strict_ws || scan_unit_count == 1
                 || measured_w <= inputs->rect.w)
@@ -12090,8 +12092,6 @@ static size_t wlx_text_build_lines_from(const WLX_Text_Build_Inputs *inputs, WLX
 
 #ifdef WLX_DEBUG
     assert(wlx_text_hard_line_start_at(inputs->text, inputs->length, start_offset));
-    assert(start_offset >= inputs->length || inputs->text == NULL
-        || !wlx_text_utf8_is_continuation((unsigned char)inputs->text[start_offset]));
 #endif
 
     size_t line_count = 0;

@@ -540,6 +540,13 @@ your own pace before the next minor.
   placed from the window records alone, and an empty document builds none,
   so a focused empty editor with `.wrap = true` showed no caret. It now
   sits at the text origin, as in the linear editor.
+- **Text that starts with a UTF-8 continuation byte no longer aborts a
+  `WLX_DEBUG` build.** A label, button or inputbox whose text began with a
+  byte in 0x80-0xBF (a Latin-1 file, a truncated paste), and a click or
+  arrow Down onto such a line in the editor, failed a line-start assert
+  that tested the raw byte. The text pipeline treats a stray continuation
+  byte as a unit of its own and lays it out, so the check is gone (since
+  v0.7.0).
 
 ### Changed
 - **A widget keystroke patches the editor's line index from its edit span.**

@@ -489,8 +489,54 @@ TEST(ww_cluster_rows_cut_at_units) {
     wlx_context_destroy(&ctx);
 }
 
+// A space carrying an Extend mark is one whitespace unit (U+0301 adds two
+// bytes, U+FE0F three), so a row that cuts after it ends on the mark's last
+// byte: the cut is after whitespace by the unit's first byte, not its last.
+TEST(ww_cut_after_marked_space) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 200);
+    WLX_Text_Line_Record recs[WW_MAX_RECS];
+    // "aaaa" 20 px, the marked space 15 or 20 px, then "bbbb" overflows the
+    // 50 px row; the whitespace fits, so both rules cut after it.
+    static const struct { const char *text; size_t cut; float ws_w; } cases[] = {
+        { "aaaa \xCC\x81" "bbbb", 7, 15.0f },
+        { "aaaa \xEF\xB8\x8F" "bbbb", 8, 20.0f },
+    };
+    for (size_t c = 0; c < sizeof cases / sizeof cases[0]; c++) {
+        for (int strict = 0; strict < 2; strict++) {
+            size_t n = ww_build_opt(&ctx, cases[c].text, 50, true, strict == 1, 0, 0,
+                recs, WW_MAX_RECS);
+            ASSERT_EQ_INT((int)n, 2);
+            ww_assert_row(&recs[0], 0, cases[c].cut, 20.0f + cases[c].ws_w, 20.0f);
+            ww_assert_row(&recs[1], cases[c].cut, cases[c].cut + 4, 20.0f, 20.0f);
+        }
+    }
+    wlx_context_destroy(&ctx);
+}
+
+// The same cut through a wrapped label: every break opportunity is a
+// marked space, so each row the label wraps ends on a mark.
+TEST(ww_label_cut_after_marked_space) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 50, 100);
+    test_stream_install(&ctx);
+    test_stream_reset();
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+        wlx_label(&ctx, "aa \xCC\x81" "bb \xCC\x81" "cc \xCC\x81" "dd",
+            .font_size = 10, .wrap = true);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    int texts = 0;
+    for (int i = 0; i < _test_stream.count; i++) texts += _test_stream.cmds[i].kind == 5;
+    ASSERT_TRUE(texts >= 2);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(word_wrap) {
     RUN_TEST(ww_cluster_rows_cut_at_units);
+    RUN_TEST(ww_cut_after_marked_space);
+    RUN_TEST(ww_label_cut_after_marked_space);
     RUN_TEST(ww_cut_at_last_space);
     RUN_TEST(ww_long_word_breaks_mid_word);
     RUN_TEST(ww_memo_tracks_latest_space);
