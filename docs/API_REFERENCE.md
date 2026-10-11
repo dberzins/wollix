@@ -364,7 +364,7 @@ Text spacing support matrix for this slice:
 | Backend / path | Status | Behavior |
 |----------------|--------|----------|
 | Raylib | Supported | `DrawTextEx` and `MeasureTextEx` both honor `style.spacing` |
-| SDL3 custom fonts | Supported on variant path | Backend-owned font variants apply `TTF_SetFontCharSpacing` once per `(font, size, spacing)` tuple. If variant creation fails and the backend falls back to the shared base font, spacing is ignored. |
+| SDL3 custom fonts | Supported on variant path | Backend-owned font variants apply `TTF_SetFontCharSpacing` once per `(font, size, spacing, content scale)` variant. If variant creation fails and the backend falls back to the shared base font, spacing is ignored. |
 | SDL3 debug font | Unsupported | Ignores spacing in both draw and measure |
 | WASM | Unsupported | Ignores spacing in both draw and measure |
 
@@ -512,10 +512,10 @@ The C-string callbacks remain the compatibility floor;
 *or* `draw_text`, `measure_text_slice` *or* `measure_text`). Slice callbacks
 are the preferred contract for new backends, are appended to the struct for
 designated-initializer compatibility, and are used whenever both the core path
-and the backend provide them. Of the in-tree adapters, SDL3 and WASM wire
-both slice callbacks; Raylib wires `measure_text_slice` (+
-`measure_text_advances`) and leaves `draw_text_slice` on the core's
-NUL-copy fallback (`DrawTextEx` needs a C string either way). Recorded text commands store only `(bytes, len)`;
+and the backend provide them. All three in-tree adapters wire both slice
+callbacks; Raylib's `draw_text_slice` makes the NUL-terminated copy itself
+(`DrawTextEx` needs a C string), and Raylib also wires
+`measure_text_advances`. Recorded text commands store only `(bytes, len)`;
 Wollix materializes a temporary null-terminated copy only when dispatching
 through the legacy `draw_text` / `measure_text` fallback. For text without
 embedded NUL bytes, slice and C-string callbacks should produce equivalent
@@ -662,7 +662,7 @@ software or copy path):
 | `draw_shadow` / `draw_glow` | - (layered fallback) | - (layered fallback) | - (layered fallback) |
 | `clipboard_get` / `clipboard_set` | yes | yes | yes |
 | `set_cursor` | yes | yes | yes (host CSS cursor) |
-| `get_content_scale` | yes (render/screen ratio) | yes (`SDL_GetWindowDisplayScale`) | yes (`devicePixelRatio`) |
+| `get_content_scale` | yes (`GetWindowScaleDPI().x`; off Apple only under `FLAG_WINDOW_HIGHDPI`, else 1.0) | yes (`SDL_GetWindowDisplayScale`) | yes (`devicePixelRatio`) |
 | `set_text_input_area` | - (committed text only, no composition) | yes (`SDL_StartTextInputWithProperties`, `SDL_SetTextInputArea`, `SDL_EVENT_TEXT_EDITING`) | yes (a hidden text proxy at the caret; composition and dead keys through it) |
 
 ### `wlx_backend_is_ready`
@@ -1067,7 +1067,10 @@ Dynamic array of `WLX_Layout` nodes. Managed by the library; stored in
 typedef struct {
     WLX_LAYOUT_SLOT_FIELDS;
     WLX_WIDGET_SIZING_FIELDS;
-    WLX_Color color;
+    WLX_Color back_color;
+    WLX_BORDER_FIELDS;
+    const char *id;
+    bool from_defaults;
 } WLX_Widget_Opt;
 ```
 
@@ -1088,7 +1091,10 @@ The widget id type: the key of every interaction and persistent-state
 lookup, 64-bit on every target including wasm32. `0` is reserved for "no
 widget". Ids derive from the call site and the ID stack (see the Identity
 Model below), so they are not stable across builds; print one with
-`PRIu64`. Callers that pass or store `size_t` compile unchanged.
+`PRIu64`. Passing a `size_t` where a `WLX_Id` is expected compiles
+unchanged. A `size_t` that stores an id also compiles silently, but on wasm32
+it keeps 32 of the 64 bits and never compares equal again: declare it
+`WLX_Id`.
 
 ### `WLX_State`
 
@@ -1155,7 +1161,7 @@ typedef struct {
     float   drag_offset;
     bool    hovered;
     float   wheel_scroll_speed;
-    size_t  saved_auto_scroll_panel_id;
+    WLX_Id  saved_auto_scroll_panel_id;
     float   saved_auto_scroll_total_height;
 } WLX_Scroll_Panel_State;
 ```
@@ -1431,13 +1437,13 @@ typedef struct {
         // Frame-begin ownership arbitration over the previous frame's
         // candidates (see LAYOUT_MODEL.md "Ownership Arbitration"):
         bool   arbitrate;          // previous frame recorded candidates (false on a context's first frame)
-        size_t press_owner;        // topmost candidate under a fresh left press, latched until release
-        size_t right_press_owner;  // same for the right button; never touches focus or hot
+        WLX_Id press_owner;        // topmost candidate under a fresh left press, latched until release
+        WLX_Id right_press_owner;  // same for the right button; never touches focus or hot
         int    pointer_layer;      // layer of the pointer's topmost candidate (wheel routing)
         bool   active_is_focus;    // active_id holder is a typing-focus widget (inputbox/editor)
         bool   active_consumes_tab;// ... and holds Tab for itself (editor): Tab inserts, no traversal
-        size_t focus_released_id;  // typing focus released at frame begin; it still reports just_unfocused
-        size_t focus_gained_id;    // one-shot: Tab traversal landed here; the widget acquires typing focus on its query
+        WLX_Id focus_released_id;  // typing focus released at frame begin; it still reports just_unfocused
+        WLX_Id focus_gained_id;    // one-shot: Tab traversal landed here; the widget acquires typing focus on its query
         bool   tab_consumed;       // one-shot: traversal used this frame's Tab; text edit must not insert it
         WLX_Rect focus_rect;       // clipped rect of the focus_id holder (focus ring geometry)
         bool   press_claimed;      // the press owner's own query ran (popups detect outside presses)
@@ -1448,7 +1454,7 @@ typedef struct {
     WLX_State_Map   states;    // Persistent per-widget state map
 
     struct {
-        size_t panel_id;
+        WLX_Id panel_id;
         float  total_height;
     } auto_scroll;
 
@@ -2289,9 +2295,10 @@ WLX_Interaction wlx_get_interaction(
 Unified interaction handler. Returns a `WLX_Interaction` struct describing the
 current hover/press/click/focus/drag state for the given rect.
 
-Interaction IDs are derived from call-site `file`/`line` plus the ID stack
-plus a frame-local sequential counter — unique even if the same source line is
-reached multiple times.
+Interaction IDs are derived from the call-site `file`/`line` and the ID
+stack, the same derivation as state IDs. A source line reached more than once
+in a frame yields one id, so wrap each repetition in `wlx_push_id` /
+`wlx_pop_id`; `WLX_DEBUG` builds warn once per such site.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -2338,8 +2345,8 @@ listed at `WLX_State`: valid through the frame, kept while requested within
 entries or through `wlx_state_prune`, back zeroed afterwards, never owning
 resources.
 
-State IDs use call-site `file`/`line` plus the ID stack (no frame-local
-counter), so they are stable across frames. Use exactly **one** call per
+State IDs use call-site `file`/`line` plus the ID stack, so they are stable
+across frames. Use exactly **one** call per
 widget instance per frame.
 
 ```c
@@ -4028,15 +4035,17 @@ translation unit is not supported.
 `wollix_sdl3.h` and `wollix_wasm.h` are `static inline` bodies over
 implementation internals and can only be included where
 `WOLLIX_IMPLEMENTATION` is defined (this is true for multi-file C programs
-too). Put `wlx_context_init_<backend>` and the `wlx_begin` call with
-`wlx_process_<backend>_input` behind small C functions the C++ side calls;
+too). Put `wlx_context_init_<backend>`, `wlx_<backend>_root_rect` and the
+`wlx_begin` call with `wlx_process_<backend>_input` behind small C functions
+the C++ side calls;
 `wlx_end`, `wlx_context_destroy` and everything else in the core are
 callable directly.
 
 **Options come from the defaults functions.** Take
 `wlx_<widget>_opt_defaults()`, assign fields, and call the struct-form
-entry with the call site (the last two arguments feed the `WLX_DEBUG`
-call-site diagnostics; pass `__FILE__, __LINE__`):
+entry with the call site (the last two arguments are the call site: with the
+ID stack they derive the widget id in every build and locate `WLX_DEBUG`
+diagnostics; pass `__FILE__, __LINE__`):
 
 ```cpp
 WLX_Button_Opt bo = wlx_button_opt_defaults();
@@ -4180,8 +4189,12 @@ Convert a pointer to a Raylib `Font` into a `WLX_Font` handle. Pass to widget
 options or theme fields:
 
 ```c
-Font my_font = LoadFontEx("myfont.ttf", 24, NULL, 0);
-ctx->theme_copy.font = wlx_font_from_raylib(&my_font);
+static Font my_font;
+static WLX_Theme theme;
+my_font = LoadFontEx("myfont.ttf", 24, NULL, 0);
+theme = wlx_theme_dark;
+theme.font = wlx_font_from_raylib(&my_font);
+ctx->theme = &theme;
 ```
 
 ### `wlx_raylib_root_rect`
@@ -4291,23 +4304,23 @@ Whole-string `wlx_raylib_measure_text` and slice-aware
 
 ```c
 static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_len,
-        WLX_Text_Style style, float *out_w, float *out_h);
+        WLX_Text_Style style, float *out_w, float *out_h, void *user);
 ```
 
 Slice-aware measure: accepts an explicit byte length so `wlx_span_measure_text`
 takes the slice fast path without allocating a temporary null-terminated copy
 on every internal measurement. Exposed via the
 `WLX_Backend.measure_text_slice` callback. Cache lookup happens before any
-copy work; only on miss does the fallback copy a non-null-terminated slice
-into a 256-byte stack buffer (or `wlx_alloc` for longer slices) before
-calling `MeasureTextEx`.
+copy work; on a miss the slice is always copied through `WLX_CStr_Tmp` (a
+`WLX_TEXT_RANGE_STACK_CAP`-byte stack buffer, 1024 by default; `wlx_alloc`
+beyond it) before `MeasureTextEx`.
 
 ### `wlx_raylib_measure_text_advances`
 
 ```c
 static inline size_t wlx_raylib_measure_text_advances(const char *text, size_t len,
         WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
-        float *out_advances);
+        float *out_advances, void *user);
 ```
 
 Exposed via the optional `WLX_Backend.measure_text_advances` callback.
@@ -4315,8 +4328,8 @@ Accumulates per-glyph advances exactly as `MeasureTextEx` does for a single
 line (base-size `advanceX` per glyph, one scale-factor multiply, plus
 `(codepoints - 1) * spacing`), so callback-built geometry matches the
 whole-prefix slice measures bit-for-bit on Raylib's additive model.
-Unterminated slices copy with the same stack/heap discipline as the slice
-measure.
+Every call copies the slice the same way as the slice measure; this path is
+uncached.
 
 ### Raylib Setup Pattern
 
@@ -4362,8 +4375,26 @@ static inline void wlx_context_init_sdl3(WLX_Context *ctx, SDL_Window *window, S
 ```
 
 Set all `ctx->backend` function pointers to SDL3 implementations. Installs an
-SDL event watch for mouse wheel and text input events. Calls
-`SDL_StartTextInput(window)`.
+SDL event watch for the mouse wheel, committed text and composition events,
+key auto-repeat, window focus loss (it clears a composition) and window moves
+(it re-sends the composition anchor). Text input is not started here: the
+composition anchor starts it while an editable text widget has focus and stops
+it when focus leaves.
+
+### `wlx_sdl3_ime_hints`
+
+```c
+static inline void wlx_sdl3_ime_hints(void);
+```
+
+Call before `SDL_Init`. Sets `SDL_HINT_IME_IMPLEMENTED_UI` to
+`"composition"`: Wollix draws the composition string inline in its text
+widgets, so the platform must not draw its own composition window (candidate
+lists stay the platform's). On X11 platforms the process also takes the
+environment's `LC_CTYPE` when it still has the `"C"` default, because Xlib
+walks every composition string with `mblen()`, and under `"C"` such a walk can
+hang inside the event pump. Where no other character type is available the
+hint is left unset and the platform draws the composition.
 
 ### `wlx_process_sdl3_input`
 
@@ -4422,8 +4453,11 @@ helper is emitted when SDL_ttf is available at include time. Pass the returned
 handle to widget options or theme fields:
 
 ```c
+static WLX_Theme theme;
 TTF_Font *font = TTF_OpenFont("myfont.ttf", 18.0f);
-ctx->theme_copy.font = wlx_font_from_sdl3(font);
+theme = wlx_theme_dark;
+theme.font = wlx_font_from_sdl3(font);
+ctx->theme = &theme;
 ```
 
 SDL_ttf shapes text (through HarfBuzz when it is linked) in the font's
@@ -4447,7 +4481,7 @@ mirrored.
 Set the fixed capacity of the SDL3 backend's effective-font variant table
 before including `wollix_sdl3.h`. The default is `32`. Each live entry owns a
 `TTF_CopyFont`-derived `TTF_Font *` keyed by the base `TTF_Font *`, font size,
-spacing, and the base font generation snapshot. When the table is full, Wollix
+spacing, content scale, and the base font generation snapshot. When the table is full, Wollix
 evicts the least-recently-used variant and closes it synchronously with
 `TTF_CloseFont`. Variant eviction first cascade-evicts every retained
 `TTF_Text` entry that referenced the variant, so retained text cannot dangle
@@ -4510,7 +4544,8 @@ host.
 
 Custom-font measurement and draw resolve a backend-owned effective-font variant
 before touching SDL_ttf. Variants are created lazily from the user-provided
-base `TTF_Font *`, keyed by `(base_font, font_size, spacing, base_generation)`,
+base `TTF_Font *`, keyed by `(base_font, font_size, spacing, content scale,
+base_generation)`,
 bounded by `WLX_SDL3_FONT_VARIANT_CAP`, and invalidated when
 `TTF_GetFontGeneration(base_font)` no longer matches the stored snapshot. On
 the variant path, SDL3 custom fonts honor `style.spacing` for both measurement
@@ -4591,6 +4626,7 @@ from those base fonts and retained `TTF_Text` entries reference those variants.
 #include "wollix_sdl3.h"
 
 int main(void) {
+    wlx_sdl3_ime_hints();   // before SDL_Init: Wollix draws the composition
     SDL_Init(SDL_INIT_VIDEO);
     SDL_Window *win = SDL_CreateWindow("My App", 800, 600,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
@@ -4641,7 +4677,9 @@ static inline void wlx_context_init_wasm(WLX_Context *ctx);
 
 Set all `ctx->backend` function pointers to the wasm-import implementations
 (`wlx_backend_wasm()`): every required callback, both slice text callbacks,
-`measure_text_advances`, `draw_texture`, the clipboard pair and `set_cursor`.
+`measure_text_advances`, `draw_texture`, the clipboard pair, `set_cursor`,
+`get_content_scale` (`devicePixelRatio`) and `set_text_input_area` (the hidden
+text proxy).
 `draw_gradient_v`, `draw_shadow` and `draw_glow` stay `NULL` (software
 fallbacks). Under `WLX_PERF` it installs a timer only when
 `WLX_WASM_PERF_TIMESTAMP` is defined (the host then provides `perf_now_ns`).
@@ -4692,8 +4730,8 @@ WASM (the host copies into it and reports the byte count; the adapter grows
 and re-fetches until the text provably fit), and the NUL-terminated send
 buffer on Raylib / SDL3 (longer spans are truncated at a UTF-8 boundary).
 Overridable before the adapter include. The page-pool allocator
-(`WLX_Wasm_Pool`, `wlx_wasm_allocator`) is documented under Memory
-Management above.
+(`WLX_Wasm_Pool`, `wlx_wasm_allocator`) is documented under
+[WASM page-pool](#wasm-page-pool-wlx_wasm_pool-and-wlx_wasm_allocator) above.
 
 ---
 

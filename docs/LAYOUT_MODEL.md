@@ -745,7 +745,7 @@ wlx_widget(ctx, .width = 100, .height = 40);
 **`wlx_separator`** — horizontal or vertical divider line:
 ```c
 wlx_separator(ctx);
-wlx_separator(ctx, .color = WLX_RGBA(100, 100, 100, 255), .thickness = 2.0f);
+wlx_separator(ctx, .back_color = WLX_RGBA(100, 100, 100, 255), .thickness = 2.0f);
 ```
 
 **`wlx_progress`** — progress bar, value in [0, 1]:

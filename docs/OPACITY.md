@@ -222,7 +222,7 @@ to the renderer. Alpha blending works out of the box.
   widgets, so all three opacity layers apply automatically. Use `.opacity`
   or the context stack exactly as with any other widget:
   ```c
-  wlx_widget(ctx, .color = MY_COLOR, .opacity = 0.5f);
+  wlx_widget(ctx, .back_color = MY_COLOR, .opacity = 0.5f);
   ```
 
 ---

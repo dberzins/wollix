@@ -253,7 +253,7 @@ selection.
 
 ```c
 typedef struct {
-    size_t   id;              // widget id
+    WLX_Id   id;              // widget id
     uint32_t touch;           // cache clock at the last lookup
     WLX_Text_Undo_Stack undo;
     WLX_Text_Undo_Stack redo;

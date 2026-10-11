@@ -131,9 +131,10 @@ The literal helpers (`WLX_SLOT_PX`, `WLX_RGBA`, ...) work unchanged in C++.
 #include "wollix_raylib.h"
 #include "wollix_editor.h"
 
-// The platform glue the C++ side cannot reach: adapter init and the
-// per-frame input handler.
+// The platform glue the C++ side cannot reach: adapter init, the root
+// rectangle and the per-frame input handler.
 void app_ui_init(WLX_Context *ctx) { wlx_context_init_raylib(ctx); }
+WLX_Rect app_ui_root(void) { return wlx_raylib_root_rect(); }
 void app_ui_begin(WLX_Context *ctx, WLX_Rect root) {
     wlx_begin(ctx, root, wlx_process_raylib_input);
 }
@@ -147,6 +148,7 @@ void app_ui_begin(WLX_Context *ctx, WLX_Rect root) {
 
 extern "C" {
 void app_ui_init(WLX_Context *ctx);
+WLX_Rect app_ui_root(void);
 void app_ui_begin(WLX_Context *ctx, WLX_Rect root);
 }
 
@@ -159,7 +161,7 @@ int main() {
     float value = 0.5f;
 
     while (!WindowShouldClose()) {
-        WLX_Rect root = wlx_raylib_root_rect();
+        WLX_Rect root = app_ui_root();
         app_ui_begin(&ctx, root);
         BeginDrawing();
         ClearBackground(WLX_BACKGROUND_COLOR);

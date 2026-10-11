@@ -1172,8 +1172,9 @@ boundary like any insert.
 Text input is engaged on the platform only while an editable text
 widget has focus (a `.read_only` or `.disabled` field never composes and
 never asks for it); a `.password` field composes with its span masked
-like the rest, and tells the platform the field is a hidden password so
-it may disable prediction. On SDL3 call `wlx_sdl3_ime_hints()` before
+like the rest. On SDL3 the field is also reported to the platform as a
+hidden password so it may disable prediction; the web host and Raylib do
+not pass it on. On SDL3 call `wlx_sdl3_ime_hints()` before
 `SDL_Init()` so the platform draws no composition window of its own; on
 X11 it also takes the environment's `LC_CTYPE` when the process still has
 the `"C"` default, which Xlib's inline-composition path needs (under
@@ -1720,7 +1721,7 @@ Horizontal rule between controls:
 ```c
 wlx_separator(ctx,
     .height = 1,
-    .color = (WLX_Color){70, 70, 70, 255}
+    .back_color = (WLX_Color){70, 70, 70, 255}
 );
 ```
 
@@ -2323,7 +2324,7 @@ wlx_split_end(ctx);
 No heading (pure CONTENT layout wrapper):
 
 ```c
-wlx_panel_begin(ctx, .padding = 4);
+wlx_panel_begin(ctx, .content_padding = 4);
     wlx_label(ctx, "Item 1", .height = 30);
     wlx_label(ctx, "Item 2", .height = 30);
 wlx_panel_end(ctx);
@@ -2693,7 +2694,7 @@ All shared placement, sizing, and border fields also apply.
 ```c
 wlx_widget(ctx,
     .slot_align = WLX_CENTER, .width = 100, .height = 4,
-    .color = (WLX_Color){ 80, 80, 80, 255 }
+    .back_color = (WLX_Color){ 80, 80, 80, 255 }
 );
 ```
 

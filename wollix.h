@@ -9492,9 +9492,8 @@ WLXDEF size_t wlx_state_prune(WLX_Context *ctx, uint32_t max_age) {
 // Uses wlx_hash_id(file, line) combined with the ID stack - no sequential counter.
 // This makes state IDs fully stable across frames. The ID stack (wlx_push_id/
 // wlx_pop_id) provides disambiguation when the same source line is hit multiple
-// times (e.g. widgets generated in a loop). This differs from interaction IDs,
-// which add a frame-local sequence so repeated interaction queries in one frame
-// do not collide.
+// times (e.g. widgets generated in a loop). Interaction IDs use the same
+// derivation, so the same rule applies to them.
 WLXDEF WLX_State wlx_get_state_impl(WLX_Context *ctx, size_t state_size, const char *file, int line) {
     WLX_Id id = wlx_combine_id_hash(wlx_hash_id(file, line), wlx_id_stack_hash(ctx));
     if (id == 0) id = 1;
