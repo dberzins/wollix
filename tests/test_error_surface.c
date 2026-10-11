@@ -739,6 +739,163 @@ TEST(grid_cell_span_wrapped_reports) {
     wlx_context_destroy(&ctx);
 }
 
+// --- An end of the wrong kind: one report, then the container that is
+// innermost (or the one the end names) is closed with its own end ---
+
+static int es_scissor_begins, es_scissor_ends;
+static void es_count_begin_scissor(WLX_Rect r, void *user) { (void)r; (void)user; es_scissor_begins++; }
+static void es_count_end_scissor(void *user) { (void)user; es_scissor_ends++; }
+
+static void es_init_scissors(WLX_Context *ctx) {
+    es_init(ctx);
+    ctx->backend.begin_scissor = es_count_begin_scissor;
+    ctx->backend.end_scissor = es_count_end_scissor;
+    es_scissor_begins = 0;
+    es_scissor_ends = 0;
+}
+
+static void es_wrong_end_on_scroll_panel(const char *scope_id) {
+    WLX_Context ctx;
+    es_init_scissors(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 2, WLX_VERT);
+    int panel_line = __LINE__ + 1;
+    wlx_scroll_panel_begin(&ctx, 600, .id = scope_id);
+    wlx_layout_end(&ctx);                       // meant wlx_scroll_panel_end
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.layout_file));
+    ASSERT_EQ_INT(panel_line, es_last.layout_line);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.id_stack.count);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_TRUE(es_scissor_begins > 0);
+    ASSERT_EQ_INT(es_scissor_begins, es_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(layout_end_on_scroll_panel_closes_it) { es_wrong_end_on_scroll_panel(NULL); }
+TEST(layout_end_on_scoped_scroll_panel_closes_it) { es_wrong_end_on_scroll_panel("sp"); }
+
+TEST(layout_end_on_overlay_closes_it) {
+    WLX_Context ctx;
+    es_init_scissors(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_overlay_begin(&ctx, 1, ((WLX_Rect){ 10, 10, 200, 100 }));
+    wlx_layout_end(&ctx);                       // meant wlx_overlay_end
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_EQ_INT(0, (int)ctx.current_layer);
+    ASSERT_EQ_INT(0, (int)ctx.clip_base.layouts_from);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(es_scissor_begins, es_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(layout_ends_for_split_end) {
+    WLX_Context ctx;
+    es_init_scissors(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    size_t outer = ctx.arena.layouts.count;
+    wlx_split_begin(&ctx);
+    wlx_split_next(&ctx);
+    while (ctx.arena.layouts.count > outer) wlx_layout_end(&ctx);   // meant wlx_split_end
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(es_scissor_begins, es_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(scroll_panel_end_over_child_closes_both) {
+    WLX_Context ctx;
+    es_init_scissors(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_scroll_panel_begin(&ctx, 600);
+    int child_line = __LINE__ + 1;
+    wlx_layout_begin(&ctx, 2, WLX_VERT);        // left open
+    wlx_scroll_panel_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.layout_file));
+    ASSERT_EQ_INT(child_line, es_last.layout_line);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(es_scissor_begins, es_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(scroll_panel_end_over_overlay_closes_both) {
+    WLX_Context ctx;
+    es_init_scissors(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_scroll_panel_begin(&ctx, 600);
+    wlx_overlay_begin(&ctx, 1, ((WLX_Rect){ 10, 10, 200, 100 }));   // left open
+    wlx_scroll_panel_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(0, (int)ctx.current_layer);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(es_scissor_begins, es_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(overlay_end_over_child_closes_both) {
+    WLX_Context ctx;
+    es_init_scissors(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_overlay_begin(&ctx, 1, ((WLX_Rect){ 10, 10, 200, 100 }));
+    int child_line = __LINE__ + 1;
+    wlx_layout_begin(&ctx, 2, WLX_VERT);        // left open
+    wlx_overlay_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_EQ_INT(child_line, es_last.layout_line);
+    ASSERT_EQ_INT(0, (int)ctx.current_layer);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(es_scissor_begins, es_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(overlay_end_without_overlay_returns) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_overlay_end(&ctx);                      // nothing to close
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.current_layer);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(error_surface) {
     RUN_TEST(error_handler_receives_record);
     RUN_TEST(error_handler_null_restores_default);
@@ -766,4 +923,12 @@ SUITE(error_surface) {
     RUN_TEST(span_wrapped_reports_and_takes_one_slot);
     RUN_TEST(span_zero_takes_one_slot);
     RUN_TEST(grid_cell_span_wrapped_reports);
+    RUN_TEST(layout_end_on_scroll_panel_closes_it);
+    RUN_TEST(layout_end_on_scoped_scroll_panel_closes_it);
+    RUN_TEST(layout_end_on_overlay_closes_it);
+    RUN_TEST(layout_ends_for_split_end);
+    RUN_TEST(scroll_panel_end_over_child_closes_both);
+    RUN_TEST(scroll_panel_end_over_overlay_closes_both);
+    RUN_TEST(overlay_end_over_child_closes_both);
+    RUN_TEST(overlay_end_without_overlay_returns);
 }

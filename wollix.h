@@ -8386,6 +8386,18 @@ WLXDEF void wlx_overlay_begin_impl(WLX_Context *ctx, size_t count, WLX_Rect rect
 // scissors replay in their own layer pass, so the base pass never lost its
 // clip (an unconditional re-arm there emitted a stray BEGIN that only the
 // pass-boundary drain closed).
+// The end-of-container family. Each public end checks that the innermost
+// container is the kind it closes; on a mismatch it reports
+// WLX_ERR_UNBALANCED_END once and repairs the frame through these
+// check-free closes, so every container is still closed by its own end.
+static void wlx_layout_close(WLX_Context *ctx);
+static void wlx_overlay_close(WLX_Context *ctx);
+static void wlx_scroll_panel_close(WLX_Context *ctx);
+static void wlx_container_close(WLX_Context *ctx);
+static void wlx_close_until(WLX_Context *ctx, WLX_Layout_Owner want);
+static bool wlx_owner_open(const WLX_Context *ctx, WLX_Layout_Owner want);
+static bool wlx_contract_closes(WLX_Context *ctx, WLX_Layout_Owner want, const char *msg);
+
 WLXDEF void wlx_overlay_end(WLX_Context *ctx)
 {
     // Hard guard: with an empty layout stack, count - 1 wraps to SIZE_MAX
@@ -8393,17 +8405,31 @@ WLXDEF void wlx_overlay_end(WLX_Context *ctx)
     // wlx_layout_end underflows the count).
     WLX_HARD_ASSERT(ctx->arena.layouts.count > 0,
         "wlx_overlay_end without a matching begin");
+    // A container opened inside the overlay and still open is closed first;
+    // with no overlay open at all nothing is closed.
+    bool open = wlx_owner_open(ctx, WLX_OWNER_OVERLAY);
+    if (!wlx_contract_closes(ctx, WLX_OWNER_OVERLAY, open
+            ? "wlx_overlay_end: a container opened inside the overlay is still open; it is closed first"
+            : "wlx_overlay_end without an open overlay; nothing is closed")) {
+        if (!open) return;
+        wlx_close_until(ctx, WLX_OWNER_OVERLAY);
+    }
+    wlx_overlay_close(ctx);
+}
+
+static void wlx_overlay_close(WLX_Context *ctx)
+{
     WLX_Layout *top = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-    assert(top->owner == WLX_OWNER_OVERLAY && "wlx_overlay_end: innermost container is not an overlay");
+    assert(top->owner == WLX_OWNER_OVERLAY);
     bool had_clip = top->overlay_clip;
 
     if (had_clip) wlx_end_scissor(ctx);
-    // Restore the enclosing clip context before the pop (wlx_layout_end
+    // Restore the enclosing clip context before the pop (wlx_layout_close
     // pops `top`, and an overlay root never takes its clip-release branch,
     // the only clip query in there, so nothing observes the root's rect
     // under the restored base).
     ctx->clip_base = top->overlay_saved_base;
-    wlx_layout_end(ctx);
+    wlx_layout_close(ctx);
     if (ctx->current_layer > 0) ctx->current_layer--;
 
     if (had_clip && ctx->immediate_mode) {
@@ -8544,6 +8570,49 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
     if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_UNBALANCED_END,
             "wlx_layout_end without a matching begin"))
         return;
+    // A scroll panel or overlay that is innermost is closed with its own end:
+    // exactly one container closes, as the caller asked for.
+    if (!wlx_contract_closes(ctx, WLX_OWNER_LAYOUT,
+            "wlx_layout_end on a scroll panel or overlay; it is closed with its own end")) {
+        wlx_container_close(ctx);
+        return;
+    }
+    wlx_layout_close(ctx);
+}
+
+// True when the innermost container is `want`; otherwise one report.
+static bool wlx_contract_closes(WLX_Context *ctx, WLX_Layout_Owner want, const char *msg) {
+    const WLX_Layout *top = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    return WLX_CONTRACT(ctx, top->owner == (uint8_t)want, WLX_ERR_UNBALANCED_END, msg);
+}
+
+static bool wlx_owner_open(const WLX_Context *ctx, WLX_Layout_Owner want) {
+    for (size_t i = ctx->arena.layouts.count; i > 0; i--) {
+        if (wlx_pool_layouts(ctx)[i - 1].owner == (uint8_t)want) return true;
+    }
+    return false;
+}
+
+// Close the innermost container with its own end.
+static void wlx_container_close(WLX_Context *ctx) {
+    switch ((WLX_Layout_Owner)wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].owner) {
+    case WLX_OWNER_OVERLAY:      wlx_overlay_close(ctx); break;
+    case WLX_OWNER_SCROLL_PANEL: wlx_scroll_panel_close(ctx); break;
+    case WLX_OWNER_LAYOUT:
+    default:                     wlx_layout_close(ctx); break;
+    }
+}
+
+// Close containers until the innermost one is `want` (the caller checked
+// that one is open).
+static void wlx_close_until(WLX_Context *ctx, WLX_Layout_Owner want) {
+    while (ctx->arena.layouts.count > 0
+        && wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].owner != (uint8_t)want) {
+        wlx_container_close(ctx);
+    }
+}
+
+static void wlx_layout_close(WLX_Context *ctx) {
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
 
     // Single owner of clip scissor release: any layout (including a panel body)
@@ -17005,6 +17074,17 @@ WLXDEF void wlx_scroll_panel_end(WLX_Context *ctx) {
     if (!WLX_CONTRACT(ctx, ctx->arena.scroll_panels.count > 0 && ctx->arena.layouts.count > 0,
             WLX_ERR_UNBALANCED_END, "wlx_scroll_panel_end without a matching wlx_scroll_panel_begin"))
         return;
+    // A container opened inside the panel and still open is closed first.
+    // An open panel always has its wrapper on the layout stack.
+    if (!wlx_contract_closes(ctx, WLX_OWNER_SCROLL_PANEL,
+            "wlx_scroll_panel_end: a container opened inside the panel is still open; it is closed first"))
+        wlx_close_until(ctx, WLX_OWNER_SCROLL_PANEL);
+    wlx_scroll_panel_close(ctx);
+}
+
+static void wlx_scroll_panel_close(WLX_Context *ctx) {
+    assert(ctx->arena.scroll_panels.count > 0 && ctx->arena.layouts.count > 0
+        && wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].owner == WLX_OWNER_SCROLL_PANEL);
     // The wrapper layout's accumulated_content_height now contains the
     // fully-aggregated content tree height, propagated up from all nested
     // layouts via wlx_layout_end.  This is the single authoritative source

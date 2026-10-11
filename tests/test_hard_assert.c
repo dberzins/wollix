@@ -252,6 +252,33 @@ TEST(default_handler_returns_under_ndebug) {
     wlx_context_destroy(&ctx);
 }
 
+// An end of the wrong kind under NDEBUG: one sink line, and the scroll panel
+// it meant is closed with its own end, so the frame's scissors balance.
+static int ha_scissor_begins, ha_scissor_ends;
+static void ha_begin_scissor(WLX_Rect r, void *user) { (void)r; (void)user; ha_scissor_begins++; }
+static void ha_end_scissor(void *user) { (void)user; ha_scissor_ends++; }
+
+TEST(default_handler_wrong_kind_end_closes_the_panel) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend.begin_scissor = ha_begin_scissor;
+    ctx.backend.end_scissor = ha_end_scissor;
+    ha_scissor_begins = ha_scissor_ends = 0;
+    test_sink_reset();
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_scroll_panel_begin(&ctx, 600);
+    wlx_layout_end(&ctx);                       // meant wlx_scroll_panel_end
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, test_sink_lines);
+    ASSERT_TRUE(strstr(test_sink_buf, "wollix error:") != NULL);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
+    ASSERT_TRUE(ha_scissor_begins > 0);
+    ASSERT_EQ_INT(ha_scissor_begins, ha_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
 TEST(default_sink_prints_once_per_site) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
@@ -420,6 +447,7 @@ SUITE(hard_assert) {
     RUN_TEST(hard_assert_fires_on_delete_past_length);
     RUN_TEST(hard_assert_fires_on_backend_contract_mismatch);
     RUN_TEST(default_handler_returns_under_ndebug);
+    RUN_TEST(default_handler_wrong_kind_end_closes_the_panel);
     RUN_TEST(default_sink_prints_once_per_site);
     RUN_TEST(default_sink_names_the_open_layout);
     RUN_TEST(default_sink_suppresses_after_table_full);
