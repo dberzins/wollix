@@ -637,6 +637,12 @@ minor.
   beats the uniform one: `.content_padding = N` and
   `WLX_PADDING_USE_THEME` inset nothing unless all four sides were also
   set to `WLX_UNSET` (since v0.8.0).
+- **`wlx_grid_cell` on an auto grid grows it.** A placement on a row the
+  auto grid had not grown yet (including `(-1, -1)` with a span at a row
+  start) was reported and ignored in every build; v0.8.0's release builds
+  placed it, growing the grid, and its debug builds asserted. The rows of
+  an auto grid are no longer a bound: the slot fetch grows them. Columns,
+  and `WLX_MAX_SLOT_COUNT`, still are.
 - **`wlx_panel_begin` honours `.rounded_corners`.** The panel forwarded its
   container chrome to its body layout but left out the corner mask, so a
   panel asked to round only some corners rounded all four (since

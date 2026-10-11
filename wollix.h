@@ -8983,7 +8983,10 @@ WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Styl
         if (cs > WLX_MAX_SLOT_COUNT) cs = 1;
     }
     // An out-of-range placement is reported and ignored: the cursor stands.
-    if (!WLX_CONTRACT_AT(ctx, r + rs <= l->grid.rows && c + cs <= l->grid.cols, WLX_ERR_GRID_BOUNDS,
+    // On an auto grid it may name rows not grown yet, and the slot fetch
+    // grows them; columns are fixed on every grid.
+    size_t row_bound = l->grid.dynamic ? (size_t)WLX_MAX_SLOT_COUNT : l->grid.rows;
+    if (!WLX_CONTRACT_AT(ctx, r + rs <= row_bound && c + cs <= l->grid.cols, WLX_ERR_GRID_BOUNDS,
             "wlx_grid_cell: the cell or span lies outside the grid; the placement is ignored",
             file, line))
         return;

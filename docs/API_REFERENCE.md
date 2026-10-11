@@ -1599,7 +1599,7 @@ sites the default prints one suppression line and stays silent.
 | Violation | Code | Degradation |
 |---|---|---|
 | More children than slots in a fixed linear layout; `.pos` past the count | `WLX_ERR_SLOT_OVERRUN` | The child gets a zero-size rect at the layout's far edge, the layout's cursor stays where it was, and the child contributes nothing to CONTENT measurement |
-| `wlx_grid_cell` outside the grid | `WLX_ERR_GRID_BOUNDS` | The placement is ignored; the cursor stands |
+| `wlx_grid_cell` outside the grid (a fixed grid's rows or any grid's columns; an auto grid grows its rows) | `WLX_ERR_GRID_BOUNDS` | The placement is ignored; the cursor stands |
 | A grid cell fetched outside the grid (explicit, or auto-advance past a fixed grid's last row) | `WLX_ERR_GRID_BOUNDS` | Zero-size rect at the grid's far edge; cursor unchanged; no contribution |
 | `wlx_layout_end` / `wlx_grid_end`, `wlx_scroll_panel_end`, `wlx_pop_id`, `wlx_pop_opacity` with nothing to pop | `WLX_ERR_UNBALANCED_END` | Returns; no stack is touched |
 | `wlx_layout_end` / `wlx_grid_end` / `wlx_panel_end` on a scroll panel or overlay | `WLX_ERR_UNBALANCED_END` | Reported once, naming that container's begin; it is closed with its own end, so one container closes |
@@ -2092,7 +2092,10 @@ Equivalent to `cols = floor(available_width / tile_w)` then
 
 Override the auto-advance cursor so the **next** child occupies a specific cell.
 A cell or span outside the grid is a contract error: reported (see
-[Error Reporting](#error-reporting)) and ignored, the cursor standing.
+[Error Reporting](#error-reporting)) and ignored, the cursor standing. On an
+auto grid (`wlx_grid_begin_auto`) the rows are not a bound: a placement on a
+row not grown yet grows the grid to it; only the columns and
+`WLX_MAX_SLOT_COUNT` bound it.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

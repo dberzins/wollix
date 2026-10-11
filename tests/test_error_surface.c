@@ -1001,6 +1001,46 @@ TEST(list_clipper_outside_scroll_panel_reports) {
     wlx_context_destroy(&ctx);
 }
 
+// wlx_grid_cell on an auto grid may name rows not grown yet: the slot fetch
+// grows them (v0.8.0's release behaviour). Columns stay fixed, and so does
+// the WLX_MAX_SLOT_COUNT bound.
+static WLX_Rect es_auto_grid_cell(WLX_Context *ctx, int row, int col, size_t rs, size_t cs,
+                                  size_t *rows_out) {
+    test_frame_begin(ctx, 0, 0, false, false);
+    wlx_grid_begin_auto(ctx, 3, 40.0f, .padding = 0);
+    wlx_grid_cell(ctx, row, col, .row_span = rs, .col_span = cs);
+    (void)wlx_button(ctx, "c", .padding = 0);
+    WLX_Rect r = wlx_last_rect(ctx);
+    *rows_out = es_top(ctx)->grid.rows;
+    wlx_grid_end(ctx);
+    test_frame_end(ctx);
+    return r;
+}
+
+TEST(auto_grid_cell_grows_rows) {
+    WLX_Context ctx;
+    size_t rows = 0;
+    es_init(&ctx);
+    WLX_Rect r = es_auto_grid_cell(&ctx, -1, -1, 1, 3, &rows);   // first row, full span
+    ASSERT_EQ_INT(0, es_count);
+    ASSERT_EQ_F(r.w, 400.0f, 0.01f);
+    r = es_auto_grid_cell(&ctx, 2, 0, 1, 1, &rows);              // a row not grown yet
+    ASSERT_EQ_INT(0, es_count);
+    ASSERT_EQ_INT(3, (int)rows);
+    ASSERT_EQ_F(r.y, 80.0f, 0.01f);
+    r = es_auto_grid_cell(&ctx, 3, 1, 2, 1, &rows);              // a row span grows too
+    ASSERT_EQ_INT(0, es_count);
+    ASSERT_EQ_INT(5, (int)rows);
+    ASSERT_EQ_F(r.h, 80.0f, 0.01f);
+    (void)es_auto_grid_cell(&ctx, 0, 2, 1, 2, &rows);            // columns are fixed
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_GRID_BOUNDS, (int)es_last.code);
+    (void)es_auto_grid_cell(&ctx, (int)WLX_MAX_SLOT_COUNT, 0, 1, 1, &rows);   // the slot bound holds
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(WLX_ERR_GRID_BOUNDS, (int)es_last.code);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(error_surface) {
     RUN_TEST(error_handler_receives_record);
     RUN_TEST(error_handler_null_restores_default);
@@ -1041,4 +1081,5 @@ SUITE(error_surface) {
     RUN_TEST(grid_auto_row_px_wrong_kind_reports_once);
     RUN_TEST(slot_style_entries_report_the_call_site);
     RUN_TEST(list_clipper_outside_scroll_panel_reports);
+    RUN_TEST(auto_grid_cell_grows_rows);
 }
