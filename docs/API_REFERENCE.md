@@ -1863,9 +1863,7 @@ Rules:
   container scope folded in (the same rule `wlx_get_state` uses), so give
   reusable row/card functions a per-instance `.id`.
 - **Supported flags.** `HOVER`, `CLICK`, and `KEYBOARD`. `FOCUS` and `DRAG` are
-  not supported on containers. The auto-counted begins
-  (`wlx_layout_begin_auto`, `wlx_grid_begin_auto`, `wlx_grid_begin_auto_tile`)
-  have no stable call-site id and do not support `interact`.
+  not supported on containers.
 - **Interactive children win the press.** Press and hover ownership is
   topmost-wins (ADR_039): the innermost candidate under the pointer - the
   latest query at that point - owns them, so a `wlx_button` inside a `CLICK`
@@ -3560,7 +3558,7 @@ the user creates their own inner layout inside each pane.
 |-------|------|---------|-------------|
 | `first_size` | `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | Width/size of the first (left) pane |
 | `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width/size of the second (right) pane |
-| `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FILL` | Outer wrapper slot size (e.g. `WLX_SLOT_FILL_MIN(400)`) |
+| `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Outer wrapper slot size (e.g. `WLX_SLOT_FILL_MIN(400)`) |
 | `content_padding` | `float` | `4` | Uniform inner inset for the split container. See `WLX_CONTENT_PADDING_FIELDS`. |
 | `content_padding_top` | `float` | `WLX_UNSET` | Top padding override. Negative = inherit `content_padding` |
 | `content_padding_right` | `float` | `WLX_UNSET` | Right padding override. Negative = inherit `content_padding` |
@@ -3617,11 +3615,11 @@ impact. Adding or removing child widgets requires no slot-count updates.
 | `back_color` | `WLX_Color` | `{0}` | Panel background color drawn behind the full panel area. `{0}` = transparent (surrounding container surface shows through) |
 | `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = theme `border` (v0.6) |
 | `border_width` | `float` | `WLX_UNSET` | Panel border thickness in units. unset inherits theme `border_width` (v0.6); an explicit `0` keeps the panel borderless |
-| `roundness` | `float` | `0` | Corner roundness for the panel background and border (fraction of shorter side). `0` = sharp corners |
+| `roundness` | `float` | `WLX_UNSET` | Corner roundness for the panel background and border (fraction of shorter side). unset inherits theme `roundness` (the bundled themes ship `0`); `0` = sharp corners |
 | `corner_radius` | `float` | `0` | Absolute corner radius in units; `> 0` overrides `roundness`, `0` = unset. See [`WLX_BORDER_FIELDS`](#wlx_border_fields--wlx_border_defaults) |
 | `border_color_top` / `_right` / `_bottom` / `_left` | `WLX_Color` | `{0}` | Per-side border color. `{0}` inherits `border_color`. See [Per-side container decor](#per-side-container-decor) |
 | `border_width_top` / `_right` / `_bottom` / `_left` | `float` | `WLX_UNSET` | Per-side border width. `< 0` inherits `border_width`; `0` switches that edge off |
-| `rounded_segments` | `int` | `0` | Corner tessellation for rounded chrome. `0` = theme default |
+| `rounded_segments` | `int` | `WLX_UNSET` | Corner tessellation for rounded chrome. unset or `0` = theme `rounded_segments` |
 | `gap` | `float` | `0` | Inter-slot spacing in the panel body; a negative value reads as `0` |
 | *shadow / glow / gradient* | | off | Full container decor: `shadow_*`, `glow_*`, `gradient_top` / `gradient_bottom` fields, forwarded to the body layout. See [Shared Option Field Macros](#shared-option-field-macros) |
 | `slot_back_color` / `slot_border_color` / `slot_border_width` | | `{0}` / `0` | Per-slot decor applied to every body slot |

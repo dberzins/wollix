@@ -2238,10 +2238,10 @@ wlx_split_end(ctx);
 - If `.id` is set, it scopes both pane bodies until `wlx_split_end(ctx)`.
 - In loops, wrap each iteration with `wlx_push_id()` / `wlx_pop_id()` as with
   any repeated widget.
-- Do **not** place `wlx_split_begin` inside a dynamic auto layout
-  (`wlx_layout_begin_auto`) — the compound widget's internal layouts disrupt
-  the dynamic layout's contiguous offset buffer. Use a static layout as the
-  parent instead.
+- A split nests inside an auto layout like any static child. A dynamic
+  layout inside one of its panes is nested in the auto layout, and the
+  nesting note for `wlx_layout_begin_auto` in LAYOUT_MODEL's Restrictions
+  applies.
 
 ---
 
@@ -2283,7 +2283,8 @@ wlx_panel_end(ctx);
 | `back_color` | `WLX_Color` | `{0}` | Panel body background color. `{0}` = transparent |
 | `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = theme `border` (v0.6) |
 | `border_width` | `float` | `WLX_UNSET` | Border thickness in units. unset inherits theme `border_width` (v0.6); explicit `0` = borderless |
-| `roundness` | `float` | `0` | Corner roundness for border/background (fraction of the shorter side). `0` = sharp |
+| `roundness` | `float` | `WLX_UNSET` | Corner roundness for border/background (fraction of the shorter side). unset inherits theme `roundness` (the bundled themes ship `0`); `0` = sharp |
+| `rounded_segments` | `int` | `WLX_UNSET` | Corner tessellation. unset or `0` = theme `rounded_segments` |
 | `corner_radius` | `float` | `0` | Absolute corner radius in **units**. `> 0` overrides `roundness`; `0` = unset. See [Absolute corner radius](#absolute-corner-radius-corner_radius) |
 | `clip` | `bool` | `false` | Clip body content to panel bounds |
 | `content_padding` | `float` | `2` | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |

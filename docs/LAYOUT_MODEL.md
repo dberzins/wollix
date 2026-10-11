@@ -386,9 +386,9 @@ A widget contributes to its parent's CONTENT measurement as follows:
   or scroll panel with `.span > 1` contributes to the first slot of its
   span.
 
-Built-in widgets (label, button, checkbox, inputbox, slider, progress,
-toggle, radio) default `min_height` to the resolved `font_size` when
-unset.  This guarantees CONTENT slots measure to a non-zero value on
+Built-in widgets (label, button, checkbox, inputbox, editor, slider,
+toggle, radio, dropdown, menu button) default `min_height` to the resolved
+`font_size` when unset; `wlx_progress` defaults it to its track height.  This guarantees CONTENT slots measure to a non-zero value on
 the first frame, even when nested layouts allocate zero space due to
 the frame-delayed measurement model.
 
@@ -464,7 +464,7 @@ the value.
 |---|---|
 | `wlx_layout_begin` | Slot count must be known at begin time. Max 32 slots when using CONTENT (`WLX_CONTENT_SLOTS_MAX`). CONTENT measures the main axis: child heights in VERT layouts, children's intrinsic or explicit widths in HORZ layouts (see WIDGETS.md § Intrinsic widths). Measured extents settle one frame after content changes; on the measuring frame the deferred replay shifts recorded commands to the corrected offsets on both axes (dy in VERT, dx in HORZ), scissors included, so drawn positions land correct within the frame. Nested layouts contribute no intrinsic width — give the slot an explicit size or MIN clamp, or place the width-defining widget directly in the slot. |
 | `wlx_layout_begin_s` | Same as `wlx_layout_begin`; count derived from `WLX_SIZES()` macro. |
-| `wlx_layout_begin_auto` | Sequential access only (no `pos`). No nested `wlx_layout_begin` inside body (scratch buffer corruption). When `slot_px=0`, every child must call `wlx_layout_auto_slot` before use. CONTENT via `auto_slot` is not auto-measured (caller-supplied value, or 1px after the floor). |
+| `wlx_layout_begin_auto` | Sequential access only (no `pos`). Static layouts, grids, splits and panels nest inside the body. A nested dynamic layout (`wlx_layout_begin_auto`, `wlx_grid_begin_auto`, a list clipper) places correctly, but a build without `NDEBUG` stops at an `assert` when this layout takes its next slot; until that check is narrowed, make the dynamic child the last slot, or use an auto grid or a static layout as the outer container. When `slot_px=0`, every child must call `wlx_layout_auto_slot` before use. CONTENT via `auto_slot` is not auto-measured (caller-supplied value, or 1px after the floor). |
 | `wlx_grid_begin` | Row and column count fixed at begin time. CONTENT supported in `row_sizes` (per-row max height, one-frame delay). CONTENT not supported in `col_sizes` (resolves to 0px). Max 32 CONTENT rows (`WLX_CONTENT_SLOTS_MAX`). Max `WLX_MAX_SLOT_COUNT` rows/cols. |
 | `wlx_grid_begin_auto` | Column count fixed; rows grow dynamically. Requires `row_px > 0` (no zero or content-sized rows). Per-row override via `wlx_grid_auto_row_px` consumed once. CONTENT not supported in `col_sizes`. |
 | `wlx_grid_begin_auto_tile` | Same as `wlx_grid_begin_auto`. Column count derived from `floor(width / tile_w)`, minimum 1. `col_sizes` in opt is accepted but column count is computed from tile width. |
@@ -652,9 +652,7 @@ if (it.clicked) navigate();
   are no hover-variant width/gradient/shadow/glow fields — an *appearing* border
   is a constant width with a transparent base color toggled to an accent twin.
 - **Supported flags.** `HOVER`, `CLICK`, `KEYBOARD`. `FOCUS`/`DRAG` are not
-  supported on containers, and the auto-counted begins (`wlx_layout_begin_auto`,
-  `wlx_grid_begin_auto`, `wlx_grid_begin_auto_tile`) lack a stable call-site id
-  and do not support `interact`.
+  supported on containers.
 - **Interactive children win the press.** Ownership is topmost-wins (ADR_039):
   the innermost candidate under the pointer - the latest query at that point,
   so a nested `wlx_button` beats the container that wraps it - owns a press,

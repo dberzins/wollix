@@ -20,8 +20,9 @@ after 0.9**, so existing code compiles unchanged; the aliases themselves
 release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
 *meanings* cannot be aliased: each one below names its migration.
 
-- **Backend contract v2: every callback carries an instance pointer.** All
-  22 `WLX_Backend` callbacks take a trailing `void *user`, the table's new
+- **Backend contract v2: every callback carries an instance pointer.**
+  Every `WLX_Backend` callback (the 22 of v0.8 and the two added below, 24
+  in all) takes a trailing `void *user`, the table's new
   `user` member, passed by the core on every call and never read by it, so
   an adapter can reach per-instance state instead of file-scope globals
   (the in-tree adapters still use their globals this release and pass
@@ -117,21 +118,25 @@ release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
   `WLX_SLOT_FLEX(1)`); an explicit `WLX_SLOT_AUTO` reaches the layout as
   AUTO instead of being mistaken for the default. `wlx_slot_size_is_zero`
   is removed. Migration: none unless `WLX_SLOT_AUTO` was written to mean
-  "default".
+  "default". On gcc, overriding one of them now trips
+  `-Woverride-init-side-effects`, which is on by default, so a `-Werror`
+  build fails where v0.8.0 was clean: add `-Wno-override-init-side-effects`
+  beside `-Wno-override-init` (the CMake target carries both).
 - **Compound content padding: unset means the widget default.** Writing
-  `.content_padding = WLX_UNSET` on the inputbox, editor, split, panel or
-  tooltip now resolves to the widget's own inset (10, 10, 4, 2, 6) exactly
-  like omission, as SENTINEL.md always said, instead of `0`; the constants
-  are `WLX_INPUTBOX_CONTENT_PADDING`, `WLX_SPLIT_CONTENT_PADDING`,
-  `WLX_PANEL_CONTENT_PADDING`, `WLX_TOOLTIP_CONTENT_PADDING`. Omission is
-  unchanged. Migration: write `0` for no inset.
+  `.content_padding = WLX_UNSET` on the inputbox, editor, split or panel now
+  resolves to the widget's own inset (10, 10, 4, 2) exactly like omission,
+  as SENTINEL.md always said, instead of `0` (the tooltip's already
+  resolved to its 6); the constants are `WLX_INPUTBOX_CONTENT_PADDING`,
+  `WLX_SPLIT_CONTENT_PADDING`, `WLX_PANEL_CONTENT_PADDING`. Omission is
+  unchanged. Migration: write `0` for no inset (step 10).
 - **Split `.gap` is a literal `0`** like every other container gap (its `-1`
   resolved to `0` and inherited nothing). Omission is unchanged.
 - **`WLX_Id` is the widget id type, 64-bit on every target.** `WLX_State.id`,
   `WLX_Interaction.id`, `wlx_focused_id` and `wlx_push_id` carry `WLX_Id`
   (`uint64_t`) instead of `size_t`; on wasm32 ids widen from 32 to 64 bits.
-  Callers that pass or store `size_t` compile unchanged; an id printed with
-  `%zu` needs `PRIu64`. Every id value changes with the derivation fix under
+  Callers that pass a `size_t` compile unchanged; one that stores an id in a
+  `size_t` compiles too, but truncates on wasm32 (step 11); an id printed
+  with `%zu` needs `PRIu64`. Every id value changes with the derivation fix under
   Fixed (ids were never stable across builds, since the call site is part of
   the hash).
 - **Persistent widget state has a lifetime.** `wlx_get_state` data, and
@@ -168,8 +173,11 @@ release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
 
 #### Migrating from 0.8
 
-In call-site order; everything compiles before you start, so migrate at
-your own pace before the next minor.
+In call-site order. Everything except an application's own backend table
+compiles before you start: a v0.8 table is an error on GCC 14+ and clang
+until step 7 (older GCC only warns, and `wlx_begin` then stops at its
+contract-version check). Migrate the rest at your own pace before the next
+minor.
 
 1. **Align names.** `sed -E 's/\.widget_align\b/.slot_align/g; s/\.align\b/.content_align/g'`
    over your sources (`title_align` is untouched). Both old names still
@@ -186,10 +194,9 @@ your own pace before the next minor.
    `.content_padding` (old name compiles until the next minor).
 6. **Menu `.width = 0`**, **widget `.width = 0` / `.height = 0`**, **panel
    `.title_align = WLX_ALIGN_NONE`**, **split sizes written as
-   `WLX_SLOT_AUTO`**, **compound `.content_padding = -1`**: only if you
-   wrote these to mean "the default" - drop the field instead. A width or
-   height computed from a fraction now collapses at 0 rather than filling
-   the slot.
+   `WLX_SLOT_AUTO`**: only if you wrote these to mean "the default" - drop
+   the field instead. A width or height computed from a fraction now
+   collapses at 0 rather than filling the slot.
 7. **Backend tables.** Append `void *user` to every callback and set
    `.contract_version = WLX_BACKEND_CONTRACT_VERSION`; or, for now, type the
    table `WLX_Backend_V1` and install `wlx_backend_from_v1(&table)`. An
@@ -201,6 +208,28 @@ your own pace before the next minor.
 9. **Struct-form `_auto` begins.** Append `__FILE__, __LINE__` to
    `wlx_layout_begin_auto_impl`, `wlx_grid_begin_auto_impl` and
    `wlx_grid_begin_auto_tile_impl` calls; macro callers change nothing.
+10. **Compound `.content_padding = -1`.** On the inputbox, editor, split and
+    panel, `-1` meant no inset at v0.8.0; it now means the widget's default
+    (10, 10, 4, 2), the same as omitting the field. Write `0` where the
+    flush look was wanted.
+11. **Widget ids.** Hold ids in `WLX_Id` (`WLX_Interaction.id`,
+    `WLX_State.id`, `wlx_focused_id()`). Storing one in a `size_t`
+    compiles with no diagnostic, but on wasm32 it keeps 32 of the 64 bits
+    and never compares equal again; on a wasm32 build clang's
+    `-Wshorten-64-to-32` or gcc's `-Wconversion` finds such stores. Print
+    ids with `PRIu64`.
+12. **Persistent state.** Nothing changes while the live set stays under
+    `WLX_STATE_EVICT_THRESHOLD` (4096). Above it, an id not requested for
+    `WLX_STATE_MIN_AGE` frames (300) may come back zeroed: define
+    `WLX_STATE_EVICT_THRESHOLD 0` for state that owns resources or must
+    outlive long absences, and never keep a `WLX_State.data` pointer past
+    the frame that returned it.
+13. **SDL3 text input.** Call `wlx_sdl3_ime_hints()` before `SDL_Init`. The
+    adapter no longer starts text input at init: it starts while an
+    inputbox or editor has focus and stops when focus leaves, so with no
+    field focused `ctx->input.text_input` stays empty. Code that read typed
+    text outside a field reads key codes instead, or starts text input
+    itself (the adapter stops it again at the next blur).
 
 ### Added
 - **Composition (IME) input on the inputbox, textarea and editor.** The
@@ -260,8 +289,8 @@ your own pace before the next minor.
   generation when the scale changes. `wlx_content_scale(ctx)` reads the
   frame's value. Root-rect helpers per backend: `wlx_raylib_root_rect()`
   (the screen size in units) and `wlx_sdl3_root_rect()` (the output size
-  over the display scale); the README and every demo use them and opt
-  their windows into high density (`FLAG_WINDOW_HIGHDPI`,
+  over the display scale); the README and every demo use them, and every
+  demo opts its window into high density (`FLAG_WINDOW_HIGHDPI`,
   `SDL_WINDOW_HIGH_PIXEL_DENSITY`). The SDL3 adapter maps every geometry
   callback and the clip rect from units to pixels, rasterises its font
   variants at `font_size * scale` and returns measures in units, so text
@@ -352,8 +381,9 @@ your own pace before the next minor.
   it. SENTINEL.md documents the rule.
 - **C++ gate in `make test`.** `tests/test_cpp_path.cpp` is a C++11 caller
   over the public headers and the mock backend, linked against the
-  implementation compiled as C11; `CXX` follows `CC` (gcc -> g++, otherwise
-  clang++) so the CI matrix covers both front ends.
+  implementation compiled as C11; `CXX` follows `CC` unless set in the
+  environment or on the command line (a `CC` naming clang picks clang++,
+  anything else g++) so the CI matrix covers both front ends.
 - **CMake package.** A root `CMakeLists.txt` exports the header-only target
   `wollix::wollix`, which carries the include path, C11 and the compiler
   flags the option macros need (`-Wno-override-init` and
@@ -365,7 +395,10 @@ your own pace before the next minor.
   `SameMinorVersion` while the major version is 0. `WOLLIX_BUILD_TESTS`
   registers the `make test` binaries with CTest and `WOLLIX_BUILD_DEMOS`
   builds the Raylib and SDL3 demos when found; both default on only when
-  Wollix is the top-level project. The Makefile stays the developer tool
+  Wollix is the top-level project. The Raylib demos find Raylib as a CMake
+  package or a plain install (`WOLLIX_RAYLIB_DIR`); `WOLLIX_FETCH_RAYLIB`
+  (off by default) downloads and builds Raylib 5.5 from source when
+  neither is found. The Makefile stays the developer tool
   and CI runs both (README "Using CMake", CONTRIBUTING "Building and
   tests").
 - **Test tree builds where VLAs and `<unistd.h>` do not.** The dashboard
@@ -377,9 +410,10 @@ your own pace before the next minor.
 - **macOS CI leg.** `test-macos` runs the unit suite, the warnings-as-errors
   set and the sanitizer runner on `macos-latest`.
 - **Windows/MSVC CI leg.** `test-windows` configures the CMake project,
-  builds Release and runs CTest under MSVC (C11 mode, the conforming
-  preprocessor, the C++ gate under `cl`) on `windows-latest`; the death-check
-  binary stays POSIX-only. The test tree and the dashboard theme no longer
+  builds the Debug configuration (asserts live, as in `make test`) and runs
+  CTest under MSVC (C11 mode, the conforming preprocessor, the C++ gate
+  under `cl`) on `windows-latest`; the death-check binary stays
+  POSIX-only. The test tree and the dashboard theme no longer
   rely on compound literals in static initializers, which MSVC C rejects.
 - **vcpkg overlay port.** `ports/wollix/` (manifest and portfile, header-only,
   tests and demos off) installs the five headers and the CMake config as
@@ -388,7 +422,7 @@ your own pace before the next minor.
   after tagging (`ports/README.md`).
 - **MSVC build requirement documented.** `/std:c11 /Zc:preprocessor`
   (Visual Studio 2019 16.8 or later); the conforming preprocessor is needed
-  for `wlx_layout_begin_s`. The Windows CI leg below proves the set.
+  for `wlx_layout_begin_s`. The Windows CI leg above proves the set.
 - **`wlx_set_style_transform`.** A context-level transform (function plus
   user pointer) that the core applies to the `WLX_Text_Style` immediately
   before every text callback - draw, measure and advances - and nowhere
@@ -475,6 +509,11 @@ your own pace before the next minor.
   the option but never installed the scissor or joined the clip walk, so its
   overflowing children were drawn and stayed interactive; both begins now
   share one clip path. Two tests.
+- **`.interact` works on the auto-counted begins.** `wlx_layout_begin_auto`,
+  `wlx_grid_begin_auto` and `wlx_grid_begin_auto_tile` with `.interact`
+  crashed at v0.8.0 (a NULL call site was hashed). With the call site they
+  now record, each gets a stable per-site id, and hover, click and
+  `interact_out` resolve as on `wlx_layout_begin`.
 - **Keyboard focus skips widgets that are clipped away, and the ring stays
   inside the clip.** A widget scrolled out of its panel or cropped away by a
   `.clip` layout remained a Tab stop with no ring, so keystrokes reached an
