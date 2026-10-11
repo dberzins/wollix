@@ -2401,7 +2401,6 @@ typedef struct WLX_Context {
     WLX_Error_Fn error_handler;
     void        *error_user;
     int          error_count;                       // reports since wlx_context_init
-    WLX_Error    last_error;
     WLX_Id       error_sites[WLX_ERROR_SITES_MAX];  // sites the default sink has printed
     int          error_sites_count;
     bool         error_sites_full;                  // the suppression line went out
@@ -5903,7 +5902,6 @@ static void wlx_error_report(WLX_Context *ctx, WLX_Error_Code code, const char *
         e.layout_line = l->line;
     }
     ctx->error_count++;
-    ctx->last_error = e;
     if (ctx->error_handler != NULL) {
         WLX_DBG(error_handler_enter, ctx);
         ctx->error_handler(&e, ctx->error_user);

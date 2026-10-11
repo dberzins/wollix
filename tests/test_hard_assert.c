@@ -248,7 +248,6 @@ TEST(default_handler_returns_under_ndebug) {
     ASSERT_EQ_INT(1, test_sink_lines);
     ASSERT_TRUE(strstr(test_sink_buf, "probe.c:3: wollix error: probe message") != NULL);
     ASSERT_EQ_INT(1, wlx_error_count(&ctx));
-    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)ctx.last_error.code);
     wlx_context_destroy(&ctx);
 }
 

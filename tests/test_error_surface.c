@@ -45,7 +45,6 @@ TEST(error_handler_receives_record) {
     ASSERT_TRUE(es_last.layout_file == NULL);
     ASSERT_EQ_INT(0, es_last.layout_line);
     ASSERT_EQ_INT(1, wlx_error_count(&ctx));
-    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)ctx.last_error.code);
     wlx_context_destroy(&ctx);
 }
 
