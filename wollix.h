@@ -8084,11 +8084,6 @@ static inline WLX_Layout_Frame wlx_layout_frame_begin(
     WLX_Color bc_b = co.border_color_bottom, bc_l = co.border_color_left;
     if (co.interact != 0) {
 #ifdef WLX_DEBUG
-        if (file == NULL) {
-            wlx_dbg_warn_once(ctx, file, line,
-                "wollix: .interact is not supported on auto-counted container begins "
-                "(no stable call-site id); the interaction id collides across instances");
-        }
         if (co.interact & (WLX_INTERACT_FOCUS | WLX_INTERACT_DRAG)) {
             wlx_dbg_warn_once(ctx, file, line,
                 "wollix: WLX_INTERACT_FOCUS / WLX_INTERACT_DRAG are not supported on "
@@ -9155,8 +9150,18 @@ WLXDEF float wlx_get_opacity(const WLX_Context *ctx) {
 //   FOCUS - Input-like: click to focus, click elsewhere or press Enter to unfocus.
 //   DRAG  - Slider-like: activate on mouse down, stay active while held, deactivate on release.
 //
+// The site half of a widget id. A NULL file (a struct-form caller that
+// passed no site) is reported and hashed as an empty path, so the call goes
+// on with a fixed id instead of dereferencing NULL.
+static inline WLX_Id wlx_site_hash(WLX_Context *ctx, const char *file, int line) {
+    if (!WLX_CONTRACT(ctx, file != NULL, WLX_ERR_BAD_ARGUMENT,
+            "a NULL call site reached an id derivation: pass __FILE__, __LINE__ to the _impl entry"))
+        file = "";
+    return wlx_hash_id(file, line);
+}
+
 static inline WLX_Id wlx_interaction_make_id(WLX_Context *ctx, const char *file, int line) {
-    WLX_Id base = wlx_combine_id_hash(wlx_hash_id(file, line), wlx_id_stack_hash(ctx));
+    WLX_Id base = wlx_combine_id_hash(wlx_site_hash(ctx, file, line), wlx_id_stack_hash(ctx));
     WLX_DBG(interaction_id, ctx, base, file, line);
     return (base == 0) ? 1 : base;  // reserve 0 for "no widget"
 }
@@ -9656,7 +9661,7 @@ WLXDEF size_t wlx_state_prune(WLX_Context *ctx, uint32_t max_age) {
 // times (e.g. widgets generated in a loop). Interaction IDs use the same
 // derivation, so the same rule applies to them.
 WLXDEF WLX_State wlx_get_state_impl(WLX_Context *ctx, size_t state_size, const char *file, int line) {
-    WLX_Id id = wlx_combine_id_hash(wlx_hash_id(file, line), wlx_id_stack_hash(ctx));
+    WLX_Id id = wlx_combine_id_hash(wlx_site_hash(ctx, file, line), wlx_id_stack_hash(ctx));
     if (id == 0) id = 1;
 
     WLX_State_Map_Slot *slot = wlx_state_map_get(&ctx->states, id, state_size);

@@ -1041,6 +1041,35 @@ TEST(auto_grid_cell_grows_rows) {
     wlx_context_destroy(&ctx);
 }
 
+// A struct-form caller passing a NULL call site: reported, and the id
+// hashes an empty path instead of dereferencing NULL - through a widget, a
+// container with .interact, and a state request.
+TEST(null_call_site_reports_and_runs) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 3, WLX_VERT);
+    int before = es_count;
+    (void)wlx_button_impl(&ctx, "b", wlx_button_opt_defaults(), NULL, 0);
+    ASSERT_TRUE(es_count > before);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    before = es_count;
+    WLX_Layout_Opt lo = wlx_layout_opt_defaults();
+    lo.interact = WLX_INTERACT_HOVER;
+    wlx_layout_begin_impl(&ctx, 1, WLX_VERT, lo, NULL, 0);
+    wlx_layout_end(&ctx);
+    ASSERT_TRUE(es_count > before);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    before = es_count;
+    WLX_State st = wlx_get_state_impl(&ctx, sizeof(int), NULL, 0);
+    ASSERT_TRUE(st.data != NULL);
+    ASSERT_TRUE(es_count > before);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(error_surface) {
     RUN_TEST(error_handler_receives_record);
     RUN_TEST(error_handler_null_restores_default);
@@ -1082,4 +1111,5 @@ SUITE(error_surface) {
     RUN_TEST(slot_style_entries_report_the_call_site);
     RUN_TEST(list_clipper_outside_scroll_panel_reports);
     RUN_TEST(auto_grid_cell_grows_rows);
+    RUN_TEST(null_call_site_reports_and_runs);
 }

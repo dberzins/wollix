@@ -1620,6 +1620,7 @@ sites the default prints one suppression line and stays silent.
 | `get_content_scale` returns a value outside `[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]`, or NaN | `WLX_ERR_BACKEND_ANSWER` | Reported at `wlx_begin`; the frame runs at 1.0 |
 | A `measure_text_advances` chunk whose advances decrease (`WLX_DEBUG` builds only; negative `spacing` exempt) | `WLX_ERR_BACKEND_ANSWER` | Reported once per site; the chunk is clamped to non-decreasing (every unit edge inside it collapses onto the first value below it), and release builds clamp silently |
 | A NULL input handler at `wlx_begin` | `WLX_ERR_BAD_ARGUMENT` | The frame runs with no input |
+| A NULL call site (`file`) passed to a struct-form entry that derives an id (a widget, a container with `.interact`, `wlx_get_state_impl`) | `WLX_ERR_BAD_ARGUMENT` | The id hashes an empty path and the call goes on |
 
 ### Examples
 

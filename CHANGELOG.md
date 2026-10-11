@@ -329,7 +329,9 @@ minor.
   it was a `WLX_DEBUG` assert), the clip a still-open layout or scroll
   panel holds released at `wlx_end` (flat replay and immediate mode left
   the backend scissor on), the rows that fit the parent for a list clipper
-  outside a scroll panel (a plain assert before), the root rect for a widget
+  outside a scroll panel (a plain assert before), an id hashed from an
+  empty path for a NULL call site passed to a struct-form entry (it was
+  dereferenced: a crash in every build), the root rect for a widget
   with no layout open, 1 for a bad count, 1 px for a bad size, an inert
   widget for a NULL pointer. Under `NDEBUG` these used to index out of
   bounds without a word; a slot overrun's write past a CONTENT-tracked
