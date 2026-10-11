@@ -1346,6 +1346,66 @@ TEST(ime_anchor_active_on_empty_focus_frame) {
 // Suite
 // ============================================================================
 
+// ============================================================================
+// A string whose edge joins the text beside it: the caret sits where the
+// input method put it, on a unit boundary of the string, which need not be
+// one of the buffer; after the commit it is a buffer boundary again.
+// ============================================================================
+
+#define IME_MAN   "\xF0\x9F\x91\xA8"
+#define IME_WOMAN "\xF0\x9F\x91\xA9"
+#define IME_ZWJ   "\xE2\x80\x8D"
+
+typedef struct {
+    const char *before;   // typed before the composition
+    int lefts;            // Left presses after typing
+    const char *pre;      // the composition string
+    int32_t cursor;       // its codepoint cursor
+    size_t caret;         // the caret while composing (not a buffer boundary)
+    const char *after;    // the buffer after the commit
+} Ime_Edge_Case;
+
+static const Ime_Edge_Case ime_edge_cases[] = {
+    // The string's first unit (a mark) joins the 'e' before it; cursor 0.
+    { "e", 0, "\xCC\x81" "x", 0, 1, "e\xCC\x81x" },
+    // The mark after the span joins the string's last unit; cursor at the end.
+    { "\xCC\x81", 1, "e", -1, 1, "e\xCC\x81" },
+    // A ZWJ between two emoji joins both edges: no in-span offset is a
+    // buffer boundary, at either end of the string.
+    { IME_MAN IME_WOMAN, 1, IME_ZWJ, 0, 4, IME_MAN IME_ZWJ IME_WOMAN },
+    { IME_MAN IME_WOMAN, 1, IME_ZWJ, -1, 7, IME_MAN IME_ZWJ IME_WOMAN },
+};
+
+static void ime_span_edge_case(Ime_Widget w, const Ime_Edge_Case *c) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[64] = "";
+    size_t len = 0;
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ime_type(&ctx, buf, sizeof(buf), &len, c->before);
+    for (int i = 0; i < c->lefts; i++) ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, 0);
+    // Applied, then held one more frame (drawn, anchored, placed again).
+    for (int frame = 0; frame < 2; frame++) {
+        ime_compose(&ctx, buf, sizeof(buf), &len, NULL, c->pre, c->cursor, -1);
+        ASSERT_EQ_INT((long)c->caret, (long)ime_caret(&ctx)->cursor_pos);
+        ASSERT_FALSE(wlx_text_unit_boundary(buf, len, c->caret));
+    }
+    ime_compose(&ctx, buf, sizeof(buf), &len, c->pre, "", -1, -1);
+    ASSERT_EQ_INT((long)strlen(c->after), (long)len);
+    ASSERT_TRUE(memcmp(buf, c->after, len) == 0);
+    ASSERT_TRUE(wlx_text_unit_boundary(buf, len, ime_caret(&ctx)->cursor_pos));
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_span_edge_joins_neighbour) {
+    for (size_t i = 0; i < IME_ANCHOR_SHAPE_COUNT(ime_anchor_shapes); i++) {
+        for (size_t k = 0; k < sizeof ime_edge_cases / sizeof ime_edge_cases[0]; k++) {
+            ime_span_edge_case(ime_anchor_shapes[i], &ime_edge_cases[k]);
+        }
+    }
+}
+
 SUITE(ime) {
     RUN_TEST(ime_identity_inputbox);
     RUN_TEST(ime_identity_textarea);
@@ -1373,4 +1433,5 @@ SUITE(ime) {
     RUN_TEST(ime_focus_move_to_an_earlier_field_ends_the_composition);
     RUN_TEST(ime_editor_wrapped_span_reflows);
     RUN_TEST(ime_editor_linear_span_and_index_patch);
+    RUN_TEST(ime_span_edge_joins_neighbour);
 }

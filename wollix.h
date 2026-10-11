@@ -14934,7 +14934,16 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
             st->composing = false;
         }
 #ifdef WLX_DEBUG
-        assert(wlx_text_unit_boundary(buffer, *length, st->cursor_pos)
+        // A composing caret is the input method's position inside its
+        // string, snapped to a unit boundary of the string. It need not be
+        // one of the buffer: a string whose edge joins the text beside it
+        // (a leading mark, a trailing ZWJ) has no buffer boundary there.
+        assert((st->composing
+                ? st->cursor_pos >= st->preedit_start
+                    && st->cursor_pos - st->preedit_start <= st->preedit_len
+                    && wlx_text_unit_boundary(buffer + st->preedit_start, st->preedit_len,
+                        st->cursor_pos - st->preedit_start)
+                : wlx_text_unit_boundary(buffer, *length, st->cursor_pos))
             && "text edit: composition caret off a unit boundary");
 #endif
         st->cursor_blink_time = 0.0f;

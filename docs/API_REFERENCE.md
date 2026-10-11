@@ -891,7 +891,7 @@ NUL and whole-codepoint rules. `preedit_cursor` is the caret inside the
 composition and `preedit_sel_len` the length of the selected clause after
 it, both in codepoints from the start of `preedit`, `-1` when the platform
 gives none; the core maps them to bytes, snaps the caret forward to a
-grapheme-cluster boundary and clamps to the string's end. Committed text
+grapheme-cluster boundary of the string and clamps to the string's end. Committed text
 keeps arriving through `text_input`, including the commit that ends a
 composition. A backend empties `preedit` when its window loses focus:
 the input method ends or abandons the composition there and an unfocused

@@ -641,7 +641,7 @@ frame with a composition string
     drop the previous span      delete [preedit_start, +preedit_len), journal off
     land the commit             text_input inserts at preedit_start, class COMPOSE
     re-apply the string         insert preedit at the caret, journal off
-    place the caret             preedit_start + codepoints -> bytes, snapped to a unit boundary
+    place the caret             preedit_start + codepoints -> bytes, snapped to a unit boundary of the string
     stop                        the key vocabulary, the motion keys and the pointer do not run
 ```
 
@@ -674,8 +674,13 @@ class, which never coalesces, so each committed clause undoes as one
 step and a cancelled composition leaves the journal exactly as it was
 (UNDO_MODEL.md, section 6). The caret's position inside the string comes
 from the platform in codepoints and is snapped forward to a grapheme
-cluster boundary, so it never lands inside a cluster the stepper treats
-as one unit (Section 1's unit model).
+cluster boundary of the string, so it never lands inside a cluster of the
+string (Section 1's unit model). It need not be a boundary of the
+document. When the string's first or last unit joins the text beside it
+(a leading combining mark, a ZWJ between two emoji), no offset at that
+edge is one, and the caret stays where the input method put it for as
+long as the composition is held. The commit, or a cancel, puts it back on
+a document boundary.
 
 The editor also records the caret's visual line into the frame's
 composition anchor (`WLX_Text_Input_Area`), which the core pushes to the
