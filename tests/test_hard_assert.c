@@ -418,6 +418,23 @@ TEST(backend_not_ready_reports_then_aborts) {
     ASSERT_EQ_INT(44, last_child_exit_code);   // 43 + 1: the error line preceded the fatal one
 }
 
+// A zeroed table (contract version 0, no callbacks): the readiness report
+// reaches the sink before the version check's fatal line, so a handler
+// learns what is missing.
+static void trigger_backend_zeroed(void) {
+    WLX_Context ctx = {0};
+    wlx_context_init(&ctx);
+    test_sink_reset();
+    test_sink_exit_on_fatal = 43;
+    wlx_begin(&ctx, wlx_rect(0, 0, 10, 10), _test_input_handler);
+}
+
+TEST(backend_zeroed_reports_before_the_version_check) {
+    Child_Result r = run_in_child(trigger_backend_zeroed);
+    ASSERT_TRUE(r == CHILD_OTHER);
+    ASSERT_EQ_INT(44, last_child_exit_code);   // 43 + 1: the error line preceded the fatal one
+}
+
 TEST(release_probe_slot_overrun_exits_clean) {
     ASSERT_TRUE(run_in_child(probe_slot_overrun) == CHILD_EXITED_CLEAN);
 }
@@ -474,6 +491,7 @@ SUITE(hard_assert) {
     RUN_TEST(default_sink_suppresses_after_table_full);
     RUN_TEST(hard_assert_prints_before_abort);
     RUN_TEST(backend_not_ready_reports_then_aborts);
+    RUN_TEST(backend_zeroed_reports_before_the_version_check);
     RUN_TEST(release_probe_slot_overrun_exits_clean);
     RUN_TEST(release_probe_grid_bounds_exits_clean);
     RUN_TEST(release_probe_extra_end_exits_clean);

@@ -677,7 +677,8 @@ static inline bool wlx_backend_is_ready(const WLX_Context *ctx);
 
 Returns `true` if `ctx` is non-NULL and all required backend function pointers
 are set. It does not check `contract_version`; `wlx_begin` does, with a
-release-live `WLX_HARD_ASSERT`, ahead of these pointer checks. Text
+release-live `WLX_HARD_ASSERT`, after these pointer checks and before any
+callback runs. Text
 callbacks are accepted in either form per direction: a backend
 is ready with `draw_text_slice` *or* `draw_text`, and `measure_text_slice`
 *or* `measure_text` (the slice entries are the preferred contract; the

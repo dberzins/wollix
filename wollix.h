@@ -690,9 +690,9 @@ typedef struct {
     void (*draw_line)(float x1, float y1, float x2, float y2, float thick, WLX_Color color, void *user);
     // Text callbacks.
     //
-    // draw_text / measure_text accept NUL-terminated text. They are required
-    // for backend readiness and remain available for downstream backends that
-    // have not implemented the slice callbacks below.
+    // draw_text / measure_text accept NUL-terminated text. Readiness needs one
+    // form per direction (these or the slice callbacks below); they remain
+    // available for downstream backends that have not implemented the slices.
     //
     // draw_text_slice / measure_text_slice accept (text, len) byte spans and
     // are the preferred path: all in-tree backends (Raylib, SDL3, WASM)
@@ -5382,20 +5382,23 @@ static inline void wlx_end_scissor(WLX_Context *ctx) {
 
 static inline void wlx_assert_backend_ready(WLX_Context *ctx) {
     assert(ctx != NULL && "WLX_Context must not be NULL");
-    // Contract-version check, live in every build: a table of another
-    // version compiles on compilers that only warn about the callback
-    // signatures, and calling it through these signatures is memory-unsafe.
-    WLX_HARD_ASSERT(ctx->backend.contract_version == WLX_BACKEND_CONTRACT_VERSION,
-        "WLX_Backend contract v2 required: set .contract_version = "
-        "WLX_BACKEND_CONTRACT_VERSION and add a trailing void *user parameter "
-        "to every callback, or wrap a v1 table with wlx_backend_from_v1");
     // No table means no frame: reported first, so the text reaches the
-    // handler and the sink, then fatal.
+    // handler and the sink, then fatal. Readiness compares pointers only, so
+    // it is safe on a table of any version, and a zeroed context learns what
+    // is missing instead of meeting the version text below.
     if (!WLX_CONTRACT(ctx, wlx_backend_is_ready(ctx), WLX_ERR_BACKEND,
             "WLX_Backend is not initialized: set ctx->backend before wlx_begin "
             "(e.g. wlx_context_init_raylib(ctx))")) {
         WLX_HARD_ASSERT(false, "no usable WLX_Backend table; the frame cannot run");
     }
+    // Contract-version check, live in every build and before any callback
+    // runs: a table of another version compiles on compilers that only warn
+    // about the callback signatures, and calling it through these signatures
+    // is memory-unsafe.
+    WLX_HARD_ASSERT(ctx->backend.contract_version == WLX_BACKEND_CONTRACT_VERSION,
+        "WLX_Backend contract v2 required: set .contract_version = "
+        "WLX_BACKEND_CONTRACT_VERSION and add a trailing void *user parameter "
+        "to every callback, or wrap a v1 table with wlx_backend_from_v1");
 }
 
 // ============================================================================
