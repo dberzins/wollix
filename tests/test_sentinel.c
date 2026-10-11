@@ -549,6 +549,221 @@ TEST(align_aliases_share_storage) {
 // Suite
 // ============================================================================
 
+// ============================================================================
+// width / height: WLX_UNSET is the slot's size, 0 is a zero size. Four
+// fields have no usable literal zero and read 0 or unset as their default:
+// rounded_segments (the theme's), wheel_scroll_speed (20 px) and the
+// scroll panel's roundness / rounded_segments (a square fill).
+// ============================================================================
+
+static bool sentinel_same_color(WLX_Color a, WLX_Color b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
+
+// The first rect or rounded-rect command in `color` from the last frame's
+// stream: its index, or -1. Frames keep the pointer off the canvas so no
+// fill carries a hover tint.
+static int sentinel_fill_index(WLX_Color color) {
+    for (int i = 0; i < _test_stream.count; i++) {
+        const Test_Stream_Cmd *k = &_test_stream.cmds[i];
+        if ((k->kind == 1 || k->kind == 3) && sentinel_same_color(k->color, color)) return i;
+    }
+    return -1;
+}
+
+static float sentinel_fill_h(WLX_Color color) {
+    int i = sentinel_fill_index(color);
+    return i < 0 ? 0.0f : _test_stream.cmds[i].rect.h;
+}
+
+TEST(widget_zero_size_is_zero) {
+    WLX_Rect cell = { 10, 20, 100, 40 };
+    ASSERT_EQ_RECT(wlx_resolve_widget_rect(cell, 0, 0, 0, 0, 0, 0, WLX_LEFT, false),
+                   ((WLX_Rect){ 10, 20, 0, 0 }), 0.0001f);
+    ASSERT_EQ_RECT(wlx_resolve_widget_rect(cell, WLX_UNSET, WLX_UNSET, 0, 0, 0, 0, WLX_LEFT, false),
+                   cell, 0.0001f);
+    ASSERT_EQ_RECT(wlx_resolve_widget_rect(cell, 30, 0, 0, 0, 0, 0, WLX_LEFT, true),
+                   ((WLX_Rect){ 10, 20, 30, 0 }), 0.0001f);
+}
+
+// A CONTENT slot measures what its widget contributes: a zero width or
+// height contributes 0 (no intrinsic text measure), unset contributes the
+// widget's own size. Read through where the next (FLEX) slot starts.
+static float sentinel_content_slot_extent(WLX_Orient orient, float size) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_stream_install(&ctx);
+    WLX_Color marker = { 1, 2, 3, 255 };
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, -5, -5, false, false);
+        test_stream_reset();
+        wlx_layout_begin_s(&ctx, orient, WLX_SIZES(WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1)),
+                           .padding = 0, .gap = 0);
+        if (orient == WLX_HORZ) wlx_label(&ctx, "hello", .font_size = 10, .width = size);
+        else                    wlx_label(&ctx, "hello", .font_size = 10, .height = size);
+        (void)wlx_button(&ctx, "x", .back_color = marker, .border_width = 0, .roundness = 0);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    int i = sentinel_fill_index(marker);
+    float extent = i < 0 ? -1.0f : (orient == WLX_HORZ ? _test_stream.cmds[i].rect.x
+                                                        : _test_stream.cmds[i].rect.y);
+    wlx_context_destroy(&ctx);
+    return extent;
+}
+
+TEST(widget_zero_size_contributes_zero) {
+    ASSERT_EQ_F(sentinel_content_slot_extent(WLX_HORZ, 0.0f), 0.0f, 0.0001f);
+    ASSERT_EQ_F(sentinel_content_slot_extent(WLX_VERT, 0.0f), 0.0f, 0.0001f);
+    ASSERT_TRUE(sentinel_content_slot_extent(WLX_HORZ, WLX_UNSET) > 0.0f);
+    ASSERT_TRUE(sentinel_content_slot_extent(WLX_VERT, WLX_UNSET) > 0.0f);
+}
+
+// A submenu takes its parent's width when unset and a literal 0 as 0, as
+// the menu does.
+TEST(submenu_width_rule_u) {
+    WLX_Menu_Frame parent;
+    memset(&parent, 0, sizeof parent);
+    parent.style = wlx_default_menu_opt(.width = 150.0f, .row_height = 20.0f,
+                                        .item_padding = 4.0f);
+    WLX_Menu_Opt omitted = wlx_default_menu_opt();
+    wlx_resolve_opt_submenu(&parent, &omitted);
+    ASSERT_EQ_F(omitted.width, 150.0f, 0.0001f);
+    WLX_Menu_Opt zero = wlx_default_menu_opt(.width = 0);
+    wlx_resolve_opt_submenu(&parent, &zero);
+    ASSERT_EQ_F(zero.width, 0.0f, 0.0001f);
+}
+
+// A scroll panel's .height = 0 is a zero-height panel, not the slot.
+TEST(scroll_panel_zero_height_is_zero) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_stream_install(&ctx);
+    WLX_Color fill = { 4, 5, 6, 255 };
+    for (int frame = 0; frame < 2; frame++) {
+        test_frame_begin(&ctx, -5, -5, false, false);
+        test_stream_reset();
+        wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(100)), .padding = 0);
+        wlx_scroll_panel_begin(&ctx, 50, .height = 0, .back_color = fill, .border_width = 0);
+        wlx_scroll_panel_end(&ctx);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(sentinel_fill_h(fill), 0.0f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+// A text field cannot be shorter than one line: .height = 0 takes the
+// field's minimum height, as any height below it does. The field's box is
+// the frame's first fill (its colour carries the field's visual state).
+static float sentinel_text_field_h(bool editor, float height) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_stream_install(&ctx);
+    WLX_Color fill = { 7, 8, 9, 255 };
+    char buf[32] = "abc";
+    size_t len = 3;
+    for (int frame = 0; frame < 2; frame++) {
+        test_frame_begin(&ctx, -5, -5, false, false);
+        test_stream_reset();
+        wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(100)), .padding = 0);
+        if (editor) (void)wlx_editor(&ctx, NULL, buf, sizeof buf, &len, .height = height,
+                                     .back_color = fill, .border_width = 0, .font_size = 10);
+        else        (void)wlx_inputbox(&ctx, NULL, buf, sizeof buf, .height = height,
+                                       .back_color = fill, .border_width = 0, .font_size = 10);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    float h = -1.0f;
+    for (int i = 0; i < _test_stream.count && h < 0.0f; i++) {
+        int kind = _test_stream.cmds[i].kind;
+        if (kind == 1 || kind == 3) h = _test_stream.cmds[i].rect.h;
+    }
+    wlx_context_destroy(&ctx);
+    return h;
+}
+
+TEST(text_field_zero_height_takes_min) {
+    for (int editor = 0; editor < 2; editor++) {
+        float zero = sentinel_text_field_h(editor == 1, 0.0f);
+        float one = sentinel_text_field_h(editor == 1, 1.0f);
+        ASSERT_TRUE(one > 1.0f && one < 100.0f);
+        ASSERT_EQ_F(zero, one, 0.0001f);
+    }
+}
+
+// rounded_segments 0 reads as the theme's segments, on a widget and on a
+// container: no backend has a literal zero-segment corner.
+TEST(rounded_segments_zero_takes_theme) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_stream_install(&ctx);
+    WLX_Theme theme = sentinel_theme();
+    ctx.theme = &theme;
+    WLX_Color wfill = { 10, 11, 12, 255 }, cfill = { 13, 14, 15, 255 };
+    test_frame_begin(&ctx, -5, -5, false, false);
+    test_stream_reset();
+    wlx_layout_begin(&ctx, 2, WLX_VERT, .padding = 0);
+        wlx_label(&ctx, "w", .show_background = true, .back_color = wfill, .roundness = 0.5f,
+                  .rounded_segments = 0, .border_width = 0);
+        wlx_layout_begin(&ctx, 1, WLX_VERT, .back_color = cfill, .roundness = 0.5f,
+                         .rounded_segments = 0);
+        wlx_layout_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    int wi = sentinel_fill_index(wfill), ci = sentinel_fill_index(cfill);
+    ASSERT_TRUE(wi >= 0 && ci >= 0);
+    ASSERT_EQ_INT(_test_stream.cmds[wi].kind, 3);
+    ASSERT_EQ_F(_test_stream.cmds[wi].b, 8.0f, 0.0001f);
+    ASSERT_EQ_INT(_test_stream.cmds[ci].kind, 3);
+    ASSERT_EQ_F(_test_stream.cmds[ci].b, 8.0f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+// wheel_scroll_speed 0 reads as the default 20 px per notch.
+static float sentinel_scroll_y_after_wheel(float speed) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    float y = 0.0f;
+    for (int frame = 0; frame < 3; frame++) {
+        if (frame == 1) test_frame_begin_ex(&ctx, 200, 150, false, false, false, -1.0f, NULL, NULL, NULL);
+        else            test_frame_begin(&ctx, 200, 150, false, false);
+        wlx_layout_begin(&ctx, 1, WLX_VERT);
+        wlx_scroll_panel_begin(&ctx, 600, .wheel_scroll_speed = speed);
+        y = sentinel_top_layout(&ctx)->rect.y;
+        wlx_scroll_panel_end(&ctx);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    wlx_context_destroy(&ctx);
+    return y;
+}
+
+TEST(wheel_scroll_speed_zero_scrolls_default) {
+    ASSERT_EQ_F(sentinel_scroll_y_after_wheel(0.0f), -20.0f, 0.0001f);
+    ASSERT_EQ_F(sentinel_scroll_y_after_wheel(20.0f), -20.0f, 0.0001f);
+}
+
+// The scroll panel draws a square fill whatever .roundness says: its
+// scissor is rectangular.
+TEST(scroll_panel_roundness_is_square) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_stream_install(&ctx);
+    WLX_Color fill = { 16, 17, 18, 255 };
+    test_frame_begin(&ctx, -5, -5, false, false);
+    test_stream_reset();
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_scroll_panel_begin(&ctx, 50, .roundness = 0.3f, .back_color = fill, .border_width = 0);
+    wlx_scroll_panel_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    int i = sentinel_fill_index(fill);
+    ASSERT_TRUE(i >= 0);
+    ASSERT_EQ_INT(_test_stream.cmds[i].kind, 1);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(sentinel) {
     RUN_TEST(sentinel_explicit_zero_is_zero);
     RUN_TEST(sentinel_unset_inherits);
@@ -571,4 +786,12 @@ SUITE(sentinel) {
     RUN_TEST(content_padding_unset_equals_omission);
     RUN_TEST(tooltip_content_padding_alias);
     RUN_TEST(align_aliases_share_storage);
+    RUN_TEST(widget_zero_size_is_zero);
+    RUN_TEST(widget_zero_size_contributes_zero);
+    RUN_TEST(submenu_width_rule_u);
+    RUN_TEST(scroll_panel_zero_height_is_zero);
+    RUN_TEST(text_field_zero_height_takes_min);
+    RUN_TEST(rounded_segments_zero_takes_theme);
+    RUN_TEST(wheel_scroll_speed_zero_scrolls_default);
+    RUN_TEST(scroll_panel_roundness_is_square);
 }

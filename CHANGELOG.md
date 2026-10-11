@@ -80,8 +80,11 @@ release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
   (`hover_brightness`, `thumb_hover_brightness`, `scrollbar_hover_brightness`,
   theme `disabled_brightness`) join the same sentinel: their domain is now
   `-1 < b <= 1`, and an explicit `-1.0f` means unset rather than a full
-  black shift. Migration: write `-0.999f` for a full darken; spell the
-  sentinel `WLX_UNSET`.
+  black shift. Four fields have no usable literal zero and read `0` as
+  unset as well: `rounded_segments` (the theme's count), the scroll
+  panel's `wheel_scroll_speed` (20 px a notch) and its `roundness` /
+  `rounded_segments` (ignored: the fill is square). Migration: write
+  `-0.999f` for a full darken; spell the sentinel `WLX_UNSET`.
 - **Panel roundness inherits the theme.** `wlx_panel_begin` `.roundness` and
   `.rounded_segments` were literal zeros while `.border_width` inherited
   the theme (v0.6); all three now inherit like every widget's. The bundled
@@ -96,6 +99,15 @@ release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
 - **Menu `.width` follows the unset rule.** Unset resolves to 180 as before;
   an explicit `.width = 0` is now a zero-width list instead of 180, as `0`
   is on every other `width`. Migration: drop an explicit `0`.
+- **A widget `.width` / `.height` of `0` is a zero size.** The sizing group
+  is Rule U on paper, but every reader took `0` as unset, so an explicit
+  `0`, or a computed size that reached `0` (a fill bar at 0%), filled the
+  whole slot. `WLX_UNSET` is still the slot's size; `0` is now zero wide or
+  zero tall: at the widget rect, in a CONTENT slot's measurement (no
+  intrinsic text width), for the scroll panel, and for a submenu's
+  `.width`. A text field (inputbox, editor) with `.height = 0` takes its
+  one-line minimum, as any smaller height does. Migration: drop an
+  explicit `0` that meant "fill"; check sizes computed from a fraction.
 - **Panel `.title_align = WLX_ALIGN_NONE` is honoured.** The centred default
   moved into the macro; an explicit `WLX_ALIGN_NONE` now places the title
   at the raw rect origin instead of being resolved to `WLX_CENTER`.
@@ -172,9 +184,12 @@ your own pace before the next minor.
    `.roundness = 0`.
 5. **Tooltip inset.** `.padding` on `wlx_tooltip_for` becomes
    `.content_padding` (old name compiles until the next minor).
-6. **Menu `.width = 0`**, **panel `.title_align = WLX_ALIGN_NONE`**, **split
-   sizes written as `WLX_SLOT_AUTO`**, **compound `.content_padding = -1`**:
-   only if you wrote these to mean "the default" - drop the field instead.
+6. **Menu `.width = 0`**, **widget `.width = 0` / `.height = 0`**, **panel
+   `.title_align = WLX_ALIGN_NONE`**, **split sizes written as
+   `WLX_SLOT_AUTO`**, **compound `.content_padding = -1`**: only if you
+   wrote these to mean "the default" - drop the field instead. A width or
+   height computed from a fraction now collapses at 0 rather than filling
+   the slot.
 7. **Backend tables.** Append `void *user` to every callback and set
    `.contract_version = WLX_BACKEND_CONTRACT_VERSION`; or, for now, type the
    table `WLX_Backend_V1` and install `wlx_backend_from_v1(&table)`. An

@@ -33,8 +33,8 @@ are documented once here.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `slot_align` | `WLX_Align` | `WLX_LEFT` | Where to place the widget rect inside its slot when it is smaller than the slot. `widget_align` is the deprecated pre-0.9 name (same storage, removed in the first minor after 0.9) |
-| `width` | `float` | `WLX_UNSET` | Widget width in units. unset = fill parent width |
-| `height` | `float` | `WLX_UNSET` | Widget height in units. unset = fill parent height |
+| `width` | `float` | `WLX_UNSET` | Widget width in units. unset = fill parent width; `0` is a zero width |
+| `height` | `float` | `WLX_UNSET` | Widget height in units. unset = fill parent height; `0` is a zero height (a text field takes its one-line minimum) |
 | `min_width` | `float` | `0` | Minimum width constraint. `0` = unconstrained |
 | `min_height` | `float` | `0` | Minimum height constraint. `0` = unconstrained |
 | `max_width` | `float` | `0` | Maximum width constraint. `0` = unconstrained |
@@ -2006,12 +2006,12 @@ wlx_scroll_panel_end(ctx);
 | `scrollbar_color` | `WLX_Color` | `{0}` | Scrollbar thumb color. `{0}` = theme `scrollbar.bar` |
 | `scrollbar_hover_brightness` | `float` | `WLX_UNSET` | Brightness shift when hovering the scrollbar. Unset = theme default |
 | `scrollbar_width` | `float` | `WLX_UNSET` | Width of the scrollbar. unset = theme default |
-| `wheel_scroll_speed` | `float` | `20.0` | Pixels scrolled per mouse wheel tick |
+| `wheel_scroll_speed` | `float` | `20.0` | Pixels scrolled per mouse wheel tick. `0` reads as 20 |
 | `show_scrollbar` | `bool` | `true` | Whether to draw the scrollbar |
 | `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = theme `border` |
 | `border_width` | `float` | `WLX_UNSET` | Panel border width. unset = theme `border_width` |
-| `roundness` | `float` | `WLX_UNSET` | Panel corner roundness. unset = theme default |
-| `rounded_segments` | `int` | `WLX_UNSET` | Segment count for rounded drawing. unset = theme default |
+| `roundness` | `float` | `WLX_UNSET` | Ignored: the panel fill is square (its scissor is rectangular). `corner_radius` still rounds it |
+| `rounded_segments` | `int` | `WLX_UNSET` | Ignored, with `roundness` |
 
 Shared placement and sizing fields also apply (no typography or text-color fields).
 When `.id` is set, that scope stays active for the full scroll-panel body

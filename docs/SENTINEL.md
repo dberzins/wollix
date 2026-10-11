@@ -55,7 +55,7 @@ fallback and passes every value `>= 0` through unchanged. Writing
 |---|---|---|
 | `border_width` (widgets, panel) | theme `border_width` | no border |
 | `border_width_top/right/bottom/left` | the uniform `border_width` | no border on that side |
-| `roundness`, `rounded_segments` (widgets, panel) | theme values | sharp corners / no segments |
+| `roundness` (widgets, panel) | theme value | sharp corners |
 | `ring_border_width` (radio), `list_border_width` (dropdown, menu button) | widget-specific theme cascade | no border |
 | `scrollbar_width` | theme `scrollbar.width` | no scrollbar |
 | `opacity` | `1.0` (opaque) | fully transparent |
@@ -84,6 +84,15 @@ wlx_slider(ctx, "Vol", &v, .hover_brightness = 0.0f);   // no hover effect
 wlx_slider(ctx, "Vol", &v, .hover_brightness = -0.1f);  // darken on hover
 ```
 
+**Four fields read 0 as unset too.** None of them has a usable literal
+zero, so `0` and `WLX_UNSET` both take the default:
+
+| Field | `0` or unset resolves to | Why zero is not literal |
+|---|---|---|
+| `rounded_segments` (widgets, panel and every container) | the theme's segment count | no backend draws a zero-segment corner |
+| `wheel_scroll_speed` (scroll panel) | 20 px per wheel notch | a zero speed would swallow the wheel event, and the panel behind would not scroll either |
+| scroll panel `roundness`, `rounded_segments` | ignored: the fill is square | the panel's scissor is rectangular; `corner_radius` still rounds the fill |
+
 ---
 
 ## Literal defaults
@@ -91,7 +100,7 @@ wlx_slider(ctx, "Vol", &v, .hover_brightness = -0.1f);  // darken on hover
 Every other field has no unset state: the macro installs its documented
 value and the widget uses it as written. This covers `span` (1; a span of
 0 takes one slot), `wrap`,
-`show_value`, `show_scrollbar`, `wheel_scroll_speed`, `thickness`,
+`show_value`, `show_scrollbar`, `thickness`,
 `max_value`, tooltip `offset_x` / `offset_y`, `texture_scale`,
 `image_placement`, `orient`, `vertical_metric`, `clip`, the align fields,
 panel `title_align` (`WLX_CENTER`; an explicit `WLX_ALIGN_NONE` is honoured)
@@ -100,10 +109,11 @@ and the split sizes (`first_size = WLX_SLOT_PX(280)`, `second_size` and
 
 **Container chrome is literal on purpose.** `WLX_Layout_Opt`,
 `WLX_Grid_Opt`, `WLX_Grid_Auto_Opt` and `WLX_Slot_Style_Opt` have no theme
-chrome: their `border_width`, `roundness` and `rounded_segments` default to
-`0` and are used as literal values, because a layout is invisible unless the
-caller decorates it. `wlx_panel_begin` is a widget with theme chrome and
-follows Rule U for the same three chrome fields.
+chrome: their `border_width` and `roundness` default to `0` and are used
+as literal values, because a layout is invisible unless the caller
+decorates it (`rounded_segments` reads `0` as the theme's count, as
+everywhere). `wlx_panel_begin` is a widget with theme chrome and follows
+Rule U for `border_width` and `roundness`.
 
 **Container gaps follow Rule U with unset = 0.** A gap is a non-negative
 spacing on every container (layouts, grids, the overlay body, the split and

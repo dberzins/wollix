@@ -1964,6 +1964,10 @@ static inline void wlx_arena_pool_destroy(WLX_Arena_Pool *pool) {
 //     fallback and passes every value >= 0 through unchanged.
 //     Brightness shifts are the one signed-domain Rule U family: their
 //     domain is -1 < b <= 1 and -1 is the sentinel.
+//   - Four fields with no usable literal zero read 0 as unset as well:
+//     rounded_segments (the theme's count), wheel_scroll_speed (20 px a
+//     notch) and the scroll panel's roundness / rounded_segments (ignored:
+//     its fill is square).
 //   - Everything else is a literal default installed by the macro and used
 //     as written (span, wrap, the align fields, container chrome, knobs).
 //     A span of 0 takes one slot.
@@ -5493,8 +5497,9 @@ static inline WLX_Rect wlx_get_widget_cell_rect(WLX_Context *ctx, int pos, size_
 static inline WLX_Rect wlx_resolve_widget_rect(WLX_Rect cell_rect, float width, float height,
     float min_w, float min_h, float max_w, float max_h,
     WLX_Align align, bool overflow) {
-    float w = (width > 0)  ? width  : cell_rect.w;
-    float h = (height > 0) ? height : cell_rect.h;
+    // Rule U: WLX_UNSET (negative) is the slot's size, 0 is a zero size.
+    float w = (width >= 0)  ? width  : cell_rect.w;
+    float h = (height >= 0) ? height : cell_rect.h;
 
     // Clamp to widget-level min/max constraints (0 = unconstrained)
     if (min_w > 0 && w < min_w) w = min_w;
@@ -5709,7 +5714,7 @@ static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layo
     if (ctx->arena.layouts.count > 0
         && !wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].slot_clamped) {
         WLX_Layout *parent_l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-        float h_contrib = (ly.height > 0) ? ly.height
+        float h_contrib = (ly.height >= 0) ? ly.height
                        : (ly.min_h > cell.h) ? ly.min_h : cell.h;
         // The fetch above recorded the first slot it served (fetch_first):
         // a spanning widget credits the first slot of its span.
@@ -5718,7 +5723,7 @@ static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layo
         // last frame's measurement, and feeding it back would be circular.
         wlx_contribute_to_parent_layout(ctx, parent_l, (WLX_Parent_Contribution){
             .h_contrib  = h_contrib,
-            .w_contrib  = (ly.width > 0) ? ly.width : ly.intrinsic_w,
+            .w_contrib  = (ly.width >= 0) ? ly.width : ly.intrinsic_w,
             .slot_index = parent_l->fetch_first,
             .grid_row   = parent_l->grid.last_placed_row,
         });
@@ -13032,7 +13037,7 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
 
     size_t text_len = (text != NULL) ? strlen(text) : 0;
     WLX_Widget_Layout wly = WLX_WIDGET_LAYOUT(opt);
-    if (wly.width <= 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
+    if (wly.width < 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
         // Single-line unwrapped measure even under .wrap: the contribution
         // is a pure function of content, so a fit slot sized to it renders
         // the text unwrapped (a MAX clamp wraps inside the clamp, stably).
@@ -13508,7 +13513,7 @@ WLXDEF bool wlx_button_impl(WLX_Context *ctx, const char *text, WLX_Button_Opt o
 
     size_t text_len = (text != NULL) ? strlen(text) : 0;
     WLX_Widget_Layout wly = WLX_WIDGET_LAYOUT(opt);
-    if (wly.width <= 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
+    if (wly.width < 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
         WLX_Text_Style mts = { .font = opt.font, .font_size = opt.font_size,
                                .spacing = opt.spacing };
         wly.intrinsic_w = wlx_intrinsic_text_image_width(ctx, text, text_len, mts,
@@ -13596,7 +13601,7 @@ WLXDEF bool wlx_checkbox_impl(WLX_Context *ctx, const char *text, bool *checked,
 
     size_t text_len = (text != NULL) ? strlen(text) : 0;
     WLX_Widget_Layout wly = WLX_WIDGET_LAYOUT(opt);
-    if (wly.width <= 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
+    if (wly.width < 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
         // font_size is the glyph's upper bound (the drawn box clamps to
         // the content height), so the slot is never undersized.
         WLX_Text_Style mts = { .font = opt.font, .font_size = opt.font_size,
@@ -15902,7 +15907,7 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
 
     // Ensure height can fit the font plus content padding on both sides.
     float min_h = (float)opt.font_size + rp.top + rp.bottom + WLX_TEXT_FIELD_MIN_HEIGHT_SLACK;
-    if (opt.height > 0 && opt.height < min_h) opt.height = min_h;
+    if (opt.height >= 0 && opt.height < min_h) opt.height = min_h;
 
     // Prologue: compute widget frame and interaction state
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
@@ -16215,7 +16220,7 @@ WLXDEF void wlx_separator_impl(WLX_Context *ctx, WLX_Separator_Opt opt, const ch
     wlx_resolve_opt_separator(ctx, &opt);
 
     WLX_Widget_Layout wly = WLX_WIDGET_LAYOUT(opt);
-    if (wly.width <= 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
+    if (wly.width < 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
         // In a width-consuming slot the separator renders as a vertical
         // divider; its natural width is the line thickness.
         wly.intrinsic_w = opt.thickness;
@@ -16395,7 +16400,7 @@ WLXDEF void wlx_image_impl(WLX_Context *ctx, WLX_Texture texture, WLX_Image_Opt 
     wlx_resolve_opt_image(ctx, &opt);
 
     WLX_Widget_Layout wly = WLX_WIDGET_LAYOUT(opt);
-    if (wly.width <= 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
+    if (wly.width < 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
         wly.intrinsic_w = (opt.src.w > 0.0f) ? opt.src.w : (float)texture.width;
     }
 
@@ -16461,7 +16466,7 @@ WLXDEF bool wlx_toggle_impl(WLX_Context *ctx, const char *label, bool *value, WL
 
     size_t label_len = (label != NULL) ? strlen(label) : 0;
     WLX_Widget_Layout wly = WLX_WIDGET_LAYOUT(opt);
-    if (wly.width <= 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
+    if (wly.width < 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
         float thr_i = ctx->theme->toggle.track_to_height_ratio > 0.0f
                     ? ctx->theme->toggle.track_to_height_ratio
                     : WLX_TOGGLE_TRACK_RATIO_FALLBACK;
@@ -16578,7 +16583,7 @@ WLXDEF bool wlx_radio_impl(WLX_Context *ctx, const char *label, int *active, int
 
     size_t label_len = (label != NULL) ? strlen(label) : 0;
     WLX_Widget_Layout wly = WLX_WIDGET_LAYOUT(opt);
-    if (wly.width <= 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
+    if (wly.width < 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
         WLX_Text_Style mts = { .font = opt.font, .font_size = opt.font_size,
                                .spacing = opt.spacing };
         wly.intrinsic_w = wlx_intrinsic_glyph_row_width(ctx,
@@ -16822,9 +16827,9 @@ static inline WLX_Scroll_Panel_Frame wlx_scroll_panel_frame_begin(
 
     // Contribute this panel's viewport height - and its explicit width,
     // if any - to the parent layout's content tracking.
-    float vp_contrib = (opt->height > 0) ? (float)opt->height : r.h;
+    float vp_contrib = (opt->height >= 0) ? (float)opt->height : r.h;
     wlx_scroll_panel_contribute_to_parent(ctx, vp_contrib,
-        (opt->width > 0) ? (float)opt->width : 0.0f);
+        (opt->width >= 0) ? (float)opt->width : 0.0f);
 
     // Save outer auto-scroll tracking context before potentially changing it.
     state->saved_auto_scroll_panel_id = ctx->auto_scroll.panel_id;
@@ -17120,7 +17125,7 @@ WLXDEF bool wlx_dropdown_impl(WLX_Context *ctx, const char *label,
         ? options[*selected] : label;
 
     WLX_Widget_Layout wly = WLX_WIDGET_LAYOUT(opt);
-    if (wly.width <= 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
+    if (wly.width < 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
         // The widest option (or the label) decides the intrinsic face
         // width, so the face does not resize when the selection changes.
         WLX_Text_Style mts = { .font = opt.font, .font_size = opt.font_size,
@@ -17466,7 +17471,7 @@ WLXDEF bool wlx_menu_button_begin_impl(WLX_Context *ctx, const char *label,
 
     size_t label_len = (label != NULL) ? strlen(label) : 0;
     WLX_Widget_Layout wly = WLX_WIDGET_LAYOUT(opt);
-    if (wly.width <= 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
+    if (wly.width < 0 && wlx_parent_wants_intrinsic_width(ctx, wly.pos)) {
         WLX_Text_Style mts = { .font = opt.font, .font_size = opt.font_size,
                                .spacing = opt.spacing };
         wly.intrinsic_w = wlx_intrinsic_text_width_slice(ctx, label, label_len, mts)
@@ -17513,7 +17518,7 @@ WLXDEF bool wlx_menu_button_begin_impl(WLX_Context *ctx, const char *label,
 // submenu matches its parent's styling without repeating options.
 static void wlx_resolve_opt_submenu(const WLX_Menu_Frame *parent, WLX_Menu_Opt *opt) {
     const WLX_Menu_Opt *ps = &parent->style;
-    if (opt->width <= 0.0f)       opt->width = ps->width;
+    if (opt->width < 0.0f)        opt->width = ps->width;
     if (opt->row_height <= 0.0f)  opt->row_height = ps->row_height;
     if (opt->item_padding < 0.0f) opt->item_padding = ps->item_padding;
 

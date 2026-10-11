@@ -548,8 +548,8 @@ Widget option structs share these field groups, depending on widget type:
 | Field | Default | Description |
 |-------|---------|-------------|
 | `slot_align` | `WLX_LEFT` | Position within slot |
-| `width` | `WLX_UNSET` | Widget width (unset = fill slot) |
-| `height` | `WLX_UNSET` | Widget height (unset = fill slot) |
+| `width` | `WLX_UNSET` | Widget width (unset = fill slot; `0` = zero width) |
+| `height` | `WLX_UNSET` | Widget height (unset = fill slot; `0` = zero height) |
 | `min_width` | `0` | Minimum width (`0` = none) |
 | `min_height` | `0` | Minimum height (`0` = none) |
 | `max_width` | `0` | Maximum width (`0` = none) |

@@ -3466,10 +3466,10 @@ unrelated layout.
 | `back_color` | `WLX_Color` | `{0}` | Panel background |
 | `transparent_background` | `bool` | `false` | `true` draws no fill so the container shows through (distinct from `back_color = {0}` -> theme background) |
 | `scrollbar_color` | `WLX_Color` | `{0}` | Scrollbar thumb color |
-| *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
+| *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` (the last two ignored: the fill is square) |
 | `scrollbar_hover_brightness` | `float` | `WLX_UNSET` | Scrollbar hover brightness shift. Uses `theme->hover_brightness` when unset |
 | `scrollbar_width` | `float` | `WLX_UNSET` | Scrollbar width. unset = theme `scrollbar.width` |
-| `wheel_scroll_speed` | `float` | `20.0` | Pixels per wheel tick |
+| `wheel_scroll_speed` | `float` | `20.0` | Pixels per wheel tick (`0` reads as 20) |
 | `show_scrollbar` | `bool` | `true` | Draw the scrollbar |
 | `id` | `const char *` | `NULL` | Combined State + Scope ID. Keys the panel's own scroll state and scopes all descendant widget and state IDs for the full panel body. `NULL` = auto from call-site (no descendant scoping) |
 
