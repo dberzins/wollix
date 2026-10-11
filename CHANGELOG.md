@@ -413,6 +413,13 @@ minor.
   address and undefined-behaviour checks.
 - **macOS CI leg.** `test-macos` runs the unit suite, the warnings-as-errors
   set and the sanitizer runner on `macos-latest`.
+- **Two compiler gates.** The bare-WASM build compiles with `-Wall -Wextra`
+  and fails on a 64-to-32-bit narrowing (`-Werror=shorten-64-to-32`): wasm32
+  is the one target where `size_t` is 32 bits, and an id stored in a
+  `size_t` there left the Pages demo deaf to input for four days with every
+  gate green. Every repository build adds `-Wundef`, so a value-tested `#if`
+  placed before its macro's definition warns (and fails the
+  warnings-as-errors legs) instead of compiling its block out.
 - **Windows/MSVC CI leg.** `test-windows` configures the CMake project,
   builds the Debug configuration (asserts live, as in `make test`) and runs
   CTest under MSVC (C11 mode, the conforming preprocessor, the C++ gate

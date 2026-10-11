@@ -1,7 +1,9 @@
 CC = clang
 # -Werror=switch turns a WLX enum member missing from a no-default switch
 # (the key and cursor maps' completeness tripwire) into a build failure.
-BASE_CFLAGS = -Wall -Wextra -Werror=switch -std=c11 -ggdb
+# -Wundef catches a value-tested #if placed before its macro's definition,
+# which would otherwise compile the guarded block out silently.
+BASE_CFLAGS = -Wall -Wextra -Wundef -Werror=switch -std=c11 -ggdb
 
 ifeq ($(findstring gcc,$(notdir $(CC))),gcc)
 BASE_CFLAGS += -Wno-override-init -Wno-override-init-side-effects
@@ -26,7 +28,7 @@ else
 CXX = g++
 endif
 endif
-CXX_GATE_FLAGS = -std=c++11 -Wall -Wextra -Werror -Wno-missing-field-initializers
+CXX_GATE_FLAGS = -std=c++11 -Wall -Wextra -Wundef -Werror -Wno-missing-field-initializers
 
 CFLAGS = $(BASE_CFLAGS) -DWLX_DEBUG
 INCLUDES = -I. -I$(HOME)/opt/raylib/include
@@ -40,7 +42,12 @@ SDL3_LIBS = -lSDL3 -lSDL3_ttf -lm
 WASM_CC = clang
 WASM_SRC_DIR = web
 WASM_SITE_DIR = dist/wasm-demo
-WASM_BARE_CFLAGS = --target=wasm32-unknown-unknown -nostdlib -nostdinc -Wno-initializer-overrides\
+# wasm32 is the one build where size_t is 32 bits, so narrowing a 64-bit id
+# into a size_t is lossy only here: that class fails the build. The warning
+# flags precede -Wno-initializer-overrides, which -Wextra would otherwise
+# turn back on. The demos' native-only helpers are unused in this build.
+WASM_BARE_CFLAGS = --target=wasm32-unknown-unknown -nostdlib -nostdinc \
+	-Wall -Wextra -Wundef -Wno-unused-function -Werror=shorten-64-to-32 -Wno-initializer-overrides \
 	-isystem $(WASM_SRC_DIR)/libc -isystem $(shell $(WASM_CC) -print-resource-dir)/include \
     -O2 -DNDEBUG -I. \
     -Wl,--no-entry \

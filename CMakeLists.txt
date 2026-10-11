@@ -90,10 +90,10 @@ install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/wollix)
 #   C4996  "unsafe" CRT nags on strcat and friends.
 set(_wollix_warn_msvc /W4 /wd4127 /wd4189 /wd4310 /D_CRT_SECURE_NO_WARNINGS)
 set(_wollix_warn_c
-  $<$<COMPILE_LANG_AND_ID:C,GNU,Clang,AppleClang>:-Wall;-Wextra;-Werror=switch>
+  $<$<COMPILE_LANG_AND_ID:C,GNU,Clang,AppleClang>:-Wall;-Wextra;-Wundef;-Werror=switch>
   $<$<COMPILE_LANG_AND_ID:C,MSVC>:${_wollix_warn_msvc}>)
 set(_wollix_warn_cxx
-  $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Wall;-Wextra;-Werror;-Wno-missing-field-initializers>
+  $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Wall;-Wextra;-Wundef;-Werror;-Wno-missing-field-initializers>
   $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:${_wollix_warn_msvc}>)
 
 # ----------------------------------------------------------------------------

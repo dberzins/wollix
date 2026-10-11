@@ -153,7 +153,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Run tests (warnings-as-errors)
-        run: make CC=clang test BASE_CFLAGS="-Wall -Wextra -Werror -Werror=switch -std=c11 -Wno-initializer-overrides"
+        run: make CC=clang test BASE_CFLAGS="-Wall -Wextra -Wundef -Werror -Werror=switch -std=c11 -Wno-initializer-overrides"
 
   perf-gate:
     runs-on: ubuntu-latest
@@ -186,7 +186,7 @@ jobs:
         run: make CC=clang test
 
       - name: Run tests (warnings-as-errors)
-        run: make CC=clang test BASE_CFLAGS="-Wall -Wextra -Werror -Werror=switch -std=c11 -Wno-initializer-overrides"
+        run: make CC=clang test BASE_CFLAGS="-Wall -Wextra -Wundef -Werror -Werror=switch -std=c11 -Wno-initializer-overrides"
 
       - name: Run tests (ASan + UBSan, leak detection off)
         run: make CC=clang ASAN_DETECT_LEAKS=0 test-asan
