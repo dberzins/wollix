@@ -482,7 +482,7 @@ typedef struct {
 #endif
 
 // Accepted range for WLX_Backend.get_content_scale (device pixels per unit).
-// A value outside it reports WLX_ERR_BAD_ARGUMENT in wlx_begin and the frame
+// A value outside it reports WLX_ERR_BACKEND_ANSWER in wlx_begin and the frame
 // runs at 1.0. Overridable before include.
 #ifndef WLX_CONTENT_SCALE_MIN
 #define WLX_CONTENT_SCALE_MIN 0.25f
@@ -783,7 +783,7 @@ typedef struct {
     // input handler, and uses it only to snap slot boundaries to the device
     // grid and to serve wlx_content_scale. NULL -> 1.0. The value must lie in
     // [WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]; anything else reports
-    // WLX_ERR_BAD_ARGUMENT and the frame runs at 1.0.
+    // WLX_ERR_BACKEND_ANSWER and the frame runs at 1.0.
     float (*get_content_scale)(void *user); /* optional */
     // Optional composition anchor. The core pushes the focused editable
     // text widget's caret line (WLX_Text_Input_Area) once per frame from
@@ -2231,7 +2231,7 @@ typedef enum {
     WLX_ERR_BAD_ARGUMENT,     // count 0 or negative, px <= 0, required NULL
     WLX_ERR_LIMIT,            // a documented limit exceeded (WLX_CONTENT_SLOTS_MAX ...)
     WLX_ERR_BACKEND,          // backend table not ready at wlx_begin
-    WLX_ERR_BACKEND_ANSWER,   // (WLX_DEBUG) a backend callback answered outside its contract; the call degrades
+    WLX_ERR_BACKEND_ANSWER,   // a backend callback answered outside its contract; the call degrades
     WLX_ERR_COUNT
 } WLX_Error_Code;
 
@@ -7067,7 +7067,7 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
         float scale = ctx->backend.get_content_scale(ctx->backend.user);
         if (WLX_CONTRACT(ctx,
                 scale >= WLX_CONTENT_SCALE_MIN && scale <= WLX_CONTENT_SCALE_MAX,
-                WLX_ERR_BAD_ARGUMENT,
+                WLX_ERR_BACKEND_ANSWER,
                 "wlx_begin: get_content_scale returned a value outside "
                 "[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]; the frame runs at 1.0")) {
             ctx->content_scale = scale;
@@ -8940,13 +8940,14 @@ WLXDEF void wlx_grid_auto_row_px(WLX_Context *ctx, float px) {
     if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
             "wlx_grid_auto_row_px called with no layout open"))
         return;
-    px = wlx_contract_positive_px(ctx, px,
-        "wlx_grid_auto_row_px: row size must be positive; using 1 px", NULL, 0);
-
+    // The kind first: a call in the wrong layout returns with one report,
+    // whatever size it carried.
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
     if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_GRID && l->grid.dynamic, WLX_ERR_BAD_ARGUMENT,
             "wlx_grid_auto_row_px is only valid inside a wlx_grid_begin_auto block"))
         return;
+    px = wlx_contract_positive_px(ctx, px,
+        "wlx_grid_auto_row_px: row size must be positive; using 1 px", NULL, 0);
 
     l->grid.next_row_size = px;
 }

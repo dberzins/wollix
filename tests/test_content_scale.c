@@ -143,7 +143,7 @@ TEST(content_scale_bad_value_reports_and_runs_at_one) {
         test_frame_begin(&ctx, 0, 0, false, false);
         ASSERT_EQ_F(wlx_content_scale(&ctx), 1.0f, 0.0f);
         ASSERT_EQ_INT(1, cs_count);
-        ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)cs_last.code);
+        ASSERT_EQ_INT(WLX_ERR_BACKEND_ANSWER, (int)cs_last.code);
         test_frame_end(&ctx);
     }
     ASSERT_EQ_INT(3, wlx_error_count(&ctx));

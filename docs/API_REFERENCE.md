@@ -200,7 +200,7 @@ same way.
 ```
 
 The range a backend's `get_content_scale` value must lie in. A value
-outside it (or NaN) reports `WLX_ERR_BAD_ARGUMENT` from `wlx_begin` and
+outside it (or NaN) reports `WLX_ERR_BACKEND_ANSWER` from `wlx_begin` and
 the frame runs at 1.0. Floats, so they are checked at run time, not by
 the preprocessor.
 
@@ -451,7 +451,7 @@ reads.
 v1-shimmed table reports 1.0. The core calls it exactly once per frame
 from `wlx_begin`, after the input handler. The value must lie in
 `[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]` (0.25 to 8.0 by
-default); anything else, NaN included, reports `WLX_ERR_BAD_ARGUMENT` and
+default); anything else, NaN included, reports `WLX_ERR_BACKEND_ANSWER` and
 the frame runs at 1.0. See [Coordinate space](#coordinate-space).
 
 **Composition anchor.** `set_text_input_area` is the table's last member
@@ -1533,7 +1533,7 @@ typedef enum {
     WLX_ERR_BAD_ARGUMENT,     // count 0 or negative, px <= 0, required NULL
     WLX_ERR_LIMIT,            // a documented limit exceeded (WLX_CONTENT_SLOTS_MAX ...)
     WLX_ERR_BACKEND,          // backend table not ready at wlx_begin
-    WLX_ERR_BACKEND_ANSWER,   // (WLX_DEBUG) a backend callback answered outside its contract; the call degrades
+    WLX_ERR_BACKEND_ANSWER,   // a backend callback answered outside its contract; the call degrades
     WLX_ERR_COUNT
 } WLX_Error_Code;
 
@@ -1615,6 +1615,7 @@ sites the default prints one suppression line and stays silent.
 | A required pointer that is NULL (`buffer`, `value`, `active`, `selected`, `open`, `length`) | `WLX_ERR_BAD_ARGUMENT` | The widget returns `false` and draws nothing; a dropdown with `options == NULL` and a nonzero count shows no options |
 | More slots than `WLX_CONTENT_SLOTS_MAX` with CONTENT sizes | `WLX_ERR_LIMIT` | CONTENT tracking is off for that layout; its CONTENT slots take their minimum size |
 | No usable backend table at `wlx_begin` | `WLX_ERR_BACKEND` | Reported, then fatal (`WLX_HARD_ASSERT`): there is no frame without a table |
+| `get_content_scale` returns a value outside `[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]`, or NaN | `WLX_ERR_BACKEND_ANSWER` | Reported at `wlx_begin`; the frame runs at 1.0 |
 | A `measure_text_advances` chunk whose advances decrease (`WLX_DEBUG` builds only; negative `spacing` exempt) | `WLX_ERR_BACKEND_ANSWER` | Reported once per site; the chunk is clamped to non-decreasing (every unit edge inside it collapses onto the first value below it), and release builds clamp silently |
 | A NULL input handler at `wlx_begin` | `WLX_ERR_BAD_ARGUMENT` | The frame runs with no input |
 

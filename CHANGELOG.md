@@ -277,7 +277,9 @@ minor.
   README's text-entry disclaimer is rewritten accordingly.
 - **`WLX_DEBUG` report for decreasing advances.** A `measure_text_advances`
   chunk whose advances decrease (a font shaped right to left, or a lost
-  splice) reports the new `WLX_ERR_BACKEND_ANSWER` once per site through
+  splice) reports the new `WLX_ERR_BACKEND_ANSWER` (a backend answer
+  outside its contract; the content-scale check below uses it in every
+  build) once per site through
   the error handler before the clamp flattens it (every unit edge inside
   the chunk onto the first value below it); negative `spacing` is exempt,
   since an additive backend's prefix widths may legitimately dip there,
@@ -287,7 +289,7 @@ minor.
   pixel; the backend maps it to device pixels by its content scale (2.0 on
   a 2x display, 1.5 at a 150% setting). `WLX_Backend.get_content_scale`
   (optional, see the contract entry above) reports the scale; `wlx_begin`
-  samples it once per frame, reports `WLX_ERR_BAD_ARGUMENT` and runs at
+  samples it once per frame, reports `WLX_ERR_BACKEND_ANSWER` and runs at
   1.0 for a value outside `[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]`
   (new configuration macros, 0.25 and 8.0), and bumps the text-geometry
   generation when the scale changes. `wlx_content_scale(ctx)` reads the

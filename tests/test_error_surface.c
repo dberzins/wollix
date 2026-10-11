@@ -933,6 +933,21 @@ TEST(open_layout_with_scope_id_reports_once) {
     wlx_context_destroy(&ctx);
 }
 
+// wlx_grid_auto_row_px outside an auto grid with a bad size: one report (the
+// wrong kind), not a size report as well.
+TEST(grid_auto_row_px_wrong_kind_reports_once) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_grid_auto_row_px(&ctx, -1.0f);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(error_surface) {
     RUN_TEST(error_handler_receives_record);
     RUN_TEST(error_handler_null_restores_default);
@@ -970,4 +985,5 @@ SUITE(error_surface) {
     RUN_TEST(overlay_end_without_overlay_returns);
     RUN_TEST(id_pushed_at_end_reports);
     RUN_TEST(open_layout_with_scope_id_reports_once);
+    RUN_TEST(grid_auto_row_px_wrong_kind_reports_once);
 }
