@@ -558,6 +558,10 @@ your own pace before the next minor.
   beats the uniform one: `.content_padding = N` and
   `WLX_PADDING_USE_THEME` inset nothing unless all four sides were also
   set to `WLX_UNSET` (since v0.8.0).
+- **`wlx_panel_begin` honours `.rounded_corners`.** The panel forwarded its
+  container chrome to its body layout but left out the corner mask, so a
+  panel asked to round only some corners rounded all four (since
+  v0.6.0).
 
 ### Changed
 - **A widget keystroke patches the editor's line index from its edit span.**

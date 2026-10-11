@@ -624,8 +624,53 @@ TEST(parent_contribution_three_sibling_kinds_share_per_slot_bucket) {
 // Suite
 // ============================================================================
 
+// The panel forwards its whole container chrome to its body layout,
+// rounded_corners included: a top-corners-only fill records the rounded
+// fill plus the two rects that square off the bottom corners, exactly as a
+// layout with the same chrome does.
+static Test_Stream panel_corners_stream(bool panel) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_stream_install(&ctx);
+    WLX_Color fill = { 40, 80, 120, 255 };
+    Test_Stream st = { .count = 0 };
+    for (int frame = 0; frame < 2; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        test_stream_reset();
+        if (panel) {
+            wlx_panel_begin(&ctx, .back_color = fill, .border_width = 0,
+                .roundness = 0.5f, .rounded_corners = WLX_CORNERS_TOP);
+            wlx_panel_end(&ctx);
+        } else {
+            wlx_layout_begin(&ctx, 1, WLX_VERT, .back_color = fill, .border_width = 0,
+                .roundness = 0.5f, .rounded_corners = WLX_CORNERS_TOP);
+            wlx_layout_end(&ctx);
+        }
+        test_frame_end(&ctx);
+        st = test_stream_take();
+    }
+    wlx_context_destroy(&ctx);
+    return st;
+}
+
+static int panel_count_kind(const Test_Stream *st, int kind) {
+    int n = 0;
+    for (int i = 0; i < st->count; i++) n += st->cmds[i].kind == kind;
+    return n;
+}
+
+TEST(panel_forwards_rounded_corners) {
+    Test_Stream lay = panel_corners_stream(false);
+    Test_Stream pan = panel_corners_stream(true);
+    ASSERT_EQ_INT(panel_count_kind(&lay, 3), 1);   // the rounded fill
+    ASSERT_EQ_INT(panel_count_kind(&lay, 1), 2);   // two square-off rects
+    ASSERT_EQ_INT(panel_count_kind(&pan, 3), panel_count_kind(&lay, 3));
+    ASSERT_EQ_INT(panel_count_kind(&pan, 1), panel_count_kind(&lay, 1));
+}
+
 SUITE(panel) {
     RUN_TEST(panel_stack_balance);
+    RUN_TEST(panel_forwards_rounded_corners);
     RUN_TEST(panel_no_title);
     RUN_TEST(panel_in_split);
     RUN_TEST(panel_nested);
