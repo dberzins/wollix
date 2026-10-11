@@ -67,6 +67,10 @@ static void ap_pair_destroy(AP_Pair *p) {
     wlx_context_destroy(&p->advances);
 }
 
+// Letter spacing for ap_frame's editor; 0 except in the negative-tracking
+// test, which restores it.
+static int ap_spacing;
+
 // One editor frame on one context; mirrors the geom-cache fixture.
 static void ap_frame(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
     bool wrap, int mx, int my, bool clicked, float wheel, uint32_t mods,
@@ -77,7 +81,7 @@ static void ap_frame(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
     wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
     (void)wlx_editor_impl(ctx, NULL, buf, cap, len,
         wlx_default_editor_opt(.content_padding = 4, .font_size = 10,
-            .border_width = 0, .wrap = wrap),
+            .border_width = 0, .wrap = wrap, .spacing = ap_spacing),
         "ap_editor", 1);
     wlx_layout_end(ctx);
     test_frame_end(ctx);
@@ -667,6 +671,118 @@ TEST(advances_decreasing_backend_is_clamped_and_reported) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Negative tracking: an additive backend's prefix width dips on a glyph
+// narrower than the spacing. Both measuring paths clamp the dip, so the
+// per-unit fallback and the batched fill agree, and a wrapped row's ink
+// extent never passes its measured extent.
+// ============================================================================
+
+#define AP_NEG_SPACING (-4)
+
+// Additive per byte: 'i' and ' ' are 2 px, every other byte 6 px, plus
+// the spacing between glyphs. At -4 a space or an 'i' shrinks the prefix.
+static float ap_neg_prefix(const char *text, size_t len, int spacing) {
+    if (len == 0) return 0.0f;
+    float w = 0.0f;
+    for (size_t i = 0; i < len; i++) w += (text[i] == 'i' || text[i] == ' ') ? 2.0f : 6.0f;
+    return w + (float)spacing * (float)(len - 1);
+}
+
+static void ap_neg_measure_slice(const char *text, size_t len, WLX_Text_Style style,
+                                 float *out_w, float *out_h, void *user) {
+    (void)user;
+    if (out_w) *out_w = ap_neg_prefix(text, len, style.spacing);
+    if (out_h) *out_h = 10.0f;
+}
+
+static unsigned long long ap_neg_adv_calls;
+
+static size_t ap_neg_advances(const char *text, size_t len, WLX_Text_Style style,
+        const size_t *unit_ends, size_t unit_count, float *out_advances, void *user) {
+    (void)user; (void)len;
+    ap_neg_adv_calls++;
+    for (size_t i = 0; i < unit_count; i++)
+        out_advances[i] = ap_neg_prefix(text, unit_ends[i], style.spacing);
+    return unit_count;
+}
+
+static size_t ap_neg_build(WLX_Context *ctx, const char *text, float w, bool strict,
+    WLX_Text_Line_Record *recs, size_t cap)
+{
+    WLX_Text_Style ts = { .font = 0, .font_size = 10,
+        .color = {255, 255, 255, 255}, .spacing = AP_NEG_SPACING };
+    test_frame_begin(ctx, 0, 0, false, false);
+    WLX_Text_Build_Inputs in = {
+        .ctx = ctx, .text = text, .length = strlen(text), .style = ts,
+        .rect = { 0, 0, w, 1000 }, .wrap = true, .wrap_strict_ws = strict,
+        .line_h = 10.0f, .text_unit_cap = (size_t)WLX_TEXT_RUN_MAX_UNITS,
+        .truncate_continue = true,
+    };
+    WLX_Text_Build_Cursor cur = { .text_unit_count = 0 };
+    size_t n = wlx_text_build_lines(&in, &cur, recs, cap);
+    test_frame_end(ctx);
+    return n;
+}
+
+TEST(advances_negative_tracking_arms_agree) {
+    AP_Pair p;
+    ap_pair_init(&p, 400, 120);
+    p.fallback.backend.measure_text_slice = ap_neg_measure_slice;
+    p.advances.backend.measure_text_slice = ap_neg_measure_slice;
+    p.advances.backend.measure_text_advances = ap_neg_advances;
+    ap_neg_adv_calls = 0;
+
+    // Kernel records from both arms (rows stay inside one advances chunk
+    // and tab-free), at every width and in both whitespace modes.
+    static const char *texts[] = {
+        "aaaa bbbb cccc dddd",
+        "mi mi mimi i iii mmmm",
+        "a i a i a i a i",
+        "word  two   three",
+    };
+    WLX_Text_Line_Record ra[64], rb[64];
+    for (size_t t = 0; t < sizeof texts / sizeof texts[0]; t++) {
+        for (float w = 8.0f; w <= 60.0f; w += 2.0f) {
+            for (int strict = 0; strict < 2; strict++) {
+                size_t na = ap_neg_build(&p.fallback, texts[t], w, strict == 1, ra, 64);
+                size_t nb = ap_neg_build(&p.advances, texts[t], w, strict == 1, rb, 64);
+                ASSERT_EQ_INT((long)na, (long)nb);
+                for (size_t r = 0; r < na; r++) {
+                    ap_assert_records_equal(&ra[r], &rb[r]);
+                    ASSERT_TRUE(ra[r].advance_w <= ra[r].measured_w);
+                }
+            }
+        }
+    }
+    ASSERT_TRUE(ap_neg_adv_calls > 0);   // the advances context batched
+
+    // The editor in both modes: identical frames and states from both arms.
+    ap_spacing = AP_NEG_SPACING;
+    for (int wrap = 0; wrap < 2; wrap++) {
+        char buf_a[128] = "aaaa bbbb cccc\nmi mi mimi i\nword two three";
+        char buf_b[128] = "aaaa bbbb cccc\nmi mi mimi i\nword two three";
+        size_t len_a = strlen(buf_a), len_b = strlen(buf_b);
+        size_t cap = sizeof(buf_a);
+        for (int i = 0; i < 2; i++)
+            ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, wrap == 1, 0, 0, false, 0.0f, 0, NULL, NULL);
+        ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, wrap == 1, 40, 9, true, 0.0f, 0, NULL, NULL);
+        ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, wrap == 1, 0, 0, false, 0.0f, 0, NULL, " ii");
+        ap_step_key(&p, buf_a, buf_b, cap, &len_a, &len_b, wrap == 1, WLX_KEY_END, WLX_MOD_SHIFT);
+        ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, wrap == 1, 0, 0, false, 0.0f, 0, NULL, NULL);
+    }
+    ap_spacing = 0;
+
+    // A wrapped label measures per unit: its cut rows end on a dipping space.
+    test_frame_begin(&p.fallback, 0, 0, false, false);
+    wlx_layout_begin(&p.fallback, 1, WLX_VERT, .padding = 0, .gap = 0);
+        wlx_label(&p.fallback, "aaaa bbbb cccc dddd", .font_size = 10,
+            .spacing = AP_NEG_SPACING, .wrap = true, .width = 30);
+    wlx_layout_end(&p.fallback);
+    test_frame_end(&p.fallback);
+    ap_pair_destroy(&p);
+}
+
 SUITE(advances_parity) {
     RUN_TEST(advances_cluster_units_never_split_at_chunk);
     RUN_TEST(advances_records_match_fallback_across_widths);
@@ -676,4 +792,5 @@ SUITE(advances_parity) {
     RUN_TEST(advances_scenario_wrap_draws_identically);
     RUN_TEST(advances_cold_build_batches_measure_traffic);
     RUN_TEST(advances_decreasing_backend_is_clamped_and_reported);
+    RUN_TEST(advances_negative_tracking_arms_agree);
 }

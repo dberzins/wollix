@@ -717,12 +717,14 @@ Not attempted (deliberately, until evidence demands more):
 - **Complex-script shaping and bidi.** Decided, not merely unattempted
   (ADR_055): text geometry is logical-order and left to right. Runs are
   passed to the backend as-is; every consumer maps a byte offset to a
-  non-decreasing x and back, and the batched advances fetch clamps a
-  backend answer in any other order (a font shaped right to left). A
-  right-to-left run therefore renders in logical order on the native
-  adapters (mirrored, for Hebrew or Arabic), while the web host's canvas
-  reorders the drawn run by its own bidi algorithm and the caret geometry
-  stays logical, so caret and drawing can disagree there. Contextual
+  non-decreasing x and back. Both fetch arms deliver a non-decreasing
+  array: the batched advances fill clamps a backend answer in any other
+  order (a font shaped right to left), and the per-unit arm clamps a
+  prefix width that dips under negative tracking (a unit narrower than
+  the spacing). A right-to-left run therefore renders in logical order
+  on the native adapters (mirrored, for Hebrew or Arabic), while the web
+  host's canvas reorders the drawn run by its own bidi algorithm and the
+  caret geometry stays logical, so caret and drawing can disagree there. Contextual
   shaping across a break point is not reconsidered. The recorded path is
   a visual-run layer: per-line UAX #9 runs above the same per-run
   primitive, with a direction hint as an additive `WLX_Text_Style` field.

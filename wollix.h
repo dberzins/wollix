@@ -10600,7 +10600,8 @@ static size_t wlx_text_measure_advances_batch(const WLX_Text_Measure_Args *args,
     // to left, or a lost splice) is a contract violation the clamp below
     // degrades. The default sink reports it once per site. Negative
     // tracking is exempt: an additive backend's prefix width legitimately
-    // dips on a unit narrower than the spacing, and the clamp covers it.
+    // dips on a unit narrower than the spacing, and the clamp covers it
+    // (the per-unit arm of wlx_text_unit_fetch clamps the same dip).
     if (style.spacing >= 0) {
         for (size_t k = 0; k < n; k++) {
             float before = k == 0 ? base_x : out_adv[k - 1];
@@ -10657,6 +10658,10 @@ static size_t wlx_text_unit_fetch(const WLX_Text_Measure_Args *args,
     bool measured = wlx_text_measure_prefix_tabs_known(args, measure_base, next,
         wlx_text_pen_has_tab(*io_first_tab, next), &w, &h);
     if (!measured) { w = 0.0f; h = args->line_h; }
+    // A prefix width dips under negative tracking (an additive backend, a
+    // unit narrower than the spacing); clamp it as the batched arm does,
+    // so no consumer sees a decreasing array.
+    if (w < base_x) w = base_x;
     ends[0] = next;
     advs[0] = w;
     heights[0] = h;
