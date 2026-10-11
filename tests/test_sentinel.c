@@ -211,6 +211,31 @@ TEST(split_gap_literal_zero) {
     wlx_context_destroy(&ctx);
 }
 
+// The overlay's default macro installs the content-padding defaults like
+// every other struct carrying the group: a uniform .content_padding insets
+// the body on all four sides, and a per-side value still wins on its side.
+static WLX_Rect sentinel_overlay_body(WLX_Overlay_Opt opt) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_overlay_begin_impl(&ctx, 1, (WLX_Rect){ 10, 10, 200, 150 }, opt, __FILE__, __LINE__);
+    WLX_Rect r = wlx_get_slot_rect(&ctx, sentinel_top_layout(&ctx), -1, 1);
+    wlx_overlay_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+    return r;
+}
+
+TEST(overlay_content_padding_uniform_insets) {
+    WLX_Rect none = sentinel_overlay_body(wlx_default_overlay_opt());
+    WLX_Rect uniform = sentinel_overlay_body(wlx_default_overlay_opt(.content_padding = 7));
+    WLX_Rect side = sentinel_overlay_body(wlx_default_overlay_opt(.content_padding = 7,
+        .content_padding_left = 2));
+    ASSERT_EQ_RECT(none, ((WLX_Rect){ 10, 10, 200, 150 }), 0.0001f);
+    ASSERT_EQ_RECT(uniform, ((WLX_Rect){ 17, 17, 186, 136 }), 0.0001f);
+    ASSERT_EQ_RECT(side, ((WLX_Rect){ 12, 17, 191, 136 }), 0.0001f);
+}
+
 // A negative gap reads as 0 on every layout kind: -1 and WLX_FLOAT_UNSET
 // give the .gap = 0 rects, with no contract report.
 static int sentinel_err_count;
@@ -537,6 +562,7 @@ SUITE(sentinel) {
     RUN_TEST(grid_auto_negative_gap_reads_zero);
     RUN_TEST(grid_tile_negative_gap_reads_zero);
     RUN_TEST(overlay_negative_gap_reads_zero);
+    RUN_TEST(overlay_content_padding_uniform_insets);
     RUN_TEST(split_negative_gap_reads_zero);
     RUN_TEST(create_layout_negative_gap_reads_zero);
     RUN_TEST(menu_width_rule_u);

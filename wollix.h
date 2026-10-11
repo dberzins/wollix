@@ -3028,6 +3028,7 @@ typedef struct {
     (WLX_Overlay_Opt) { .from_defaults = true, \
         .orient = WLX_VERT, \
         .clip = true, \
+        WLX_CONTENT_PADDING_DEFAULTS, \
         __VA_ARGS__ \
     }
 

@@ -552,6 +552,12 @@ your own pace before the next minor.
   font-size floor the button and dropdown faces get: 1 px tall in a
   CONTENT slot (a panel body), the slot's height in a short fixed slot
   (since v0.8.0).
+- **`wlx_overlay_begin` honours a uniform `.content_padding`.** Its default
+  macro did not install the content-padding defaults, so the four
+  per-side fields were 0 rather than `WLX_UNSET`, and a per-side value
+  beats the uniform one: `.content_padding = N` and
+  `WLX_PADDING_USE_THEME` inset nothing unless all four sides were also
+  set to `WLX_UNSET` (since v0.8.0).
 
 ### Changed
 - **A widget keystroke patches the editor's line index from its edit span.**
