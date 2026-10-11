@@ -978,6 +978,29 @@ TEST(slot_style_entries_report_the_call_site) {
     wlx_context_destroy(&ctx);
 }
 
+// A list clipper outside a scroll panel has no viewport: one report naming
+// the caller's line, and the parent rect stands in at offset 0, so the rows
+// that fit it are built (300 px of 20 px rows: 0 to 15).
+TEST(list_clipper_outside_scroll_panel_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0);
+    int line = __LINE__ + 1;
+    WLX_List_Clipper clip = wlx_list_clipper_begin(&ctx, 1000, 20.0f);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(line, es_last.line);
+    ASSERT_EQ_INT(0, clip.first);
+    ASSERT_EQ_INT(15, clip.last);
+    wlx_list_clipper_end(&ctx, &clip);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(error_surface) {
     RUN_TEST(error_handler_receives_record);
     RUN_TEST(error_handler_null_restores_default);
@@ -1017,4 +1040,5 @@ SUITE(error_surface) {
     RUN_TEST(open_layout_with_scope_id_reports_once);
     RUN_TEST(grid_auto_row_px_wrong_kind_reports_once);
     RUN_TEST(slot_style_entries_report_the_call_site);
+    RUN_TEST(list_clipper_outside_scroll_panel_reports);
 }

@@ -17835,13 +17835,23 @@ WLXDEF WLX_List_Clipper wlx_list_clipper_begin_impl(WLX_Context *ctx, int item_c
     // No from_defaults check: every default of WLX_List_Clipper_Opt is
     // zero, so a zero-initialised struct is the defaults.
     assert(ctx != NULL);
-    assert(ctx->arena.scroll_panels.count > 0 &&
-        "wlx_list_clipper_begin must be called inside a scroll panel");
     if (item_count < 0) item_count = 0;
     if (row_height < 1.0f) row_height = 1.0f;
 
-    WLX_Rect vp = wlx_get_scroll_panel_viewport(ctx);
-    float off = wlx_get_scroll_panel_offset(ctx);
+    // Outside a scroll panel there is no viewport to clip against: reported,
+    // and the parent rect stands in at offset 0, so the rows that fit it are
+    // built (not every row, which could be a cost cliff, and not none).
+    WLX_Rect vp;
+    float off;
+    if (WLX_CONTRACT_AT(ctx, ctx->arena.scroll_panels.count > 0, WLX_ERR_BAD_ARGUMENT,
+            "wlx_list_clipper_begin outside a scroll panel; the rows that fit the parent are built",
+            file, line)) {
+        vp = wlx_get_scroll_panel_viewport(ctx);
+        off = wlx_get_scroll_panel_offset(ctx);
+    } else {
+        vp = wlx_get_parent_rect(ctx);
+        off = 0.0f;
+    }
     float top = off - opt.overscan;
     float bottom = off + vp.h + opt.overscan;
     if (top < 0.0f) top = 0.0f;

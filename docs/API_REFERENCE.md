@@ -1609,6 +1609,7 @@ sites the default prints one suppression line and stays silent.
 | An id still pushed at `wlx_end` (once every layout is closed) | `WLX_ERR_UNBALANCED_END` | Reported once; the next `wlx_begin` resets the id stack |
 | A widget with no layout open | `WLX_ERR_NO_LAYOUT` | The widget takes the root rect (`ctx->rect`), as a root container does |
 | `wlx_layout_auto_slot`, `wlx_grid_auto_row_px`, `wlx_grid_cell`, `wlx_slot_style`, `wlx_grid_cell_style` with no layout open, or inside a layout of the wrong kind | `WLX_ERR_NO_LAYOUT` / `WLX_ERR_BAD_ARGUMENT` | Returns |
+| `wlx_list_clipper_begin` outside a scroll panel | `WLX_ERR_BAD_ARGUMENT` | The parent rect stands in for the viewport at offset 0: the rows that fit it are built |
 | A slot, row or column count of `0` or above `WLX_MAX_SLOT_COUNT` (a negative `int`, converted) | `WLX_ERR_BAD_ARGUMENT` | Clamped to 1 |
 | A `.span`, or a `wlx_grid_cell` `row_span` / `col_span`, above `WLX_MAX_SLOT_COUNT` (a negative `int` or `WLX_UNSET`, converted) | `WLX_ERR_BAD_ARGUMENT` | Takes one slot (one cell); a span of `0` takes one slot without a report |
 | A non-positive auto slot, row or tile size; a variable-size auto layout child with no `wlx_layout_auto_slot_px` before it | `WLX_ERR_BAD_ARGUMENT` | 1 px |
@@ -3523,7 +3524,8 @@ Virtualizes a long list inside a scroll panel: only the rows within the
 viewport are produced, while spacers reserve the off-screen extent so the
 scrollbar stays correct. Per-frame cost becomes proportional to *visible* rows
 instead of total rows. Drive the panel with an explicit `content_height`
-(`wlx_list_clipper_height`), not `WLX_SCROLL_AUTO_HEIGHT`.
+(`wlx_list_clipper_height`), not `WLX_SCROLL_AUTO_HEIGHT`. Outside a scroll
+panel it is a contract error (see [Error Reporting](#error-reporting)).
 
 ```c
 float h = wlx_list_clipper_height(count, ROW_H, NULL);   // fixed pitch

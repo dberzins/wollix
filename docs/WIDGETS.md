@@ -2073,7 +2073,8 @@ or fast-growing lists stay cheap.
 
 Drive the panel with an explicit content height from `wlx_list_clipper_height`
 (not `WLX_SCROLL_AUTO_HEIGHT` — auto-height would measure only the visible slice
-and break scrolling).
+and break scrolling). Called outside a scroll panel, the clipper reports
+`WLX_ERR_BAD_ARGUMENT` and builds the rows that fit the parent rect.
 
 Fixed-pitch rows:
 
