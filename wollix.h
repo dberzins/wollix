@@ -2927,14 +2927,16 @@ typedef enum {
 // embed WLX_LAYOUT_SLOT_FIELDS (where the slot's own `padding*` is the
 // outer-margin knob) can carry both without name collision. Embedded by
 // every widget with chrome: wlx_label, wlx_button, wlx_inputbox,
-// wlx_tooltip_for, wlx_split (compound), wlx_panel (compound). Per-side
-// fields >= 0 win over the uniform; an unset uniform (WLX_UNSET) resolves
-// to the widget's own default inset - 0 for leaf widgets, the constants
-// below for the compound ones - so writing WLX_UNSET means the same as
+// wlx_editor, wlx_tooltip_for, wlx_split (compound), wlx_panel (compound).
+// Per-side fields >= 0 win over the uniform; an unset uniform (WLX_UNSET)
+// resolves to the widget's own default inset - 0 for leaf widgets, the
+// constants below for the text fields and the compound ones - so writing
+// WLX_UNSET means the same as
 // omitting the field; a uniform of WLX_PADDING_USE_THEME opts in to the
 // theme's `padding` knob (default WLX_STYLE_CONTENT_PADDING). The resolver
 // clamps the resolved inset proportionally so the content rect never has
 // negative dimensions.
+// The text fields' default inset, shared by wlx_inputbox and wlx_editor.
 #define WLX_INPUTBOX_CONTENT_PADDING 10.0f
 #define WLX_SPLIT_CONTENT_PADDING     4.0f
 #define WLX_PANEL_CONTENT_PADDING     2.0f

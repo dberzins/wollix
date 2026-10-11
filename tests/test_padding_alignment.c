@@ -63,6 +63,44 @@ TEST(padding_alignment_inputbox_default_uniform_10) {
     ASSERT_EQ_F(-1.0f, opt.content_padding_left, 0.001f);
 }
 
+// The editor takes the inputbox's default inset (WLX_INPUTBOX_CONTENT_PADDING
+// is the text fields' shared constant): with default options both draw the
+// same box and start their text at the same x. Text y differs by design (the
+// inputbox centres a single line, the editor is top-aligned).
+static void pa_text_field_first_draws(bool editor, WLX_Rect *box, float *text_x) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 300, 200);
+    test_stream_install(&ctx);
+    char buf[16] = "abc";
+    size_t len = 3;
+    test_frame_begin(&ctx, -5, -5, false, false);
+    test_stream_reset();
+    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(60)), .padding = 0);
+    if (editor) (void)wlx_editor(&ctx, NULL, buf, sizeof buf, &len);
+    else        (void)wlx_inputbox(&ctx, NULL, buf, sizeof buf);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    *box = (WLX_Rect){ 0, 0, 0, 0 };
+    *text_x = -1.0f;
+    bool have_box = false;
+    for (int i = 0; i < _test_stream.count; i++) {
+        const Test_Stream_Cmd *k = &_test_stream.cmds[i];
+        if (!have_box && (k->kind == 1 || k->kind == 3)) { *box = k->rect; have_box = true; }
+        if (k->kind == 5 && *text_x < 0.0f) *text_x = k->rect.x;
+    }
+    wlx_context_destroy(&ctx);
+}
+
+TEST(editor_default_inset_matches_inputbox) {
+    WLX_Rect ib, ed;
+    float ib_x, ed_x;
+    pa_text_field_first_draws(false, &ib, &ib_x);
+    pa_text_field_first_draws(true, &ed, &ed_x);
+    ASSERT_TRUE(ib.w > 0.0f && ib_x >= 0.0f && ed_x >= 0.0f);
+    ASSERT_EQ_RECT(ib, ed, 0.001f);
+    ASSERT_EQ_F(ib_x, ed_x, 0.001f);
+}
+
 // ----- Resolver invariants --------------------------------------------------
 //
 // Each widget routes through wlx_resolve_content_padding with a shared theme,
@@ -137,6 +175,7 @@ SUITE(padding_alignment) {
     RUN_TEST(padding_alignment_button_defaults_sentinel);
     RUN_TEST(padding_alignment_split_default_uniform_4);
     RUN_TEST(padding_alignment_panel_default_uniform_2);
+    RUN_TEST(editor_default_inset_matches_inputbox);
     RUN_TEST(padding_alignment_inputbox_default_uniform_10);
     RUN_TEST(padding_alignment_uniform_resolves_to_all_sides);
     RUN_TEST(padding_alignment_per_side_overrides_uniform);
