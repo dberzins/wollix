@@ -2629,6 +2629,12 @@ WLX_Layout wlx_create_grid_auto(WLX_Context *ctx, WLX_Rect r,
                                 size_t cols, float row_px, const WLX_Slot_Size *col_sizes, float gap);
 ```
 
+`wlx_create_layout_auto` and `wlx_create_grid_auto` grow at the tail of a
+per-frame offset buffer shared with every auto layout, auto grid and list
+clipper: do not take a slot from one while a dynamic layout created or
+begun after it is still in use, or the later layout's slots shift. The
+begin / end forms keep this order by construction.
+
 ### `wlx_get_slot_rect`
 
 ```c

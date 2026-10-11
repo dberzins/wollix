@@ -2239,10 +2239,6 @@ wlx_split_end(ctx);
 - If `.id` is set, it scopes both pane bodies until `wlx_split_end(ctx)`.
 - In loops, wrap each iteration with `wlx_push_id()` / `wlx_pop_id()` as with
   any repeated widget.
-- A split nests inside an auto layout like any static child. A dynamic
-  layout inside one of its panes is nested in the auto layout, and the
-  nesting note for `wlx_layout_begin_auto` in LAYOUT_MODEL's Restrictions
-  applies.
 
 ---
 

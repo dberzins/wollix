@@ -6706,8 +6706,6 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
         if (!WLX_CONTRACT(ctx, pos < 0, WLX_ERR_BAD_ARGUMENT,
                 "positional slot access on a dynamic layout: the slot is taken in sequence"))
             pos = -1;
-        assert(ctx->arena.dyn_offsets.count == l->linear.slot_size_offsets_base + l->count + 1 &&
-               "Dynamic layout offset region is not contiguous - nested layout_begin inside a dynamic body?");
 
         float effective = (l->linear.next_slot_size > 0.0f) ? l->linear.next_slot_size : l->linear.slot_size;
         effective = wlx_contract_positive_px(ctx, effective,

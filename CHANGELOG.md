@@ -654,6 +654,13 @@ minor.
   placed it, growing the grid, and its debug builds asserted. The rows of
   an auto grid are no longer a bound: the slot fetch grows them. Columns,
   and `WLX_MAX_SLOT_COUNT`, still are.
+- **Dynamic layouts nest inside an auto layout.** A `wlx_layout_begin_auto`,
+  `wlx_grid_begin_auto` or list clipper in an auto layout's body placed
+  correctly, but a build without `NDEBUG` stopped at an `assert` when the
+  outer layout took its next slot (since v0.3.0). The check is gone: the
+  begin / end stack keeps every open layout's offsets in place. The one
+  order rule left, for the low-level `wlx_create_layout_auto` and
+  `wlx_create_grid_auto`, is in the API reference.
 - **`wlx_panel_begin` honours `.rounded_corners`.** The panel forwarded its
   container chrome to its body layout but left out the corner mask, so a
   panel asked to round only some corners rounded all four (since
