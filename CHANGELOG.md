@@ -639,6 +639,15 @@ minor.
   beats the uniform one: `.content_padding = N` and
   `WLX_PADDING_USE_THEME` inset nothing unless all four sides were also
   set to `WLX_UNSET` (since v0.8.0).
+- **The `WLX_DEBUG` split tracker stays in bounds and reports its pairing.**
+  Its checks were plain asserts on a fixed eight-level table that no frame
+  reset. With `NDEBUG` also defined, a stray `wlx_split_next` wrote before
+  the table and the next `wlx_split_begin` crashed, and a `wlx_split_end`
+  missing every frame walked off it and overwrote the warning callback;
+  nesting splits nine deep asserted. A next or end with no split open, and
+  an end without a next, now report `WLX_ERR_UNBALANCED_END` through the
+  error channel; levels past `WLX_DBG_SPLIT_DEPTH_MAX` (8) are counted
+  but not tracked, and the depth resets every frame (since v0.2.0).
 - **`wlx_grid_cell` on an auto grid grows it.** A placement on a row the
   auto grid had not grown yet (including `(-1, -1)` with a span at a row
   start) was reported and ignored in every build; v0.8.0's release builds

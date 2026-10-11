@@ -244,7 +244,7 @@
  * WLX_DEBUG
  *     When defined, enables debug instrumentation: call-site duplicate
  *     detection, FLEX/FILL unbounded-height warnings, CONTENT-slot
- *     oscillation detection, split widget pairing assertions, and widget
+ *     oscillation detection, split widget pairing reports, and widget
  *     clipping warnings. All debug state is isolated in a separate context
  *     (WLX_Debug_Context) - production structs are not affected.
  *     Use ctx->dbg->warn_cb to capture warnings programmatically. Warnings
@@ -4697,7 +4697,7 @@ static inline void wlx_dbg_slot_overflow(WLX_Context *ctx, const WLX_Layout *l, 
 static inline void wlx_dbg_widget_begin(WLX_Context *ctx, WLX_Rect cell, float height, size_t span, bool overflow, const char *file, int line);
 static inline void wlx_dbg_split_begin(WLX_Context *ctx);
 static inline void wlx_dbg_split_suppress_warn(WLX_Context *ctx, bool suppress);
-static inline void wlx_dbg_split_next(WLX_Context *ctx);
+static inline void wlx_dbg_split_next(WLX_Context *ctx, const char *file, int line);
 static inline void wlx_dbg_split_end(WLX_Context *ctx);
 #endif // WLX_DEBUG
 
@@ -17955,7 +17955,7 @@ WLXDEF void wlx_split_next_impl(WLX_Context *ctx, WLX_Split_Next_Opt opt,
                                  const char *file, int line) {
     // No from_defaults check: every default of WLX_Split_Next_Opt is zero,
     // so a zero-initialised struct is the defaults.
-    WLX_DBG(split_next, ctx);
+    WLX_DBG(split_next, ctx, file, line);
 
     // Close first pane scroll panel
     wlx_scroll_panel_end(ctx);
@@ -18491,6 +18491,10 @@ typedef struct {
     size_t count;                // number of slots
 } WLX_Debug_Layout_Shadow;
 
+// Split levels the debug tracker records whether the second pane was
+// opened for; deeper nesting is counted and passes unchecked.
+#define WLX_DBG_SPLIT_DEPTH_MAX 8
+
 typedef struct WLX_Debug_Context {
     // Call-site hit tracking (detect missing wlx_push_id in loops)
     struct { WLX_Id key; const char *file; int line; bool warned; } site_hits[512];
@@ -18499,9 +18503,11 @@ typedef struct WLX_Debug_Context {
     // Layout debug shadow stack (indexed by layouts.count at push time)
     WLX_Debug_Layout_Shadow layout_shadow[256];
 
-    // Split widget tracking
+    // Split widget tracking: the open splits' depth, and per level whether
+    // its second pane was opened (levels past WLX_DBG_SPLIT_DEPTH_MAX are
+    // counted but not tracked).
     int split_depth;
-    bool split_next_called[8];
+    bool split_next_called[WLX_DBG_SPLIT_DEPTH_MAX];
     bool suppress_flex_fill_warn;
 
     // Warning dispatcher
@@ -18624,6 +18630,9 @@ static inline void wlx_dbg_frame_begin(WLX_Context *ctx) {
     wlx_dbg_init(ctx);  // lazy init on first frame
     if (!ctx->dbg) return;
     ctx->dbg->warn_count = 0;
+    // A frame that left a split open (already reported) must not carry its
+    // depth into this one.
+    ctx->dbg->split_depth = 0;
     // Reset per-frame site-hit tracking
     ctx->dbg->site_hits_used = 0;
     wlx_zero_array(wlx_array_len(ctx->dbg->site_hits), ctx->dbg->site_hits);
@@ -18937,8 +18946,9 @@ static inline void wlx_dbg_widget_begin(WLX_Context *ctx, WLX_Rect cell,
 
 static inline void wlx_dbg_split_begin(WLX_Context *ctx) {
     if (!ctx->dbg) return;
-    assert(ctx->dbg->split_depth < 8 && "split nesting too deep (max 8)");
-    ctx->dbg->split_next_called[ctx->dbg->split_depth] = false;
+    if (ctx->dbg->split_depth < WLX_DBG_SPLIT_DEPTH_MAX) {
+        ctx->dbg->split_next_called[ctx->dbg->split_depth] = false;
+    }
     ctx->dbg->split_depth++;
     // One-time explanation of split's internal structure
     static bool split_explained = false;
@@ -18958,19 +18968,26 @@ static inline void wlx_dbg_split_suppress_warn(WLX_Context *ctx, bool suppress) 
     ctx->dbg->suppress_flex_fill_warn = suppress;
 }
 
-static inline void wlx_dbg_split_next(WLX_Context *ctx) {
+static inline void wlx_dbg_split_next(WLX_Context *ctx, const char *file, int line) {
     if (!ctx->dbg) return;
-    assert(ctx->dbg->split_depth > 0 && "wlx_split_next without matching wlx_split_begin");
-    ctx->dbg->split_next_called[ctx->dbg->split_depth - 1] = true;
+    int d = ctx->dbg->split_depth;
+    if (!WLX_CONTRACT_AT(ctx, d > 0, WLX_ERR_UNBALANCED_END,
+            "wlx_split_next without a matching wlx_split_begin", file, line))
+        return;
+    if (d <= WLX_DBG_SPLIT_DEPTH_MAX) ctx->dbg->split_next_called[d - 1] = true;
 }
 
 static inline void wlx_dbg_split_end(WLX_Context *ctx) {
     if (!ctx->dbg) return;
-    assert(ctx->dbg->split_depth > 0 && "wlx_split_end without matching wlx_split_begin");
-    assert(ctx->dbg->split_next_called[ctx->dbg->split_depth - 1] &&
-        "wlx_split_end called without wlx_split_next \xe2\x80\x94 "
-        "did you forget to separate the two panes?");
-    ctx->dbg->split_depth--;
+    int d = ctx->dbg->split_depth;
+    if (!WLX_CONTRACT(ctx, d > 0, WLX_ERR_UNBALANCED_END,
+            "wlx_split_end without a matching wlx_split_begin"))
+        return;
+    if (d <= WLX_DBG_SPLIT_DEPTH_MAX) {
+        (void)WLX_CONTRACT(ctx, ctx->dbg->split_next_called[d - 1], WLX_ERR_UNBALANCED_END,
+            "wlx_split_end without wlx_split_next: the second pane was never opened");
+    }
+    ctx->dbg->split_depth = d - 1;
 }
 
 #endif // WLX_DEBUG

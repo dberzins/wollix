@@ -1618,6 +1618,7 @@ sites the default prints one suppression line and stays silent.
 | More slots than `WLX_CONTENT_SLOTS_MAX` with CONTENT sizes | `WLX_ERR_LIMIT` | CONTENT tracking is off for that layout; its CONTENT slots take their minimum size |
 | No usable backend table at `wlx_begin` | `WLX_ERR_BACKEND` | Reported, then fatal (`WLX_HARD_ASSERT`): there is no frame without a table |
 | `get_content_scale` returns a value outside `[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]`, or NaN | `WLX_ERR_BACKEND_ANSWER` | Reported at `wlx_begin`; the frame runs at 1.0 |
+| `wlx_split_next` / `wlx_split_end` with no split open, or `wlx_split_end` without `wlx_split_next` (`WLX_DEBUG` builds only) | `WLX_ERR_UNBALANCED_END` | Reported; the call goes on (the structural damage of a missing or stray split call is reported in every build by the scroll-panel and layout ends) |
 | A `measure_text_advances` chunk whose advances decrease (`WLX_DEBUG` builds only; negative `spacing` exempt) | `WLX_ERR_BACKEND_ANSWER` | Reported once per site; the chunk is clamped to non-decreasing (every unit edge inside it collapses onto the first value below it), and release builds clamp silently |
 | A NULL input handler at `wlx_begin` | `WLX_ERR_BAD_ARGUMENT` | The frame runs with no input |
 | A NULL call site (`file`) passed to a struct-form entry that derives an id (a widget, a container with `.interact`, `wlx_get_state_impl`) | `WLX_ERR_BAD_ARGUMENT` | The id hashes an empty path and the call goes on |

@@ -7,11 +7,13 @@
 // first. The NDEBUG default (print once per site, return) is covered in
 // test_hard_assert.c.
 
+static WLX_Error es_first;   // the first report since es_init
 static WLX_Error es_last;
 static int       es_count;
 
 static void es_capture(const WLX_Error *e, void *user) {
     (void)user;
+    if (es_count == 0) es_first = *e;
     es_last = *e;
     es_count++;
 }
@@ -19,6 +21,7 @@ static void es_capture(const WLX_Error *e, void *user) {
 static void es_init(WLX_Context *ctx) {
     test_ctx_init(ctx, 400, 300);
     wlx_set_error_handler(ctx, es_capture, NULL);
+    memset(&es_first, 0, sizeof es_first);
     memset(&es_last, 0, sizeof es_last);
     es_count = 0;
 }
@@ -1069,6 +1072,93 @@ TEST(null_call_site_reports_and_runs) {
     wlx_context_destroy(&ctx);
 }
 
+// --- The WLX_DEBUG split tracker: pairing mistakes are contract reports,
+// its table stays in bounds at any depth, and it resets every frame ---
+
+#ifdef WLX_DEBUG
+TEST(split_next_without_begin_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    int line = __LINE__ + 1;
+    wlx_split_next(&ctx);                      // no split open
+    ASSERT_TRUE(es_count >= 1);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_first.code);
+    ASSERT_TRUE(strstr(es_first.message, "wlx_split_next") != NULL);
+    ASSERT_TRUE(es_same_file(es_first.file));
+    ASSERT_EQ_INT(line, es_first.line);
+    ASSERT_EQ_INT(0, ctx.dbg->split_depth);
+    test_frame_end(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);   // the next frame's split works
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    int before = es_count;
+    wlx_split_begin(&ctx);
+    wlx_split_next(&ctx);
+    wlx_split_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(before, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(split_end_without_next_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_split_begin(&ctx);
+    wlx_split_end(&ctx);                       // the second pane was never opened
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(strstr(es_last.message, "wlx_split_next") != NULL);
+    ASSERT_EQ_INT(0, ctx.dbg->split_depth);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(split_missing_end_resets_each_frame) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    void (*cb)(const char *, int, const char *, void *) = ctx.dbg->warn_cb;
+    test_frame_end(&ctx);
+    for (int frame = 0; frame < 12; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        ASSERT_EQ_INT(0, ctx.dbg->split_depth);
+        wlx_layout_begin(&ctx, 1, WLX_VERT);
+        wlx_split_begin(&ctx);
+        wlx_split_next(&ctx);
+        test_frame_end(&ctx);                  // no wlx_split_end: the frame end drains
+    }
+    ASSERT_TRUE(ctx.dbg->warn_cb == cb);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(split_nests_past_tracker_depth) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    for (int i = 0; i < 10; i++) {                      // nested in each first pane
+        wlx_push_id(&ctx, (WLX_Id)i);
+        wlx_split_begin(&ctx);
+    }
+    for (int i = 0; i < 10; i++) {
+        wlx_split_next(&ctx);
+        wlx_split_end(&ctx);
+        wlx_pop_id(&ctx);
+    }
+    ASSERT_EQ_INT(0, es_count);
+    ASSERT_EQ_INT(0, ctx.dbg->split_depth);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(0, es_count);
+    wlx_context_destroy(&ctx);
+}
+#endif
+
 SUITE(error_surface) {
     RUN_TEST(error_handler_receives_record);
     RUN_TEST(error_handler_null_restores_default);
@@ -1111,4 +1201,10 @@ SUITE(error_surface) {
     RUN_TEST(list_clipper_outside_scroll_panel_reports);
     RUN_TEST(auto_grid_cell_grows_rows);
     RUN_TEST(null_call_site_reports_and_runs);
+#ifdef WLX_DEBUG
+    RUN_TEST(split_next_without_begin_reports);
+    RUN_TEST(split_end_without_next_reports);
+    RUN_TEST(split_missing_end_resets_each_frame);
+    RUN_TEST(split_nests_past_tracker_depth);
+#endif
 }
