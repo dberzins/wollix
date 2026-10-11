@@ -84,7 +84,7 @@ int main(void) {
         wlx_begin(ctx, root, wlx_process_sdl3_input);
 
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderDrawColor(renderer, WLX_BACKGROUND_COLOR.r, WLX_BACKGROUND_COLOR.g, WLX_BACKGROUND_COLOR.b, WLX_BACKGROUND_COLOR.a);
+        SDL_SetRenderDrawColor(renderer, ctx->theme->background.r, ctx->theme->background.g, ctx->theme->background.b, ctx->theme->background.a);
         SDL_RenderClear(renderer);
 
         wlx_layout_begin(ctx, 14, WLX_VERT);

@@ -106,9 +106,9 @@
  *     Default (undefined): redistribute, so offsets stay consistent.
  *
  * WLX_SLOT_MINMAX_REDISTRIBUTE
- *     Deprecated / no-op. Redistribution is now the default; this symbol is
- *     accepted but ignored, retained for source compatibility. Use
- *     WLX_SLOT_SINGLE_PASS_CLAMP to opt out of redistribution.
+ *     Ignored: defining it has no effect, and it stays accepted.
+ *     Redistribution is the default; use WLX_SLOT_SINGLE_PASS_CLAMP to opt
+ *     out of it.
  *
  * ---------------------------------------------------------------------------
  * LIMITS, DEFAULTS, AND HOOK MACROS
@@ -409,8 +409,9 @@ typedef struct {
 #define WLX_RGBA(r, g, b, a) ((WLX_Color){ (r), (g), (b), (a) })
 #endif
 
-// Deprecated: use ctx->theme->background / scrollbar.bar / hover_brightness instead.
-// Kept for backward compatibility with existing demo ClearBackground() calls.
+// Deprecated since v0.1.0; removed in the first minor release after 0.9. Use
+// ctx->theme->background / scrollbar.bar / hover_brightness instead. The values
+// predate the themes and differ from them (the dark theme: 27, 50, 0.08).
 #define WLX_BACKGROUND_COLOR WLX_RGBA(18, 18, 18, 255)
 #define WLX_SCROLLBAR_COLOR WLX_RGBA(38, 38, 38, 255)
 #define WLX_HOVER_BRIGHTNESS 0.75f

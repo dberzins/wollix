@@ -311,8 +311,8 @@ to its min or max, its surplus or deficit is handed to unfrozen flex/auto
 siblings so the resolved boundary stays at `total` (no gap, no overflow). Define
 `WLX_SLOT_SINGLE_PASS_CLAMP` before including `wollix.h` to opt out and use the
 simpler O(n) single-pass clamp, which may leave a gap or overflow when min/max
-fires. (`WLX_SLOT_MINMAX_REDISTRIBUTE`, the former opt-in symbol, is now a
-deprecated no-op kept for source compatibility.)
+fires. (`WLX_SLOT_MINMAX_REDISTRIBUTE`, the former opt-in symbol, is
+ignored: defining it has no effect, and it stays accepted.)
 
 Redistribution cannot remove a *physical* floor: if the fixed and min-clamped
 sizes together exceed the container, there is no slack to redistribute and the
@@ -1197,7 +1197,7 @@ The input handler callback writes to `ctx->input` (`WLX_Input_State`):
 | `mouse_x`, `mouse_y` | `int` | Pointer position |
 | `mouse_down` | `bool` | Left button currently held |
 | `mouse_clicked` | `bool` | Left button pressed this frame (one-shot) |
-| `mouse_held` | `bool` | Left button held down |
+| `mouse_held` | `bool` | Legacy twin of `mouse_down` (ADR_040): the adapters fill it, the core never reads it; kept permanently |
 | `wheel_delta` | `float` | Vertical wheel in unquantized detents (positive = up; 1.0 = one notch, fractions from trackpads) |
 | `keys_down[WLX_KEY_COUNT]` | `bool[]` | Current key states |
 | `keys_pressed[WLX_KEY_COUNT]` | `bool[]` | Key pressed this frame (one-shot) |

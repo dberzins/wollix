@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define WLX_SLOT_MINMAX_REDISTRIBUTE
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
 #include "wollix_raylib.h"
@@ -30,7 +29,7 @@ int main(void) {
 
         wlx_begin(ctx, (WLX_Rect){0, 0, w, h}, wlx_process_raylib_input);
         BeginDrawing();
-        ClearBackground(WLX_BACKGROUND_COLOR);
+        ClearBackground(ctx->theme->background);
 
         // Root: title + examples
         wlx_layout_begin(ctx, 2, WLX_VERT,
@@ -190,7 +189,7 @@ int main(void) {
                 wlx_layout_end(ctx);
 
                 // =============================================================
-                // Iterative redistribution (WLX_SLOT_MINMAX_REDISTRIBUTE)
+                // Iterative redistribution (the default)
                 // =============================================================
 
                 // --- Example 6: Redistribute surplus from capped slots ---

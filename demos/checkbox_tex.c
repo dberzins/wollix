@@ -169,17 +169,17 @@ int main(void) {
 
         wlx_begin(ctx, r, wlx_process_raylib_input);
             BeginDrawing();
-                ClearBackground(WLX_BACKGROUND_COLOR);
+                ClearBackground(ctx->theme->background);
 
                 wlx_layout_begin(ctx, 1, WLX_HORZ);
                     wlx_layout_begin(ctx, 12, WLX_VERT);
 
                         // Title
                         wlx_label(ctx, "Checkbox texure Demo",
-                            .slot_align = WLX_TOP_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_TOP_LEFT);
+                            .slot_align = WLX_TOP_LEFT, .height = 40, .font_size = 20, .back_color = ctx->theme->background, .content_align = WLX_TOP_LEFT);
                         // Subtitle
                         wlx_label(ctx, "Standard checkboxes with custom textures",
-                            .slot_align = WLX_TOP_LEFT, .height = 40, .font_size = 30, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_TOP_LEFT);
+                            .slot_align = WLX_TOP_LEFT, .height = 40, .font_size = 30, .back_color = ctx->theme->background, .content_align = WLX_TOP_LEFT);
 
                         // Texture-based wlx_checkbox options (checkmark style).
                         // Default tint is WLX_WHITE so the textures render in
@@ -216,7 +216,7 @@ int main(void) {
 
                         // Subtitle for star-style checkboxes
                         wlx_label(ctx, "Star-style toggle buttons",
-                            .slot_align = WLX_LEFT, .height = 40, .font_size = 30, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_LEFT);
+                            .slot_align = WLX_LEFT, .height = 40, .font_size = 30, .back_color = ctx->theme->background, .content_align = WLX_LEFT);
 
                         // Star-style texture checkboxes
                         WLX_Checkbox_Opt opt = wlx_default_checkbox_opt(
@@ -240,7 +240,7 @@ int main(void) {
                         // muted gray tint; checked uses the right cell with a
                         // semantic accent tint.
                         wlx_label(ctx, "Shared atlas (per-state src + tint)",
-                            .slot_align = WLX_LEFT, .height = 40, .font_size = 30, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_LEFT);
+                            .slot_align = WLX_LEFT, .height = 40, .font_size = 30, .back_color = ctx->theme->background, .content_align = WLX_LEFT);
 
                         if (wlx_checkbox(ctx, "Sync over cellular", &app.atlas_sync,
                             .font_size = 24,
@@ -279,7 +279,7 @@ int main(void) {
                             app.atlas_sync + app.atlas_notify
                         );
                         wlx_label(ctx, status_text,
-                            .slot_align = WLX_BOTTOM_LEFT, .height = 40, .font_size = 18, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_TOP_LEFT);
+                            .slot_align = WLX_BOTTOM_LEFT, .height = 40, .font_size = 18, .back_color = ctx->theme->background, .content_align = WLX_TOP_LEFT);
 
                     wlx_layout_end(ctx);
                 wlx_layout_end(ctx);

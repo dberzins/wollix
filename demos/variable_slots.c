@@ -52,7 +52,7 @@ int main(void) {
 
         wlx_begin(ctx, root, wlx_process_raylib_input);
         BeginDrawing();
-            ClearBackground(WLX_BACKGROUND_COLOR);
+            ClearBackground(ctx->theme->background);
 
             wlx_layout_begin(ctx, 3, WLX_VERT,
                 .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(80), WLX_SLOT_AUTO, WLX_SLOT_PCT(18) }

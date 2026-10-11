@@ -164,7 +164,7 @@ int main() {
         WLX_Rect root = app_ui_root();
         app_ui_begin(&ctx, root);
         BeginDrawing();
-        ClearBackground(WLX_BACKGROUND_COLOR);
+        ClearBackground(ctx.theme->background);
 
         static const WLX_Slot_Size sizes[] = { WLX_SLOT_PX(48), WLX_SLOT_PX(32) };
         WLX_Layout_Opt lo = wlx_layout_opt_defaults();

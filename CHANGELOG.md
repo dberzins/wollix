@@ -17,7 +17,11 @@ deprecated alias of the same storage or value for **one minor version
 after 0.9**, so existing code compiles unchanged; the aliases themselves
 (`.align`, `.widget_align`, tooltip `.padding`, `WLX_FLOAT_UNSET`,
 `WLX_Backend_V1`, `wlx_backend_from_v1`) are removed in the first minor
-release after 0.9, exactly as the v0.6 aliases were removed in 0.7. Default
+release after 0.9, exactly as the v0.6 aliases were removed in 0.7, and so
+are the three pre-theme constants deprecated since v0.1.0
+(`WLX_BACKGROUND_COLOR`, `WLX_SCROLLBAR_COLOR`, `WLX_HOVER_BRIGHTNESS`; use
+`ctx->theme->background`, `scrollbar.bar` and `hover_brightness`, whose
+values differ). Default
 *meanings* cannot be aliased: each one below names its migration.
 
 - **Backend contract v2: every callback carries an instance pointer.**

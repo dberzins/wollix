@@ -151,8 +151,8 @@ within one pixel of its bound. Note this cannot remove a physical overflow
 when fixed + min sizes already exceed the container; contain that with an
 opt-in layout `.clip`.
 
-> `WLX_SLOT_MINMAX_REDISTRIBUTE` (the former opt-in symbol) is now a deprecated
-> no-op, accepted but ignored, retained for source compatibility.
+> `WLX_SLOT_MINMAX_REDISTRIBUTE` (the former opt-in symbol) is ignored:
+> defining it has no effect, and it stays accepted.
 
 ---
 
@@ -283,6 +283,10 @@ Opaque texture handle passed to `draw_texture`. Backend-specific.
 | `WLX_LIGHTGRAY` | `{200, 200, 200, 255}` |
 
 ### Deprecated Color Constants
+
+Deprecated since v0.1.0 and removed in the first minor release after 0.9. The
+values predate the themes and differ from the replacements (the dark theme
+uses 27, 50 and 0.08).
 
 | Macro | Value | Replacement |
 |-------|-------|-------------|

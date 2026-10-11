@@ -34,7 +34,6 @@
     #error "No gallery backend selected"
 #endif
 
-#define WLX_SLOT_MINMAX_REDISTRIBUTE
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
 

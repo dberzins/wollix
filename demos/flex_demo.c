@@ -29,7 +29,7 @@ int main(void) {
 
         wlx_begin(ctx, (WLX_Rect){0, 0, w, h}, wlx_process_raylib_input);
         BeginDrawing();
-        ClearBackground(WLX_BACKGROUND_COLOR);
+        ClearBackground(ctx->theme->background);
 
         // Root: title + examples
         wlx_layout_begin(ctx, 2, WLX_VERT,

@@ -63,7 +63,7 @@ int main(void) {
 
         wlx_begin(ctx, r, wlx_process_raylib_input);
             BeginDrawing();
-                ClearBackground(WLX_BACKGROUND_COLOR);
+                ClearBackground(ctx->theme->background);
 
                 wlx_layout_begin(ctx, 2, WLX_HORZ);
                     wlx_layout_begin(ctx, 9, WLX_VERT);
@@ -101,7 +101,7 @@ int main(void) {
                     wlx_layout_end(ctx);
 
                     wlx_layout_begin(ctx, 5, WLX_HORZ);
-                        wlx_widget(ctx, .slot_align = WLX_CENTER, .width = 50, .height = -1, .back_color = WLX_SCROLLBAR_COLOR);
+                        wlx_widget(ctx, .slot_align = WLX_CENTER, .width = 50, .height = -1, .back_color = ctx->theme->scrollbar.bar);
                         wlx_widget(ctx, .slot_align = WLX_CENTER, .width = 50, .height = -1, .back_color = RED);
                         wlx_widget(ctx, .slot_align = WLX_CENTER, .width = 50, .height = -1, .back_color = BLUE);
                         wlx_widget(ctx, .slot_align = WLX_CENTER, .width = 50, .height = -1, .back_color = YELLOW);

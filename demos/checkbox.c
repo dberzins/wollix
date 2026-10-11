@@ -44,13 +44,13 @@ int main() {
 
         wlx_begin(ctx, r, wlx_process_raylib_input);
             BeginDrawing();
-                ClearBackground(WLX_BACKGROUND_COLOR);
+                ClearBackground(ctx->theme->background);
                 wlx_layout_begin(ctx, 1, WLX_HORZ);
                     wlx_layout_begin(ctx, 8, WLX_VERT);
 
                         // Title
                         wlx_label(ctx, "Checkbox Demo",
-                            .slot_align = WLX_TOP_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_TOP_LEFT);
+                            .slot_align = WLX_TOP_LEFT, .height = 40, .font_size = 20, .back_color = ctx->theme->background, .content_align = WLX_TOP_LEFT);
 
                         // Checkbox options
                         if (wlx_checkbox(ctx, "Option 1: Enable feature A", &app.option1,
@@ -103,7 +103,7 @@ int main() {
                             app.accept_terms ? "ACCEPTED" : "NOT ACCEPTED"
                         );
                         wlx_label(ctx, status_text,
-                            .slot_align = WLX_BOTTOM_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .content_align = WLX_BOTTOM_LEFT);
+                            .slot_align = WLX_BOTTOM_LEFT, .height = 40, .font_size = 20, .back_color = ctx->theme->background, .content_align = WLX_BOTTOM_LEFT);
 
 
                     wlx_layout_end(ctx);
