@@ -168,8 +168,8 @@ TEST(marker_entry_without_call_site_keys_on_its_name) {
         {
             WLX_Slot_Style_Opt zero;
             memset(&zero, 0, sizeof(zero));
-            wlx_grid_cell_impl(&ctx, 0, 0, zero);
-            wlx_grid_cell_impl(&ctx, 0, 0, zero);
+            wlx_grid_cell_impl(&ctx, 0, 0, zero, NULL, 0);
+            wlx_grid_cell_impl(&ctx, 0, 0, zero, NULL, 0);
         }
         wlx_grid_end(&ctx);
         test_frame_end(&ctx);
@@ -178,6 +178,29 @@ TEST(marker_entry_without_call_site_keys_on_its_name) {
     ASSERT_TRUE(strstr(_marker_last_msg, "wlx_grid_cell") != NULL);
     ASSERT_TRUE(strstr(_marker_last_msg, "wlx_slot_style_opt_defaults()") != NULL);
 
+    wlx_context_destroy(&ctx);
+}
+
+// With its call site, a slot-style entry warns once per site like every
+// other entry: two sites, two warnings, however many frames.
+TEST(marker_slot_style_entry_warns_per_call_site) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    _marker_capture(&ctx);
+
+    for (int frame = 0; frame < 2; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 1, 1);
+        {
+            WLX_Slot_Style_Opt zero;
+            memset(&zero, 0, sizeof(zero));
+            wlx_grid_cell_impl(&ctx, 0, 0, zero, __FILE__, __LINE__);
+            wlx_grid_cell_impl(&ctx, 0, 0, zero, __FILE__, __LINE__);
+        }
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_INT(_marker_warn_count, 2);
     wlx_context_destroy(&ctx);
 }
 #endif // WLX_DEBUG
@@ -189,5 +212,6 @@ SUITE(opt_defaults_marker) {
     RUN_TEST(marker_zeroed_struct_warns_once_per_site);
     RUN_TEST(marker_defaults_built_structs_never_warn);
     RUN_TEST(marker_entry_without_call_site_keys_on_its_name);
+    RUN_TEST(marker_slot_style_entry_warns_per_call_site);
 #endif
 }

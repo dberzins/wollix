@@ -1550,7 +1550,8 @@ typedef void (*WLX_Error_Fn)(const WLX_Error *err, void *user);
 ```
 
 `file`/`line` name the widget or begin call when the entry receives a call
-site (every widget macro and every begin form does); `layout_file`/
+site (every widget macro, every begin form, the slot-style entries and the
+list clipper do); `layout_file`/
 `layout_line` name the begin of the innermost layout open at the time,
 which for an overrun is the layout that ran out and for a missing end is
 the layout left open. The enum's names are stable; its numbering is not
@@ -4090,7 +4091,7 @@ and are not available from C++.
 
 **Struct-form entries.** One per option-taking call, same name with the
 `_impl` suffix, the option struct by value, then `const char *file, int
-line` where the macro form records a call site:
+line`:
 
 | Entry | Options |
 |---|---|
@@ -4100,9 +4101,9 @@ line` where the macro form records a call site:
 | `wlx_grid_begin_impl(ctx, rows, cols, opt, file, line)` | `WLX_Grid_Opt` |
 | `wlx_grid_begin_auto_impl(ctx, cols, row_px, opt, file, line)` | `WLX_Grid_Auto_Opt` |
 | `wlx_grid_begin_auto_tile_impl(ctx, tile_w, tile_h, opt, file, line)` | `WLX_Grid_Auto_Opt` |
-| `wlx_grid_cell_impl(ctx, row, col, opt)` | `WLX_Slot_Style_Opt` |
-| `wlx_grid_cell_style_impl(ctx, opt)` | `WLX_Slot_Style_Opt` |
-| `wlx_slot_style_impl(ctx, opt)` | `WLX_Slot_Style_Opt` |
+| `wlx_grid_cell_impl(ctx, row, col, opt, file, line)` | `WLX_Slot_Style_Opt` |
+| `wlx_grid_cell_style_impl(ctx, opt, file, line)` | `WLX_Slot_Style_Opt` |
+| `wlx_slot_style_impl(ctx, opt, file, line)` | `WLX_Slot_Style_Opt` |
 | `wlx_widget_impl(ctx, opt, file, line)` | `WLX_Widget_Opt` |
 | `wlx_label_impl(ctx, text, opt, file, line)` | `WLX_Label_Opt` |
 | `wlx_button_impl(ctx, text, opt, file, line)` | `WLX_Button_Opt` |
@@ -4116,7 +4117,7 @@ line` where the macro form records a call site:
 | `wlx_toggle_impl(ctx, label, value, opt, file, line)` | `WLX_Toggle_Opt` |
 | `wlx_radio_impl(ctx, label, active, index, opt, file, line)` | `WLX_Radio_Opt` |
 | `wlx_scroll_panel_begin_impl(ctx, content_height, opt, file, line)` | `WLX_Scroll_Panel_Opt` |
-| `wlx_list_clipper_begin_impl(ctx, item_count, row_height, opt)` | `WLX_List_Clipper_Opt` |
+| `wlx_list_clipper_begin_impl(ctx, item_count, row_height, opt, file, line)` | `WLX_List_Clipper_Opt` |
 | `wlx_split_begin_impl(ctx, opt, file, line)` | `WLX_Split_Opt` |
 | `wlx_split_next_impl(ctx, opt, file, line)` | `WLX_Split_Next_Opt` |
 | `wlx_panel_begin_impl(ctx, opt, file, line)` | `WLX_Panel_Opt` |

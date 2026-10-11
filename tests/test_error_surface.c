@@ -948,6 +948,36 @@ TEST(grid_auto_row_px_wrong_kind_reports_once) {
     wlx_context_destroy(&ctx);
 }
 
+// The slot-style entries and wlx_grid_cell take the call site like every
+// option-taking entry: their reports name the caller's line.
+TEST(slot_style_entries_report_the_call_site) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin(&ctx, 1, 1);
+    int l1 = __LINE__ + 1;
+    wlx_slot_style(&ctx, .back_color = WLX_RGBA(1, 2, 3, 255));   // wrong kind: a grid
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(l1, es_last.line);
+    int l2 = __LINE__ + 1;
+    wlx_grid_cell(&ctx, 5, 0);                                     // outside the grid
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(WLX_ERR_GRID_BOUNDS, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(l2, es_last.line);
+    wlx_grid_end(&ctx);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    int l3 = __LINE__ + 1;
+    wlx_grid_cell_style(&ctx, .back_color = WLX_RGBA(1, 2, 3, 255));   // wrong kind: linear
+    ASSERT_EQ_INT(3, es_count);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(l3, es_last.line);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(error_surface) {
     RUN_TEST(error_handler_receives_record);
     RUN_TEST(error_handler_null_restores_default);
@@ -986,4 +1016,5 @@ SUITE(error_surface) {
     RUN_TEST(id_pushed_at_end_reports);
     RUN_TEST(open_layout_with_scope_id_reports_once);
     RUN_TEST(grid_auto_row_px_wrong_kind_reports_once);
+    RUN_TEST(slot_style_entries_report_the_call_site);
 }

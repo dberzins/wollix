@@ -3161,17 +3161,18 @@ WLXDEF void wlx_layout_auto_slot_px(WLX_Context *ctx, float px);
 // automatically when the new row is created.
 WLXDEF void wlx_grid_auto_row_px(WLX_Context *ctx, float px);
 
-WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Style_Opt opt);
+WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Style_Opt opt,
+                               const char *file, int line);
 #define wlx_grid_cell(ctx, row, col, ...) \
-    wlx_grid_cell_impl((ctx), (row), (col), wlx_default_slot_style_opt(__VA_ARGS__))
+    wlx_grid_cell_impl((ctx), (row), (col), wlx_default_slot_style_opt(__VA_ARGS__), __FILE__, __LINE__)
 
-WLXDEF void wlx_slot_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt);
+WLXDEF void wlx_slot_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt, const char *file, int line);
 #define wlx_slot_style(ctx, ...) \
-    wlx_slot_style_impl((ctx), wlx_default_slot_style_opt(__VA_ARGS__))
+    wlx_slot_style_impl((ctx), wlx_default_slot_style_opt(__VA_ARGS__), __FILE__, __LINE__)
 
-WLXDEF void wlx_grid_cell_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt);
+WLXDEF void wlx_grid_cell_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt, const char *file, int line);
 #define wlx_grid_cell_style(ctx, ...) \
-    wlx_grid_cell_style_impl((ctx), wlx_default_slot_style_opt(__VA_ARGS__))
+    wlx_grid_cell_style_impl((ctx), wlx_default_slot_style_opt(__VA_ARGS__), __FILE__, __LINE__)
 
 WLXDEF void wlx_layout_end(WLX_Context *ctx);
 
@@ -4442,9 +4443,10 @@ typedef struct {
 WLXDEF float wlx_list_clipper_height(int item_count, float row_height, const float *item_offsets);
 
 WLXDEF WLX_List_Clipper wlx_list_clipper_begin_impl(WLX_Context *ctx, int item_count,
-    float row_height, WLX_List_Clipper_Opt opt);
+    float row_height, WLX_List_Clipper_Opt opt, const char *file, int line);
 #define wlx_list_clipper_begin(ctx, item_count, row_height, ...) \
-    wlx_list_clipper_begin_impl((ctx), (item_count), (row_height), wlx_default_list_clipper_opt(__VA_ARGS__))
+    wlx_list_clipper_begin_impl((ctx), (item_count), (row_height), \
+        wlx_default_list_clipper_opt(__VA_ARGS__), __FILE__, __LINE__)
 WLXDEF void wlx_list_clipper_end(WLX_Context *ctx, WLX_List_Clipper *clip);
 
 // Height of item i: in variable mode offsets[i+1]-offsets[i], else row_height.
@@ -8952,16 +8954,17 @@ WLXDEF void wlx_grid_auto_row_px(WLX_Context *ctx, float px) {
     l->grid.next_row_size = px;
 }
 
-WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Style_Opt opt) {
-    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_cell", "wlx_slot_style_opt_defaults", NULL, 0);
+WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Style_Opt opt,
+                               const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_cell", "wlx_slot_style_opt_defaults", file, line);
     assert(ctx != NULL);
-    if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
-            "wlx_grid_cell called with no layout open"))
+    if (!WLX_CONTRACT_AT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
+            "wlx_grid_cell called with no layout open", file, line))
         return;
 
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-    if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_GRID, WLX_ERR_BAD_ARGUMENT,
-            "wlx_grid_cell is only valid inside a wlx_grid_begin block"))
+    if (!WLX_CONTRACT_AT(ctx, l->kind == WLX_LAYOUT_GRID, WLX_ERR_BAD_ARGUMENT,
+            "wlx_grid_cell is only valid inside a wlx_grid_begin block", file, line))
         return;
 
     // -1 means "use cursor position for that axis"
@@ -8972,15 +8975,17 @@ WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Styl
     size_t cs = (opt.col_span == 0) ? 1 : opt.col_span;
     // A span past WLX_MAX_SLOT_COUNT (a negative int converted) is reported
     // and takes one cell, before the sums below can wrap.
-    if (!WLX_CONTRACT(ctx, rs <= WLX_MAX_SLOT_COUNT && cs <= WLX_MAX_SLOT_COUNT,
+    if (!WLX_CONTRACT_AT(ctx, rs <= WLX_MAX_SLOT_COUNT && cs <= WLX_MAX_SLOT_COUNT,
             WLX_ERR_BAD_ARGUMENT,
-            "wlx_grid_cell: a span exceeds WLX_MAX_SLOT_COUNT (a negative int?); using 1")) {
+            "wlx_grid_cell: a span exceeds WLX_MAX_SLOT_COUNT (a negative int?); using 1",
+            file, line)) {
         if (rs > WLX_MAX_SLOT_COUNT) rs = 1;
         if (cs > WLX_MAX_SLOT_COUNT) cs = 1;
     }
     // An out-of-range placement is reported and ignored: the cursor stands.
-    if (!WLX_CONTRACT(ctx, r + rs <= l->grid.rows && c + cs <= l->grid.cols, WLX_ERR_GRID_BOUNDS,
-            "wlx_grid_cell: the cell or span lies outside the grid; the placement is ignored"))
+    if (!WLX_CONTRACT_AT(ctx, r + rs <= l->grid.rows && c + cs <= l->grid.cols, WLX_ERR_GRID_BOUNDS,
+            "wlx_grid_cell: the cell or span lies outside the grid; the placement is ignored",
+            file, line))
         return;
 
     l->grid.cell_set      = true;
@@ -8996,30 +9001,30 @@ WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Styl
     }
 }
 
-WLXDEF void wlx_slot_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt) {
-    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_slot_style", "wlx_slot_style_opt_defaults", NULL, 0);
+WLXDEF void wlx_slot_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt, const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_slot_style", "wlx_slot_style_opt_defaults", file, line);
     assert(ctx != NULL);
-    if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
-            "wlx_slot_style called with no layout open"))
+    if (!WLX_CONTRACT_AT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
+            "wlx_slot_style called with no layout open", file, line))
         return;
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-    if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_LINEAR, WLX_ERR_BAD_ARGUMENT,
-            "wlx_slot_style is only valid inside a linear layout"))
+    if (!WLX_CONTRACT_AT(ctx, l->kind == WLX_LAYOUT_LINEAR, WLX_ERR_BAD_ARGUMENT,
+            "wlx_slot_style is only valid inside a linear layout", file, line))
         return;
     l->linear.next_slot_back_color   = opt.back_color;
     l->linear.next_slot_border_color = opt.border_color;
     l->linear.next_slot_border_width = opt.border_width;
 }
 
-WLXDEF void wlx_grid_cell_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt) {
-    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_cell_style", "wlx_slot_style_opt_defaults", NULL, 0);
+WLXDEF void wlx_grid_cell_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt, const char *file, int line) {
+    WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_cell_style", "wlx_slot_style_opt_defaults", file, line);
     assert(ctx != NULL);
-    if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
-            "wlx_grid_cell_style called with no layout open"))
+    if (!WLX_CONTRACT_AT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
+            "wlx_grid_cell_style called with no layout open", file, line))
         return;
     WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
-    if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_GRID, WLX_ERR_BAD_ARGUMENT,
-            "wlx_grid_cell_style is only valid inside a grid layout"))
+    if (!WLX_CONTRACT_AT(ctx, l->kind == WLX_LAYOUT_GRID, WLX_ERR_BAD_ARGUMENT,
+            "wlx_grid_cell_style is only valid inside a grid layout", file, line))
         return;
     l->grid.next_cell_back_color   = opt.back_color;
     l->grid.next_cell_border_color = opt.border_color;
@@ -17826,7 +17831,7 @@ static inline void wlx_list_clipper_spacer(WLX_Context *ctx, float px) {
 }
 
 WLXDEF WLX_List_Clipper wlx_list_clipper_begin_impl(WLX_Context *ctx, int item_count,
-        float row_height, WLX_List_Clipper_Opt opt) {
+        float row_height, WLX_List_Clipper_Opt opt, const char *file, int line) {
     // No from_defaults check: every default of WLX_List_Clipper_Opt is
     // zero, so a zero-initialised struct is the defaults.
     assert(ctx != NULL);
@@ -17869,8 +17874,10 @@ WLXDEF WLX_List_Clipper wlx_list_clipper_begin_impl(WLX_Context *ctx, int item_c
     if (after < 0.0f) after = 0.0f;
 
     // Content layout the visible rows fill; default slot height is row_height so
-    // fixed-pitch callers need no per-row sizing call.
-    wlx_layout_begin_auto(ctx, WLX_VERT, row_height, .id = opt.id);
+    // fixed-pitch callers need no per-row sizing call. It records the
+    // caller's site, so its reports name the clipper's line.
+    wlx_layout_begin_auto_impl(ctx, WLX_VERT, row_height, wlx_default_layout_opt(.id = opt.id),
+        file, line);
     wlx_list_clipper_spacer(ctx, before);
 
     WLX_List_Clipper clip = {

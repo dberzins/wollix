@@ -158,14 +158,15 @@ values differ). Default
   `0`; `WLX_State.data` is valid through the frame that returned it, so a
   pointer kept across frames is outside the contract (under an address
   sanitizer recycling is off and such a use is reported).
-- **The `_auto` begin entries record a call site.** `wlx_layout_begin_auto_impl`,
-  `wlx_grid_begin_auto_impl` and `wlx_grid_begin_auto_tile_impl` take a
-  trailing `const char *file, int line` like every other begin, so an
-  auto-sized layout or grid can name itself in a contract-error report.
-  The `wlx_layout_begin_auto`, `wlx_grid_begin_auto` and
-  `wlx_grid_begin_auto_tile` macros pass `__FILE__, __LINE__`; macro callers
-  are unaffected. Migration: struct-form (C++) callers of those three
-  entries append `__FILE__, __LINE__`.
+- **The `_auto` begins, the slot-style entries and the list clipper record a
+  call site.** `wlx_layout_begin_auto_impl`, `wlx_grid_begin_auto_impl`,
+  `wlx_grid_begin_auto_tile_impl`, `wlx_grid_cell_impl`,
+  `wlx_slot_style_impl`, `wlx_grid_cell_style_impl` and
+  `wlx_list_clipper_begin_impl` take a trailing `const char *file, int
+  line` like every other option-taking entry, so their contract-error
+  reports and `WLX_DEBUG` warnings name the caller's line. The macros pass
+  `__FILE__, __LINE__`; macro callers are unaffected. Migration: struct-form
+  (C++) callers of those seven entries append `__FILE__, __LINE__`.
 - **The `wlx_editor` document contract is frozen.** The document is the
   caller's contiguous byte buffer with an explicit length, permanently: the
   library never owns, copies or re-materialises it, and byte offsets into
@@ -209,9 +210,11 @@ minor.
 8. **Callers without designated initializers** (C++ translation units,
    table-driven builders) take `wlx_<widget>_opt_defaults()`, assign, and
    call the `_impl` function.
-9. **Struct-form `_auto` begins.** Append `__FILE__, __LINE__` to
-   `wlx_layout_begin_auto_impl`, `wlx_grid_begin_auto_impl` and
-   `wlx_grid_begin_auto_tile_impl` calls; macro callers change nothing.
+9. **Struct-form `_auto` begins, slot styles and the list clipper.** Append
+   `__FILE__, __LINE__` to `wlx_layout_begin_auto_impl`,
+   `wlx_grid_begin_auto_impl`, `wlx_grid_begin_auto_tile_impl`,
+   `wlx_grid_cell_impl`, `wlx_slot_style_impl`, `wlx_grid_cell_style_impl`
+   and `wlx_list_clipper_begin_impl` calls; macro callers change nothing.
 10. **Compound `.content_padding = -1`.** On the inputbox, editor, split and
     panel, `-1` meant no inset at v0.8.0; it now means the widget's default
     (10, 10, 4, 2), the same as omitting the field. Write `0` where the
