@@ -279,6 +279,26 @@ TEST(default_handler_wrong_kind_end_closes_the_panel) {
     wlx_context_destroy(&ctx);
 }
 
+// An id still pushed at wlx_end under NDEBUG (and without WLX_DEBUG): one
+// sink line; the next frame starts clean.
+TEST(default_handler_reports_id_pushed_at_end) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_sink_reset();
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_push_id(&ctx, 3);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, test_sink_lines);
+    ASSERT_TRUE(strstr(test_sink_buf, "wollix error:") != NULL);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    ASSERT_EQ_INT(0, (int)ctx.arena.id_stack.count);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, test_sink_lines);
+    wlx_context_destroy(&ctx);
+}
+
 TEST(default_sink_prints_once_per_site) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
@@ -448,6 +468,7 @@ SUITE(hard_assert) {
     RUN_TEST(hard_assert_fires_on_backend_contract_mismatch);
     RUN_TEST(default_handler_returns_under_ndebug);
     RUN_TEST(default_handler_wrong_kind_end_closes_the_panel);
+    RUN_TEST(default_handler_reports_id_pushed_at_end);
     RUN_TEST(default_sink_prints_once_per_site);
     RUN_TEST(default_sink_names_the_open_layout);
     RUN_TEST(default_sink_suppresses_after_table_full);

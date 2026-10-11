@@ -317,7 +317,11 @@ minor.
   the way API_REFERENCE "Error Reporting" tables: a zero-size rect at the
   layout's far edge for an overrun (the child contributes nothing to
   CONTENT measurement), an ignored placement for a grid cell outside the
-  grid, a return for an unmatched end or pop, the root rect for a widget
+  grid, a return for an unmatched end or pop, each container closed with
+  its own end for an end of the wrong kind (a layout end on a scroll panel
+  or an overlay, a scroll-panel or overlay end over a container still open
+  inside it), a report at `wlx_end` for an id still pushed (every build;
+  it was a `WLX_DEBUG` assert), the root rect for a widget
   with no layout open, 1 for a bad count, 1 px for a bad size, an inert
   widget for a NULL pointer. Under `NDEBUG` these used to index out of
   bounds without a word; a slot overrun's write past a CONTENT-tracked
@@ -327,6 +331,8 @@ minor.
   without `NDEBUG`, so debug builds still stop at the site. Every layout
   records its begin site; a report names the widget's line and the
   layout's begin line. The header's ASSERTION POLICY gains the third tier.
+  `WLX_Layout.is_overlay_root` is replaced by `owner` (`WLX_Layout_Owner`),
+  the tag the ends check.
 - **`wlx_state_prune`.** Reclaims persistent state not requested for a
   caller-chosen number of frames (at least one, so the current frame's
   widgets always survive) and returns the count; the deterministic release

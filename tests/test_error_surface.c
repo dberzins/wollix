@@ -896,6 +896,43 @@ TEST(overlay_end_without_overlay_returns) {
     wlx_context_destroy(&ctx);
 }
 
+// --- An id still pushed at wlx_end: reported in every build, once the
+// layouts balanced (a container left open with a scope id reports once) ---
+
+TEST(id_pushed_at_end_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_push_id(&ctx, 7);                       // never popped
+    (void)wlx_button(&ctx, "b");
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(es_last.layout_file == NULL);
+    // The next frame starts with an empty id stack and reports nothing.
+    test_frame_begin(&ctx, 0, 0, false, false);
+    ASSERT_EQ_INT(0, (int)ctx.arena.id_stack.count);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(open_layout_with_scope_id_reports_once) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .id = "scope");   // left open with its scope
+    wlx_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.layout_file));
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(error_surface) {
     RUN_TEST(error_handler_receives_record);
     RUN_TEST(error_handler_null_restores_default);
@@ -931,4 +968,6 @@ SUITE(error_surface) {
     RUN_TEST(scroll_panel_end_over_overlay_closes_both);
     RUN_TEST(overlay_end_over_child_closes_both);
     RUN_TEST(overlay_end_without_overlay_returns);
+    RUN_TEST(id_pushed_at_end_reports);
+    RUN_TEST(open_layout_with_scope_id_reports_once);
 }

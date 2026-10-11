@@ -798,6 +798,21 @@ typedef enum {
 } WLX_Layout_Kind;
 ```
 
+### `WLX_Layout_Owner`
+
+```c
+typedef enum {
+    WLX_OWNER_LAYOUT = 0,     // closed by wlx_layout_end (every begin and constructor)
+    WLX_OWNER_OVERLAY,        // an overlay root: closed by wlx_overlay_end
+    WLX_OWNER_SCROLL_PANEL,   // a scroll panel's content wrapper: closed by wlx_scroll_panel_end
+} WLX_Layout_Owner;
+```
+
+`WLX_Layout.owner` records which end closes a layout record. The ends check
+it: an end of the wrong kind is a contract error, reported once and repaired
+by closing each container with its own end (see
+[Error Reporting](#error-reporting)).
+
 ### `WLX_Image_Scale`
 
 ```c
@@ -1496,8 +1511,9 @@ wlx_context_destroy(&ctx);             // frees internal buffers
 ## Error Reporting
 
 A caller-contract violation (more children than slots, a grid cell outside
-the grid, an end without a begin, a widget with no layout open, a count of
-zero, a required pointer that is NULL) is reported in **every build**, and
+the grid, an end without a begin or of the wrong kind, a widget with no layout
+open, a count of zero, a required pointer that is NULL) is reported in
+**every build**, and
 the call then degrades the way its entry documents. Nothing here compiles
 out under `NDEBUG`. Library invariants stay plain `assert()`s; memory guards
 stay `WLX_HARD_ASSERT` (release-live and fatal, printing through
@@ -1510,7 +1526,8 @@ typedef enum {
     WLX_ERR_NONE = 0,
     WLX_ERR_SLOT_OVERRUN,     // more children than slots in a linear layout
     WLX_ERR_GRID_BOUNDS,      // cell or span outside rows x cols
-    WLX_ERR_UNBALANCED_END,   // end or pop without a matching begin or push
+    WLX_ERR_UNBALANCED_END,   // end or pop without a matching begin or push, an end of
+                              // the wrong kind, or an id still pushed at wlx_end
     WLX_ERR_NO_LAYOUT,        // widget placed with no layout open
     WLX_ERR_BAD_ARGUMENT,     // count 0 or negative, px <= 0, required NULL
     WLX_ERR_LIMIT,            // a documented limit exceeded (WLX_CONTENT_SLOTS_MAX ...)
@@ -1583,7 +1600,11 @@ sites the default prints one suppression line and stays silent.
 | `wlx_grid_cell` outside the grid | `WLX_ERR_GRID_BOUNDS` | The placement is ignored; the cursor stands |
 | A grid cell fetched outside the grid (explicit, or auto-advance past a fixed grid's last row) | `WLX_ERR_GRID_BOUNDS` | Zero-size rect at the grid's far edge; cursor unchanged; no contribution |
 | `wlx_layout_end` / `wlx_grid_end`, `wlx_scroll_panel_end`, `wlx_pop_id`, `wlx_pop_opacity` with nothing to pop | `WLX_ERR_UNBALANCED_END` | Returns; no stack is touched |
+| `wlx_layout_end` / `wlx_grid_end` / `wlx_panel_end` on a scroll panel or overlay | `WLX_ERR_UNBALANCED_END` | Reported once, naming that container's begin; it is closed with its own end, so one container closes |
+| `wlx_scroll_panel_end` / `wlx_overlay_end` with a container opened inside it still open | `WLX_ERR_UNBALANCED_END` | Reported once, naming the open container's begin; the containers inside are closed with their own ends, then the panel or overlay |
+| `wlx_overlay_end` with no overlay open | `WLX_ERR_UNBALANCED_END` | Returns; nothing is closed (with no layout open at all it stays a hard assert) |
 | A layout still open at `wlx_end` | `WLX_ERR_UNBALANCED_END` | Reported once, naming the innermost open begin; the frame finishes and the next `wlx_begin` resets the pool |
+| An id still pushed at `wlx_end` (once every layout is closed) | `WLX_ERR_UNBALANCED_END` | Reported once; the next `wlx_begin` resets the id stack |
 | A widget with no layout open | `WLX_ERR_NO_LAYOUT` | The widget takes the root rect (`ctx->rect`), as a root container does |
 | `wlx_layout_auto_slot`, `wlx_grid_auto_row_px`, `wlx_grid_cell`, `wlx_slot_style`, `wlx_grid_cell_style` with no layout open, or inside a layout of the wrong kind | `WLX_ERR_NO_LAYOUT` / `WLX_ERR_BAD_ARGUMENT` | Returns |
 | A slot, row or column count of `0` or above `WLX_MAX_SLOT_COUNT` (a negative `int`, converted) | `WLX_ERR_BAD_ARGUMENT` | Clamped to 1 |
@@ -1960,7 +1981,8 @@ Pop the current layout from the stack. Every `wlx_layout_begin` / `wlx_layout_be
 / `wlx_grid_begin` / `wlx_grid_begin_auto` must have a matching `wlx_layout_end` (or
 `wlx_grid_end`). An end with nothing to pop is a contract error: reported
 (see [Error Reporting](#error-reporting)) and returned from without
-touching the stack.
+touching the stack. On a scroll panel or an overlay it is reported too, and
+that container is closed with its own end (`WLX_Layout_Owner`).
 
 ---
 
@@ -2384,7 +2406,8 @@ Low-level escape hatch that pushes an arbitrary integer onto the ID stack.
 Pushing `0` is a real push, and the same values pushed in a different order
 or at a different depth give a different stack. A `wlx_pop_id` with nothing
 to pop is a contract error: reported (see
-[Error Reporting](#error-reporting)) and returned from.
+[Error Reporting](#error-reporting)) and returned from, and so is an id still
+pushed when `wlx_end` runs.
 Prefer setting `.id` on container option structs (Scope ID) for
 container-body disambiguation. Use `wlx_push_id`/`wlx_pop_id` directly only
 for loop-level or reusable-function-level disambiguation that container `.id`

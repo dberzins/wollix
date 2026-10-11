@@ -263,7 +263,8 @@
  *
  * WLX_CONTRACT / WLX_CONTRACT_AT diagnose caller-contract violations (more
  *     children than slots, a grid cell outside the grid, an end without a
- *     begin, a widget with no layout open, a count of zero, a required NULL)
+ *     begin or of the wrong kind, a widget with no layout open, a count of
+ *     zero, a required NULL)
  *     in every build: the violation is reported through the context's error
  *     handler (wlx_set_error_handler; the default prints once per site via
  *     WLX_ERROR_PRINT and aborts only outside NDEBUG) and the call then
@@ -2224,7 +2225,8 @@ typedef enum {
     WLX_ERR_NONE = 0,
     WLX_ERR_SLOT_OVERRUN,     // more children than slots in a linear layout
     WLX_ERR_GRID_BOUNDS,      // cell or span outside rows x cols
-    WLX_ERR_UNBALANCED_END,   // end or pop without a matching begin or push
+    WLX_ERR_UNBALANCED_END,   // end or pop without a matching begin or push, an end of
+                              // the wrong kind, or an id still pushed at wlx_end
     WLX_ERR_NO_LAYOUT,        // widget placed with no layout open
     WLX_ERR_BAD_ARGUMENT,     // count 0 or negative, px <= 0, required NULL
     WLX_ERR_LIMIT,            // a documented limit exceeded (WLX_CONTENT_SLOTS_MAX ...)
@@ -7464,17 +7466,17 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
     // Every begin must have met its end by now; the report names the
     // innermost open layout's begin site. The frame still finishes, and the
     // next wlx_begin resets the pool.
-    (void)WLX_CONTRACT(ctx, ctx->arena.layouts.count == 0, WLX_ERR_UNBALANCED_END,
-        "wlx_end with a layout still open: a begin is missing its end");
-
-#ifdef WLX_DEBUG
-    // Scope push/pop balance: every wlx_scope_push (via frame helpers) and
-    // every direct wlx_push_id must be matched before frame end. The arena
-    // pool reset at wlx_begin clears id_stack to 0; if we exit non-zero,
-    // some scope or push_id is unpaired.
-    assert(ctx->arena.id_stack.count == 0
-        && "wlx_end: unbalanced wlx_push_id / wlx_scope_push (missing pop)");
-#endif
+    if (WLX_CONTRACT(ctx, ctx->arena.layouts.count == 0, WLX_ERR_UNBALANCED_END,
+            "wlx_end with a layout still open: a begin is missing its end")) {
+        // An open scroll panel always has its wrapper on the layout stack.
+        assert(ctx->arena.scroll_panels.count == 0);
+        // Every wlx_push_id (and every scope id a begin pushed) must be
+        // popped. Checked only once the layouts balanced, so a container
+        // left open with a scope id reports once; the next wlx_begin resets
+        // the stack.
+        (void)WLX_CONTRACT(ctx, ctx->arena.id_stack.count == 0, WLX_ERR_UNBALANCED_END,
+            "wlx_end with an id still pushed: a wlx_push_id is missing its wlx_pop_id");
+    }
 
     if (ctx->immediate_mode || ctx->arena.commands.count == 0) {
         wlx_focus_ring_draw(ctx);
