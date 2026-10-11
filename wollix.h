@@ -67,11 +67,19 @@
  * which compilers can warn about. Build with the matching suppression:
  *
  *   clang:  -Wno-initializer-overrides   (clang warns even without -Wextra)
- *   gcc:    -Wno-override-init           (needed together with -Wextra)
+ *   gcc:    -Wno-override-init -Wno-override-init-side-effects
+ *           (the first is needed with -Wextra; the second is on by default
+ *           and fires when a default that is itself a literal, a split
+ *           size, is overridden)
+ *   MSVC:   /std:c11 /Zc:preprocessor   (no override warning; the
+ *           conforming preprocessor is required)
+ * The CMake target wollix::wollix carries all of these.
  *
  * The header also relies on two widely supported C11 extensions: empty
  * __VA_ARGS__ in the option macros (standard C23) and __FUNCTION__ in the
- * allocation wrappers. GCC and Clang are the supported compilers.
+ * allocation wrappers. GCC, Clang (including Apple clang) and MSVC (Visual
+ * Studio 2019 16.8 or later) are the supported compilers; CI tests all
+ * three.
  *
  * ---------------------------------------------------------------------------
  * IMPORTANT COMPILE-TIME MACROS (define BEFORE including wollix.h)
@@ -106,6 +114,10 @@
  * LIMITS, DEFAULTS, AND HOOK MACROS
  * ---------------------------------------------------------------------------
  *
+ * WLX_CONTENT_SLOTS_MAX, WLX_SCISSOR_STACK_MAX and WLX_ERROR_SITES_MAX size
+ * arrays inside public structs: every translation unit that includes
+ * wollix.h must see the same value.
+ *
  * WLX_MAX_SLOT_COUNT  (default 100000)
  *     Upper-bound sanity check for slot/row/column counts.
  *
@@ -113,8 +125,8 @@
  *     Maximum number of WLX_SIZE_CONTENT slots tracked per layout frame.
  *
  * WLX_OFFSET_STACK_LIMIT  (default 64)
- *     Stack scratch limit for min/max redistribution; larger layouts fall
- *     back to heap-backed scratch buffers.
+ *     Stack scratch limit for min/max redistribution; larger layouts take
+ *     the frame scratch arena (the heap only without a context).
  *
  * WLX_DA_INIT_CAP  (default 256)
  *     Initial capacity for internal dynamic arrays.
@@ -144,7 +156,8 @@
  *     paths; longer spans are heap-allocated.
  *
  * WLX_TEXT_RUN_MAX_UNITS  (default 512)
- *     Maximum text units (codepoints or fallback bytes) processed in a single text-layout run.
+ *     Maximum text units (grapheme clusters; a malformed byte is its own
+ *     unit) processed in a single text-layout run.
  *
  * WLX_TEXT_RUN_MAX_LINES  (default 128)
  *     Maximum visual lines produced by a single text-layout run.
@@ -167,6 +180,10 @@
  *     How far (bytes) a no-wrap re-entry origin scans backward to prefer
  *     the boundary just after a space over an arbitrary unit boundary.
  *
+ * WLX_EDITOR_OVERSCAN_LINES  (default 2; wollix_editor.h)
+ *     Line records the editor builds past the visible band, so a line
+ *     partly revealed at the bottom edge is already positioned.
+ *
  * WLX_TEXT_UNDO_ENTRIES  (default 512)  /  WLX_TEXT_UNDO_BYTES  (default 262144)
  *     Undo journal bounds per text widget (inputbox, textarea, editor) and
  *     per direction: retained undo entries and bytes of removed text. Whole
@@ -178,6 +195,31 @@
  *     Maximum text units filled per WLX_Backend.measure_text_advances
  *     call. Consecutive chunks splice by adding the running base advance.
  *
+ * WLX_CONTENT_SCALE_MIN  (default 0.25f)  /  WLX_CONTENT_SCALE_MAX  (default 8.0f)
+ *     Accepted WLX_Backend.get_content_scale range (device pixels per
+ *     unit); outside it wlx_begin makes a contract report and the frame
+ *     runs at 1.0.
+ *
+ * WLX_ERROR_PRINT(msg)  (default: fputs to stderr plus a newline)
+ *     Sink for every diagnostic line (unhandled contract errors, hard
+ *     asserts, WLX_UNREACHABLE); define it where stderr is unusable.
+ *
+ * WLX_ERROR_SITES_MAX  (default 32)
+ *     Distinct contract-error sites the default handler prints before it
+ *     goes quiet; installed handlers and wlx_error_count are not throttled.
+ *
+ * WLX_STATE_EVICT_THRESHOLD  (default 4096)
+ *     Persistent-state entries above which wlx_begin sweeps stale state;
+ *     0 disables the automatic sweep (wlx_state_prune still works).
+ *
+ * WLX_STATE_MIN_AGE  (default 300)
+ *     Sweep age in frames: state requested at least once every N frames
+ *     survives. Must be at least 1.
+ *
+ * WLX_STATE_RECYCLE  (default 1; 0 under an address sanitizer)
+ *     1 keeps reclaimed state blocks on a free list and reuses them zeroed;
+ *     0 frees them, so a sanitizer reports a use after reclamation.
+ *
  * WLX_STYLE_ROW_HEIGHT / WLX_STYLE_BUTTON_HEIGHT / WLX_STYLE_INPUT_HEIGHT
  * WLX_STYLE_HEADING_FONT_SIZE / WLX_STYLE_BORDER_WIDTH
  * WLX_STYLE_ROUNDNESS / WLX_STYLE_CONTENT_PADDING
@@ -187,6 +229,13 @@
  * wlx_alloc(size)  /  wlx_calloc(count, size)  /  wlx_realloc(ptr, size)  /  wlx_free(ptr)
  *     Internal allocation macros used by the implementation. They currently
  *     forward to malloc/calloc/realloc/free.
+ *
+ * WLX_TEXT_SPAN_ASSERT(cond)  (default: assert under WLX_DEBUG, else no-op)
+ *     Checks a span-colour callback answer that does not advance or points
+ *     past the document; the answer is clamped either way.
+ *
+ * WLX_IMAGE_ASSERT_TEXTURE_VALID(tex)  (default: assert width, height > 0)
+ *     wlx_image's unloaded-texture check; the draw is skipped either way.
  *
  * ---------------------------------------------------------------------------
  * DEBUG MACROS
@@ -255,8 +304,8 @@
 
 // The public half is a C surface with C linkage. A C++ translation unit
 // includes it as-is and links against the implementation compiled as C11
-// in one C translation unit; see the "Calling from C++" notes below and
-// wlx_<x>_opt_defaults().
+// in one C translation unit; see "Calling from C++" in docs/API_REFERENCE.md
+// and wlx_<x>_opt_defaults().
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -385,7 +434,8 @@ typedef struct {
 #endif
 
 // Stack-allocated working array limit for min/max redistribution in wlx_compute_offsets.
-// Counts above this fall back to heap allocation. Overridable before include.
+// Counts above this take the frame scratch arena (the heap only when there is
+// no context). Overridable before include.
 #ifndef WLX_OFFSET_STACK_LIMIT
 #define WLX_OFFSET_STACK_LIMIT 64
 #endif
@@ -9779,8 +9829,9 @@ static inline size_t wlx_utf8_word_next(const char *s, size_t byte_pos, size_t l
 #endif
 
 // Per-record unit budget for truncate-and-continue line builds. Each
-// non-wrap record measures at most this many text units (codepoints or
-// fallback bytes); in wrap mode the budget is shared per hard line
+// non-wrap record measures at most this many text units (grapheme
+// clusters; a malformed byte is its own unit); in wrap mode the budget is
+// shared per hard line
 // across its wrapped rows. Geometry past the cap freezes per line and
 // the invisible tail is skipped to the next hard line start without
 // measuring.

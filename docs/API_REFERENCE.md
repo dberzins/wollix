@@ -4116,7 +4116,8 @@ wlx_layout_begin_impl(ctx, 2, WLX_VERT, lo, __FILE__, __LINE__);
 ```
 
 **Build.** The C translation unit needs the override-warning suppression
-(`-Wno-initializer-overrides` on clang, `-Wno-override-init` on gcc) and,
+(`-Wno-initializer-overrides` on clang, `-Wno-override-init` and
+`-Wno-override-init-side-effects` on gcc) and,
 on MSVC, `/std:c11 /Zc:preprocessor` (Visual Studio 2019 16.8 or later).
 The C++ translation units need nothing beyond the include path (and no
 `-pedantic-errors`, for the anonymous structs above). `make test` builds
