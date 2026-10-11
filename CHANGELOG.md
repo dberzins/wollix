@@ -321,7 +321,9 @@ minor.
   its own end for an end of the wrong kind (a layout end on a scroll panel
   or an overlay, a scroll-panel or overlay end over a container still open
   inside it), a report at `wlx_end` for an id still pushed (every build;
-  it was a `WLX_DEBUG` assert), the root rect for a widget
+  it was a `WLX_DEBUG` assert), the clip a still-open layout or scroll
+  panel holds released at `wlx_end` (flat replay and immediate mode left
+  the backend scissor on), the root rect for a widget
   with no layout open, 1 for a bad count, 1 px for a bad size, an inert
   widget for a NULL pointer. Under `NDEBUG` these used to index out of
   bounds without a word; a slot overrun's write past a CONTENT-tracked

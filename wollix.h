@@ -7478,6 +7478,12 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
             "wlx_end with an id still pushed: a wlx_push_id is missing its wlx_pop_id");
     }
 
+    // Immediate mode issued its scissors directly: a clip a still-open
+    // layout or scroll panel holds (already reported) is released here.
+    if (ctx->immediate_mode && ctx->arena.layouts.count > 0
+            && wlx_enclosing_clip(ctx, WLX_CLIP_DRAW, NULL)) {
+        wlx_end_scissor(ctx);
+    }
     if (ctx->immediate_mode || ctx->arena.commands.count == 0) {
         wlx_focus_ring_draw(ctx);
         WLX_PERF_HOOK(frame_publish, ctx);
@@ -7535,10 +7541,18 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
     // another layer's scope.
     WLX_PERF_HOOK(dispatch_begin, ctx);
     if (max_layer == 0) {
+        // The backend scissor is one state: the last BEGIN or END replayed
+        // decides whether it is on.
+        bool scissor_on = false;
         for (size_t i = 0; i < ctx->arena.commands.count; i++) {
-            wlx_replay_dispatch_cmd(ctx, &wlx_pool_commands(ctx)[i],
-                                    cmd_dx[i], cmd_dy[i]);
+            WLX_Cmd *c = &wlx_pool_commands(ctx)[i];
+            if (c->type == WLX_CMD_SCISSOR_BEGIN)    scissor_on = true;
+            else if (c->type == WLX_CMD_SCISSOR_END) scissor_on = false;
+            wlx_replay_dispatch_cmd(ctx, c, cmd_dx[i], cmd_dy[i]);
         }
+        // A clip still open at wlx_end (a layout or scroll panel the frame
+        // left open, already reported) is released, as the layered passes do.
+        if (scissor_on && ctx->backend.end_scissor) ctx->backend.end_scissor(ctx->backend.user);
     } else {
         memset(cmd_layer, 0, cmd_count);
         for (size_t i = 0; i < ctx->arena.cmd_ranges.count; i++) {

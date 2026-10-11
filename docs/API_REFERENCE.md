@@ -1603,7 +1603,7 @@ sites the default prints one suppression line and stays silent.
 | `wlx_layout_end` / `wlx_grid_end` / `wlx_panel_end` on a scroll panel or overlay | `WLX_ERR_UNBALANCED_END` | Reported once, naming that container's begin; it is closed with its own end, so one container closes |
 | `wlx_scroll_panel_end` / `wlx_overlay_end` with a container opened inside it still open | `WLX_ERR_UNBALANCED_END` | Reported once, naming the open container's begin; the containers inside are closed with their own ends, then the panel or overlay |
 | `wlx_overlay_end` with no overlay open | `WLX_ERR_UNBALANCED_END` | Returns; nothing is closed (with no layout open at all it stays a hard assert) |
-| A layout still open at `wlx_end` | `WLX_ERR_UNBALANCED_END` | Reported once, naming the innermost open begin; the frame finishes and the next `wlx_begin` resets the pool |
+| A layout still open at `wlx_end` | `WLX_ERR_UNBALANCED_END` | Reported once, naming the innermost open begin; a clip it (or a scroll panel) holds is released, the frame finishes, and the next `wlx_begin` resets the pool |
 | An id still pushed at `wlx_end` (once every layout is closed) | `WLX_ERR_UNBALANCED_END` | Reported once; the next `wlx_begin` resets the id stack |
 | A widget with no layout open | `WLX_ERR_NO_LAYOUT` | The widget takes the root rect (`ctx->rect`), as a root container does |
 | `wlx_layout_auto_slot`, `wlx_grid_auto_row_px`, `wlx_grid_cell`, `wlx_slot_style`, `wlx_grid_cell_style` with no layout open, or inside a layout of the wrong kind | `WLX_ERR_NO_LAYOUT` / `WLX_ERR_BAD_ARGUMENT` | Returns |

@@ -431,8 +431,77 @@ TEST(layout_auto_clip_gates_hover) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// A clip left open at wlx_end (its layout or scroll panel already reported)
+// is released, in flat replay and in immediate mode, as the layered passes do
+// ============================================================================
+
+static int _lc_begins, _lc_ends, _lc_reports;
+static void _lc_count_begin(WLX_Rect r, void *user) { (void)r; (void)user; _lc_begins++; }
+static void _lc_count_end(void *user) { (void)user; _lc_ends++; }
+static void _lc_capture(const WLX_Error *e, void *user) { (void)e; (void)user; _lc_reports++; }
+
+static void _lc_scissor_ctx(WLX_Context *ctx) {
+    test_ctx_init(ctx, 400, 300);
+    ctx->backend.begin_scissor = _lc_count_begin;
+    ctx->backend.end_scissor = _lc_count_end;
+    wlx_set_error_handler(ctx, _lc_capture, NULL);
+    _lc_begins = _lc_ends = _lc_reports = 0;
+}
+
+TEST(end_releases_clip_left_open) {
+    for (int immediate = 0; immediate < 2; immediate++) {
+        WLX_Context ctx;
+        _lc_scissor_ctx(&ctx);
+        test_frame_begin(&ctx, 0, 0, false, false);
+        ctx.immediate_mode = immediate == 1;
+        wlx_layout_begin(&ctx, 1, WLX_VERT, .clip = true);   // left open
+        (void)wlx_button(&ctx, "b");
+        wlx_end(&ctx);
+        ASSERT_EQ_INT(1, _lc_reports);
+        ASSERT_EQ_INT(1, _lc_begins);
+        ASSERT_EQ_INT(1, _lc_ends);
+        wlx_context_destroy(&ctx);
+    }
+}
+
+TEST(end_releases_scroll_panel_clip_left_open) {
+    WLX_Context ctx;
+    _lc_scissor_ctx(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_scroll_panel_begin(&ctx, 600);                    // left open with its layout
+    (void)wlx_button(&ctx, "b");
+    wlx_end(&ctx);
+    ASSERT_EQ_INT(1, _lc_reports);
+    ASSERT_TRUE(_lc_begins > 0);
+    ASSERT_EQ_INT(_lc_begins, _lc_ends);
+    wlx_context_destroy(&ctx);
+}
+
+// Pin: balanced nested clips replay unchanged (the inner end re-arms the
+// outer clip, which its own end releases), with nothing added at wlx_end.
+TEST(end_leaves_balanced_nested_clips_alone) {
+    WLX_Context ctx;
+    _lc_scissor_ctx(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .clip = true);
+        wlx_layout_begin(&ctx, 1, WLX_VERT, .clip = true);
+            (void)wlx_button(&ctx, "b");
+        wlx_layout_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(0, _lc_reports);
+    ASSERT_EQ_INT(3, _lc_begins);
+    ASSERT_EQ_INT(2, _lc_ends);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(layout_clip) {
     RUN_TEST(layout_clip_emits_scissor_on_content_rect);
+    RUN_TEST(end_releases_clip_left_open);
+    RUN_TEST(end_releases_scroll_panel_clip_left_open);
+    RUN_TEST(end_leaves_balanced_nested_clips_alone);
     RUN_TEST(layout_no_clip_emits_no_scissor);
     RUN_TEST(layout_clip_nested_intersects_scroll_panel);
     RUN_TEST(panel_clip_parity_after_refactor);
