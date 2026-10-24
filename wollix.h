@@ -14417,17 +14417,19 @@ static WLX_Text_Undo_Journal *wlx_text_undo_get(WLX_Context *ctx, WLX_Id id,
     return j;
 }
 
-// Make room in a stack for one more entry carrying need_bytes of removed
-// text. Whole oldest undo steps are evicted while either cap is exceeded
+// Make room in a stack for need_bytes more of removed text and, when
+// need_entry is set, one more entry (an in-place extension of the newest
+// entry pushes none, so the entry cap neither evicts nor grows for it).
+// Whole oldest undo steps are evicted while either cap is exceeded
 // and a step older than the one being recorded exists; once only the
 // current step remains, the arrays grow past the caps for it (a single
 // oversize step is admitted rather than losing the history of the edit a
 // user most wants back). Returns false only on allocation failure.
 static bool wlx_text_undo_make_room(WLX_Text_Undo_Stack *s, size_t need_bytes,
-    uint32_t current_group)
+    uint32_t current_group, bool need_entry)
 {
     while (s->count > 0 && s->entries[0].group != current_group
-        && (s->count >= (size_t)WLX_TEXT_UNDO_ENTRIES
+        && ((need_entry && s->count >= (size_t)WLX_TEXT_UNDO_ENTRIES)
             || s->arena_used + need_bytes > (size_t)WLX_TEXT_UNDO_BYTES)) {
         uint32_t oldest = s->entries[0].group;
         size_t n = 0;
@@ -14444,7 +14446,7 @@ static bool wlx_text_undo_make_room(WLX_Text_Undo_Stack *s, size_t need_bytes,
             for (size_t i = 0; i < s->count; i++) s->entries[i].arena_off -= bytes;
         }
     }
-    if (s->count == s->cap) {
+    if (need_entry && s->count == s->cap) {
         size_t new_cap = s->cap == 0 ? 16 : s->cap * 2;
         if (new_cap > (size_t)WLX_TEXT_UNDO_ENTRIES
             && s->count < (size_t)WLX_TEXT_UNDO_ENTRIES) {
@@ -14570,7 +14572,7 @@ static void wlx_text_undo_record(WLX_Text_Undo_Journal *j, size_t start,
         j->last_was_replay = false;
         if (e != NULL) {
             j->txn_group = e->group;
-            if (!wlx_text_undo_make_room(s, removed_len, e->group)) {
+            if (!wlx_text_undo_make_room(s, removed_len, e->group, false)) {
                 wlx_text_undo_stack_reset(&j->undo);
                 j->alloc_failed = true;
             } else {
@@ -14598,7 +14600,7 @@ static void wlx_text_undo_record(WLX_Text_Undo_Journal *j, size_t start,
         }
         j->txn_group = ++j->next_group;
     }
-    if (!wlx_text_undo_make_room(s, removed_len, j->txn_group)) {
+    if (!wlx_text_undo_make_room(s, removed_len, j->txn_group, true)) {
         wlx_text_undo_stack_reset(&j->undo);
         wlx_text_undo_stack_reset(&j->redo);
         j->alloc_failed = true;

@@ -628,17 +628,19 @@ A value of `WLX_TEXT_UNDO_ENTRIES` between 1 and 7 is a compile-time
 error; at 0 every entry point becomes an inline no-op and the context's
 cache stays empty.
 
-`wlx_text_undo_make_room(stack, need_bytes, current_group)` runs before
-every push and every in-place extension:
+`wlx_text_undo_make_room(stack, need_bytes, current_group, need_entry)`
+runs before every push (`need_entry` true) and every in-place extension
+(false: a coalesced record adds bytes, never an entry):
 
 ```
 while the stack has entries
       and its oldest entry's step is not current_group
-      and (count >= WLX_TEXT_UNDO_ENTRIES or arena_used + need_bytes > WLX_TEXT_UNDO_BYTES):
+      and ((need_entry and count >= WLX_TEXT_UNDO_ENTRIES)
+           or arena_used + need_bytes > WLX_TEXT_UNDO_BYTES):
     evict the oldest step whole: drop its entries, memmove the remaining
     entries and arena bytes down, subtract the freed bytes from every
     surviving arena_off
-grow the entry array if full   (16, doubling, capped at the entry cap;
+grow the entry array if full   (need_entry only; 16, doubling, capped at the entry cap;
                                 past the cap only when the current step alone fills it)
 grow the arena if needed       (256 bytes, doubling, capped at the byte cap;
                                 a need beyond the cap is allocated exactly)
@@ -657,8 +659,9 @@ Consequences:
   destroyed (the same policy as the editor's retained geometry store). An oversize arena stays allocated; on bare WASM, where `free` is
   a no-op, that is the same as every retained store there.
 - **Cost.** An eviction event moves at most the cap's worth of entries
-  and bytes, once per new step while the stack is full, never per
-  coalesced keystroke.
+  and bytes, once per new step while the stack is full. A coalesced
+  keystroke pushes no entry, so the entry cap never evicts for it; only
+  the removed bytes of a Backspace or Delete run can, past the byte cap.
 
 Memory at the default caps, fully grown: about 36 KB of entries plus
 256 KB of arena per direction per widget, allocated only as history
@@ -812,7 +815,7 @@ which are unconditional). "Handler" below means `wlx_text_edit_handle_keys`.
 | `wlx_text_undo_txn_end(j, length)` | close it: `expected_len`, spend `alloc_failed` | handler exit |
 | `wlx_text_undo_set_class(j, cls)` | declare the handler path about to mutate | each mutation path of the handler |
 | `wlx_text_undo_coalesce_target(j, start, removed_len, inserted_len)` | the newest undo entry to extend, or NULL (section 6) | `record` |
-| `wlx_text_undo_make_room(s, need_bytes, current_group)` | eviction and growth (section 8) | `record` |
+| `wlx_text_undo_make_room(s, need_bytes, current_group, need_entry)` | eviction and growth (section 8) | `record` |
 | `wlx_text_undo_record(j, start, removed, removed_len, inserted_len, caret, anchor)` | record one primitive mutation before its memmove (section 4) | both primitives |
 | `wlx_text_undo_note_caret_after(j, caret, anchor, length)` | close the record with the after-pair and the new length | both primitives |
 | `wlx_text_undo_apply(j, redo, st, buffer, buffer_cap, length, span)` | undo or redo the newest step by replay (section 7) | the handler's chord branch |

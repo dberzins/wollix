@@ -399,6 +399,23 @@ TEST(undo_journal_evicts_oldest_steps_at_the_entry_cap) {
     ASSERT_EQ_INT(steps, (int)j->undo.entries[j->undo.count - 1].group);
     ASSERT_EQ_INT(WLX_TEXT_UNDO_ENTRIES / 2, (int)j->undo.arena_used);
     ASSERT_TRUE(tu_stack_consistent(&j->undo));
+
+    // At the cap, a run's first keystroke opens a step and evicts the
+    // oldest; the keystrokes it absorbs push no entry and evict nothing.
+    tu_type(&ctx, buf, sizeof(buf), "a");
+    for (int i = 0; i < 4; i++) tu_type(&ctx, buf, sizeof(buf), "b");
+    ASSERT_EQ_STR(buf, "abbbb");
+    ASSERT_EQ_INT(WLX_TEXT_UNDO_ENTRIES, (int)j->undo.count);
+    ASSERT_EQ_INT(WLX_TEXT_UNDO_ENTRIES, (int)j->undo.cap);
+    ASSERT_EQ_INT(10, (int)j->undo.entries[0].group);
+    ASSERT_EQ_INT(5, (int)j->undo.entries[j->undo.count - 1].inserted_len);
+    // A Backspace run the same way, its bytes growing the newest entry.
+    for (int i = 0; i < 3; i++) tu_key(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_STR(buf, "ab");
+    ASSERT_EQ_INT(WLX_TEXT_UNDO_ENTRIES, (int)j->undo.count);
+    ASSERT_EQ_INT(11, (int)j->undo.entries[0].group);
+    ASSERT_EQ_INT(3, (int)j->undo.entries[j->undo.count - 1].removed_len);
+    ASSERT_TRUE(tu_stack_consistent(&j->undo));
     wlx_context_destroy(&ctx);
 }
 
