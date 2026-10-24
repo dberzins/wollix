@@ -884,7 +884,12 @@ held key use `wlx_is_key_actuated()` (= pressed or repeated).
 A backend does not report a key the platform's input method consumed, one
 that confirms, edits or cancels a composition: it belongs to the
 composition, not to the widget. The web host drops a keydown with
-`isComposing` set or keyCode 229; SDL3 delivers none for such keys.
+`isComposing` set or keyCode 229; SDL3 delivers none for such keys. The
+core does not rely on it: a frame that begins with a composition in a
+text widget is the input method's, so a key reported in it (also on the
+frame the composition commits or is cancelled) neither edits the widget
+nor blurs it, and Tab does not traverse; keys act again from the next
+frame.
 
 **Wheel contract.** Both wheel fields carry *unquantized float detents*:
 `1.0` is one notch of a clicky mouse wheel, and precision trackpads report

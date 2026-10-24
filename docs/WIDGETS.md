@@ -1150,7 +1150,10 @@ one undo step of its own, never merged with a typed run on either side;
 a cancel removes the span and leaves the buffer and the undo history
 exactly as they were. While a span exists the keyboard and the mouse
 belong to the input method: no caret motion, deletion, shortcut or click
-reaches the field until the composition ends. Composing over a live
+reaches the field until the composition ends. The frame it ends on is the
+input method's too: the Enter that confirms or the Escape that cancels
+neither blurs the field nor reaches it as a key, and Tab does not move
+focus; keys act again from the next frame. Composing over a live
 selection deletes the selection first, as its own undo step. Focus
 leaving the field with a span in place keeps the bytes, as platforms do,
 and records the step a commit would have. That holds when focus moves
@@ -1511,8 +1514,9 @@ focus, Escape or click-elsewhere to blur; Enter never blurs).
 Composition input (input methods and dead keys) works as in the inputbox
 ([Composition input](#composition-input)): the string is a tentative span
 in the document at the caret, underlined, wrapped and indexed like any
-bytes, the commit one undo step; while a span exists none of the keys or
-clicks above reach the editor.
+bytes, the commit one undo step; while a span exists, and on the frame
+the composition commits or is cancelled, none of the keys or clicks above
+reach the editor.
 
 Under `.wrap`, UP/DOWN and PageUp/PageDown step **visual rows** with a
 row-relative sticky column, and drag auto-scroll is vertical only; HOME/END

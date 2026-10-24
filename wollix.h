@@ -6988,14 +6988,22 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
     // focused field's own Escape blur runs in its handler). Tab walks
     // the previous frame's focusable candidates on the highest layer
     // that has any, in declaration order (Shift reverses, both ends
-    // wrap), unless the active widget holds Tab for itself (editor).
+    // wrap), unless the active widget holds Tab for itself (editor) or a
+    // composition was held last frame (the frame is the input method's;
+    // wlx_begin has rolled that owner into composing_prev_id).
     if (ctx->input.mouse_clicked) {
         ctx->interaction.focus_id = 0;
     }
     if (wlx_is_key_pressed(ctx, WLX_KEY_ESCAPE) && ctx->interaction.active_id == 0) {
         ctx->interaction.focus_id = 0;
     }
+    // The input method's Tab is no widget's either: a text field that
+    // takes focus by this frame's press must not insert it.
+    if (ctx->composing_prev_id != 0 && wlx_is_key_actuated(ctx, WLX_KEY_TAB)) {
+        ctx->interaction.tab_consumed = true;
+    }
     if (ctx->interaction.arbitrate
+            && ctx->composing_prev_id == 0
             && wlx_is_key_actuated(ctx, WLX_KEY_TAB)
             && !(ctx->interaction.active_id != 0 && ctx->interaction.active_consumes_tab)) {
         // Start from the keyboard-focused widget, else from a mouse-focused
@@ -9266,14 +9274,19 @@ static inline void wlx_interaction_handle_focus(WLX_Context *ctx, WLX_Id id, boo
         }
     }
 
-    if (result->focused && !hold_enter && wlx_is_key_pressed(ctx, WLX_KEY_ENTER)) {
+    // A widget that held a composition last frame does not blur on Enter
+    // or Escape: the frame belongs to the input method, which confirms or
+    // cancels with those keys (the text handler runs no keys on it either).
+    bool composed = ctx->composing_prev_id != 0 && ctx->composing_prev_id == id;
+
+    if (result->focused && !hold_enter && !composed && wlx_is_key_pressed(ctx, WLX_KEY_ENTER)) {
         wlx_interaction_blur(ctx, result);
         // The same Enter press must not also keyboard-activate a widget
         // processed later this frame.
         ctx->interaction.enter_consumed = true;
     }
 
-    if (result->focused && wlx_is_key_pressed(ctx, WLX_KEY_ESCAPE)) {
+    if (result->focused && !composed && wlx_is_key_pressed(ctx, WLX_KEY_ESCAPE)) {
         wlx_interaction_blur(ctx, result);
     }
 
@@ -15010,7 +15023,8 @@ static bool wlx_text_edit_adopt_preedit(WLX_Text_Edit_State *st, char *buffer,
 // column latched. Every mutation records into the undo journal when one
 // is given (NULL keeps no history). A composition string in the input
 // applies as a tentative span (see WLX_Text_Edit_State) and hands the
-// keyboard to the input method: the vocabulary does not run that frame.
+// keyboard to the input method: the vocabulary does not run that frame,
+// nor on the frame the composition ends (one that begins with a span).
 // `id` names the widget for wlx_text_composing and `revision` is the
 // caller's external-mutation counter the span is checked against. Returns
 // true when the text mutated.
@@ -15127,6 +15141,18 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
         return text_changed;
     }
     st->composing = false;
+    if (had_span) {
+        // The frame a composition ends on is the input method's too: the
+        // key that confirmed or cancelled it is not the widget's, and the
+        // vocabulary does not run (the commit, if any, has landed). The
+        // caret is a buffer boundary again.
+        st->cursor_pos = wlx_text_normalize_cursor_offset(buffer, *length, st->cursor_pos);
+        st->selection_anchor = st->cursor_pos;
+        st->cursor_blink_time = 0.0f;
+        st->preferred_x_valid = false;
+        wlx_text_undo_txn_end(undo, *length);
+        return text_changed;
+    }
 
     // SHIFT keeps the anchor in place so caret motion extends the selection;
     // Ctrl or Alt stretches motion and deletes to word granularity (Alt

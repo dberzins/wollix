@@ -957,8 +957,10 @@ the widget is hovered **or** holds the keyboard focus. A widget queried
 with `WLX_INTERACT_FOCUS_HOLD_TAB` (the editor) keeps Tab for itself while
 it is typing-focused - Tab inserts, traversal is skipped - and the user
 leaves it with Escape, then Tab; the Tab that *enters* such a widget never
-also inserts. The ring is keyboard-modal: any pointer press drops it, so
-mouse-driven sessions never see the focus ring.
+also inserts. Traversal is also skipped in a frame that follows one in
+which a text widget held a composition: that Tab is the input method's.
+The ring is keyboard-modal: any pointer press drops it, so mouse-driven
+sessions never see the focus ring.
 
 At `wlx_end`, while `focus_id` is non-zero, the core draws one accent
 outline around the focused widget's recorded rect, on top of every layer

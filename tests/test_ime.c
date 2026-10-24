@@ -277,6 +277,36 @@ static void ime_compose_key(WLX_Context *ctx, char *buf, size_t cap, size_t *len
     test_frame_end(ctx);
 }
 
+// One frame carrying committed text, a composition string and one pressed
+// key with modifiers: the frame a host reports when the key that confirms
+// or cancels a composition reaches it too (mouse at rest).
+static void ime_end_key(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
+                        const char *text_input, const char *preedit,
+                        WLX_Key_Code key, uint32_t mods)
+{
+    WLX_Input_State in;
+    memset(&in, 0, sizeof(in));
+    in.mouse_x = 200;
+    in.mouse_y = 50;
+    if (key != WLX_KEY_NONE) { in.keys_pressed[key] = true; in.keys_down[key] = true; }
+    in.modifiers = mods;
+    if (text_input != NULL) {
+        size_t n = strlen(text_input);
+        if (n >= sizeof(in.text_input)) n = sizeof(in.text_input) - 1;
+        memcpy(in.text_input, text_input, n);
+    }
+    size_t n = strlen(preedit);
+    if (n >= sizeof(in.preedit)) n = sizeof(in.preedit) - 1;
+    memcpy(in.preedit, preedit, n);
+    in.preedit_cursor = -1;
+    in.preedit_sel_len = -1;
+    test_frame_begin_input(ctx, &in);
+    wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+    ime_place_widget(ctx, buf, cap, len);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
 // One frame: mouse, at most one pressed key with modifiers, typed text.
 static void ime_frame(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
                       int mx, int my, bool clicked, WLX_Key_Code key, uint32_t mods,
@@ -1058,6 +1088,17 @@ static void ime_keys_and_mouse_are_off_while_composing_case(Ime_Widget w) {
     ASSERT_EQ_INT(1, (int)ime_undo_count(&ctx));
     ime_compose_key(&ctx, buf, sizeof(buf), &len, "ni", 200, 50, false, WLX_KEY_A, test_command_mod());
     ASSERT_FALSE(wlx_text_edit_has_selection(ime_caret(&ctx)));
+    // Enter and Escape blur a single-line field otherwise (and the blur
+    // would adopt the string).
+    ime_compose_key(&ctx, buf, sizeof(buf), &len, "ni", 200, 50, false, WLX_KEY_ENTER, 0);
+    ASSERT_TRUE(ime_last_focused);
+    ASSERT_TRUE(ime_caret(&ctx)->composing);
+    ASSERT_EQ_STR(buf, "abni");
+    ime_compose_key(&ctx, buf, sizeof(buf), &len, "ni", 200, 50, false, WLX_KEY_ESCAPE, 0);
+    ASSERT_TRUE(ime_last_focused);
+    ASSERT_TRUE(ime_caret(&ctx)->composing);
+    ASSERT_EQ_STR(buf, "abni");
+    ASSERT_EQ_INT(1, (int)ime_undo_count(&ctx));
     // A click at the field's start would place the caret at 0 otherwise.
     ime_compose_key(&ctx, buf, sizeof(buf), &len, "ni", 10, 50, true, WLX_KEY_NONE, 0);
     ASSERT_EQ_INT(4, (int)ime_caret(&ctx)->cursor_pos);
@@ -1243,8 +1284,9 @@ TEST(ime_editor_linear_span_and_index_patch) {
 // One frame over two inputboxes stacked in the 400x100 context (the first
 // in the upper half, the second in the lower), from a staged pointer and
 // composition string (NULL = none).
-static void ime_two_fields(WLX_Context *ctx, char *first, char *second, size_t cap,
-                           int my, bool clicked, const char *preedit)
+static void ime_two_fields_key(WLX_Context *ctx, char *first, char *second, size_t cap,
+                               int my, bool clicked, const char *text_input,
+                               const char *preedit, WLX_Key_Code key)
 {
     WLX_Input_State in;
     memset(&in, 0, sizeof(in));
@@ -1253,6 +1295,12 @@ static void ime_two_fields(WLX_Context *ctx, char *first, char *second, size_t c
     in.mouse_down = clicked;
     in.mouse_clicked = clicked;
     in.mouse_held = clicked;
+    if (key != WLX_KEY_NONE) { in.keys_pressed[key] = true; in.keys_down[key] = true; }
+    if (text_input != NULL) {
+        size_t n = strlen(text_input);
+        if (n >= sizeof(in.text_input)) n = sizeof(in.text_input) - 1;
+        memcpy(in.text_input, text_input, n);
+    }
     if (preedit != NULL) {
         size_t n = strlen(preedit);
         if (n >= sizeof(in.preedit)) n = sizeof(in.preedit) - 1;
@@ -1270,6 +1318,12 @@ static void ime_two_fields(WLX_Context *ctx, char *first, char *second, size_t c
             .border_width = 0), __FILE__, __LINE__);
     wlx_layout_end(ctx);
     test_frame_end(ctx);
+}
+
+static void ime_two_fields(WLX_Context *ctx, char *first, char *second, size_t cap,
+                           int my, bool clicked, const char *preedit)
+{
+    ime_two_fields_key(ctx, first, second, cap, my, clicked, NULL, preedit, WLX_KEY_NONE);
 }
 
 // Compose in the field at from_y, then press the field at to_y while the
@@ -1563,6 +1617,331 @@ TEST(ime_span_edge_joins_neighbour) {
     }
 }
 
+// ============================================================================
+// The frame a composition ends on is the input method's: a frame that
+// begins with a span runs no key vocabulary, no Enter or Escape blur and
+// no Tab walk. The next frame takes keys as usual.
+// ============================================================================
+
+// A confirming Enter the host also reports: the commit lands, the field
+// keeps focus and no newline follows.
+static void ime_end_frame_enter_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[64] = "";
+    size_t len = 0;
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ime_type(&ctx, buf, sizeof(buf), &len, "ab");
+    ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "nihon", -1, -1);
+    ime_end_key(&ctx, buf, sizeof(buf), &len, "\xE6\x97\xA5\xE6\x9C\xAC", "", WLX_KEY_ENTER, 0);
+    ASSERT_TRUE(ime_last_focused);
+    ASSERT_EQ_STR(buf, "ab\xE6\x97\xA5\xE6\x9C\xAC");
+    ASSERT_FALSE(wlx_text_composing(&ctx));
+    ASSERT_EQ_INT(8, (int)ime_caret(&ctx)->cursor_pos);
+    ASSERT_EQ_INT(2, (int)ime_undo_count(&ctx));
+    ASSERT_EQ_INT(WLX_TEXT_UNDO_CLS_COMPOSE, (int)ime_newest(&ctx).cls);
+    ASSERT_EQ_INT(6, (int)ime_newest(&ctx).inserted_len);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_end_frame_commit_plus_enter_keeps_the_commit) {
+    IME_FOR_SHAPES(ime_shapes, ime_end_frame_enter_case);
+}
+
+// A cancelling Escape the host also reports, with the string cleared: the
+// span goes, nothing is committed and the field keeps focus.
+static void ime_end_frame_escape_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[64] = "";
+    size_t len = 0;
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ime_type(&ctx, buf, sizeof(buf), &len, "ab");
+    ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "nihon", -1, -1);
+    ime_end_key(&ctx, buf, sizeof(buf), &len, NULL, "", WLX_KEY_ESCAPE, 0);
+    ASSERT_TRUE(ime_last_focused);
+    ASSERT_EQ_STR(buf, "ab");
+    ASSERT_EQ_INT(2, (int)len);
+    ASSERT_FALSE(wlx_text_composing(&ctx));
+    ASSERT_EQ_INT(2, (int)ime_caret(&ctx)->cursor_pos);
+    ASSERT_EQ_INT(1, (int)ime_undo_count(&ctx));
+    ASSERT_EQ_INT(0, (int)ime_redo_count(&ctx));
+    ASSERT_EQ_INT(2, (int)ime_expected_len(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_end_frame_escape_cancels_without_a_commit) {
+    IME_FOR_SHAPES(ime_shapes, ime_end_frame_escape_case);
+}
+
+// The undo chord in the commit frame does not take the commit back.
+static void ime_end_frame_undo_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[64] = "";
+    size_t len = 0;
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ime_type(&ctx, buf, sizeof(buf), &len, "ab");
+    ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "nihon", -1, -1);
+    ime_end_key(&ctx, buf, sizeof(buf), &len, "\xE6\x97\xA5", "", WLX_KEY_Z, test_command_mod());
+    ASSERT_EQ_STR(buf, "ab\xE6\x97\xA5");
+    ASSERT_EQ_INT(2, (int)ime_undo_count(&ctx));
+    ASSERT_EQ_INT(0, (int)ime_redo_count(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_end_frame_commit_plus_undo_keeps_the_commit) {
+    IME_FOR_SHAPES(ime_shapes, ime_end_frame_undo_case);
+}
+
+// After an end frame whose key was dropped, the next frame's keys act as
+// they always do: Enter blurs the single-line field and breaks the line
+// in the others, the undo chord takes the commit back as one step, and
+// Escape blurs.
+static void ime_next_frame_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[64] = "";
+    size_t len = 0;
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ime_type(&ctx, buf, sizeof(buf), &len, "ab");
+    ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "nihon", -1, -1);
+    ime_end_key(&ctx, buf, sizeof(buf), &len, "\xE6\x97\xA5", "", WLX_KEY_ENTER, 0);
+    ASSERT_EQ_STR(buf, "ab\xE6\x97\xA5");
+    ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_ENTER, 0);
+    if (w == IME_W_INPUTBOX) {
+        ASSERT_FALSE(ime_last_focused);
+        ASSERT_EQ_STR(buf, "ab\xE6\x97\xA5");
+        ime_focus(&ctx, buf, sizeof(buf), &len);
+    } else {
+        ASSERT_TRUE(ime_last_focused);
+        ASSERT_EQ_STR(buf, "ab\xE6\x97\xA5\n");
+        ASSERT_EQ_INT(3, (int)ime_undo_count(&ctx));
+        ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_Z, test_command_mod());
+        ASSERT_EQ_STR(buf, "ab\xE6\x97\xA5");
+    }
+    ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_Z, test_command_mod());
+    ASSERT_EQ_STR(buf, "ab");
+    ASSERT_TRUE(ime_last_focused);
+    ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_ESCAPE, 0);
+    ASSERT_FALSE(ime_last_focused);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_next_frame_after_the_end_frame_takes_keys) {
+    IME_FOR_SHAPES(ime_shapes, ime_next_frame_case);
+}
+
+// Tab while a composition is held, and in the frame it commits on, stays
+// with the composing field (no traversal); the next frame's Tab moves on.
+TEST(ime_tab_walk_waits_for_the_composition) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    char upper[64] = "ab";
+    char lower[64] = "cd";
+    ime_two_fields(&ctx, upper, lower, sizeof(upper), 25, false, NULL);
+    ime_two_fields(&ctx, upper, lower, sizeof(upper), 25, true, NULL);
+    ime_two_fields(&ctx, upper, lower, sizeof(upper), 25, false, "ho");
+    ASSERT_EQ_STR(upper, "abho");
+    ime_two_fields_key(&ctx, upper, lower, sizeof(upper), 25, false, NULL, "ho", WLX_KEY_TAB);
+    ASSERT_EQ_STR(upper, "abho");
+    ASSERT_TRUE(wlx_text_composing(&ctx));
+    ime_two_fields_key(&ctx, upper, lower, sizeof(upper), 25, false, "H", "", WLX_KEY_TAB);
+    ASSERT_EQ_STR(upper, "abH");
+    ASSERT_EQ_STR(lower, "cd");
+    ASSERT_FALSE(wlx_text_composing(&ctx));
+    ime_two_fields_key(&ctx, upper, lower, sizeof(upper), 25, false, "z", NULL, WLX_KEY_NONE);
+    ASSERT_EQ_STR(upper, "abHz");                           // focus stayed
+    ime_two_fields_key(&ctx, upper, lower, sizeof(upper), 25, false, NULL, NULL, WLX_KEY_TAB);
+    ime_two_fields_key(&ctx, upper, lower, sizeof(upper), 25, false, "z", NULL, WLX_KEY_NONE);
+    ASSERT_EQ_STR(upper, "abHz");
+    ASSERT_EQ_STR(lower, "cdz");                            // the next frame's Tab moved it
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
+// A press and a Tab in one frame while composing (two fields, either kind)
+// ============================================================================
+
+typedef struct {
+    bool editor;
+    bool multiline;   // inputbox only: a textarea
+    char buf[64];
+    size_t len;
+    bool focused;
+} Ime_Pair_Field;
+
+// One frame over two fields stacked in the 400x100 context (the first in
+// the upper half, the second in the lower), from a staged pointer, one key,
+// committed text and a composition string (NULL = none).
+static void ime_pair_frame(WLX_Context *ctx, Ime_Pair_Field f[2], int my, bool clicked,
+                           WLX_Key_Code key, const char *text, const char *preedit)
+{
+    WLX_Input_State in;
+    memset(&in, 0, sizeof(in));
+    in.mouse_x = 200;
+    in.mouse_y = my;
+    in.mouse_down = clicked;
+    in.mouse_clicked = clicked;
+    in.mouse_held = clicked;
+    if (key != WLX_KEY_NONE) { in.keys_pressed[key] = true; in.keys_down[key] = true; }
+    if (text != NULL) memcpy(in.text_input, text, strlen(text));
+    if (preedit != NULL) memcpy(in.preedit, preedit, strlen(preedit));
+    in.preedit_cursor = -1;
+    in.preedit_sel_len = -1;
+    test_frame_begin_input(ctx, &in);
+    wlx_layout_begin(ctx, 2, WLX_VERT, .padding = 0, .gap = 0);
+    for (int i = 0; i < 2; i++) {
+        wlx_push_id(ctx, (size_t)i + 1);
+        if (f[i].editor) {
+            wlx_editor_impl(ctx, NULL, f[i].buf, sizeof(f[i].buf), &f[i].len,
+                wlx_default_editor_opt(.height = 40, .content_padding = 4, .font_size = 10,
+                    .border_width = 0, .out_focused = &f[i].focused), __FILE__, __LINE__);
+        } else {
+            wlx_inputbox_impl(ctx, NULL, f[i].buf, sizeof(f[i].buf),
+                wlx_default_inputbox_opt(.height = 40, .content_padding = 4, .font_size = 10,
+                    .border_width = 0, .multiline = f[i].multiline,
+                    .out_focused = &f[i].focused), __FILE__, __LINE__);
+            f[i].len = strlen(f[i].buf);
+        }
+        wlx_pop_id(ctx);
+    }
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
+// Text widget states holding a tentative span (both widget states embed
+// the caret state first, and the pair fixture holds no other state).
+static int ime_spans_held(WLX_Context *ctx) {
+    int n = 0;
+    for (size_t i = 0; i < ctx->states.capacity; i++) {
+        if (ctx->states.slots[i].id == 0) continue;
+        if (((const WLX_Text_Edit_State *)ctx->states.slots[i].data)->preedit_len > 0) n++;
+    }
+    return n;
+}
+
+// Fields "ab" (upper) and "cd" (lower); the field at index ci (an editor
+// when ci_editor, else an inputbox, a textarea when ci_multiline) is
+// focused and composing "ho". The other field is an editor when
+// other_editor.
+static void ime_pair_compose(WLX_Context *ctx, Ime_Pair_Field f[2], int ci,
+                             bool ci_editor, bool ci_multiline, bool other_editor)
+{
+    memset(f, 0, 2 * sizeof(*f));
+    f[ci].editor = ci_editor;
+    f[ci].multiline = ci_multiline;
+    f[1 - ci].editor = other_editor;
+    strcpy(f[0].buf, "ab");
+    f[0].len = 2;
+    strcpy(f[1].buf, "cd");
+    f[1].len = 2;
+    int cy = ci == 0 ? 25 : 75;
+    ime_pair_frame(ctx, f, cy, false, WLX_KEY_NONE, NULL, NULL);
+    ime_pair_frame(ctx, f, cy, true, WLX_KEY_NONE, NULL, NULL);
+    ime_pair_frame(ctx, f, cy, false, WLX_KEY_NONE, NULL, "ho");
+}
+
+// A press on the composing field and a Tab in one frame. Were the Tab
+// walk to run, it would release the field and the press re-acquire it in
+// the same query: the field would see its focus gained, forget its live
+// span and re-apply the string, so the text would land twice. A
+// composition held last frame stops the walk, so the field keeps its
+// focus and the commit lands one copy.
+static void ime_press_tab_one_copy_case(int ci, bool ci_multiline, bool other_editor) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    Ime_Pair_Field f[2];
+    ime_pair_compose(&ctx, f, ci, false, ci_multiline, other_editor);
+    const char *one_copy = ci == 0 ? "abho" : "cdho";
+    const char *other = ci == 0 ? "cd" : "ab";
+    int cy = ci == 0 ? 25 : 75;
+    ASSERT_EQ_STR(f[ci].buf, one_copy);
+
+    ime_pair_frame(&ctx, f, cy, true, WLX_KEY_TAB, NULL, "ho");
+    ASSERT_EQ_STR(f[ci].buf, one_copy);
+    ASSERT_EQ_STR(f[1 - ci].buf, other);
+    if (ci == 1) {
+        ASSERT_TRUE(f[ci].focused);
+        ASSERT_TRUE(wlx_text_composing(&ctx));
+        ime_pair_frame(&ctx, f, cy, false, WLX_KEY_NONE, "ho", NULL);
+        ASSERT_EQ_STR(f[ci].buf, one_copy);
+        ASSERT_FALSE(wlx_text_composing(&ctx));
+    }
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_press_and_tab_on_the_composing_field_land_one_copy) {
+    for (int ci = 0; ci < 2; ci++) {
+        for (int m = 0; m < 2; m++) {
+            for (int other_editor = 0; other_editor < 2; other_editor++) {
+                ime_press_tab_one_copy_case(ci, m != 0, other_editor != 0);
+            }
+        }
+    }
+}
+
+// The same frame with the Tab target queried after the composing field.
+// Were the walk to run, the target would take the focus and drop it on
+// the press, so the composing field would lose its focus without seeing
+// it leave and keep a span no one owns. With the walk stopped, no field
+// holds a span without focus the frame after, and the commit leaves none.
+static void ime_press_tab_no_orphan_case(bool ci_multiline, bool other_editor) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    Ime_Pair_Field f[2];
+    ime_pair_compose(&ctx, f, 0, false, ci_multiline, other_editor);
+
+    ime_pair_frame(&ctx, f, 25, true, WLX_KEY_TAB, NULL, "ho");
+    ime_pair_frame(&ctx, f, 25, false, WLX_KEY_NONE, NULL, "ho");
+    ASSERT_EQ_INT(f[0].focused ? 1 : 0, ime_spans_held(&ctx));
+    ASSERT_TRUE(strncmp(f[0].buf, "abho", 4) == 0);
+    ASSERT_EQ_STR(f[1].buf, "cd");
+    ime_pair_frame(&ctx, f, 25, false, WLX_KEY_NONE, "ho", NULL);
+    ASSERT_EQ_INT(0, ime_spans_held(&ctx));
+    ASSERT_FALSE(wlx_text_composing(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_press_and_tab_on_the_composing_field_leave_no_orphan_span) {
+    for (int m = 0; m < 2; m++) {
+        for (int other_editor = 0; other_editor < 2; other_editor++) {
+            ime_press_tab_no_orphan_case(m != 0, other_editor != 0);
+        }
+    }
+}
+
+// A press on the other field plus a Tab while composing: the composing
+// field adopts its span on the frame focus leaves, and the other field
+// never shows the string or the Tab, in both layout orders and with
+// either kind on either side. The input method's Tab is no widget's: an
+// editor that takes focus by the press does not insert it.
+TEST(ime_press_elsewhere_and_tab_adopt_the_span) {
+    for (int ci = 0; ci < 2; ci++) {
+        for (int kinds = 0; kinds < 4; kinds++) {
+            WLX_Context ctx;
+            ime_ctx_init(&ctx);
+            Ime_Pair_Field f[2];
+            ime_pair_compose(&ctx, f, ci, (kinds & 1) != 0, false, (kinds & 2) != 0);
+            const char *composed = ci == 0 ? "abho" : "cdho";
+            const char *other = ci == 0 ? "cd" : "ab";
+            ASSERT_EQ_STR(f[ci].buf, composed);
+            int oy = ci == 0 ? 75 : 25;
+            ime_pair_frame(&ctx, f, oy, true, WLX_KEY_TAB, NULL, "ho");
+            ASSERT_FALSE(f[ci].focused);
+            ASSERT_EQ_STR(f[ci].buf, composed);
+            ASSERT_EQ_STR(f[1 - ci].buf, other);
+            ASSERT_EQ_INT(0, ime_spans_held(&ctx));
+            ASSERT_FALSE(wlx_text_composing(&ctx));
+            wlx_context_destroy(&ctx);
+        }
+    }
+}
+
 SUITE(ime) {
     RUN_TEST(ime_identity_inputbox);
     RUN_TEST(ime_identity_textarea);
@@ -1592,4 +1971,12 @@ SUITE(ime) {
     RUN_TEST(ime_editor_linear_span_and_index_patch);
     RUN_TEST(ime_span_edge_joins_neighbour);
     RUN_TEST(ime_unfocused_frames_never_write_the_buffer);
+    RUN_TEST(ime_end_frame_commit_plus_enter_keeps_the_commit);
+    RUN_TEST(ime_end_frame_escape_cancels_without_a_commit);
+    RUN_TEST(ime_end_frame_commit_plus_undo_keeps_the_commit);
+    RUN_TEST(ime_next_frame_after_the_end_frame_takes_keys);
+    RUN_TEST(ime_tab_walk_waits_for_the_composition);
+    RUN_TEST(ime_press_elsewhere_and_tab_adopt_the_span);
+    RUN_TEST(ime_press_and_tab_on_the_composing_field_land_one_copy);
+    RUN_TEST(ime_press_and_tab_on_the_composing_field_leave_no_orphan_span);
 }

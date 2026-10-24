@@ -253,8 +253,11 @@ minor.
   into another text field the composition ends there: the backend gets
   one inactive anchor between the two owners and the entering field never
   shows the leaving field's string. While a span exists the keys and
-  the mouse belong to the input method. The span follows the widget's
-  length and `.revision` like the undo journal: an outside change forgets
+  the mouse belong to the input method, and so does the frame it commits
+  or is cancelled on: a confirming Enter or cancelling Escape the host
+  reports there neither blurs the field nor reaches it as a key, and Tab
+  does not traverse. The span follows the widget's length and
+  `.revision` like the undo journal: an outside change forgets
   it without touching a byte. `wlx_text_composing(ctx)` reports a
   composition in flight for callers that mirror the buffer. Backends:
   `WLX_Text_Input_Area` and the optional `WLX_Backend.set_text_input_area`

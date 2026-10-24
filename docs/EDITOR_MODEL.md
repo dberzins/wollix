@@ -643,6 +643,11 @@ frame with a composition string
     re-apply the string         insert preedit at the caret, journal off
     place the caret             preedit_start + codepoints -> bytes, snapped to a unit boundary of the string
     stop                        the key vocabulary, the motion keys and the pointer do not run
+
+frame that begins with a span and carries no string (the commit or cancel frame)
+    drop the previous span      as above
+    land the commit             as above
+    stop                        no key runs: the confirming or cancelling key is the input method's
 ```
 
 The document therefore always holds the string as ordinary bytes, and
