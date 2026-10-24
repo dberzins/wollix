@@ -746,9 +746,10 @@ wlx_editor_impl frame
 
 **Composition.** An input method's string is applied as a tentative span
 through the same two primitives with the journal pointer `NULL`, so no
-tentative byte is ever recorded; each frame the previous span is
-deleted (journal off) before the commit lands, and the transaction
-re-opens at the span's start so the commit's before-caret is real. The
+tentative byte is ever recorded; a frame that changes the string or
+commits deletes the previous span (journal off) before the commit lands,
+and the transaction re-opens at the span's start so the commit's
+before-caret is real. A held string stays put and records nothing. The
 commit records under `WLX_TEXT_UNDO_CLS_COMPOSE`, which never coalesces,
 and a cancelled composition records nothing, leaving the stack and
 `expected_len` (the transaction still closes at the true length) exactly

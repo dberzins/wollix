@@ -124,10 +124,13 @@ typedef struct {
     double scroll_avg_ms;
     double edit_avg_ms;    // keystroke at offset 0: memmove + index tail shift
     double compose_avg_ms; // composition frame at offset 0: drop + re-apply the span
+    double held_avg_ms;    // a held composition string at offset 0: the span stays
     uint32_t rebuilds_after_idle;
     uint32_t rebuilds_after_edits; // must equal rebuilds_after_idle: typing patches
     uint32_t patches_after_edits;
     uint32_t rebuilds_after_compose; // must equal rebuilds_after_idle: composing patches
+    uint32_t held_changed;   // held frames that reported a change: must be 0
+    uint32_t held_patches;   // index patches across the held frames: must be 0
 } Perf_Result;
 
 static void run_frame_input(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
@@ -148,16 +151,17 @@ static void run_frame(WLX_Context *ctx, char *buf, size_t cap, size_t *len, floa
 }
 
 // A composition frame: the input method's current string (state) and any
-// committed text, mouse at rest.
-static void run_frame_compose(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
+// committed text, mouse at rest. Returns the editor's change signal.
+static bool run_frame_compose(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
                               const char *text, const char *preedit, bool wrap) {
     test_frame_begin_ime(ctx, text, preedit, -1, -1);
     wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
-    (void)wlx_editor_impl(ctx, NULL, buf, cap, len,
+    bool changed = wlx_editor_impl(ctx, NULL, buf, cap, len,
         wlx_default_editor_opt(.font_size = 16, .wrap = wrap,
             .span_color = g_highlight ? hl_span_color : NULL), "perf_editor", 1);
     wlx_layout_end(ctx);
     test_frame_end(ctx);
+    return changed;
 }
 
 // The composition script: three growing strings, then a commit with the
@@ -230,6 +234,27 @@ static Perf_Result run_case(char *buf, size_t cap, size_t *len, int frames, bool
     }
     r.rebuilds_after_compose = ctx.editor_indices.count > 0
         ? ctx.editor_indices.items[0].rebuilds : 0;
+
+    // A held composition at the same caret: the input method keeps the
+    // string it staged (the frames between two keystrokes of a clause).
+    // The span stays where it is, so a held frame costs what an idle
+    // frame costs: no span edit, no index patch, no change reported. A
+    // cancel ends it, leaving the document as it was.
+    run_frame_compose(&ctx, buf, cap, len, NULL, "nih", wrap);
+    uint32_t patches_before_held = ctx.editor_indices.count > 0
+        ? ctx.editor_indices.items[0].patches : 0;
+    r.held_avg_ms = 1e9;
+    for (int rep = 0; rep < 3; rep++) {
+        t0 = now_ms();
+        for (int i = 0; i < edit_frames; i++) {
+            if (run_frame_compose(&ctx, buf, cap, len, NULL, "nih", wrap)) r.held_changed++;
+        }
+        double held = (now_ms() - t0) / edit_frames;
+        if (held < r.held_avg_ms) r.held_avg_ms = held;
+    }
+    r.held_patches = (ctx.editor_indices.count > 0
+        ? ctx.editor_indices.items[0].patches : 0) - patches_before_held;
+    run_frame_compose(&ctx, buf, cap, len, NULL, "", wrap);
 
     wlx_context_destroy(&ctx);
     g_highlight = false;
@@ -433,6 +458,7 @@ typedef struct {
     Traffic vscroll;         // steady vertical wheel
     Traffic typing;          // steady one typed char per frame
     Traffic composing;       // a composition string replaced in place (two span edits)
+    Traffic held;            // the same string staged again: the span stays (an idle frame)
     Traffic commit;          // the clause committed with an empty string
     Traffic hscroll_sweep;   // total over the horizontal sweep (no-wrap only)
     Traffic hscroll_steady;  // idle after a horizontal sweep (no-wrap only)
@@ -475,6 +501,12 @@ static Traffic_Result run_traffic_case(const char *name, char *buf, size_t cap,
     for (int i = 0; i < 3; i++) {
         tr.composing = traffic_frame_ex(&ctx, buf, cap, len, wrap, false, 0.0f, 0, -1, NULL,
             compose_preedit(i));
+    }
+    // The input method holds the last string: the span stays, nothing is
+    // re-measured beyond an idle frame's reference measure.
+    for (int i = 0; i < 3; i++) {
+        tr.held = traffic_frame_ex(&ctx, buf, cap, len, wrap, false, 0.0f, 0, -1, NULL,
+            compose_preedit(2));
     }
     tr.commit = traffic_frame_ex(&ctx, buf, cap, len, wrap, false, 0.0f, 0, -1, "x", "");
     if (!wrap) {
@@ -519,6 +551,7 @@ static void traffic_print(const Traffic_Result *tr) {
         tr->idle.cmds);
     printf("%-14s composing %llu/%llu  commit %llu/%llu\n", "",
         tr->composing.calls, tr->composing.bytes, tr->commit.calls, tr->commit.bytes);
+    printf("%-14s held %llu/%llu\n", "", tr->held.calls, tr->held.bytes);
     if (tr->has_hscroll) {
         printf("%-14s hscroll-sweep %llu/%llu  hscroll-steady %llu/%llu at scroll_x %.0f px\n", "",
             tr->hscroll_sweep.calls, tr->hscroll_sweep.bytes,
@@ -605,6 +638,7 @@ static int traffic_check_fallback(const Traffic_Result *nw, const Traffic_Result
     int failures = 0;
     failures += traffic_check(nw->name, "cold", nw->cold, 4400, 422000);
     failures += traffic_check(nw->name, "idle", nw->idle, 2, 2);            // (3821/366721)
+    failures += traffic_check(nw->name, "held", nw->held, 2, 2);            // the idle bound
     failures += traffic_check(nw->name, "vscroll", nw->vscroll, 225, 21100); // (3821/366721)
     failures += traffic_check(nw->name, "typing", nw->typing, 12, 40);       // (3826/366733)
     failures += traffic_check(nw->name, "composing", nw->composing, 24, 80);
@@ -612,12 +646,14 @@ static int traffic_check_fallback(const Traffic_Result *nw, const Traffic_Result
     failures += traffic_check(nw->name, "hscroll-steady", nw->hscroll_steady, 2, 2); // (8336/1748030)
     failures += traffic_check(w->name, "cold", w->cold, 6320, 296300);       // 2026-09-06: 5490/257589
     failures += traffic_check(w->name, "idle", w->idle, 2, 2);                 // (3459/162025)
+    failures += traffic_check(w->name, "held", w->held, 2, 2);                 // the idle bound
     failures += traffic_check(w->name, "vscroll", w->vscroll, 2, 2);           // (3538/165937)
     failures += traffic_check(w->name, "typing", w->typing, 505, 23000);       // (3929/184867)
     failures += traffic_check(w->name, "composing", w->composing, 1010, 46000);
     failures += traffic_check(w->name, "commit", w->commit, 1010, 46000);
     failures += traffic_check(gnw->name, "cold", gnw->cold, 224, 21600);
     failures += traffic_check(gnw->name, "idle", gnw->idle, 2, 2);             // (194/18722)
+    failures += traffic_check(gnw->name, "held", gnw->held, 2, 2);             // the idle bound
     failures += traffic_check(gnw->name, "vscroll", gnw->vscroll, 2, 2);       // (194/18722)
     failures += traffic_check(gnw->name, "typing", gnw->typing, 224, 21600);
     failures += traffic_check(gnw->name, "composing", gnw->composing, 448, 43200);
@@ -627,6 +663,7 @@ static int traffic_check_fallback(const Traffic_Result *nw, const Traffic_Result
     failures += traffic_check(gnw->name, "idle-after-end", gnw->idle_after_end, 2, 2); // (1026/525825)
     failures += traffic_check(gw->name, "cold", gw->cold, 2380, 114200);
     failures += traffic_check(gw->name, "idle", gw->idle, 1195, 57100);          // (3103/148831)
+    failures += traffic_check(gw->name, "held", gw->held, 1195, 57100);          // the idle bound
     failures += traffic_check(gw->name, "vscroll", gw->vscroll, 1195, 57100);    // (3103/148831)
     failures += traffic_check(gw->name, "typing", gw->typing, 2380, 114200);     // (3298/158343)
     failures += traffic_check(gw->name, "composing", gw->composing, 4760, 228400);
@@ -646,6 +683,7 @@ static int traffic_check_advances(const Traffic_Result *nw, const Traffic_Result
     int failures = 0;
     failures += traffic_check(nw->name, "cold", nw->cold, 25, 5900);          // (21/5121)
     failures += traffic_check(nw->name, "idle", nw->idle, 2, 2);
+    failures += traffic_check(nw->name, "held", nw->held, 2, 2);              // the idle bound
     failures += traffic_check(nw->name, "vscroll", nw->vscroll, 3, 300);      // (2/257)
     failures += traffic_check(nw->name, "typing", nw->typing, 3, 5);          // (2/4)
     failures += traffic_check(nw->name, "composing", nw->composing, 6, 10);
@@ -654,12 +692,14 @@ static int traffic_check_advances(const Traffic_Result *nw, const Traffic_Result
     failures += traffic_check(nw->name, "hscroll-steady", nw->hscroll_steady, 2, 2);
     failures += traffic_check(w->name, "cold", w->cold, 75, 13600);         // 2026-09-06: 65/11813
     failures += traffic_check(w->name, "idle", w->idle, 2, 2);
+    failures += traffic_check(w->name, "held", w->held, 2, 2);               // the idle bound
     failures += traffic_check(w->name, "vscroll", w->vscroll, 2, 2);
     failures += traffic_check(w->name, "typing", w->typing, 7, 1100);        // (6/951)
     failures += traffic_check(w->name, "composing", w->composing, 14, 2200);
     failures += traffic_check(w->name, "commit", w->commit, 14, 2200);
     failures += traffic_check(gnw->name, "cold", gnw->cold, 3, 300);           // (2/257)
     failures += traffic_check(gnw->name, "idle", gnw->idle, 2, 2);
+    failures += traffic_check(gnw->name, "held", gnw->held, 2, 2);             // the idle bound
     failures += traffic_check(gnw->name, "vscroll", gnw->vscroll, 2, 2);
     failures += traffic_check(gnw->name, "typing", gnw->typing, 3, 300);       // (2/257)
     failures += traffic_check(gnw->name, "composing", gnw->composing, 6, 600);
@@ -669,6 +709,7 @@ static int traffic_check_advances(const Traffic_Result *nw, const Traffic_Result
     failures += traffic_check(gnw->name, "idle-after-end", gnw->idle_after_end, 2, 2);
     failures += traffic_check(gw->name, "cold", gw->cold, 27, 5900);          // (23/5057)
     failures += traffic_check(gw->name, "idle", gw->idle, 14, 2950);          // (12/2529)
+    failures += traffic_check(gw->name, "held", gw->held, 14, 2950);          // the idle bound
     failures += traffic_check(gw->name, "vscroll", gw->vscroll, 14, 2950);
     failures += traffic_check(gw->name, "typing", gw->typing, 27, 5900);      // (23/5057)
     failures += traffic_check(gw->name, "composing", gw->composing, 54, 11800);
@@ -751,6 +792,16 @@ int main(void) {
         rs.rebuilds_after_compose, rl.rebuilds_after_compose,
         ws.rebuilds_after_compose, wl.rebuilds_after_compose, wm.rebuilds_after_compose,
         hs.rebuilds_after_compose);
+    printf("%-22s %10.4fms %10.4fms %10.4fms %10.4fms %10.4fms %10.4fms  (held composition at offset 0)\n",
+        "held frame avg",
+        rs.held_avg_ms, rl.held_avg_ms, ws.held_avg_ms, wl.held_avg_ms,
+        wm.held_avg_ms, hs.held_avg_ms);
+    printf("%-22s %11u %12u %12u %12u %12u %12u\n", "held frames changed",
+        rs.held_changed, rl.held_changed, ws.held_changed, wl.held_changed,
+        wm.held_changed, hs.held_changed);
+    printf("%-22s %11u %12u %12u %12u %12u %12u\n", "patches while held",
+        rs.held_patches, rl.held_patches, ws.held_patches, wl.held_patches,
+        wm.held_patches, hs.held_patches);
 
     // Structural gates. Idle frames must not rebuild the index (that is the
     // only O(document) step in the frame path), and steady-state frame cost
@@ -785,6 +836,12 @@ int main(void) {
             // them like typing and never rescans the document.
             if (typed[i]->rebuilds_after_compose != typed[i]->rebuilds_after_idle) {
                 fprintf(stderr, "FAIL: a composition frame rebuilt the line index (case %zu)\n", i);
+                failures++;
+            }
+            // A held string keeps its span: no held frame edits the
+            // document, so none reports a change or patches the index.
+            if (typed[i]->held_changed != 0 || typed[i]->held_patches != 0) {
+                fprintf(stderr, "FAIL: a held composition frame edited the document (case %zu)\n", i);
                 failures++;
             }
         }

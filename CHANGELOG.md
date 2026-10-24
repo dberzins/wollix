@@ -245,13 +245,14 @@ minor.
   caret-follow and the colour spans - underlined, with the caret inside it
   where the input method says (codepoints snapped to a grapheme-cluster
   boundary) and the selected clause in the selection colour. Each update
-  replaces the span; a commit lands where it began as one undo step of the
-  new `COMPOSE` class, which never coalesces; a cancel leaves buffer and
-  journal exactly as before; composing over a selection deletes it first
-  as its own step; focus leaving with a span in place keeps the bytes and
-  records the step a commit would have, and when focus moves straight
-  into another text field the composition ends there: the backend gets
-  one inactive anchor between the two owners and the entering field never
+  replaces the span, and a frame holding the same string leaves it in place
+  and reports no change; a commit lands where it began as one undo step of
+  the new `COMPOSE` class, which never coalesces; a cancel leaves buffer and
+  journal exactly as before; composing over a selection deletes it first as
+  its own step; focus leaving with a span in place keeps the bytes and
+  records the step a commit would have, and when focus moves straight into
+  another text field the composition ends there: the backend gets one
+  inactive anchor between the two owners and the entering field never
   shows the leaving field's string. While a span exists the keys and
   the mouse belong to the input method, and so does the frame it commits
   or is cancelled on: a confirming Enter or cancelling Escape the host
@@ -278,8 +279,9 @@ minor.
   proxy at the caret receives composition and dead keys, which produced
   no text before. Raylib stays commit-only. `make perf-editor` gains
   composing and commit rows inside twice the typing bounds with no index
-  rebuild; `tests/test_ime.c` pins the no-composition identity of the
-  three widgets and the composition behaviour in twenty-three tests. The
+  rebuild, and a held row at the idle bounds with no index patch;
+  `tests/test_ime.c` pins the no-composition identity of the three
+  widgets and the composition behaviour in thirty-seven tests. The
   README's text-entry disclaimer is rewritten accordingly.
 - **`WLX_DEBUG` report for decreasing advances.** A `measure_text_advances`
   chunk whose advances decrease (a font shaped right to left, or a lost

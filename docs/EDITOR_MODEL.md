@@ -644,6 +644,11 @@ frame with a composition string
     place the caret             preedit_start + codepoints -> bytes, snapped to a unit boundary of the string
     stop                        the key vocabulary, the motion keys and the pointer do not run
 
+frame holding the same string, nothing committed
+    keep the span               no byte moves; the frame reports no change
+    place the caret             as above (a moved caret is a caret change, not a text change)
+    stop                        as above
+
 frame that begins with a span and carries no string (the commit or cancel frame)
     drop the previous span      as above
     land the commit             as above
@@ -661,7 +666,10 @@ costs nothing in wrapped mode where reflow would otherwise need a
 one-line scratch source. `make perf-editor` runs the composition script
 (three growing strings, then a commit) at offset 0 on the 10 MB
 document: a composition frame is two span edits, so its measure traffic
-sits inside twice the typing bounds and the index never rebuilds.
+sits inside twice the typing bounds and the index never rebuilds. Its
+held pass stages one string frame after frame, as an input method does
+between two keystrokes: a held frame edits nothing, so it patches no
+index, reports no change and measures what an idle frame measures.
 
 Drawing adds two range visuals on the record walk the selection band
 already uses (`wlx_text_range_extents`): an underline along the row

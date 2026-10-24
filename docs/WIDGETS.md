@@ -1145,7 +1145,8 @@ is building lands in the field's buffer at the caret as a *tentative
 span*: ordinary bytes to everything that lays out and draws, underlined,
 with the caret inside it where the input method says and the selected
 clause (when the platform reports one) drawn in the selection colour. Each
-update replaces the span in place; a commit lands where the span began as
+update replaces the span in place, and a frame that holds the same string
+keeps it and reports no change; a commit lands where the span began as
 one undo step of its own, never merged with a typed run on either side;
 a cancel removes the span and leaves the buffer and the undo history
 exactly as they were. While a span exists the keyboard and the mouse

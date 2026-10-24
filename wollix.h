@@ -1631,10 +1631,11 @@ typedef struct {
     float sb_drag_offset;  // pointer offset from thumb start at drag start
     // Composition: the tentative span the input method's current string
     // occupies in the buffer. Ordinary bytes to every consumer, never
-    // journaled; dropped and re-applied by the key handler each frame the
-    // string changes, adopted as typed text when focus leaves with one in
-    // place. preedit_doc_len is the document length right after the span
-    // was applied and preedit_revision the caller's revision then: a
+    // journaled; dropped and re-applied by the key handler on a frame that
+    // changes the string or commits, kept in place while the string is
+    // held, adopted as typed text when focus leaves with one in place.
+    // preedit_doc_len is the document length right after the span was
+    // applied and preedit_revision the caller's revision then: a
     // different length or revision next frame means the buffer changed
     // outside the widget, and the span is forgotten rather than deleted.
     // Zero = no composition.
@@ -14958,6 +14959,19 @@ static inline bool wlx_text_edit_preedit_intact(const WLX_Text_Edit_State *st, s
         && st->preedit_start + st->preedit_len <= length;
 }
 
+// True when an intact span already holds the staged string byte for byte,
+// the input method holding its string. A loop, not memcmp: the bare-wasm
+// libc shim does not provide one.
+static inline bool wlx_text_edit_preedit_held(const WLX_Text_Edit_State *st, const char *buffer,
+    const char *preedit, size_t pre_len)
+{
+    if (pre_len != st->preedit_len) return false;
+    for (size_t i = 0; i < pre_len; i++) {
+        if (buffer[st->preedit_start + i] != preedit[i]) return false;
+    }
+    return true;
+}
+
 // The frame's committed text lands at the caret, replacing a live
 // selection, as one TYPING-class mutation. Returns true when bytes changed.
 static bool wlx_text_edit_apply_typed(WLX_Context *ctx, WLX_Text_Edit_State *st,
@@ -15024,10 +15038,10 @@ static bool wlx_text_edit_adopt_preedit(WLX_Text_Edit_State *st, char *buffer,
 // is given (NULL keeps no history). A composition string in the input
 // applies as a tentative span (see WLX_Text_Edit_State) and hands the
 // keyboard to the input method: the vocabulary does not run that frame,
-// nor on the frame the composition ends (one that begins with a span).
-// `id` names the widget for wlx_text_composing and `revision` is the
-// caller's external-mutation counter the span is checked against. Returns
-// true when the text mutated.
+// nor on the frame the composition ends (one that begins with a span). A
+// held string keeps its span and reports no change. `id` names the widget
+// for wlx_text_composing and `revision` is the caller's external-mutation
+// counter the span is checked against. Returns true when the text mutated.
 static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     char *buffer, size_t buffer_cap, size_t *length, WLX_Text_Edit_Caps caps,
     WLX_Text_Edit_Span *span, WLX_Text_Undo_Journal *undo, WLX_Id id, uint32_t revision)
@@ -15042,11 +15056,12 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     // records under one step, so typing over a selection undoes as a unit.
     wlx_text_undo_txn_begin(undo, st->cursor_pos, st->selection_anchor);
 
-    // Composition. Each frame: drop the previous tentative span (never
-    // journaled, so not recorded here either), land any committed text
-    // where the span began, then re-apply the input method's current
-    // string as the new span and stop - while a span exists the keys and
-    // the mouse belong to the input method. A span the buffer no longer
+    // Composition. Each frame that changes the string or commits: drop the
+    // previous tentative span (never journaled, so not recorded here
+    // either), land any committed text where the span began, then
+    // re-apply the input method's current string as the new span and stop
+    // - while a span exists the keys and the mouse belong to the input
+    // method. A held string keeps its span. A span the buffer no longer
     // accounts for is forgotten, never deleted.
     size_t pre_len = 0;
     while (pre_len < sizeof(ctx->input.preedit) && ctx->input.preedit[pre_len] != '\0') pre_len++;
@@ -15058,6 +15073,23 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
     if (st->preedit_len > 0) {
         if (!wlx_text_edit_preedit_intact(st, *length, revision)) {
             wlx_text_edit_forget_preedit(st);
+        } else if (ctx->input.text_input[0] == '\0' && !caps.read_only
+                && wlx_text_edit_preedit_held(st, buffer, ctx->input.preedit, pre_len)) {
+            // A held string: the input method stages the bytes the span
+            // already holds and commits nothing. The span stays (no byte
+            // moves, nothing changed) and the caret follows the input
+            // method's cursor inside it, as a caret move would.
+            size_t caret = st->preedit_start + wlx_preedit_cursor_bytes(
+                buffer + st->preedit_start, pre_len, ctx->input.preedit_cursor);
+            if (caret != st->cursor_pos || caret != st->selection_anchor) {
+                st->cursor_pos = caret;
+                st->selection_anchor = caret;
+                st->cursor_blink_time = 0.0f;
+                st->preferred_x_valid = false;
+            }
+            ctx->composing_id = id;
+            wlx_text_undo_txn_end(undo, *length);
+            return false;
         } else {
             size_t s = st->preedit_start, e = st->preedit_start + st->preedit_len;
             wlx_text_edit_delete_selection(buffer, length, &s, &e, span, NULL);

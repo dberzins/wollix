@@ -395,6 +395,10 @@ static uint32_t ime_editor_rebuilds(WLX_Context *ctx) {
     return ctx->editor_indices.count > 0 ? ctx->editor_indices.items[0].rebuilds : 0;
 }
 
+static uint32_t ime_editor_patches(WLX_Context *ctx) {
+    return ctx->editor_indices.count > 0 ? ctx->editor_indices.items[0].patches : 0;
+}
+
 #ifdef IME_PROBE_
 static void ime_dump(const char *tag, WLX_Context *ctx, const char *buf, size_t len) {
     WLX_Text_Edit_State *c = ime_caret(ctx);
@@ -614,7 +618,7 @@ static void ime_update_replaces_span_case(Ime_Widget w) {
     ASSERT_EQ_INT(7, (int)c->cursor_pos);
     ASSERT_EQ_INT(1, (int)ime_undo_count(&ctx));
     ASSERT_EQ_INT(7, (int)ime_expected_len(&ctx));
-    // An unchanged string re-applies to the same bytes.
+    // An unchanged string keeps the span on the same bytes.
     ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "nihon", -1, -1);
     ASSERT_EQ_STR(buf, "abnihon");
     ASSERT_EQ_INT(1, (int)ime_undo_count(&ctx));
@@ -1387,6 +1391,94 @@ TEST(ime_focus_move_to_a_later_field_ends_the_composition) { ime_focus_move_body
 TEST(ime_focus_move_to_an_earlier_field_ends_the_composition) { ime_focus_move_body(75, 25); }
 
 // ============================================================================
+// A held string: the input method stages the same bytes frame after frame
+// ============================================================================
+
+// The frames between two keystrokes of a clause keep the span in place:
+// no byte moves, the widget reports no change, the editor's index is not
+// patched and the caret blinks as on any idle frame. A cursor move inside
+// the unchanged string moves the caret (a caret change, not a text
+// change); a different clause is decoration only. The commit after it
+// lands as one step, as without the hold.
+static void ime_held_string_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[64] = "";
+    size_t len = 0;
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ime_type(&ctx, buf, sizeof(buf), &len, "ab");
+    ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "nihon", -1, -1);
+    ASSERT_TRUE(ime_last_changed);
+    ASSERT_EQ_STR(buf, "abnihon");
+    uint32_t patches = ime_editor_patches(&ctx);
+    uint32_t rebuilds = ime_editor_rebuilds(&ctx);
+    for (int i = 0; i < 40; i++) {
+        ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "nihon", -1, -1);
+        ASSERT_FALSE(ime_last_changed);
+        ASSERT_TRUE(wlx_text_composing(&ctx));
+    }
+    ASSERT_EQ_STR(buf, "abnihon");
+    ASSERT_EQ_INT(7, (int)len);
+    ASSERT_EQ_INT(patches, ime_editor_patches(&ctx));
+    ASSERT_EQ_INT(rebuilds, ime_editor_rebuilds(&ctx));
+    WLX_Text_Edit_State *c = ime_caret(&ctx);
+    ASSERT_TRUE(c->composing);
+    ASSERT_EQ_INT(2, (int)c->preedit_start);
+    ASSERT_EQ_INT(5, (int)c->preedit_len);
+    ASSERT_EQ_INT(7, (int)c->cursor_pos);
+    ASSERT_TRUE(c->cursor_blink_time > 0.5f);               // 40 frames at 60 fps, never reset
+    ASSERT_EQ_INT(1, (int)ime_undo_count(&ctx));
+    ASSERT_EQ_INT(7, (int)ime_expected_len(&ctx));
+
+    // The input method moves its cursor inside the same string.
+    ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "nihon", 2, -1);
+    ASSERT_FALSE(ime_last_changed);
+    ASSERT_EQ_INT(4, (int)c->cursor_pos);
+    ASSERT_EQ_INT(4, (int)c->selection_anchor);
+    ASSERT_TRUE(c->cursor_blink_time < 0.02f);              // reset, then one frame's time
+    // A clause selected over the same string.
+    ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "nihon", 2, 3);
+    ASSERT_FALSE(ime_last_changed);
+    ASSERT_EQ_INT(4, (int)c->cursor_pos);
+    ASSERT_EQ_STR(buf, "abnihon");
+    ASSERT_EQ_INT(patches, ime_editor_patches(&ctx));
+
+    ime_compose(&ctx, buf, sizeof(buf), &len, "\xE6\x97\xA5", "", -1, -1);
+    ASSERT_TRUE(ime_last_changed);
+    ASSERT_EQ_STR(buf, "ab\xE6\x97\xA5");
+    ASSERT_FALSE(wlx_text_composing(&ctx));
+    ASSERT_EQ_INT(2, (int)ime_undo_count(&ctx));
+    ASSERT_EQ_INT(WLX_TEXT_UNDO_CLS_COMPOSE, (int)ime_newest(&ctx).cls);
+    ASSERT_EQ_INT(rebuilds, ime_editor_rebuilds(&ctx));
+
+    // A commit beside the same string is not a hold: the commit lands
+    // where the span began and the string follows it.
+    ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "go", -1, -1);
+    ime_compose(&ctx, buf, sizeof(buf), &len, "G", "go", -1, -1);
+    ASSERT_TRUE(ime_last_changed);
+    ASSERT_EQ_STR(buf, "ab\xE6\x97\xA5Ggo");
+    ASSERT_EQ_INT(6, (int)c->preedit_start);
+    ASSERT_EQ_INT(3, (int)ime_undo_count(&ctx));
+
+    // A field that turns read-only under a held string drops the span:
+    // only an editable field keeps one.
+    ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "go", -1, -1);
+    ASSERT_EQ_STR(buf, "ab\xE6\x97\xA5Ggo");
+    ime_read_only = true;
+    ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "go", -1, -1);
+    ASSERT_TRUE(ime_last_changed);
+    ASSERT_EQ_STR(buf, "ab\xE6\x97\xA5G");
+    ASSERT_FALSE(wlx_text_composing(&ctx));
+    ASSERT_EQ_INT(3, (int)ime_undo_count(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_held_string_keeps_its_span) {
+    IME_FOR_SHAPES(ime_shapes, ime_held_string_case);
+}
+
+// ============================================================================
 // Composition anchor: active follows focus alone. The caret blinking off,
 // a caret line scrolled out of the text band and an empty buffer keep it;
 // the line stays inside the band and the cursor inside the line.
@@ -1969,6 +2061,7 @@ SUITE(ime) {
     RUN_TEST(ime_focus_move_to_an_earlier_field_ends_the_composition);
     RUN_TEST(ime_editor_wrapped_span_reflows);
     RUN_TEST(ime_editor_linear_span_and_index_patch);
+    RUN_TEST(ime_held_string_keeps_its_span);
     RUN_TEST(ime_span_edge_joins_neighbour);
     RUN_TEST(ime_unfocused_frames_never_write_the_buffer);
     RUN_TEST(ime_end_frame_commit_plus_enter_keeps_the_commit);
