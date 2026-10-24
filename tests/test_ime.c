@@ -170,6 +170,47 @@ static void ime_reset_options(void) {
     ime_skip_widget = false;
 }
 
+// The shapes a behaviour case runs on: every widget the composition
+// reaches, and the three that hold more than one line. The password and
+// capacity cases stay inputbox-only: the editor has neither.
+static const Ime_Widget ime_shapes[] = {
+    IME_W_INPUTBOX, IME_W_TEXTAREA, IME_W_EDITOR, IME_W_EDITOR_WRAP
+};
+static const Ime_Widget ime_multiline_shapes[] = {
+    IME_W_TEXTAREA, IME_W_EDITOR, IME_W_EDITOR_WRAP
+};
+#define IME_SHAPE_COUNT(a) (sizeof(a) / sizeof((a)[0]))
+
+static const char *ime_shape_name(Ime_Widget w) {
+    switch (w) {
+        case IME_W_INPUTBOX:    return "inputbox";
+        case IME_W_TEXTAREA:    return "textarea";
+        case IME_W_EDITOR:      return "editor";
+        case IME_W_EDITOR_WRAP: return "editor (wrap)";
+    }
+    return "?";
+}
+
+// One case per shape. The cases share their assertion lines, so a case
+// that fails names its shape after the failing line.
+static void ime_for_shapes(const Ime_Widget *shapes, size_t n, void (*body)(Ime_Widget)) {
+    for (size_t i = 0; i < n; i++) {
+        int failed_before = _test_current_failed;
+        _test_current_failed = 0;
+        body(shapes[i]);
+        if (_test_current_failed) fprintf(stderr, "    (shape: %s)\n", ime_shape_name(shapes[i]));
+        _test_current_failed |= failed_before;
+    }
+}
+#define IME_FOR_SHAPES(shapes, body) ime_for_shapes((shapes), IME_SHAPE_COUNT(shapes), (body))
+
+// The y of a one-line buffer's row: the inputbox and the textarea centre
+// it in the 32-tall band (the widget sits at y = 30, padding 4), the
+// editor top-anchors it.
+static float ime_row_y(Ime_Widget w) {
+    return (w == IME_W_INPUTBOX || w == IME_W_TEXTAREA) ? 45.0f : 34.0f;
+}
+
 static void ime_place_widget(WLX_Context *ctx, char *buf, size_t cap, size_t *len) {
     ime_last_focused = false;
     if (ime_skip_widget) return;
@@ -476,10 +517,10 @@ TEST(ime_identity_editor_wrapped) { ime_identity_editor_body(true); }
 // A composition string lands in the buffer at the caret as ordinary bytes:
 // drawn, underlined, the caret inside it; the journal records nothing and
 // its length guard follows the true length.
-TEST(ime_tentative_span_shows_and_journal_untouched) {
+static void ime_tentative_span_shows_and_journal_untouched_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
-    ime_widget = IME_W_INPUTBOX;
+    ime_widget = w;
     char buf[64] = "";
     size_t len = 0;
 
@@ -507,20 +548,25 @@ TEST(ime_tentative_span_shows_and_journal_untouched) {
     ASSERT_EQ_INT(4, (int)ime_expected_len(&ctx));
     // The text piece carries the span; the underline spans its two units
     // (10 px) at the row's bottom, right of the "ab" prefix.
-    IME_EXPECT_PIECE(ime_piece_index(0), "abni", 9.0f, 45.0f);
+    float row_y = ime_row_y(w);
+    IME_EXPECT_PIECE(ime_piece_index(0), "abni", 9.0f, row_y);
     int ul = ime_find_underline(10.0f);
     ASSERT_TRUE(ul >= 0);
     ASSERT_EQ_F(ime_draws[ul].x, 9.0f + 10.0f, 0.01f);
-    ASSERT_TRUE(ime_draws[ul].y > 45.0f && ime_draws[ul].y <= 55.0f);
+    ASSERT_TRUE(ime_draws[ul].y > row_y && ime_draws[ul].y <= row_y + 10.0f);
     wlx_context_destroy(&ctx);
+}
+
+TEST(ime_tentative_span_shows_and_journal_untouched) {
+    IME_FOR_SHAPES(ime_shapes, ime_tentative_span_shows_and_journal_untouched_case);
 }
 
 // Each update replaces the whole span in place: one span, at the same
 // start, the buffer holding only the latest string.
-TEST(ime_update_replaces_span) {
+static void ime_update_replaces_span_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
-    ime_widget = IME_W_INPUTBOX;
+    ime_widget = w;
     char buf[64] = "";
     size_t len = 0;
 
@@ -545,13 +591,17 @@ TEST(ime_update_replaces_span) {
     wlx_context_destroy(&ctx);
 }
 
+TEST(ime_update_replaces_span) {
+    IME_FOR_SHAPES(ime_shapes, ime_update_replaces_span_case);
+}
+
 // An empty string ends the composition: the buffer and the journal are
 // exactly what they were before it started, and undo still reaches the
 // typed text.
-TEST(ime_cancel_restores_buffer_and_journal) {
+static void ime_cancel_restores_buffer_and_journal_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
-    ime_widget = IME_W_INPUTBOX;
+    ime_widget = w;
     char buf[64] = "";
     size_t len = 0;
 
@@ -586,13 +636,17 @@ TEST(ime_cancel_restores_buffer_and_journal) {
     wlx_context_destroy(&ctx);
 }
 
+TEST(ime_cancel_restores_buffer_and_journal) {
+    IME_FOR_SHAPES(ime_shapes, ime_cancel_restores_buffer_and_journal_case);
+}
+
 // The composition caret follows the input method's codepoint cursor,
 // snapped forward when it lands inside a grapheme cluster, at the end for
 // -1 or past the end.
-TEST(ime_cursor_codepoints_snapped_and_clamped) {
+static void ime_cursor_codepoints_snapped_and_clamped_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
-    ime_widget = IME_W_INPUTBOX;
+    ime_widget = w;
     char buf[64] = "";
     size_t len = 0;
     static const char pre[] = "e\xCC\x81x";   // e + U+0301 + x: 4 bytes, 3 codepoints, 2 units
@@ -616,13 +670,17 @@ TEST(ime_cursor_codepoints_snapped_and_clamped) {
     wlx_context_destroy(&ctx);
 }
 
+TEST(ime_cursor_codepoints_snapped_and_clamped) {
+    IME_FOR_SHAPES(ime_shapes, ime_cursor_codepoints_snapped_and_clamped_case);
+}
+
 // The selected clause draws in the selection colour from the caret for
 // the given codepoints; the widget's own selection stays empty.
-TEST(ime_clause_highlight_range) {
+static void ime_clause_highlight_range_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
     ctx.backend.draw_rect = ime_capture_rect;
-    ime_widget = IME_W_INPUTBOX;
+    ime_widget = w;
     char buf[64] = "";
     size_t len = 0;
 
@@ -649,16 +707,20 @@ TEST(ime_clause_highlight_range) {
     wlx_context_destroy(&ctx);
 }
 
+TEST(ime_clause_highlight_range) {
+    IME_FOR_SHAPES(ime_shapes, ime_clause_highlight_range_case);
+}
+
 // ============================================================================
 // Commit, adopt, selection, capacity
 // ============================================================================
 
 // A commit lands where the span began as one journal step of its own; undo
 // removes the whole clause and redo restores it.
-TEST(ime_commit_lands_as_one_undo_step) {
+static void ime_commit_lands_as_one_undo_step_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
-    ime_widget = IME_W_INPUTBOX;
+    ime_widget = w;
     char buf[64] = "";
     size_t len = 0;
 
@@ -693,12 +755,16 @@ TEST(ime_commit_lands_as_one_undo_step) {
     wlx_context_destroy(&ctx);
 }
 
+TEST(ime_commit_lands_as_one_undo_step) {
+    IME_FOR_SHAPES(ime_shapes, ime_commit_lands_as_one_undo_step_case);
+}
+
 // A commit and the next clause's first string arrive in one frame: the
 // commit lands, the new span follows it.
-TEST(ime_commit_and_next_clause_in_one_frame) {
+static void ime_commit_and_next_clause_in_one_frame_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
-    ime_widget = IME_W_INPUTBOX;
+    ime_widget = w;
     char buf[64] = "";
     size_t len = 0;
 
@@ -721,12 +787,16 @@ TEST(ime_commit_and_next_clause_in_one_frame) {
     wlx_context_destroy(&ctx);
 }
 
+TEST(ime_commit_and_next_clause_in_one_frame) {
+    IME_FOR_SHAPES(ime_shapes, ime_commit_and_next_clause_in_one_frame_case);
+}
+
 // Focus leaving with a span in place adopts it: the bytes stay and the
 // journal holds the step a commit would have made.
-TEST(ime_adopt_on_blur_matches_a_commit) {
+static void ime_adopt_on_blur_matches_a_commit_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
-    ime_widget = IME_W_INPUTBOX;
+    ime_widget = w;
     char buf[64] = "";
     size_t len = 0;
 
@@ -755,12 +825,16 @@ TEST(ime_adopt_on_blur_matches_a_commit) {
     wlx_context_destroy(&ctx);
 }
 
+TEST(ime_adopt_on_blur_matches_a_commit) {
+    IME_FOR_SHAPES(ime_shapes, ime_adopt_on_blur_matches_a_commit_case);
+}
+
 // Composing over a selection deletes it first as a step of its own; a
 // cancelled composition leaves that step, and undo restores the selection.
-TEST(ime_selection_deleted_at_start_stands_alone) {
+static void ime_selection_deleted_at_start_stands_alone_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
-    ime_widget = IME_W_INPUTBOX;
+    ime_widget = w;
     char buf[64] = "";
     size_t len = 0;
 
@@ -789,6 +863,10 @@ TEST(ime_selection_deleted_at_start_stands_alone) {
     wlx_context_destroy(&ctx);
 }
 
+TEST(ime_selection_deleted_at_start_stands_alone) {
+    IME_FOR_SHAPES(ime_shapes, ime_selection_deleted_at_start_stands_alone_case);
+}
+
 // A string that does not fit lands whole clusters only, on the buffer's
 // capacity; the span is what landed.
 TEST(ime_capacity_truncates_on_a_cluster_boundary) {
@@ -814,10 +892,10 @@ TEST(ime_capacity_truncates_on_a_cluster_boundary) {
 
 // A read-only field never takes a composition string and never asks for
 // text input.
-TEST(ime_read_only_never_composes) {
+static void ime_read_only_never_composes_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
-    ime_widget = IME_W_INPUTBOX;
+    ime_widget = w;
     ime_read_only = true;
     char buf[64] = "ab";
     size_t len = 2;
@@ -831,6 +909,10 @@ TEST(ime_read_only_never_composes) {
     ASSERT_EQ_INT(0, mock_tia_calls());
     ASSERT_FALSE(wlx_text_input_area(&ctx).active);
     wlx_context_destroy(&ctx);
+}
+
+TEST(ime_read_only_never_composes) {
+    IME_FOR_SHAPES(ime_shapes, ime_read_only_never_composes_case);
 }
 
 // A masked field masks the span like the rest and underlines its mask
@@ -876,15 +958,17 @@ TEST(ime_password_masks_the_span) {
 // A span is never deleted on stale evidence: a refocus after the widget
 // was not drawn forgets it, an outside change of the buffer forgets it,
 // the editor's revision bump forgets it; the bytes stay in every case.
-TEST(ime_forget_on_focus_and_on_external_change) {
+static void ime_forget_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
-    ime_widget = IME_W_INPUTBOX;
+    ime_widget = w;
     char buf[64] = "";
     size_t len = 0;
 
     // Not drawn for a frame while composing: focus is released without
-    // the widget running (no adopt), then a click refocuses.
+    // the widget running (no adopt). Drawn unfocused next, the stale span
+    // is plain text, not underlined. Then a click refocuses, and the focus
+    // frame forgets the span: its bytes stay.
     ime_focus(&ctx, buf, sizeof(buf), &len);
     ime_type(&ctx, buf, sizeof(buf), &len, "ab");
     ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "ni", -1, -1);
@@ -892,6 +976,13 @@ TEST(ime_forget_on_focus_and_on_external_change) {
     ime_skip_widget = true;
     ime_idle(&ctx, buf, sizeof(buf), &len);
     ime_skip_widget = false;
+    ime_reset_draws();
+    ime_idle(&ctx, buf, sizeof(buf), &len);
+    ASSERT_FALSE(ime_last_focused);
+    ASSERT_EQ_STR(buf, "abni");
+    ASSERT_EQ_INT(2, (int)ime_caret(&ctx)->preedit_len);   // not adopted: no blur edge
+    IME_EXPECT_PIECE(ime_piece_index(0), "abni", 9.0f, ime_row_y(w));
+    ASSERT_TRUE(ime_find_underline(10.0f) < 0);
     ime_focus(&ctx, buf, sizeof(buf), &len);
     ASSERT_TRUE(ime_last_focused);
     ASSERT_EQ_STR(buf, "abni");
@@ -909,10 +1000,15 @@ TEST(ime_forget_on_focus_and_on_external_change) {
     ASSERT_FALSE(ime_caret(&ctx)->composing);
     ASSERT_EQ_INT(0, (int)ime_caret(&ctx)->preedit_len);
     wlx_context_destroy(&ctx);
+}
+
+TEST(ime_forget_on_focus_and_on_external_change) {
+    IME_FOR_SHAPES(ime_shapes, ime_forget_case);
 
     // The editor: an outside rewrite of the same length with a revision
     // bump (the one case the length guard cannot see) forgets the span;
     // the bytes the application wrote stay.
+    WLX_Context ctx;
     ime_ctx_init(&ctx);
     ime_widget = IME_W_EDITOR;
     char doc[64] = "ab\ncd";
@@ -940,10 +1036,10 @@ TEST(ime_forget_on_focus_and_on_external_change) {
 
 // While a span is in the buffer, keys and clicks change nothing: the input
 // method owns them.
-TEST(ime_keys_and_mouse_are_off_while_composing) {
+static void ime_keys_and_mouse_are_off_while_composing_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
-    ime_widget = IME_W_INPUTBOX;
+    ime_widget = w;
     char buf[64] = "";
     size_t len = 0;
 
@@ -968,6 +1064,50 @@ TEST(ime_keys_and_mouse_are_off_while_composing) {
     ASSERT_TRUE(ime_last_focused);
     ASSERT_TRUE(ime_caret(&ctx)->composing);
     wlx_context_destroy(&ctx);
+}
+
+// The motion keys the multi-line shapes add: UP / DOWN, PageUp / PageDown
+// and HOME / END. The span sits mid-line on the middle of three lines, so
+// each key would move the caret (END included: the line goes on after the
+// span); a key frame must leave the caret, the anchor and the bytes as the
+// input method placed them. The textarea has no paging keys, so those two
+// frames are inert there for a different reason.
+static void ime_keys_off_vertical_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[64] = "aa\nbb\ncc";
+    size_t len = 8;
+
+    ime_idle(&ctx, buf, sizeof(buf), &len);   // the editor's index exists before the press
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, test_command_mod());
+    ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_UP, 0);
+    ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, 0);
+    ASSERT_EQ_INT(4, (int)ime_caret(&ctx)->cursor_pos);   // "b|b" on the middle line
+    ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "ni", -1, -1);
+    ASSERT_EQ_STR(buf, "aa\nbnib\ncc");
+    ASSERT_EQ_INT(6, (int)ime_caret(&ctx)->cursor_pos);
+    static const WLX_Key_Code keys[] = {
+        WLX_KEY_UP, WLX_KEY_DOWN, WLX_KEY_PAGE_UP, WLX_KEY_PAGE_DOWN, WLX_KEY_HOME, WLX_KEY_END,
+    };
+    for (size_t k = 0; k < sizeof keys / sizeof keys[0]; k++) {
+        ime_compose_key(&ctx, buf, sizeof(buf), &len, "ni", 200, 50, false, keys[k], 0);
+        ASSERT_EQ_STR(buf, "aa\nbnib\ncc");
+        ASSERT_EQ_INT(6, (int)ime_caret(&ctx)->cursor_pos);
+        ASSERT_EQ_INT(6, (int)ime_caret(&ctx)->selection_anchor);
+        ASSERT_TRUE(ime_caret(&ctx)->composing);
+    }
+    // The commit lands where the span began: the keys moved nothing.
+    ime_compose(&ctx, buf, sizeof(buf), &len, "NI", "", -1, -1);
+    ASSERT_EQ_STR(buf, "aa\nbNIb\ncc");
+    ASSERT_EQ_INT(6, (int)ime_caret(&ctx)->cursor_pos);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_keys_and_mouse_are_off_while_composing) {
+    IME_FOR_SHAPES(ime_shapes, ime_keys_and_mouse_are_off_while_composing_case);
+    IME_FOR_SHAPES(ime_multiline_shapes, ime_keys_off_vertical_case);
 }
 
 // The composition anchor is pushed on the edges and on change only: the
@@ -1198,14 +1338,6 @@ TEST(ime_focus_move_to_an_earlier_field_ends_the_composition) { ime_focus_move_b
 // the line stays inside the band and the cursor inside the line.
 // ============================================================================
 
-static const Ime_Widget ime_anchor_shapes[] = {
-    IME_W_INPUTBOX, IME_W_TEXTAREA, IME_W_EDITOR, IME_W_EDITOR_WRAP
-};
-static const Ime_Widget ime_anchor_multiline_shapes[] = {
-    IME_W_TEXTAREA, IME_W_EDITOR, IME_W_EDITOR_WRAP
-};
-#define IME_ANCHOR_SHAPE_COUNT(a) (sizeof(a) / sizeof((a)[0]))
-
 // How far the fixture widget's view is scrolled down from the top: the
 // inputbox's pixel offset, the editor's first visible line and row.
 static float ime_view_scrolled(WLX_Context *ctx) {
@@ -1239,9 +1371,7 @@ static void ime_anchor_idle_case(Ime_Widget w) {
 }
 
 TEST(ime_anchor_holds_across_idle_frames) {
-    for (size_t i = 0; i < IME_ANCHOR_SHAPE_COUNT(ime_anchor_shapes); i++) {
-        ime_anchor_idle_case(ime_anchor_shapes[i]);
-    }
+    IME_FOR_SHAPES(ime_shapes, ime_anchor_idle_case);
 }
 
 // The caret parked on the first line, the view wheeled down past it: the
@@ -1296,9 +1426,7 @@ static void ime_anchor_scrolled_out_horizontal_case(void) {
 }
 
 TEST(ime_anchor_holds_with_caret_scrolled_out) {
-    for (size_t i = 0; i < IME_ANCHOR_SHAPE_COUNT(ime_anchor_multiline_shapes); i++) {
-        ime_anchor_scrolled_out_case(ime_anchor_multiline_shapes[i]);
-    }
+    IME_FOR_SHAPES(ime_multiline_shapes, ime_anchor_scrolled_out_case);
     ime_anchor_scrolled_out_horizontal_case();
 }
 
@@ -1337,9 +1465,38 @@ static void ime_anchor_empty_case(Ime_Widget w) {
 }
 
 TEST(ime_anchor_active_on_empty_focus_frame) {
-    for (size_t i = 0; i < IME_ANCHOR_SHAPE_COUNT(ime_anchor_shapes); i++) {
-        ime_anchor_empty_case(ime_anchor_shapes[i]);
-    }
+    IME_FOR_SHAPES(ime_shapes, ime_anchor_empty_case);
+}
+
+// ============================================================================
+// A text widget that neither holds focus nor adopts a span this frame
+// never writes to the caller's buffer. The buffer here is read-only
+// storage, so a stray write (a trailing NUL rewritten on every frame)
+// faults the runner inside this test.
+// ============================================================================
+
+static const char ime_ro_text[] = "ab\ncd";
+
+static void ime_unfocused_never_writes_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char *buf = (char *)ime_ro_text;
+    size_t len = sizeof(ime_ro_text) - 1;
+    ime_idle(&ctx, buf, sizeof(ime_ro_text), &len);              // hovered
+    ime_blur(&ctx, buf, sizeof(ime_ro_text), &len);              // a press elsewhere
+    ime_wheel(&ctx, buf, sizeof(ime_ro_text), &len, -3.0f, 0);   // wheeled
+    ime_compose(&ctx, buf, sizeof(ime_ro_text), &len, "x", "ni", -1, -1);   // input for someone else
+    ime_idle(&ctx, buf, sizeof(ime_ro_text), &len);
+    ASSERT_FALSE(ime_last_focused);
+    ASSERT_FALSE(ime_last_changed);
+    ASSERT_EQ_INT(5, (int)len);
+    ASSERT_EQ_INT(0, mock_tia_calls());
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_unfocused_frames_never_write_the_buffer) {
+    IME_FOR_SHAPES(ime_shapes, ime_unfocused_never_writes_case);
 }
 
 // ============================================================================
@@ -1399,9 +1556,9 @@ static void ime_span_edge_case(Ime_Widget w, const Ime_Edge_Case *c) {
 }
 
 TEST(ime_span_edge_joins_neighbour) {
-    for (size_t i = 0; i < IME_ANCHOR_SHAPE_COUNT(ime_anchor_shapes); i++) {
+    for (size_t i = 0; i < IME_SHAPE_COUNT(ime_shapes); i++) {
         for (size_t k = 0; k < sizeof ime_edge_cases / sizeof ime_edge_cases[0]; k++) {
-            ime_span_edge_case(ime_anchor_shapes[i], &ime_edge_cases[k]);
+            ime_span_edge_case(ime_shapes[i], &ime_edge_cases[k]);
         }
     }
 }
@@ -1434,4 +1591,5 @@ SUITE(ime) {
     RUN_TEST(ime_editor_wrapped_span_reflows);
     RUN_TEST(ime_editor_linear_span_and_index_patch);
     RUN_TEST(ime_span_edge_joins_neighbour);
+    RUN_TEST(ime_unfocused_frames_never_write_the_buffer);
 }
