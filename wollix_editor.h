@@ -2109,7 +2109,7 @@ static bool wlx_editor_caret_input(const WLX_Editor_Frame *f, WLX_Editor_Scroll 
     // While a composition string is in the buffer the keys and the pointer
     // belong to the input method.
     if (inter.focused && !inter.disabled && idx != NULL && idx->count > 0
-        && !state->caret.composing) {
+        && !wlx_text_edit_composing(&state->caret)) {
         if (inter.just_focused) {
             state->caret.cursor_blink_time = 0.0f;
             state->caret.preferred_x_valid = false;
@@ -2290,13 +2290,16 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
         if (changed && *length < buffer_cap) buffer[*length] = '\0';
         kb_caret_changed = pre_cursor != state->caret.cursor_pos
             || pre_anchor != state->caret.selection_anchor;
-    } else if (inter.just_unfocused && state->caret.preedit_len > 0) {
+    } else if (inter.just_unfocused && wlx_text_edit_composing(&state->caret)) {
         // Focus left with a composition string in the buffer: it becomes
         // typed text, and the edit span carries it to the index patch.
-        WLX_Text_Undo_Journal *undo = wlx_text_undo_get(ctx, persistent.id, *length,
-            opt.revision, false);
-        changed = wlx_text_edit_adopt_preedit(&state->caret, buffer, buffer_cap, length,
-            &edit_span, undo, opt.revision);
+        WLX_Text_Edit edit = {
+            .st = &state->caret, .buffer = buffer, .buffer_cap = buffer_cap, .length = length,
+            .span = &edit_span,
+            .undo = wlx_text_undo_get(ctx, persistent.id, *length, opt.revision, false),
+            .id = persistent.id, .revision = opt.revision,
+        };
+        changed = wlx_text_edit_adopt_preedit(&edit);
         if (changed && *length < buffer_cap) buffer[*length] = '\0';
     }
 
@@ -2532,8 +2535,7 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
 
         // A composition string in progress: underlined, its selected
         // clause in the selection colour.
-        if (win_count > 0 && inter.focused && state->caret.composing
-            && state->caret.preedit_len > 0
+        if (win_count > 0 && inter.focused && wlx_text_edit_composing(&state->caret)
             && state->caret.preedit_start + state->caret.preedit_len <= doc_len
             && state->caret.cursor_pos >= state->caret.preedit_start
             && state->caret.cursor_pos <= state->caret.preedit_start + state->caret.preedit_len) {

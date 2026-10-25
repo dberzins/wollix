@@ -571,7 +571,7 @@ static void ime_tentative_span_shows_and_journal_untouched_case(Ime_Widget w) {
     ASSERT_TRUE(ime_last_changed);
     ASSERT_TRUE(wlx_text_composing(&ctx));
     WLX_Text_Edit_State *c = ime_caret(&ctx);
-    ASSERT_TRUE(c->composing);
+    ASSERT_TRUE(wlx_text_edit_composing(c));
     ASSERT_EQ_INT(2, (int)c->preedit_start);
     ASSERT_EQ_INT(2, (int)c->preedit_len);
     ASSERT_EQ_INT(4, (int)c->preedit_doc_len);
@@ -647,7 +647,7 @@ static void ime_cancel_restores_buffer_and_journal_case(Ime_Widget w) {
     ASSERT_EQ_STR(buf, "ab");
     ASSERT_EQ_INT(2, (int)len);
     WLX_Text_Edit_State *c = ime_caret(&ctx);
-    ASSERT_FALSE(c->composing);
+    ASSERT_FALSE(wlx_text_edit_composing(c));
     ASSERT_EQ_INT(0, (int)c->preedit_len);
     ASSERT_EQ_INT(2, (int)c->cursor_pos);
     ASSERT_EQ_INT(2, (int)c->selection_anchor);
@@ -764,7 +764,7 @@ static void ime_commit_lands_as_one_undo_step_case(Ime_Widget w) {
     ime_compose(&ctx, buf, sizeof(buf), &len, "\xE6\x97\xA5\xE6\x9C\xAC", "", -1, -1);
     ASSERT_EQ_STR(buf, "ab\xE6\x97\xA5\xE6\x9C\xAC");
     ASSERT_EQ_INT(8, (int)len);
-    ASSERT_FALSE(ime_caret(&ctx)->composing);
+    ASSERT_FALSE(wlx_text_edit_composing(ime_caret(&ctx)));
     ASSERT_EQ_INT(8, (int)ime_caret(&ctx)->cursor_pos);
     ASSERT_EQ_INT(2, (int)ime_undo_count(&ctx));
     WLX_Text_Undo_Entry e = ime_newest(&ctx);
@@ -808,7 +808,7 @@ static void ime_commit_and_next_clause_in_one_frame_case(Ime_Widget w) {
     ime_compose(&ctx, buf, sizeof(buf), &len, "X", "h", -1, -1);
     ASSERT_EQ_STR(buf, "abXh");
     WLX_Text_Edit_State *c = ime_caret(&ctx);
-    ASSERT_TRUE(c->composing);
+    ASSERT_TRUE(wlx_text_edit_composing(c));
     ASSERT_EQ_INT(3, (int)c->preedit_start);
     ASSERT_EQ_INT(1, (int)c->preedit_len);
     ASSERT_EQ_INT(4, (int)c->cursor_pos);
@@ -842,7 +842,7 @@ static void ime_adopt_on_blur_matches_a_commit_case(Ime_Widget w) {
     ASSERT_TRUE(ime_last_changed);
     ASSERT_EQ_STR(buf, "abnihon");
     WLX_Text_Edit_State *c = ime_caret(&ctx);
-    ASSERT_FALSE(c->composing);
+    ASSERT_FALSE(wlx_text_edit_composing(c));
     ASSERT_EQ_INT(0, (int)c->preedit_len);
     ASSERT_EQ_INT(7, (int)c->cursor_pos);
     ASSERT_FALSE(wlx_text_composing(&ctx));
@@ -916,7 +916,7 @@ TEST(ime_capacity_truncates_on_a_cluster_boundary) {
     ASSERT_EQ_STR(buf, "ab\xE6\x97\xA5");
     ASSERT_EQ_INT(5, (int)len);
     WLX_Text_Edit_State *c = ime_caret(&ctx);
-    ASSERT_TRUE(c->composing);
+    ASSERT_TRUE(wlx_text_edit_composing(c));
     ASSERT_EQ_INT(3, (int)c->preedit_len);
     ASSERT_EQ_INT(5, (int)c->cursor_pos);
     ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "", -1, -1);
@@ -938,7 +938,7 @@ static void ime_read_only_never_composes_case(Ime_Widget w) {
     ASSERT_TRUE(ime_last_focused);
     ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "ni", -1, -1);
     ASSERT_EQ_STR(buf, "ab");
-    ASSERT_FALSE(ime_caret(&ctx)->composing);
+    ASSERT_FALSE(wlx_text_edit_composing(ime_caret(&ctx)));
     ASSERT_FALSE(wlx_text_composing(&ctx));
     ASSERT_EQ_INT(0, mock_tia_calls());
     ASSERT_FALSE(wlx_text_input_area(&ctx).active);
@@ -964,7 +964,7 @@ TEST(ime_password_masks_the_span) {
     ime_reset_draws();
     ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "ni", -1, -1);
     ASSERT_EQ_STR(buf, "abni");
-    ASSERT_TRUE(ime_caret(&ctx)->composing);
+    ASSERT_TRUE(wlx_text_edit_composing(ime_caret(&ctx)));
     bool plaintext_drawn = false;
     int pieces = 0;
     for (int i = 0; i < ime_draw_count; i++) {
@@ -1006,7 +1006,7 @@ static void ime_forget_case(Ime_Widget w) {
     ime_focus(&ctx, buf, sizeof(buf), &len);
     ime_type(&ctx, buf, sizeof(buf), &len, "ab");
     ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "ni", -1, -1);
-    ASSERT_TRUE(ime_caret(&ctx)->composing);
+    ASSERT_TRUE(wlx_text_edit_composing(ime_caret(&ctx)));
     ime_skip_widget = true;
     ime_idle(&ctx, buf, sizeof(buf), &len);
     ime_skip_widget = false;
@@ -1020,7 +1020,7 @@ static void ime_forget_case(Ime_Widget w) {
     ime_focus(&ctx, buf, sizeof(buf), &len);
     ASSERT_TRUE(ime_last_focused);
     ASSERT_EQ_STR(buf, "abni");
-    ASSERT_FALSE(ime_caret(&ctx)->composing);
+    ASSERT_FALSE(wlx_text_edit_composing(ime_caret(&ctx)));
     ASSERT_EQ_INT(0, (int)ime_caret(&ctx)->preedit_len);
     ASSERT_EQ_INT(1, (int)ime_undo_count(&ctx));
 
@@ -1031,7 +1031,7 @@ static void ime_forget_case(Ime_Widget w) {
     len = 2;
     ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "", -1, -1);
     ASSERT_EQ_STR(buf, "zz");
-    ASSERT_FALSE(ime_caret(&ctx)->composing);
+    ASSERT_FALSE(wlx_text_edit_composing(ime_caret(&ctx)));
     ASSERT_EQ_INT(0, (int)ime_caret(&ctx)->preedit_len);
     wlx_context_destroy(&ctx);
 }
@@ -1052,7 +1052,7 @@ TEST(ime_forget_on_focus_and_on_external_change) {
     ime_key(&ctx, doc, sizeof(doc), &dlen, WLX_KEY_END, test_command_mod());
     ime_compose(&ctx, doc, sizeof(doc), &dlen, NULL, "ni", -1, -1);
     ASSERT_EQ_STR(doc, "ab\ncdni");
-    ASSERT_TRUE(ime_caret(&ctx)->composing);
+    ASSERT_TRUE(wlx_text_edit_composing(ime_caret(&ctx)));
     memcpy(doc, "xy\nzw\nq", 7);
     dlen = 7;
     doc[7] = '\0';
@@ -1063,7 +1063,7 @@ TEST(ime_forget_on_focus_and_on_external_change) {
     ASSERT_EQ_INT(9, (int)dlen);
     ASSERT_TRUE(strstr(doc, "xy\nzw") != NULL || strstr(doc, "zw\nq") != NULL);
     ASSERT_TRUE(strstr(doc, "ni") != NULL);
-    ASSERT_TRUE(ime_caret(&ctx)->composing);
+    ASSERT_TRUE(wlx_text_edit_composing(ime_caret(&ctx)));
     ASSERT_EQ_INT(2, (int)ime_caret(&ctx)->preedit_len);
     wlx_context_destroy(&ctx);
 }
@@ -1096,18 +1096,18 @@ static void ime_keys_and_mouse_are_off_while_composing_case(Ime_Widget w) {
     // would adopt the string).
     ime_compose_key(&ctx, buf, sizeof(buf), &len, "ni", 200, 50, false, WLX_KEY_ENTER, 0);
     ASSERT_TRUE(ime_last_focused);
-    ASSERT_TRUE(ime_caret(&ctx)->composing);
+    ASSERT_TRUE(wlx_text_edit_composing(ime_caret(&ctx)));
     ASSERT_EQ_STR(buf, "abni");
     ime_compose_key(&ctx, buf, sizeof(buf), &len, "ni", 200, 50, false, WLX_KEY_ESCAPE, 0);
     ASSERT_TRUE(ime_last_focused);
-    ASSERT_TRUE(ime_caret(&ctx)->composing);
+    ASSERT_TRUE(wlx_text_edit_composing(ime_caret(&ctx)));
     ASSERT_EQ_STR(buf, "abni");
     ASSERT_EQ_INT(1, (int)ime_undo_count(&ctx));
     // A click at the field's start would place the caret at 0 otherwise.
     ime_compose_key(&ctx, buf, sizeof(buf), &len, "ni", 10, 50, true, WLX_KEY_NONE, 0);
     ASSERT_EQ_INT(4, (int)ime_caret(&ctx)->cursor_pos);
     ASSERT_TRUE(ime_last_focused);
-    ASSERT_TRUE(ime_caret(&ctx)->composing);
+    ASSERT_TRUE(wlx_text_edit_composing(ime_caret(&ctx)));
     wlx_context_destroy(&ctx);
 }
 
@@ -1141,7 +1141,7 @@ static void ime_keys_off_vertical_case(Ime_Widget w) {
         ASSERT_EQ_STR(buf, "aa\nbnib\ncc");
         ASSERT_EQ_INT(6, (int)ime_caret(&ctx)->cursor_pos);
         ASSERT_EQ_INT(6, (int)ime_caret(&ctx)->selection_anchor);
-        ASSERT_TRUE(ime_caret(&ctx)->composing);
+        ASSERT_TRUE(wlx_text_edit_composing(ime_caret(&ctx)));
     }
     // The commit lands where the span began: the keys moved nothing.
     ime_compose(&ctx, buf, sizeof(buf), &len, "NI", "", -1, -1);
@@ -1423,7 +1423,7 @@ static void ime_held_string_case(Ime_Widget w) {
     ASSERT_EQ_INT(patches, ime_editor_patches(&ctx));
     ASSERT_EQ_INT(rebuilds, ime_editor_rebuilds(&ctx));
     WLX_Text_Edit_State *c = ime_caret(&ctx);
-    ASSERT_TRUE(c->composing);
+    ASSERT_TRUE(wlx_text_edit_composing(c));
     ASSERT_EQ_INT(2, (int)c->preedit_start);
     ASSERT_EQ_INT(5, (int)c->preedit_len);
     ASSERT_EQ_INT(7, (int)c->cursor_pos);

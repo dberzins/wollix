@@ -754,16 +754,18 @@ wlx_editor_impl frame
 **Composition.** An input method's string is applied as a tentative span
 through the same two primitives with the journal pointer `NULL`, so no
 tentative byte is ever recorded; a frame that changes the string or
-commits deletes the previous span (journal off) before the commit lands,
-and the transaction re-opens at the span's start so the commit's
-before-caret is real. A held string stays put and records nothing. The
-commit records under `WLX_TEXT_UNDO_CLS_COMPOSE`, which never coalesces,
-and a cancelled composition records nothing, leaving the stack and
-`expected_len` (the transaction still closes at the true length) exactly
-as before. Composing over a selection deletes it first under `SELECTION`.
-Focus leaving with a span in place adopts it as one `COMPOSE` step. The
-span is guarded like the journal: a length or `.revision` change forgets
-it (bytes kept), never deletes on stale evidence.
+commits takes the previous span out (`wlx_text_edit_preedit_take`,
+journal off) before the commit lands, and the transaction re-opens at
+the span's start so the commit's before-caret is real. A held string
+stays put and records nothing. The commit records under
+`WLX_TEXT_UNDO_CLS_COMPOSE`, which never coalesces, and a cancelled
+composition records nothing, leaving the stack and `expected_len` (the
+transaction still closes at the true length) exactly as before.
+Composing over a selection deletes it first under `SELECTION`. Focus
+leaving with a span in place adopts it through the same take: the bytes
+come out unrecorded and go back in as one `COMPOSE` step. The span is
+guarded like the journal: a length or `.revision` change forgets it
+(bytes kept), never deletes on stale evidence.
 
 So undoing a multi-line paste shifts the retained geometry by exactly the
 paste's span, the wrapped bottom anchor keeps its end-relative distance

@@ -681,19 +681,21 @@ applied under. A frame that finds either changed forgets the span
 without touching a byte (the bytes are the application's now); a refocus
 after the editor was not drawn forgets it the same way. Focus leaving
 with a span in place adopts it: the bytes stay and gain the undo step a
-commit would have made; a string the backend still carries on that frame
-is the leaving widget's and is applied by no other. The commit itself records under the `COMPOSE`
-class, which never coalesces, so each committed clause undoes as one
-step and a cancelled composition leaves the journal exactly as it was
-(UNDO_MODEL.md, section 6). The caret's position inside the string comes
-from the platform in codepoints and is snapped forward to a grapheme
-cluster boundary of the string, so it never lands inside a cluster of the
-string (Section 1's unit model). It need not be a boundary of the
-document. When the string's first or last unit joins the text beside it
-(a leading combining mark, a ZWJ between two emoji), no offset at that
-edge is one, and the caret stays where the input method put it for as
-long as the composition is held. The commit, or a cancel, puts it back on
-a document boundary.
+commit would have made (the span is taken out with the journal off and
+the same bytes go back in as that step, the take a composing frame's
+drop starts with too); a string the backend still carries on that frame
+is the leaving widget's and is applied by no other. The commit itself
+records under the `COMPOSE` class, which never coalesces, so each
+committed clause undoes as one step and a cancelled composition leaves
+the journal exactly as it was (UNDO_MODEL.md, section 6). The caret's
+position inside the string comes from the platform in codepoints and is
+snapped forward to a grapheme cluster boundary of the string, so it
+never lands inside a cluster of the string (Section 1's unit model). It
+need not be a boundary of the document. When the string's first or last
+unit joins the text beside it (a leading combining mark, a ZWJ between
+two emoji), no offset at that edge is one, and the caret stays where the
+input method put it for as long as the composition is held. The commit,
+or a cancel, puts it back on a document boundary.
 
 The editor also records the caret's visual line into the frame's
 composition anchor (`WLX_Text_Input_Area`), which the core pushes to the
