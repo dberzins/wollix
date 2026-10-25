@@ -2034,6 +2034,37 @@ TEST(ime_press_elsewhere_and_tab_adopt_the_span) {
     }
 }
 
+// A commit and the next clause in one frame where the commit fills the
+// buffer: the clause has no room and no span is applied, so the frame
+// leaves the composition and its caret is the buffer's - normalized onto a
+// unit boundary like any other keystroke's, here behind a combining mark
+// the commit landed in front of.
+static void ime_commit_fills_the_buffer_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[8] = "\xCC\x81";   // U+0301 alone
+    size_t len = 2;
+    // Three bytes of text: the inputbox keeps one for the NUL.
+    size_t cap = (w == IME_W_INPUTBOX || w == IME_W_TEXTAREA) ? 4 : 3;
+    ime_idle(&ctx, buf, cap, &len);
+    ime_focus(&ctx, buf, cap, &len);
+    ime_key(&ctx, buf, cap, &len, WLX_KEY_HOME, test_command_mod());
+    ASSERT_EQ_INT(0, (int)ime_caret(&ctx)->cursor_pos);
+    ime_compose(&ctx, buf, cap, &len, "e", "x", -1, -1);
+    ASSERT_EQ_INT(3, (int)len);
+    ASSERT_TRUE(memcmp(buf, "e\xCC\x81", 3) == 0);
+    ASSERT_EQ_INT(0, (int)ime_caret(&ctx)->preedit_len);
+    ASSERT_FALSE(wlx_text_composing(&ctx));
+    ASSERT_TRUE(wlx_text_unit_boundary(buf, len, ime_caret(&ctx)->cursor_pos));
+    ASSERT_TRUE(wlx_text_unit_boundary(buf, len, ime_caret(&ctx)->selection_anchor));
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_commit_that_fills_the_buffer_leaves_a_boundary_caret) {
+    IME_FOR_SHAPES(ime_shapes, ime_commit_fills_the_buffer_case);
+}
+
 SUITE(ime) {
     RUN_TEST(ime_identity_inputbox);
     RUN_TEST(ime_identity_textarea);
@@ -2072,4 +2103,5 @@ SUITE(ime) {
     RUN_TEST(ime_press_elsewhere_and_tab_adopt_the_span);
     RUN_TEST(ime_press_and_tab_on_the_composing_field_land_one_copy);
     RUN_TEST(ime_press_and_tab_on_the_composing_field_leave_no_orphan_span);
+    RUN_TEST(ime_commit_that_fills_the_buffer_leaves_a_boundary_caret);
 }

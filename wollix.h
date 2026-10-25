@@ -15152,7 +15152,13 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, WLX_Text_Edit_State *st,
             ctx->composing_id = id;
             text_changed = true;
         } else {
+            // No room for the string: no span is applied, so the caret is
+            // the buffer's again and is normalized as a keystroke's would
+            // be (a commit that filled the buffer can end inside a cluster
+            // it joins, in front of a combining mark).
             st->composing = false;
+            st->cursor_pos = wlx_text_normalize_cursor_offset(buffer, *length, st->cursor_pos);
+            st->selection_anchor = st->cursor_pos;
         }
 #ifdef WLX_DEBUG
         // A composing caret is the input method's position inside its
