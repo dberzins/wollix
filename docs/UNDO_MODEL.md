@@ -374,10 +374,14 @@ id. Steps are formed by *transactions*: one invocation of
 clamps the caret pair and closed before it returns.
 
 ```
-wlx_text_edit_handle_keys(ctx, st, buffer, buffer_cap, length, caps, span, undo)
+wlx_text_edit_handle_keys(ctx, e)         <- e: the WLX_Text_Edit the widget builds (caret
+                                             state, buffer, caps, span, undo, id, revision)
     clamp caret pair to *length
     txn_begin(undo, caret, anchor)        <- snapshot the before-state, class = NONE
-    command modifier block:
+    compose (section 10)                  <- a frame that begins with or applies a span
+                                             stops here: commit [COMPOSE], composing over a
+                                             selection [SELECTION], the span journal off
+    chords, on the command modifier:
         undo/redo chords (section 7)      <- first, so a chord frame never also pastes;
                                              a replay re-opens the before-state at its clamped caret
         copy; cut [CUT]; paste [PASTE]; select-all
@@ -387,12 +391,15 @@ wlx_text_edit_handle_keys(ctx, st, buffer, buffer_cap, length, caps, span, undo)
     Backspace         [SELECTION | WORD_DELETE | BACKSPACE]
     Delete            [SELECTION | WORD_DELETE | DELETE]
     LEFT / RIGHT
-    normalise caret pair, blink reset, sticky-column drop
-    txn_end(undo, *length)                <- expected_len = the length any later frame must find
+    finish (the one exit, compose's frames included):
+        normalise caret pair (not while a span stays), blink reset, sticky-column drop
+        txn_end(undo, *length)            <- expected_len = the length any later frame must find
 ```
 
-Each bracketed path calls `wlx_text_undo_set_class` before its primitive
-calls. The class is per path, not per key: Backspace on a live selection
+Each bracketed path mutates through `wlx_text_edit_replace(e, cls, bytes,
+len)`, which sets the class before its primitive calls; the tentative
+span's own edits call the primitives directly with the journal `NULL`.
+The class is per path, not per key: Backspace on a live selection
 is `SELECTION`, a word delete is `WORD_DELETE`, and only the plain
 unit delete is `BACKSPACE`.
 
@@ -812,9 +819,9 @@ which are unconditional). "Handler" below means `wlx_text_edit_handle_keys`.
 | `wlx_text_undo_stack_free(s)` | free one stack's arrays | `drop`, the destroy sweep |
 | `wlx_text_undo_stack_reset(s)` | empty a stack, keep its arrays | `clear`, redo clearing, allocation failure |
 | `wlx_text_undo_target(j)` | the stack a record lands on (undo, or the opposite stack while replaying) | `record` |
-| `wlx_text_undo_txn_begin(j, caret, anchor)` | open a transaction: before-state snapshot, class NONE | handler entry, `record`'s implicit path |
-| `wlx_text_undo_txn_end(j, length)` | close it: `expected_len`, spend `alloc_failed` | handler exit |
-| `wlx_text_undo_set_class(j, cls)` | declare the handler path about to mutate | each mutation path of the handler |
+| `wlx_text_undo_txn_begin(j, caret, anchor)` | open a transaction: before-state snapshot, class NONE | handler entry, the composition stage after it drops a span, `wlx_text_edit_adopt_preedit`, `record`'s implicit path |
+| `wlx_text_undo_txn_end(j, length)` | close it: `expected_len`, spend `alloc_failed` | `wlx_text_edit_finish` (the handler's one exit), `wlx_text_edit_adopt_preedit` |
+| `wlx_text_undo_set_class(j, cls)` | declare the handler path about to mutate | `wlx_text_edit_replace` (every journaled path of the handler), `wlx_text_edit_adopt_preedit` |
 | `wlx_text_undo_coalesce_target(j, start, removed_len, inserted_len)` | the newest undo entry to extend, or NULL (section 6) | `record` |
 | `wlx_text_undo_make_room(s, need_bytes, current_group, need_entry)` | eviction and growth (section 8) | `record` |
 | `wlx_text_undo_record(j, start, removed, removed_len, inserted_len, caret, anchor)` | record one primitive mutation before its memmove (section 4) | both primitives |
@@ -825,7 +832,8 @@ Signature changes the journal introduced, for orientation when reading
 older notes: `wlx_text_edit_delete_selection` and `wlx_text_edit_insert`
 gained a trailing `WLX_Text_Undo_Journal *undo`; `wlx_text_edit_handle_keys`
 gained the same after `span`; `wlx_inputbox_handle_keys` gained
-`WLX_Id id, uint32_t revision`.
+`WLX_Id id, uint32_t revision`. `wlx_text_edit_handle_keys` now takes
+`(ctx, const WLX_Text_Edit *e)`, the edit target each caller builds.
 
 ---
 

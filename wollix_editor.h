@@ -2278,13 +2278,15 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
         // revision, so history the buffer outgrew is dropped before the
         // chords could replay it. Undo and redo replay through the same
         // primitives as a keystroke, so the edit span below covers them.
-        WLX_Text_Undo_Journal *undo = wlx_text_undo_get(ctx, persistent.id, *length,
-            opt.revision, false);
-        changed = wlx_text_edit_handle_keys(ctx, &state->caret, buffer, buffer_cap, length,
-            (WLX_Text_Edit_Caps){ .read_only = opt.read_only,
-                                  .allow_newline = true, .allow_tab = true,
-                                  .word_delete = true }, &edit_span, undo, persistent.id,
-            opt.revision);
+        WLX_Text_Edit edit = {
+            .st = &state->caret, .buffer = buffer, .buffer_cap = buffer_cap, .length = length,
+            .caps = { .read_only = opt.read_only, .allow_newline = true, .allow_tab = true,
+                      .word_delete = true },
+            .span = &edit_span,
+            .undo = wlx_text_undo_get(ctx, persistent.id, *length, opt.revision, false),
+            .id = persistent.id, .revision = opt.revision,
+        };
+        changed = wlx_text_edit_handle_keys(ctx, &edit);
         if (changed && *length < buffer_cap) buffer[*length] = '\0';
         kb_caret_changed = pre_cursor != state->caret.cursor_pos
             || pre_anchor != state->caret.selection_anchor;
