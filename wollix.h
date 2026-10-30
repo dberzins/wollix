@@ -10828,11 +10828,12 @@ static size_t wlx_text_measure_advances_batch(const WLX_Text_Measure_Args *args,
 //     caller's frame), height as the backend measured it.
 // io_first_tab (absolute, SIZE_MAX = none) is updated on discovery and
 // feeds the per-unit tab precheck. Returns the units produced; 0 means
-// the batch cannot progress, and the CALLER picks the fail-over policy -
-// the three consumers deliberately differ (the build scan falls to
-// per-unit for the rest of its record, entry extension retries per call,
-// the wrap store build aborts to the measuring build) - so no fail-over
-// lives in here.
+// the batch cannot progress (a backend that cannot place a cluster - the
+// SDL3 adapter on a ligature - ends its fill there), and the CALLER picks
+// the fail-over policy - the build scan and the wrap store build fall to
+// per-unit for the rest of the record or row, so a refused line is still
+// retained, and entry extension retries per call - so no fail-over lives
+// in here.
 static size_t wlx_text_unit_fetch(const WLX_Text_Measure_Args *args,
     size_t pos, size_t measure_base, float base_x, size_t budget_left,
     bool batch_allowed, size_t *ends, float *advs, float *heights,
@@ -11786,9 +11787,11 @@ static bool wlx_text_geom_replay_linear(const WLX_Text_Build_Inputs *inputs,
 // that fits (or starts its row) is stored with its row-relative advance,
 // and a rejected candidate is discarded together with the rest of its
 // fetched batch and re-measured from the next row's start, exactly like
-// the measuring scan. Returns false on allocation failure or a backend
-// fill that cannot progress (the caller then falls back to the
-// measuring build).
+// the measuring scan; a fill the backend refuses (a cluster it cannot
+// place) falls to per-unit prefix measures for the rest of that row, as
+// the scan does, so the line is still retained. Returns false on
+// allocation failure (the caller then falls back to the measuring
+// build).
 //
 //   per hard line, until its separator or the per-line budget:
 //     row loop      [ row 0 ][ row 1 ][ row 2 ] ...
@@ -11841,6 +11844,10 @@ static bool wlx_text_geom_ensure_wrap(const WLX_Text_Build_Inputs *inputs,
         size_t row_units_count = 0;
         float row_x = 0.0f;
         bool row_done = false;
+        // As the measuring scan: a batch that cannot progress falls to
+        // per-unit prefix measures for the rest of this row (sticky),
+        // from the row start, so the stored row equals the scanned one.
+        bool batch_row = true;
         WLX_Text_Wrap_Break wb;
         wlx_text_wrap_break_reset(&wb, inputs);
 #ifdef WLX_DEBUG
@@ -11857,9 +11864,13 @@ static bool wlx_text_geom_ensure_wrap(const WLX_Text_Build_Inputs *inputs,
                 break;
             }
             size_t n = wlx_text_unit_fetch(&margs, pos, row_start, row_x,
-                (size_t)WLX_EDITOR_MAX_LINE_UNITS - line_units, true, ends,
+                (size_t)WLX_EDITOR_MAX_LINE_UNITS - line_units, batch_row, ends,
                 advs, heights, &first_tab);
-            if (n == 0) return false; // abort to the measuring build
+            if (n == 0) {
+                if (!batch_row) return false; // abort to the measuring build
+                batch_row = false;
+                continue;
+            }
             for (size_t i = 0; i < n; i++) {
                 WLX_Text_Fit fit = wlx_text_wrap_fit_step(&wb,
                     wlx_text_wrap_ws_at(text, length, pos), ends[i], advs[i],

@@ -346,11 +346,16 @@ deserves extra review care.
    heights-split pin (content-dependent-height mock) in the editor
    pipeline suite.
 6. **Fetch fail-over is caller policy.** A batch fill returning zero
-   units is handled three deliberately different ways: the build
-   step's sticky per-record fallback, `wlx_text_geom_extend`'s
-   retry-per-call, `wlx_text_geom_ensure_wrap`'s
-   abort-to-measuring-build. The policies live at the call sites, not
-   in the fill. Locked by exact-count traffic baselines.
+   units (a backend that cannot place a cluster, such as the SDL3
+   adapter on a ligature) is handled two ways: the build step and
+   `wlx_text_geom_ensure_wrap` fall to per-unit prefix measures for the
+   rest of the record or row (sticky), so a refused wrapped line is
+   still retained, and `wlx_text_geom_extend` retries per call. The
+   policies live at the call sites, not in the fill. Locked by
+   exact-count traffic baselines, including `make perf-editor`'s
+   refusing pass (an advances callback that refuses the `fi` and `fl`
+   ligatures, steady frames at the idle bound) and
+   `advances_refused_cluster_wrap_rows_are_retained`.
 7. **First-tab overestimate safety.** `line_first_tab` /
    `first_tab_rel` may claim a tab earlier than the truth (including
    the zero init); an overestimate only costs the fast path, never

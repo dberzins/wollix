@@ -627,7 +627,12 @@ minor.
   ran under the caret. The adapter now reports the shaped pen position
   (the rect minus the glyph's bearing, the run end from
   `TTF_GetTextSize`) and stops its fill at a glyph it cannot place, such
-  as a ligature alternate, so the core measures the rest. Since v0.7.0.
+  as a ligature alternate, so the core measures the rest. A wrapped
+  editor measures that rest once and keeps the line's geometry like any
+  other's, instead of measuring it again on every frame (the dashboard's
+  C sample, whose `//` and `->` are JetBrains Mono ligatures, took 3.4 ms
+  a frame wrapped against 0.6 ms unwrapped; an idle frame now makes the
+  same backend calls in both modes). Since v0.7.0.
 - **The text caret sits in the gap between two glyphs.** The inputbox,
   textarea and editor drew the 2-unit caret 2 units past its cell
   boundary. With advances that report the cell boundary (every backend,

@@ -283,6 +283,11 @@ static void traffic_measure_slice(const char *text, size_t len, WLX_Text_Style s
     if (out_h) *out_h = (float)fs;
 }
 
+// Set for the refusing pass: the advances callback ends its fill at an
+// "fi" or "fl" ligature, as the SDL3 adapter ends one at a cluster it
+// cannot place exactly (a run that starts at one returns 0).
+static bool g_refuse_ligatures;
+
 // Counting advances callback with the same per-byte model: installed for
 // the second traffic pass so the batched path is gated exactly like the
 // per-unit fallback (calls and bytes at the backend boundary).
@@ -290,13 +295,19 @@ static size_t traffic_measure_advances(const char *text, size_t len,
         WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
         float *out_advances, void *user) {
     (void)user;
-    (void)text;
     g_tm_calls++;
     g_tm_bytes += len;
     if (len > g_tm_maxlen) g_tm_maxlen = len;
     int fs = style.font_size > 0 ? style.font_size : 10;
-    for (size_t i = 0; i < unit_count; i++)
+    size_t start = 0;
+    for (size_t i = 0; i < unit_count; i++) {
+        if (g_refuse_ligatures && start + 1 < len && text[start] == 'f'
+            && (text[start + 1] == 'i' || text[start + 1] == 'l')) {
+            return i;
+        }
         out_advances[i] = (float)unit_ends[i] * (float)fs * 0.5f;
+        start = unit_ends[i];
+    }
     return unit_count;
 }
 
@@ -980,10 +991,25 @@ int main(void) {
     traffic_print(&tha_gnw);
     traffic_print(&tha_gw);
 
+    // Fifth pass: the advances callback refuses the "fi" and "fl"
+    // ligatures. Wrapped prose: a refused row falls to per-unit measures
+    // once and its line is retained like any other, so the steady frames
+    // hold the advances pass's idle bound.
+    printf("with measure_text_advances refusing the fi / fl ligatures:\n");
+    g_refuse_ligatures = true;
+    prose_len = gen_prose(prose, prose_cap);
+    Traffic_Result tl_w = run_traffic_case("prose wr +adv lig", prose, prose_cap, &prose_len, true, false, true, false);
+    g_refuse_ligatures = false;
+    traffic_print(&tl_w);
+
     failures += traffic_check_fallback(&tp_nw, &tp_w, &tg_nw, &tg_w);
     failures += traffic_check_advances(&ta_nw, &ta_w, &ta_gnw, &ta_gw);
     failures += traffic_check_fallback(&th_nw, &th_w, &th_gnw, &th_gw);
     failures += traffic_check_advances(&tha_nw, &tha_w, &tha_gnw, &tha_gw);
+    failures += traffic_check(tl_w.name, "idle", tl_w.idle, 2, 2);
+    failures += traffic_check(tl_w.name, "held", tl_w.held, 2, 2);
+    failures += traffic_check(tl_w.name, "vscroll", tl_w.vscroll, 2, 2);
+    failures += traffic_check(tl_w.name, "typing", tl_w.typing, 42, 4000);      // (36/3444)
 
     // Giant-line envelope on both measurement paths, plain and coloured:
     // END reaches the line's true end and parked-depth cost is

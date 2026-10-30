@@ -783,6 +783,97 @@ TEST(advances_negative_tracking_arms_agree) {
     ap_pair_destroy(&p);
 }
 
+// ============================================================================
+// A backend that refuses a cluster
+// ============================================================================
+
+// The SDL3 adapter ends an advances fill at a cluster it cannot place
+// exactly (a ligature or contextual alternate: JetBrains Mono's "//" and
+// "->"), and a run that starts at one returns 0. This callback refuses the
+// same way at either pair, over the per-byte model.
+static size_t ap_measure_advances_refusing(const char *text, size_t len,
+        WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
+        float *out_advances, void *user) {
+    ap_adv_calls++;
+    size_t filled = mock_measure_text_advances(text, len, style, unit_ends, unit_count,
+        out_advances, user);
+    size_t start = 0;
+    for (size_t u = 0; u < filled; u++) {
+        if (start + 1 < len && ((text[start] == '/' && text[start + 1] == '/')
+                || (text[start] == '-' && text[start + 1] == '>'))) {
+            return u;
+        }
+        start = unit_ends[u];
+    }
+    return filled;
+}
+
+// C-like lines with comments and arrows, two of them long enough to wrap
+// at the fixture's 400 px; 36 hard lines, more than the band has rows, so
+// the wrapped scrollbar probe stays out of the idle traffic.
+static size_t ap_gen_code(char *buf, size_t cap) {
+    static const char *lines[] = {
+        "// A comment long enough to wrap: the retained rows must equal the scanned ones.",
+        "int count = 0;   // a trailing comment after code",
+        "node->next = head->next; head->next = node; // an arrow and a comment that wraps",
+        "plain text without a refused pair",
+        "\tif (p->len > cap) return false; // tab, arrow and comment",
+        "",
+    };
+    size_t off = 0;
+    for (int r = 0; r < 6; r++) {
+        for (size_t i = 0; i < sizeof lines / sizeof lines[0]; i++) {
+            size_t n = strlen(lines[i]);
+            if (off + n + 1 >= cap) break;
+            memcpy(buf + off, lines[i], n);
+            off += n;
+            buf[off++] = '\n';
+        }
+    }
+    buf[off] = '\0';
+    return off;
+}
+
+// A wrapped editor over a backend that refuses "//" and "->": every row is
+// retained, the refused rows measured per unit from the refusal on as the
+// measuring scan does, so each frame draws exactly as the per-unit path
+// does and an idle frame measures nothing more than the per-unit path's
+// idle frame. (Dropped instead of retained, a refused line was re-measured
+// per unit on every frame.)
+TEST(advances_refused_cluster_wrap_rows_are_retained) {
+    AP_Pair p;
+    ap_pair_init(&p, 400, 120);
+    p.advances.backend.measure_text_advances = ap_measure_advances_refusing;
+    static char buf_a[8192], buf_b[8192];
+    size_t len_a = ap_gen_code(buf_a, sizeof(buf_a));
+    size_t len_b = ap_gen_code(buf_b, sizeof(buf_b));
+    size_t cap = sizeof(buf_a);
+
+    for (int i = 0; i < 3; i++)
+        ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, true, 0, 0, false, 0.0f, 0, NULL, NULL);
+    ASSERT_TRUE(ap_adv_calls > 0);
+
+    ap_slice_calls = 0;
+    ap_frame(&p.fallback, buf_a, cap, &len_a, true, 0, 0, false, 0.0f, 0, NULL, NULL);
+    unsigned long long fallback_idle = ap_slice_calls;
+    ap_slice_calls = 0;
+    ap_adv_calls = 0;
+    ap_frame(&p.advances, buf_b, cap, &len_b, true, 0, 0, false, 0.0f, 0, NULL, NULL);
+    ASSERT_EQ_INT(0, (long)ap_adv_calls);
+    ASSERT_EQ_INT((long)fallback_idle, (long)ap_slice_calls);
+
+    // Scroll, then edit a refused line: parity on every frame.
+    for (int i = 0; i < 4; i++)
+        ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, true, 30, 30, false, -1.0f, 0, NULL, NULL);
+    ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, true, 60, 15, true, 0.0f, 0, NULL, NULL);
+    ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, true, 0, 0, false, 0.0f, 0, NULL, "x");
+    ap_step_key(&p, buf_a, buf_b, cap, &len_a, &len_b, true, WLX_KEY_ENTER, 0);
+    ap_step_key(&p, buf_a, buf_b, cap, &len_a, &len_b, true, WLX_KEY_BACKSPACE, 0);
+    for (int i = 0; i < 2; i++)
+        ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, true, 0, 0, false, 0.0f, 0, NULL, NULL);
+    ap_pair_destroy(&p);
+}
+
 SUITE(advances_parity) {
     RUN_TEST(advances_cluster_units_never_split_at_chunk);
     RUN_TEST(advances_records_match_fallback_across_widths);
@@ -790,6 +881,7 @@ SUITE(advances_parity) {
     RUN_TEST(advances_caret_x_and_hit_tests_match_fallback);
     RUN_TEST(advances_scenario_no_wrap_draws_identically);
     RUN_TEST(advances_scenario_wrap_draws_identically);
+    RUN_TEST(advances_refused_cluster_wrap_rows_are_retained);
     RUN_TEST(advances_cold_build_batches_measure_traffic);
     RUN_TEST(advances_decreasing_backend_is_clamped_and_reported);
     RUN_TEST(advances_negative_tracking_arms_agree);
