@@ -1632,10 +1632,11 @@ TEST(ime_anchor_active_on_empty_focus_frame) {
 }
 
 // ============================================================================
-// A text widget that neither holds focus nor adopts a span this frame
-// never writes to the caller's buffer. The buffer here is read-only
-// storage, so a stray write (a trailing NUL rewritten on every frame)
-// faults the runner inside this test.
+// A text widget writes to the caller's buffer only on a frame whose text
+// changes: never on an unfocused frame that adopts no span, never in a
+// read-only field. The buffer here is read-only storage, so a stray write
+// (a trailing NUL rewritten on a frame that changed nothing) faults the
+// runner inside these tests.
 // ============================================================================
 
 static const char ime_ro_text[] = "ab\ncd";
@@ -1660,6 +1661,37 @@ static void ime_unfocused_never_writes_case(Ime_Widget w) {
 
 TEST(ime_unfocused_frames_never_write_the_buffer) {
     IME_FOR_SHAPES(ime_shapes, ime_unfocused_never_writes_case);
+}
+
+// A read-only field focused, navigated, selected, copied, typed and
+// composed at, then blurred, over read-only storage: every key path runs,
+// none writes.
+static void ime_read_only_never_writes_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    ime_read_only = true;
+    char *buf = (char *)ime_ro_text;
+    size_t len = sizeof(ime_ro_text) - 1;
+    ime_idle(&ctx, buf, sizeof(ime_ro_text), &len);
+    ime_focus(&ctx, buf, sizeof(ime_ro_text), &len);
+    ASSERT_TRUE(ime_last_focused);
+    ime_key(&ctx, buf, sizeof(ime_ro_text), &len, WLX_KEY_LEFT, 0);
+    ime_key(&ctx, buf, sizeof(ime_ro_text), &len, WLX_KEY_HOME, WLX_MOD_SHIFT);
+    ime_key(&ctx, buf, sizeof(ime_ro_text), &len, WLX_KEY_A, test_command_mod());
+    ime_key(&ctx, buf, sizeof(ime_ro_text), &len, WLX_KEY_C, test_command_mod());
+    ime_key(&ctx, buf, sizeof(ime_ro_text), &len, WLX_KEY_BACKSPACE, 0);
+    ime_type(&ctx, buf, sizeof(ime_ro_text), &len, "x");
+    ime_compose(&ctx, buf, sizeof(ime_ro_text), &len, NULL, "ni", -1, -1);
+    ime_blur(&ctx, buf, sizeof(ime_ro_text), &len);
+    ASSERT_FALSE(ime_last_focused);
+    ASSERT_FALSE(ime_last_changed);
+    ASSERT_EQ_INT(5, (int)len);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_read_only_never_writes) {
+    IME_FOR_SHAPES(ime_shapes, ime_read_only_never_writes_case);
 }
 
 // ============================================================================
@@ -2183,6 +2215,7 @@ SUITE(ime) {
     RUN_TEST(ime_held_string_keeps_its_span);
     RUN_TEST(ime_span_edge_joins_neighbour);
     RUN_TEST(ime_unfocused_frames_never_write_the_buffer);
+    RUN_TEST(ime_read_only_never_writes);
     RUN_TEST(ime_end_frame_commit_plus_enter_keeps_the_commit);
     RUN_TEST(ime_end_frame_escape_cancels_without_a_commit);
     RUN_TEST(ime_end_frame_commit_plus_undo_keeps_the_commit);

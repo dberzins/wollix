@@ -113,15 +113,19 @@ WLX_Context
 
 The widget id is the persistent state id (`wlx_get_state_impl`), so a
 journal follows the same identity rules as any per-widget state: the call
-site plus the id stack, or an explicit `.id`.
+site plus the id stack, or an explicit `.id`. The lookup takes it from the
+widget's interaction, which hashes the same site and id stack.
 
-Lookup happens in one place per widget, inside its *focused* branch, right
-before the key handler runs: `wlx_text_undo_get(ctx, id, length,
-revision, password)`. That placement carries three guarantees:
+Lookup happens in one place, the edit phase every text widget calls
+(`wlx_text_edit_phase`), right before the key handler runs on a focused
+frame or a span held without focus is adopted: `wlx_text_undo_get(ctx,
+id, length, revision, password)`. That placement carries three
+guarantees:
 
-- An unfocused field never touches the cache. Idle frames of a focused
-  field pay one scan of the cache (a handful of pointer compares) and
-  nothing else.
+- An unfocused field touches the cache only on the frame it adopts a
+  composition span (section 10); any other unfocused frame never does.
+  Idle frames of a focused field pay one scan of the cache (a handful of
+  pointer compares) and nothing else.
 - A journal is created on the first focused frame, but its arrays are
   allocated on the first *mutation*; a field that is focused and never
   edited costs one 200-byte cache item.
@@ -730,7 +734,7 @@ as on the editor; the history is dropped at the next lookup.
 
 | Widget | Lookup | Handler caps | Notes |
 |---|---|---|---|
-| `wlx_inputbox` | `wlx_inputbox_handle_keys`, after `strlen`, with `persistent.id`, `opt.revision`, `opt.password` | `read_only`, `allow_newline = multiline`, `word_delete`, `mask_clipboard = password` | the trailing NUL is rewritten after the handler as before |
+| `wlx_inputbox` | `wlx_text_edit_phase` from `wlx_inputbox_edit`, after the frame's one `strlen`, with the interaction id, `opt.revision`, `opt.password` | `read_only`, `allow_newline = multiline`, `word_delete`, `mask_clipboard = password` | the trailing NUL is rewritten only when the text changed |
 | `wlx_textarea` | the same: it is `wlx_inputbox` with `.multiline` preset | as above with `allow_newline` | Tab traverses focus, so there is no `TAB` step here |
 | `wlx_editor` | the focused branch of `wlx_editor_impl`, with `persistent.id`, `opt.revision`, password false | `read_only`, `allow_newline`, `allow_tab`, `word_delete` | plus the probe-path clear in the index guard |
 
@@ -814,7 +818,7 @@ which are unconditional). "Handler" below means `wlx_text_edit_handle_keys`.
 
 | Function | Role | Called from |
 |---|---|---|
-| `wlx_text_undo_get(ctx, id, length, revision, password)` | find or create a widget's journal; run the staleness guard; release the journal of a password field | the inputbox handler and the editor's focused branch |
+| `wlx_text_undo_get(ctx, id, length, revision, password)` | find or create a widget's journal; run the staleness guard; release the journal of a password field | `wlx_text_edit_phase` (the inputbox) and the editor's edit branches |
 | `wlx_text_undo_find(ctx, id)` | lookup without creation | `get`, `clear_if_present`, tests |
 | `wlx_text_undo_drop(ctx, id)` | free and remove a journal | `get` for password fields |
 | `wlx_text_undo_clear(j, length)` | reset both stacks, re-arm the guard, forget replay state | the guard, `apply` on infeasible steps, `clear_if_present` |
@@ -836,7 +840,9 @@ older notes: `wlx_text_edit_delete_selection` and `wlx_text_edit_insert`
 gained a trailing `WLX_Text_Undo_Journal *undo`; `wlx_text_edit_handle_keys`
 gained the same after `span`; `wlx_inputbox_handle_keys` gained
 `WLX_Id id, uint32_t revision`. `wlx_text_edit_handle_keys` now takes
-`(ctx, const WLX_Text_Edit *e)`, the edit target each caller builds.
+`(ctx, const WLX_Text_Edit *e)`, the edit target each caller builds, and
+`wlx_inputbox_handle_keys` is gone: `wlx_inputbox_edit` builds that
+target and calls `wlx_text_edit_phase`.
 
 ---
 

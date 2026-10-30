@@ -15403,6 +15403,28 @@ static bool wlx_text_edit_handle_keys(WLX_Context *ctx, const WLX_Text_Edit *e)
     return changed;
 }
 
+// The edit phase of a text widget, the one call each entry path makes per
+// frame. A focused frame settles a span recorded before the focus arrived
+// (wlx_text_edit_preedit_on_focus), finds the widget's journal under the
+// caller's revision (no_history keeps none and releases any the id had)
+// and runs the key handler. An unfocused frame with a span still held
+// adopts it under the same journal; any other frame does nothing. The
+// caller fills e's state, buffer, caps, span and revision; the phase sets
+// e->id to the interaction's id (it hashes the same site and id stack as
+// the persistent state) and e->undo. Returns true when the text mutated;
+// a caller that keeps a trailing NUL writes it only then (on any other
+// frame the byte at *e->length is still the terminator it was).
+static bool wlx_text_edit_phase(WLX_Context *ctx, WLX_Text_Edit *e, WLX_Interaction inter,
+    bool no_history)
+{
+    if (!inter.focused && !wlx_text_edit_composing(e->st)) return false;
+    e->id = inter.id;
+    if (inter.focused && inter.just_focused) wlx_text_edit_preedit_on_focus(ctx, e->st, e->id);
+    e->undo = wlx_text_undo_get(ctx, e->id, *e->length, e->revision, no_history);
+    if (!inter.focused) return wlx_text_edit_adopt_preedit(e);
+    return wlx_text_edit_handle_keys(ctx, e);
+}
+
 // Widget-specific hooks for the shared pointer driver. The driver owns the
 // click bookkeeping and widening (1 = caret, 2 = word, 3 = select all), the
 // mouse_selecting lifecycle, and the overshoot computation; hit resolution
@@ -15515,59 +15537,38 @@ static bool wlx_text_edit_handle_mouse(WLX_Context *ctx, WLX_Text_Edit_State *st
     return changed;
 }
 
-// Keyboard input for a focused inputbox: caret placement on first focus,
-// then the shared text-edit vocabulary over the buffer's slice view (the
-// trailing NUL is restored after the handling). read_only rejects every
-// mutation while navigation, selection, and copy keep working; password
-// suppresses copy/cut and keeps no undo journal, so plaintext never leaves
-// the field; multiline turns Enter into a newline insert. The widget's undo
-// journal is found by id under the caller's revision (the staleness guard
-// drops history the buffer outgrew). Returns true when the buffer text was
-// mutated (insert or delete); cursor-only movement resets the blink but
-// reports false.
-static bool wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state,
-    char *buffer, size_t buffer_size, bool just_focused, bool read_only, bool password,
-    bool multiline, WLX_Id id, uint32_t revision)
+// The inputbox's edit phase over the buffer's slice view: the one strlen
+// of the frame (handed back for the band), the caret parked at the end on
+// the focus frame, then the shared phase (wlx_text_edit_phase). read_only
+// rejects every mutation while navigation, selection, and copy keep
+// working; password suppresses copy/cut and keeps no undo journal, so
+// plaintext never leaves the field; multiline turns Enter into a newline
+// insert. The trailing NUL is restored only when the text mutated, so a
+// frame that changes no byte (an unfocused frame that adopts nothing, any
+// frame of a read-only field) never writes to the caller's buffer.
+// Returns true when the buffer text was mutated (insert or delete);
+// cursor-only movement resets the blink but reports false.
+static bool wlx_inputbox_edit(WLX_Context *ctx, const WLX_Inputbox_Opt *opt,
+    WLX_Inputbox_State *state, WLX_Interaction inter, char *buffer, size_t buffer_size,
+    size_t *out_len)
 {
     size_t len = strlen(buffer);
-
-    // Initialize cursor position when first focused; a tentative span
-    // left from an earlier focus is forgotten (wlx_text_edit_preedit_on_focus).
-    if (just_focused) {
+    if (inter.focused && inter.just_focused) {
         state->caret.cursor_pos = len;
         state->caret.selection_anchor = len;
         state->caret.cursor_blink_time = 0.0f;
         state->caret.preferred_x_valid = false;
-        wlx_text_edit_preedit_on_focus(ctx, &state->caret, id);
     }
-
     WLX_Text_Edit edit = {
         .st = &state->caret, .buffer = buffer, .buffer_cap = buffer_size - 1, .length = &len,
-        .caps = { .read_only = read_only, .allow_newline = multiline,
-                  .word_delete = true, .mask_clipboard = password },
-        .undo = wlx_text_undo_get(ctx, id, len, revision, password),
-        .id = id, .revision = revision,
+        .caps = { .read_only = opt->read_only, .allow_newline = opt->multiline,
+                  .word_delete = true, .mask_clipboard = opt->password },
+        .revision = opt->revision,
     };
-    bool text_changed = wlx_text_edit_handle_keys(ctx, &edit);
-    buffer[len] = '\0';
-    return text_changed;
-}
-
-// The field holds a composition string without focus (focus left it, on
-// the edge frame or silently): adopt it as typed text (see
-// wlx_text_edit_adopt_preedit).
-static bool wlx_inputbox_adopt_preedit(WLX_Context *ctx, WLX_Inputbox_State *state,
-    char *buffer, size_t buffer_size, bool password, WLX_Id id, uint32_t revision)
-{
-    size_t len = strlen(buffer);
-    WLX_Text_Edit edit = {
-        .st = &state->caret, .buffer = buffer, .buffer_cap = buffer_size - 1, .length = &len,
-        .undo = wlx_text_undo_get(ctx, id, len, revision, password),
-        .id = id, .revision = revision,
-    };
-    bool adopted = wlx_text_edit_adopt_preedit(&edit);
-    buffer[len] = '\0';
-    return adopted;
+    bool changed = wlx_text_edit_phase(ctx, &edit, inter, opt->password);
+    if (changed) buffer[len] = '\0';
+    *out_len = len;
+    return changed;
 }
 
 // Pointer-driver hooks for the inputbox: hits resolve through the frame's
@@ -15629,7 +15630,7 @@ typedef struct {
 } WLX_Inputbox_Band;
 
 static WLX_Inputbox_Band wlx_inputbox_resolve_band(WLX_Context *ctx,
-    const WLX_Inputbox_Opt *opt, const char *buffer, WLX_Rect input_rect,
+    const WLX_Inputbox_Opt *opt, const char *buffer, size_t buf_len, WLX_Rect input_rect,
     WLX_Text_Style ts, float border_inset, float icon_band, bool icon_leading,
     char *mask_buf, size_t mask_cap)
 {
@@ -15680,7 +15681,6 @@ static WLX_Inputbox_Band wlx_inputbox_resolve_band(WLX_Context *ctx,
     // geometry query below (hit test, line bounds, caret, highlight,
     // draw) runs on the display text; offsets map between the domains
     // via the unit index.
-    size_t buf_len = strlen(buffer);
     const char *disp_text = buffer;
     size_t disp_len = buf_len;
     if (opt->password) {
@@ -16154,14 +16154,8 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
 
     wlx_text_edit_tick_click_clock(ctx, &state->caret);
 
-    bool changed = false;
-    if (inter.focused) {
-        changed = wlx_inputbox_handle_keys(ctx, state, buffer, buffer_size, inter.just_focused,
-            opt.read_only, opt.password, opt.multiline, persistent.id, opt.revision);
-    } else if (wlx_text_edit_composing(&state->caret)) {
-        changed = wlx_inputbox_adopt_preedit(ctx, state, buffer, buffer_size,
-            opt.password, persistent.id, opt.revision);
-    }
+    size_t buf_len = 0;
+    bool changed = wlx_inputbox_edit(ctx, &opt, state, inter, buffer, buffer_size, &buf_len);
     if (opt.out_focused != NULL) *opt.out_focused = inter.focused;
 
     WLX_Text_Style ts = { .font = opt.font, .font_size = opt.font_size, .color = opt.front_color, .spacing = opt.spacing };
@@ -16210,7 +16204,7 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
         float border_inset = opt.border_width > 0 ? opt.border_width + 1.0f : 0.0f;
 
         char mask_buf[WLX_INPUTBOX_MASK_MAX];
-        WLX_Inputbox_Band ib = wlx_inputbox_resolve_band(ctx, &opt, buffer, input_rect,
+        WLX_Inputbox_Band ib = wlx_inputbox_resolve_band(ctx, &opt, buffer, buf_len, input_rect,
             ts, border_inset, icon_band, icon_leading, mask_buf, sizeof(mask_buf));
 
         WLX_Inputbox_Lines il = wlx_inputbox_build_lines(ctx, &opt, state, inter,
