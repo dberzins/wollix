@@ -4821,7 +4821,10 @@ Core frame snapshot published after each completed `wlx_end()`.
     time.
 - `commands` stores the total command count, command-range count, and the
     `WLX_CMD_*` histogram.
-- `text` stores text-measure, emitted-text, and fitted-run counters.
+- `text` stores the backend's text traffic (`measure_calls` / `measured_bytes`
+    for every `measure_text` / `measure_text_slice` call, `advances_calls` /
+    `advances_bytes` for every `measure_text_advances` fill, each counted where
+    the core makes the call), plus emitted-text and fitted-run counters.
 - `arena` stores per-arena count, capacity, high-water, grow-count, and byte
     usage snapshots.
 - `allocator` stores `wlx_malloc` / `wlx_calloc` / `wlx_realloc` / `wlx_free`

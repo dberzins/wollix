@@ -148,6 +148,7 @@ typedef enum {
 typedef enum {
     GALLERY_PERF_COUNTER_COMMANDS,
     GALLERY_PERF_COUNTER_TEXT_MEASURE,
+    GALLERY_PERF_COUNTER_TEXT_ADVANCES,
     GALLERY_PERF_COUNTER_TEXT_COMMANDS,
     GALLERY_PERF_COUNTER_BACKEND_DRAW_TEXT,
     GALLERY_PERF_COUNTER_BACKEND_MEASURE_TEXT,
@@ -655,6 +656,7 @@ static uint64_t gallery_perf_counter_value(const Gallery_Perf_Sample *sample, Ga
     switch (counter) {
     case GALLERY_PERF_COUNTER_COMMANDS: return sample->core.commands.total_commands;
     case GALLERY_PERF_COUNTER_TEXT_MEASURE: return sample->core.text.measure_calls;
+    case GALLERY_PERF_COUNTER_TEXT_ADVANCES: return sample->core.text.advances_calls;
     case GALLERY_PERF_COUNTER_TEXT_COMMANDS: return sample->core.text.emitted_text_commands;
     case GALLERY_PERF_COUNTER_BACKEND_DRAW_TEXT: return sample->backend.draw_text_calls;
     case GALLERY_PERF_COUNTER_BACKEND_MEASURE_TEXT: return sample->backend.measure_text_calls;
@@ -837,6 +839,7 @@ static void gallery_perf_print_summary(const Gallery_State *gs) {
     printf("counter,avg_per_frame\n");
     printf("commands,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_COMMANDS));
     printf("text_measure_calls,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_TEXT_MEASURE));
+    printf("text_advances_calls,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_TEXT_ADVANCES));
     printf("text_commands,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_TEXT_COMMANDS));
     printf("backend_draw_text_calls,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_BACKEND_DRAW_TEXT));
     printf("backend_measure_text_calls,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_BACKEND_MEASURE_TEXT));
@@ -893,7 +896,7 @@ static void gallery_perf_write_csv_header(FILE *out) {
         "frame,backend,viewport_w,viewport_h,group,section,theme,timer_available,"
         "core_total_ns,begin_ns,input_ns,user_build_ns,wlx_end_ns,range_accum_ns,offset_lookup_ns,dispatch_ns,backend_callback_ns,"
         "commands_total,command_ranges,cmd_rect,cmd_rect_lines,cmd_rect_rounded,cmd_rect_rounded_lines,cmd_circle,cmd_ring,cmd_line,cmd_text,cmd_texture,cmd_scissor_begin,cmd_scissor_end,"
-        "text_measure_calls,text_measured_bytes,text_commands,text_bytes,text_runs,"
+        "text_measure_calls,text_measured_bytes,text_advances_calls,text_advances_bytes,text_commands,text_bytes,text_runs,"
         "arena_commands_high_water,arena_cmd_ranges_high_water,arena_scratch_high_water,arena_layouts_high_water,arena_slot_offsets_high_water,arena_dyn_offsets_high_water,arena_grow_count,"
         "alloc_calls,calloc_calls,realloc_calls,free_calls,alloc_bytes,calloc_bytes,realloc_bytes,"
         "backend_frame,timer_backend,backend_draw_text,backend_measure_text,backend_draw_rect,backend_draw_rect_lines,backend_draw_rect_rounded,backend_draw_rect_rounded_lines,backend_draw_circle,backend_draw_ring,backend_draw_line,backend_draw_texture,backend_begin_scissor,backend_end_scissor,backend_geometry_submit,backend_clip_change,"
@@ -913,7 +916,7 @@ static void gallery_perf_write_csv_row(FILE *out, const Gallery_Perf_Sample *sam
         "%llu,%s,%.0f,%.0f,%s,%s,%s,%d,"
         "%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
         "%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
-        "%llu,%llu,%llu,%llu,%llu,"
+        "%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
         "%zu,%zu,%zu,%zu,%zu,%zu,%llu,"
         "%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
         "%llu,%d,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
@@ -956,6 +959,8 @@ static void gallery_perf_write_csv_row(FILE *out, const Gallery_Perf_Sample *sam
         (unsigned long long)sample->core.commands.by_type[WLX_CMD_SCISSOR_END],
         (unsigned long long)sample->core.text.measure_calls,
         (unsigned long long)sample->core.text.measured_bytes,
+        (unsigned long long)sample->core.text.advances_calls,
+        (unsigned long long)sample->core.text.advances_bytes,
         (unsigned long long)sample->core.text.emitted_text_commands,
         (unsigned long long)sample->core.text.emitted_text_bytes,
         (unsigned long long)sample->core.text.fitted_text_runs,

@@ -660,12 +660,13 @@ Costs a user of the pipeline should know:
 The perf instrumentation (see `docs/PERFORMANCE_DIAGNOSTICS.md`) counts
 fitted builds and measured bytes per frame (`fitted_text_runs`,
 `text_measured_bytes`), which is the first thing to look at when text
-cost is suspect — with one caveat: the measure-call counter hooks the
-public measure entry, while the line build measures through a private
-helper, so build traffic is invisible to it. The authoritative
-instrument is `make perf-editor`, which counts calls and bytes at the
-backend boundary per frame class (cold, idle, scroll, typing, END on a
-giant line) and asserts them against recorded baselines.
+cost is suspect. Every backend text call is counted where the core makes
+it: `measure_calls` covers the line build's prefix measures as well as
+the widgets' own, and `advances_calls` / `advances_bytes` the batched
+`measure_text_advances` fills. The gated instrument is `make
+perf-editor`, which counts calls and bytes at the backend boundary per
+frame class (cold, idle, scroll, typing, END on a giant line) and
+asserts them against recorded baselines.
 
 ---
 

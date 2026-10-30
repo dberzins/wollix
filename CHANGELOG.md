@@ -360,6 +360,16 @@ minor.
   the undo journal count at frame end; the gallery's benchmark CSV prints
   them and the desktop `WLX_PERF` dashboard reports each new peak on
   stderr.
+- **Every backend text call in the perf frame.** `WLX_Perf_Text_Stats`
+  counted measures only at the public `wlx_measure_text_slice`, so the
+  layout pipeline's prefix measures, most of a text-heavy frame's backend
+  traffic, never showed: a wrapped editor that re-measured lines on every
+  frame read a steady 24 measures a frame while its frame time tripled.
+  `measure_calls` and `measured_bytes` now count every `measure_text` /
+  `measure_text_slice` call where the core makes it, and the new
+  `advances_calls` / `advances_bytes` count the `measure_text_advances`
+  fills; the gallery's benchmark CSV gains both columns. Readers of
+  `measure_calls` see the true, higher numbers.
 - **Per-span colour on the editor (syntax highlighting).** `wlx_editor`
   gains `.span_color` / `.span_color_user`: a callback
   (`WLX_Text_Span_Color_Fn` over a `WLX_Text_Span_Query`) that names the

@@ -1510,8 +1510,13 @@ typedef struct {
 } WLX_Perf_Command_Stats;
 
 typedef struct {
+    // Every backend text call the core makes, at the one place each is
+    // dispatched: measure_text / measure_text_slice (the widgets' and the
+    // layout pipeline's prefix measures alike) and measure_text_advances.
     uint64_t measure_calls;
     uint64_t measured_bytes;
+    uint64_t advances_calls;
+    uint64_t advances_bytes;    // the runs those calls were asked to fill
     uint64_t emitted_text_commands;
     uint64_t emitted_text_bytes;
     uint64_t fitted_text_runs;
@@ -4719,6 +4724,7 @@ static inline void wlx_perf_backend_callback_begin(WLX_Context *ctx, WLX_Cmd_Typ
 static inline void wlx_perf_backend_callback_end(WLX_Context *ctx, WLX_Cmd_Type type);
 static inline void wlx_perf_command_record(WLX_Context *ctx, WLX_Cmd_Type type);
 static inline void wlx_perf_text_measure(WLX_Context *ctx, size_t bytes);
+static inline void wlx_perf_text_advances(WLX_Context *ctx, size_t bytes);
 static inline void wlx_perf_text_command(WLX_Context *ctx, size_t bytes);
 static inline void wlx_perf_text_run(WLX_Context *ctx, size_t bytes);
 static inline void wlx_perf_frame_publish(WLX_Context *ctx);
@@ -5193,6 +5199,7 @@ static inline void wlx_span_measure_text(WLX_Context *ctx,
     style = wlx_style_at_boundary(ctx, style);
 
     if (ctx->backend.measure_text_slice != NULL) {
+        WLX_PERF_HOOK(text_measure, ctx, len);
         ctx->backend.measure_text_slice(text, len, style, out_w, out_h, ctx->backend.user);
         return;
     }
@@ -5204,6 +5211,7 @@ static inline void wlx_span_measure_text(WLX_Context *ctx,
         if (out_h) *out_h = 0.0f;
         return;
     }
+    WLX_PERF_HOOK(text_measure, ctx, len);
     ctx->backend.measure_text(cstr, style, out_w, out_h, ctx->backend.user);
     wlx_cstr_tmp_end(&tmp);
 }
@@ -5247,7 +5255,6 @@ static inline void wlx_measure_text_slice(WLX_Context *ctx,
         WLX_Text_Style style, float *out_w, float *out_h) {
     assert((ctx->backend.measure_text != NULL || ctx->backend.measure_text_slice != NULL) && "WLX_Backend.measure_text or measure_text_slice must be set");
     if (text == NULL) { text = ""; len = 0; }
-    WLX_PERF_HOOK(text_measure, ctx, len);
     wlx_span_measure_text(ctx, text, len, style, out_w, out_h);
 }
 
@@ -10777,6 +10784,7 @@ static size_t wlx_text_measure_advances_batch(const WLX_Text_Measure_Args *args,
         size_t rel_ends[WLX_TEXT_ADVANCES_CHUNK];
         size_t run_units = j - i;
         for (size_t k = 0; k < run_units; k++) rel_ends[k] = out_ends[i + k] - unit_start;
+        WLX_PERF_HOOK(text_advances, ctx, rel_ends[run_units - 1]);
         size_t filled = ctx->backend.measure_text_advances(text + unit_start,
             rel_ends[run_units - 1], style, rel_ends, run_units, out_adv + i, ctx->backend.user);
         if (filled > run_units) filled = run_units;
@@ -18511,6 +18519,12 @@ static inline void wlx_perf_text_measure(WLX_Context *ctx, size_t bytes) {
     if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
     ctx->perf->current.text.measure_calls++;
     ctx->perf->current.text.measured_bytes += (uint64_t)bytes;
+}
+
+static inline void wlx_perf_text_advances(WLX_Context *ctx, size_t bytes) {
+    if (!ctx || !ctx->perf || !ctx->perf->capturing) return;
+    ctx->perf->current.text.advances_calls++;
+    ctx->perf->current.text.advances_bytes += (uint64_t)bytes;
 }
 
 static inline void wlx_perf_text_command(WLX_Context *ctx, size_t bytes) {
