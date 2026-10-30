@@ -14971,6 +14971,34 @@ static inline bool wlx_text_edit_composing(const WLX_Text_Edit_State *st) {
     return st->preedit_len > 0;
 }
 
+// The byte ranges a composition decoration draws, in the buffer's plain
+// space: the whole tentative span (underlined) and the input method's
+// selected clause, which runs from the caret (drawn in the selection
+// colour; empty when the input method reports none).
+typedef struct {
+    size_t span_start, span_end;
+    size_t clause_start, clause_end;
+} WLX_Text_Preedit_Ranges;
+
+// Fill the decoration ranges of a focused widget's live span. False when
+// nothing is to be drawn: no focus, no span, or a span or caret the text
+// of `length` bytes no longer holds. Each widget maps the ranges into its
+// own display space and draws them on its own record walk.
+static bool wlx_text_edit_preedit_ranges(const WLX_Context *ctx, const WLX_Text_Edit_State *st,
+    bool focused, const char *buffer, size_t length, WLX_Text_Preedit_Ranges *out)
+{
+    if (!focused || !wlx_text_edit_composing(st)) return false;
+    size_t lo = st->preedit_start;
+    size_t hi = lo + st->preedit_len;
+    if (hi > length || st->cursor_pos < lo || st->cursor_pos > hi) return false;
+    out->span_start = lo;
+    out->span_end = hi;
+    out->clause_start = st->cursor_pos;
+    out->clause_end = lo + wlx_preedit_clause_end(buffer + lo, st->preedit_len,
+        st->cursor_pos - lo, ctx->input.preedit_sel_len);
+    return true;
+}
+
 // Focus arrived at a widget: a span recorded under an earlier focus is
 // forgotten, never deleted. A span the widget applied last frame is the
 // input method's live string - focus was taken from the field and given
@@ -16040,25 +16068,20 @@ static void wlx_inputbox_draw_content(WLX_Context *ctx, const WLX_Inputbox_Opt *
     // A composition string in progress: underlined, its selected clause
     // in the selection colour. Display offsets, so a masked field
     // underlines its mask glyphs.
-    if (inter.focused && wlx_text_edit_composing(&state->caret)) {
-        size_t p_lo = state->caret.preedit_start;
-        size_t p_hi = p_lo + state->caret.preedit_len;
-        if (p_hi <= ib->buf_len && state->caret.cursor_pos >= p_lo && state->caret.cursor_pos <= p_hi) {
-            size_t clause_end = wlx_preedit_clause_end(buffer + p_lo, state->caret.preedit_len,
-                state->caret.cursor_pos - p_lo, ctx->input.preedit_sel_len);
-            if (clause_end > state->caret.cursor_pos - p_lo) {
-                wlx_text_draw_selection(ctx, text_rect, disp_text, disp_len, ts, 0.0f,
-                    NULL, NULL, il->lines, il->line_count,
-                    wlx_inputbox_display_offset(buffer, ib->buf_len, state->caret.cursor_pos, opt->password),
-                    wlx_inputbox_display_offset(buffer, ib->buf_len, p_lo + clause_end, opt->password),
-                    opt->selection_color);
-            }
-            wlx_text_draw_underline(ctx, text_rect, disp_text, disp_len, ts, 0.0f,
+    WLX_Text_Preedit_Ranges pr;
+    if (wlx_text_edit_preedit_ranges(ctx, &state->caret, inter.focused, buffer, ib->buf_len, &pr)) {
+        if (pr.clause_end > pr.clause_start) {
+            wlx_text_draw_selection(ctx, text_rect, disp_text, disp_len, ts, 0.0f,
                 NULL, NULL, il->lines, il->line_count,
-                wlx_inputbox_display_offset(buffer, ib->buf_len, p_lo, opt->password),
-                wlx_inputbox_display_offset(buffer, ib->buf_len, p_hi, opt->password),
-                ts.color);
+                wlx_inputbox_display_offset(buffer, ib->buf_len, pr.clause_start, opt->password),
+                wlx_inputbox_display_offset(buffer, ib->buf_len, pr.clause_end, opt->password),
+                opt->selection_color);
         }
+        wlx_text_draw_underline(ctx, text_rect, disp_text, disp_len, ts, 0.0f,
+            NULL, NULL, il->lines, il->line_count,
+            wlx_inputbox_display_offset(buffer, ib->buf_len, pr.span_start, opt->password),
+            wlx_inputbox_display_offset(buffer, ib->buf_len, pr.span_end, opt->password),
+            ts.color);
     }
 
     wlx_draw_text_lines_fitted(ctx, text_rect, disp_text, disp_len, ts, il->lines, il->line_count);
