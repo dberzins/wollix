@@ -1633,7 +1633,7 @@ typedef struct {
     // occupies in the buffer. Ordinary bytes to every consumer, never
     // journaled; dropped and re-applied by the key handler on a frame that
     // changes the string or commits, kept in place while the string is
-    // held, adopted as typed text when focus leaves with one in place.
+    // held, adopted as typed text by a widget that holds one without focus.
     // preedit_doc_len is the document length right after the span was
     // applied and preedit_revision the caller's revision then: a different
     // length or revision next frame means the buffer changed outside the
@@ -2347,7 +2347,8 @@ typedef struct WLX_Context {
     // The widget that applied this frame's composition string (0 = none)
     // and the one that applied the previous frame's: a string the backend
     // still carries after focus moved belongs to that widget's composition
-    // and reaches no other.
+    // and reaches no other, and that widget focused again keeps its span
+    // (wlx_text_edit_preedit_on_focus).
     WLX_Id composing_id;
     WLX_Id composing_prev_id;
 
@@ -14970,6 +14971,17 @@ static inline bool wlx_text_edit_composing(const WLX_Text_Edit_State *st) {
     return st->preedit_len > 0;
 }
 
+// Focus arrived at a widget: a span recorded under an earlier focus is
+// forgotten, never deleted. A span the widget applied last frame is the
+// input method's live string - focus was taken from the field and given
+// back without its composition ending (a press and a Tab on the frame a
+// composition starts) - and stays for the key handler to carry on.
+static inline void wlx_text_edit_preedit_on_focus(const WLX_Context *ctx,
+    WLX_Text_Edit_State *st, WLX_Id id)
+{
+    if (ctx->composing_prev_id != id) wlx_text_edit_forget_preedit(st);
+}
+
 // True when the recorded span still describes bytes this widget put in
 // the buffer: the document is the length it was left at, the caller's
 // revision is the one it was applied under, and the span fits. Anything
@@ -15095,8 +15107,8 @@ static size_t wlx_text_edit_preedit_take(const WLX_Text_Edit *e, char *keep) {
     return n;
 }
 
-// A tentative span that outlives its composition (focus left the widget
-// with one in place) becomes ordinary text: the bytes stay and gain the
+// A tentative span that outlives its composition (the widget holds one
+// without focus) becomes ordinary text: the bytes stay and gain the
 // journal step a commit would have made, the caret parks after them.
 // Nothing runs on stale evidence. Returns true when the span was adopted.
 static bool wlx_text_edit_adopt_preedit(const WLX_Text_Edit *e) {
@@ -15519,14 +15531,14 @@ static bool wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state
 {
     size_t len = strlen(buffer);
 
-    // Initialize cursor position when first focused. A tentative span
-    // recorded before the focus was lost is forgotten, never deleted.
+    // Initialize cursor position when first focused; a tentative span
+    // left from an earlier focus is forgotten (wlx_text_edit_preedit_on_focus).
     if (just_focused) {
         state->caret.cursor_pos = len;
         state->caret.selection_anchor = len;
         state->caret.cursor_blink_time = 0.0f;
         state->caret.preferred_x_valid = false;
-        wlx_text_edit_forget_preedit(&state->caret);
+        wlx_text_edit_preedit_on_focus(ctx, &state->caret, id);
     }
 
     WLX_Text_Edit edit = {
@@ -15541,8 +15553,9 @@ static bool wlx_inputbox_handle_keys(WLX_Context *ctx, WLX_Inputbox_State *state
     return text_changed;
 }
 
-// Focus left the field with a composition string still in the buffer:
-// adopt it as typed text (see wlx_text_edit_adopt_preedit).
+// The field holds a composition string without focus (focus left it, on
+// the edge frame or silently): adopt it as typed text (see
+// wlx_text_edit_adopt_preedit).
 static bool wlx_inputbox_adopt_preedit(WLX_Context *ctx, WLX_Inputbox_State *state,
     char *buffer, size_t buffer_size, bool password, WLX_Id id, uint32_t revision)
 {
@@ -16145,7 +16158,7 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
     if (inter.focused) {
         changed = wlx_inputbox_handle_keys(ctx, state, buffer, buffer_size, inter.just_focused,
             opt.read_only, opt.password, opt.multiline, persistent.id, opt.revision);
-    } else if (inter.just_unfocused && wlx_text_edit_composing(&state->caret)) {
+    } else if (wlx_text_edit_composing(&state->caret)) {
         changed = wlx_inputbox_adopt_preedit(ctx, state, buffer, buffer_size,
             opt.password, persistent.id, opt.revision);
     }

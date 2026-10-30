@@ -250,7 +250,8 @@ minor.
   the new `COMPOSE` class, which never coalesces; a cancel leaves buffer and
   journal exactly as before; composing over a selection deletes it first as
   its own step; focus leaving with a span in place keeps the bytes and
-  records the step a commit would have, and when focus moves straight into
+  records the step a commit would have (a field not drawn on that frame
+  does so the next frame it is drawn), and when focus moves straight into
   another text field the composition ends there: the backend gets one
   inactive anchor between the two owners and the entering field never
   shows the leaving field's string. While a span exists the keys and
@@ -281,7 +282,7 @@ minor.
   composing and commit rows inside twice the typing bounds with no index
   rebuild, and a held row at the idle bounds with no index patch;
   `tests/test_ime.c` pins the no-composition identity of the three
-  widgets and the composition behaviour in thirty-seven tests. The
+  widgets and the composition behaviour in forty tests. The
   README's text-entry disclaimer is rewritten accordingly.
 - **`WLX_DEBUG` report for decreasing advances.** A `measure_text_advances`
   chunk whose advances decrease (a font shaped right to left, or a lost

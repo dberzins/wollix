@@ -991,7 +991,8 @@ TEST(ime_password_masks_the_span) {
 
 // A span is never deleted on stale evidence: a refocus after the widget
 // was not drawn forgets it, an outside change of the buffer forgets it,
-// the editor's revision bump forgets it; the bytes stay in every case.
+// the editor's revision bump forgets it; the bytes stay in every case. A
+// widget drawn without focus while it holds a span adopts it instead.
 static void ime_forget_case(Ime_Widget w) {
     WLX_Context ctx;
     ime_ctx_init(&ctx);
@@ -1000,9 +1001,9 @@ static void ime_forget_case(Ime_Widget w) {
     size_t len = 0;
 
     // Not drawn for a frame while composing: focus is released without
-    // the widget running (no adopt). Drawn unfocused next, the stale span
-    // is plain text, not underlined. Then a click refocuses, and the focus
-    // frame forgets the span: its bytes stay.
+    // the widget running. Drawn unfocused next, it adopts the span it
+    // still holds, as a blur would: plain text, not underlined, with the
+    // step a commit makes. Then a click refocuses.
     ime_focus(&ctx, buf, sizeof(buf), &len);
     ime_type(&ctx, buf, sizeof(buf), &len, "ab");
     ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "ni", -1, -1);
@@ -1014,7 +1015,8 @@ static void ime_forget_case(Ime_Widget w) {
     ime_idle(&ctx, buf, sizeof(buf), &len);
     ASSERT_FALSE(ime_last_focused);
     ASSERT_EQ_STR(buf, "abni");
-    ASSERT_EQ_INT(2, (int)ime_caret(&ctx)->preedit_len);   // not adopted: no blur edge
+    ASSERT_EQ_INT(0, (int)ime_caret(&ctx)->preedit_len);   // adopted: held without focus
+    ASSERT_EQ_INT(2, (int)ime_undo_count(&ctx));
     IME_EXPECT_PIECE(ime_piece_index(0), "abni", 9.0f, ime_row_y(w));
     ASSERT_TRUE(ime_find_underline(10.0f) < 0);
     ime_focus(&ctx, buf, sizeof(buf), &len);
@@ -1022,7 +1024,7 @@ static void ime_forget_case(Ime_Widget w) {
     ASSERT_EQ_STR(buf, "abni");
     ASSERT_FALSE(wlx_text_edit_composing(ime_caret(&ctx)));
     ASSERT_EQ_INT(0, (int)ime_caret(&ctx)->preedit_len);
-    ASSERT_EQ_INT(1, (int)ime_undo_count(&ctx));
+    ASSERT_EQ_INT(2, (int)ime_undo_count(&ctx));
 
     // The application rewrites the buffer while a span is in place.
     ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "go", -1, -1);
@@ -1033,6 +1035,21 @@ static void ime_forget_case(Ime_Widget w) {
     ASSERT_EQ_STR(buf, "zz");
     ASSERT_FALSE(wlx_text_edit_composing(ime_caret(&ctx)));
     ASSERT_EQ_INT(0, (int)ime_caret(&ctx)->preedit_len);
+
+    // Not drawn while composing, then a click on the frame it is drawn
+    // again: the focus frame forgets the span recorded under the earlier
+    // focus, and its bytes stay. Kept, the span would be dropped as a
+    // cancelled composition.
+    ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, test_command_mod());
+    ime_compose(&ctx, buf, sizeof(buf), &len, NULL, "ni", -1, -1);
+    ASSERT_EQ_STR(buf, "zzni");
+    ime_skip_widget = true;
+    ime_idle(&ctx, buf, sizeof(buf), &len);
+    ime_skip_widget = false;
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ASSERT_TRUE(ime_last_focused);
+    ASSERT_EQ_STR(buf, "zzni");
+    ASSERT_FALSE(wlx_text_edit_composing(ime_caret(&ctx)));
     wlx_context_destroy(&ctx);
 }
 
@@ -1865,6 +1882,7 @@ typedef struct {
     char buf[64];
     size_t len;
     bool focused;
+    bool skip;        // not placed this frame (the field is not drawn)
 } Ime_Pair_Field;
 
 // One frame over two fields stacked in the 400x100 context (the first in
@@ -1888,6 +1906,7 @@ static void ime_pair_frame(WLX_Context *ctx, Ime_Pair_Field f[2], int my, bool c
     test_frame_begin_input(ctx, &in);
     wlx_layout_begin(ctx, 2, WLX_VERT, .padding = 0, .gap = 0);
     for (int i = 0; i < 2; i++) {
+        if (f[i].skip) continue;
         wlx_push_id(ctx, (size_t)i + 1);
         if (f[i].editor) {
             wlx_editor_impl(ctx, NULL, f[i].buf, sizeof(f[i].buf), &f[i].len,
@@ -2065,6 +2084,75 @@ TEST(ime_commit_that_fills_the_buffer_leaves_a_boundary_caret) {
     IME_FOR_SHAPES(ime_shapes, ime_commit_fills_the_buffer_case);
 }
 
+// The press and the Tab on the frame a composition starts: no composition
+// was held last frame, so the Tab walk still runs, releases the field and
+// leaves it to the press; a Tab target queried later can take the focus
+// away without an edge. The span the field applied that frame is the live
+// composition - a press on the field the next frame carries it on, one
+// copy - and a field left without focus adopts it the next frame it runs.
+static void ime_press_tab_at_start_case(bool ci_multiline, bool other_editor, bool repress) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    Ime_Pair_Field f[2];
+    memset(f, 0, sizeof(f));
+    f[0].multiline = ci_multiline;
+    f[1].editor = other_editor;
+    strcpy(f[0].buf, "ab");
+    f[0].len = 2;
+    strcpy(f[1].buf, "cd");
+    f[1].len = 2;
+    ime_pair_frame(&ctx, f, 25, false, WLX_KEY_NONE, NULL, NULL);
+    ime_pair_frame(&ctx, f, 25, true, WLX_KEY_NONE, NULL, NULL);
+    ime_pair_frame(&ctx, f, 25, false, WLX_KEY_NONE, NULL, NULL);
+
+    ime_pair_frame(&ctx, f, 25, true, WLX_KEY_TAB, NULL, "ho");
+    ASSERT_EQ_STR(f[0].buf, "abho");
+    ime_pair_frame(&ctx, f, 25, repress, WLX_KEY_NONE, NULL, "ho");
+    ASSERT_EQ_STR(f[0].buf, "abho");
+    ASSERT_EQ_STR(f[1].buf, "cd");
+    ASSERT_EQ_INT(f[0].focused ? 1 : 0, ime_spans_held(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+TEST(ime_press_and_tab_as_a_composition_starts) {
+    for (int m = 0; m < 2; m++) {
+        for (int other_editor = 0; other_editor < 2; other_editor++) {
+            for (int repress = 0; repress < 2; repress++) {
+                ime_press_tab_at_start_case(m != 0, other_editor != 0, repress != 0);
+            }
+        }
+    }
+}
+
+// A composing field that is not drawn for a frame loses its focus at
+// wlx_end without running; drawn again without focus, it adopts the span
+// it still holds instead of keeping it until a refocus forgets it.
+TEST(ime_span_held_by_an_undrawn_field_is_adopted_when_drawn) {
+    for (int ci = 0; ci < 2; ci++) {
+        for (int kinds = 0; kinds < 4; kinds++) {
+            WLX_Context ctx;
+            ime_ctx_init(&ctx);
+            Ime_Pair_Field f[2];
+            ime_pair_compose(&ctx, f, ci, (kinds & 1) != 0, false, (kinds & 2) != 0);
+            const char *composed = ci == 0 ? "abho" : "cdho";
+            ASSERT_EQ_STR(f[ci].buf, composed);
+            // The composing field's journal is the only one: nothing typed yet.
+            ASSERT_EQ_INT(1, (int)ctx.text_undo.count);
+            ASSERT_EQ_INT(0, (int)ctx.text_undo.items[0].undo.count);
+            f[ci].skip = true;
+            ime_pair_frame(&ctx, f, 50, false, WLX_KEY_NONE, NULL, "ho");
+            f[ci].skip = false;
+            ime_pair_frame(&ctx, f, 50, false, WLX_KEY_NONE, NULL, NULL);
+            ASSERT_FALSE(f[ci].focused);
+            ASSERT_EQ_STR(f[ci].buf, composed);
+            ASSERT_EQ_INT(0, ime_spans_held(&ctx));
+            // Adopted, not forgotten: the step a commit would have made.
+            ASSERT_EQ_INT(1, (int)ctx.text_undo.items[0].undo.count);
+            wlx_context_destroy(&ctx);
+        }
+    }
+}
+
 SUITE(ime) {
     RUN_TEST(ime_identity_inputbox);
     RUN_TEST(ime_identity_textarea);
@@ -2104,4 +2192,6 @@ SUITE(ime) {
     RUN_TEST(ime_press_and_tab_on_the_composing_field_land_one_copy);
     RUN_TEST(ime_press_and_tab_on_the_composing_field_leave_no_orphan_span);
     RUN_TEST(ime_commit_that_fills_the_buffer_leaves_a_boundary_caret);
+    RUN_TEST(ime_press_and_tab_as_a_composition_starts);
+    RUN_TEST(ime_span_held_by_an_undrawn_field_is_adopted_when_drawn);
 }

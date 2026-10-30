@@ -1157,14 +1157,16 @@ neither blurs the field nor reaches it as a key, and Tab does not move
 focus; keys act again from the next frame. Composing over a live
 selection deletes the selection first, as its own undo step. Focus
 leaving the field with a span in place keeps the bytes, as platforms do,
-and records the step a commit would have. That holds when focus moves
-straight into another text field too: the composition ends with the
-field it began in, and the entering field starts clean. The window losing focus is a
-different edge: the input method ends or abandons the composition itself,
-so the span is removed as on a cancel, and only text the platform
-delivered as a commit before the loss stays. The span follows the field's
-`.revision` and length like the undo journal: a change outside the widget
-forgets the span without touching any byte.
+and records the step a commit would have; a field that was not drawn on
+the frame its focus went does so the next frame it is drawn. That holds
+when focus moves straight into another text field too: the composition
+ends with the field it began in, and the entering field starts clean.
+The window losing focus is a different edge: the input method ends or
+abandons the composition itself, so the span is removed as on a cancel,
+and only text the platform delivered as a commit before the loss stays.
+The span follows the field's `.revision` and length like the undo
+journal: a change outside the widget forgets the span without touching
+any byte.
 
 Two consequences for the application. The buffer holds tentative bytes
 between frames while a composition is in flight, so code that reacts to

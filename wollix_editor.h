@@ -2271,9 +2271,11 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
     if (inter.focused) {
         size_t pre_cursor = state->caret.cursor_pos;
         size_t pre_anchor = state->caret.selection_anchor;
-        // A tentative span recorded before the focus was lost is
-        // forgotten, never deleted.
-        if (inter.just_focused) wlx_text_edit_forget_preedit(&state->caret);
+        // A tentative span left from an earlier focus is forgotten, never
+        // deleted (wlx_text_edit_preedit_on_focus).
+        if (inter.just_focused) {
+            wlx_text_edit_preedit_on_focus(ctx, &state->caret, persistent.id);
+        }
         // The undo journal is found by widget id under the caller's
         // revision, so history the buffer outgrew is dropped before the
         // chords could replay it. Undo and redo replay through the same
@@ -2290,9 +2292,11 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
         if (changed && *length < buffer_cap) buffer[*length] = '\0';
         kb_caret_changed = pre_cursor != state->caret.cursor_pos
             || pre_anchor != state->caret.selection_anchor;
-    } else if (inter.just_unfocused && wlx_text_edit_composing(&state->caret)) {
-        // Focus left with a composition string in the buffer: it becomes
-        // typed text, and the edit span carries it to the index patch.
+    } else if (wlx_text_edit_composing(&state->caret)) {
+        // A composition string held without focus (focus left with one in
+        // the buffer, on the edge frame or silently: a frame the editor was
+        // not drawn) becomes typed text, and the edit span carries it to
+        // the index patch.
         WLX_Text_Edit edit = {
             .st = &state->caret, .buffer = buffer, .buffer_cap = buffer_cap, .length = length,
             .span = &edit_span,

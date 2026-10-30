@@ -762,7 +762,8 @@ stays put and records nothing. The commit records under
 composition records nothing, leaving the stack and `expected_len` (the
 transaction still closes at the true length) exactly as before.
 Composing over a selection deletes it first under `SELECTION`. Focus
-leaving with a span in place adopts it through the same take: the bytes
+leaving with a span in place adopts it through the same take (a widget
+not drawn on that frame does so the next frame it is drawn): the bytes
 come out unrecorded and go back in as one `COMPOSE` step. The span is
 guarded like the journal: a length or `.revision` change forgets it
 (bytes kept), never deletes on stale evidence.
