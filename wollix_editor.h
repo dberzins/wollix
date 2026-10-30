@@ -1872,6 +1872,25 @@ static size_t wlx_editor_window_build_linear(const WLX_Editor_Frame *f,
     return win_count;
 }
 
+// A composition string in progress, over the selection band and under
+// the text: underlined, its selected clause in the selection colour, on
+// the visible window records only.
+static void wlx_editor_draw_preedit(const WLX_Editor_Frame *f,
+    const WLX_Text_Line_Record *lines, size_t win_count)
+{
+    WLX_Text_Preedit_Ranges pr;
+    if (win_count == 0 || !wlx_text_edit_preedit_ranges(f->ctx, &f->state->caret,
+            f->inter.focused, f->doc, f->doc_len, &pr)) return;
+    WLX_Rect band = f->eb.band;
+    if (pr.clause_end > pr.clause_start) {
+        wlx_text_draw_selection(f->ctx, band, f->doc, f->doc_len, f->ts, f->tab_advance,
+            f->idx, f->geom, lines, win_count, pr.clause_start, pr.clause_end,
+            f->opt->selection_color);
+    }
+    wlx_text_draw_underline(f->ctx, band, f->doc, f->doc_len, f->ts, f->tab_advance,
+        f->idx, f->geom, lines, win_count, pr.span_start, pr.span_end, f->ts.color);
+}
+
 // Gutter numbers: the index position of each visible record,
 // right-aligned inside the gutter padding, dimmed against the text. An
 // empty document still numbers its one empty line.
@@ -2165,6 +2184,138 @@ static bool wlx_editor_caret_input(const WLX_Editor_Frame *f, WLX_Editor_Scroll 
     return caret_moved;
 }
 
+// What the edit stage did to the document, and the input the index sync
+// decides from: the text as the edit left it, whether it changed, the span
+// the edit covered, and two facts sampled before the edit ran - the length,
+// and whether the line index still matched those bytes.
+typedef struct {
+    const char *doc;
+    size_t doc_len;
+    uint32_t revision;         // the caller's revision the edit ran under
+    bool changed;              // the text mutated this frame
+    bool caret_changed;        // a focused frame moved the caret or the anchor
+    WLX_Text_Edit_Span span;   // .edited stays false when no primitive ran
+    size_t pre_len;            // the document length before the edit
+    bool pre_probe_ok;         // the index matched the pre-edit bytes
+} WLX_Editor_Edit;
+
+// Edit stage: runs before any geometry so this frame's index, window, and
+// caret all reflect the mutated buffer. The index's sampled
+// hard-line-start probe reads the pre-edit bytes first: an in-place
+// external mutation the length guard cannot see (a separator overwritten
+// without a revision bump) must send this frame to the full rescan even
+// when the widget also edits, since a patch assumes the index it starts
+// from is exact. Then the shared phase (wlx_text_edit_phase): the keys on
+// a focused frame (undo and redo replay through the same primitives as a
+// keystroke, so the edit span covers them), a composition string held
+// without focus adopted as typed text. The widget maintains a trailing
+// NUL opportunistically when the capacity allows one. caret_changed
+// carries the handler's caret/selection changes (arrows, collapse,
+// select-all) into blink reset and caret-follow.
+static WLX_Editor_Edit wlx_editor_edit_stage(WLX_Context *ctx, const WLX_Editor_Opt *opt,
+    WLX_Editor_State *state, WLX_Interaction inter, const WLX_Editor_Line_Index *idx,
+    char *buffer, size_t buffer_cap, size_t *length)
+{
+    WLX_Editor_Edit ed;
+    memset(&ed, 0, sizeof(ed));
+    ed.revision = opt->revision;
+    ed.pre_len = *length;
+    ed.pre_probe_ok = idx != NULL && state->index_seen
+        && wlx_editor_index_probe_ok(idx, buffer, *length);
+    size_t pre_cursor = state->caret.cursor_pos;
+    size_t pre_anchor = state->caret.selection_anchor;
+    WLX_Text_Edit edit = {
+        .st = &state->caret, .buffer = buffer, .buffer_cap = buffer_cap, .length = length,
+        .caps = { .read_only = opt->read_only, .allow_newline = true, .allow_tab = true,
+                  .word_delete = true },
+        .span = &ed.span, .revision = opt->revision,
+    };
+    ed.changed = wlx_text_edit_phase(ctx, &edit, inter, false);
+    if (ed.changed && *length < buffer_cap) buffer[*length] = '\0';
+    ed.caret_changed = inter.focused && (pre_cursor != state->caret.cursor_pos
+        || pre_anchor != state->caret.selection_anchor);
+    ed.doc = buffer;
+    ed.doc_len = *length;
+    return ed;
+}
+
+// Index sync: the line index rebuilt on first sight and whenever the guard
+// detects a document change, patched from the span of a widget edit, and
+// untouched on idle frames so no O(document) work runs outside edits. The
+// retained geometry may survive an update only when the update's one cause
+// is this frame's widget edit: the edit span then shifts entry keys
+// precisely. Any other signal (first sight, external length/revision
+// change, probe fail) clears the store outright. Returns true when the
+// index was rebuilt or patched this frame (the document changed).
+static bool wlx_editor_index_sync(WLX_Context *ctx, WLX_Id id, WLX_Editor_State *state,
+    WLX_Editor_Line_Index *idx, const WLX_Editor_Edit *ed)
+{
+    if (idx == NULL) return false;
+    const char *doc = ed->doc;
+    size_t doc_len = ed->doc_len;
+    const WLX_Text_Edit_Span *sp = &ed->span;
+    bool edit_only = ed->changed && sp->edited && ed->pre_probe_ok
+        && state->guard_length == ed->pre_len
+        && state->guard_revision == ed->revision
+        && ed->pre_len - (sp->old_end - sp->start) + (sp->new_end - sp->start) == doc_len;
+    bool stale = !state->index_seen || ed->changed
+        || state->guard_length != doc_len
+        || state->guard_revision != ed->revision
+        || !wlx_editor_index_probe_ok(idx, doc, doc_len);
+    if (!stale) return false;
+    // A widget edit with a known span patches the index in place; every
+    // other signal, and a patch that refuses, takes the full newline scan.
+    bool indexed = edit_only
+        && wlx_editor_index_patch(idx, doc, doc_len, sp->start, sp->old_end, sp->new_end);
+    if (!indexed) indexed = wlx_editor_index_rebuild(idx, doc, doc_len);
+    if (!indexed) return false;
+    state->index_seen = true;
+    state->guard_length = doc_len;
+    state->guard_revision = ed->revision;
+    if (edit_only) {
+        wlx_text_geom_edit_shift(&idx->geom, sp->start, sp->old_end, sp->new_end);
+        // The wrapped bottom anchor survives an edit ending before its
+        // line starts: the bytes from that line to the document end are
+        // untouched and its end-relative line distance still holds, so
+        // only its start byte shifts by the edit's delta.
+        if (state->bottom_valid && sp->old_end < state->bottom_start_off) {
+            state->bottom_start_off = state->bottom_start_off - sp->old_end + sp->new_end;
+        } else {
+            state->bottom_valid = false;
+        }
+    } else {
+        wlx_text_geom_clear(&idx->geom);
+        state->bottom_valid = false;
+        // A rebuild the widget's own edit did not cause means the document
+        // changed under the journal (the probe catches in-place rewrites
+        // the length guard cannot see): its history goes with the geometry.
+        wlx_text_undo_clear_if_present(ctx, id, doc_len);
+    }
+#ifdef WLX_DEBUG
+    assert(wlx_editor_index_probe_ok(idx, doc, doc_len));
+#endif
+    return true;
+}
+
+// Retained-geometry environment: checked at the final band, before any
+// consumer touches the store this frame. The sizing target is twice the
+// window so scroll and caret lookups stay resident. An environment change
+// also drops the wrapped bottom anchor: its row counts were taken under
+// the old one. (The wrapped mode implies a store - it is embedded in the
+// index the mode requires - so this is the one invalidation site.)
+static void wlx_editor_geom_env_sync(WLX_Editor_State *state, WLX_Text_Geom_Store *geom,
+    const WLX_Text_Geom_Env *env, float win_band_h)
+{
+    size_t vp_lines = env->line_h > 0.0f
+        ? (size_t)(win_band_h / env->line_h) + 2 + WLX_EDITOR_OVERSCAN_LINES : 8;
+    size_t want = vp_lines * WLX_TEXT_GEOM_STORE_SLACK < WLX_TEXT_GEOM_STORE_MIN
+        ? (size_t)WLX_TEXT_GEOM_STORE_MIN
+        : vp_lines * WLX_TEXT_GEOM_STORE_SLACK;
+    if (!geom->env_seen || !wlx_text_geom_env_equal(&geom->env, env))
+        state->bottom_valid = false;
+    wlx_text_geom_env_check(geom, env, want);
+}
+
 static void wlx_resolve_opt_editor(const WLX_Context *ctx, WLX_Editor_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
 
@@ -2248,42 +2399,14 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
 
     wlx_text_edit_tick_click_clock(ctx, &state->caret);
 
-    bool changed = false;
     if (opt.out_focused != NULL) *opt.out_focused = inter.focused;
 
-    // Editing runs before any geometry so this frame's index, window, and
-    // caret all reflect the mutated buffer. The widget maintains a trailing
-    // NUL opportunistically when the capacity allows one. kb_caret_changed
-    // carries the handler's caret/selection changes (arrows, collapse,
-    // select-all) into blink reset and caret-follow below.
-    WLX_Text_Edit_Span edit_span = {0};
-    size_t pre_edit_len = *length;
-    // The line index, fetched before the keys run so the sampled
-    // hard-line-start probe can read the pre-edit bytes: an in-place
-    // external mutation the length guard cannot see (a separator
-    // overwritten without a revision bump) must send this frame to the
-    // full rescan even when the widget also edits, since a patch assumes
-    // the index it starts from is exact.
+    // Editing runs before any geometry (wlx_editor_edit_stage); the line
+    // index is fetched first so the stage can probe the pre-edit bytes.
     WLX_Editor_Line_Index *idx = wlx_editor_index_get(ctx, persistent.id);
-    bool pre_probe_ok = idx != NULL && state->index_seen
-        && wlx_editor_index_probe_ok(idx, buffer, *length);
-    // The shared phase (wlx_text_edit_phase): the keys on a focused frame
-    // (undo and redo replay through the same primitives as a keystroke, so
-    // the edit span covers them), a composition string held without focus
-    // adopted as typed text; either way the edit span carries the change
-    // to the index patch.
-    size_t pre_cursor = state->caret.cursor_pos;
-    size_t pre_anchor = state->caret.selection_anchor;
-    WLX_Text_Edit edit = {
-        .st = &state->caret, .buffer = buffer, .buffer_cap = buffer_cap, .length = length,
-        .caps = { .read_only = opt.read_only, .allow_newline = true, .allow_tab = true,
-                  .word_delete = true },
-        .span = &edit_span, .revision = opt.revision,
-    };
-    changed = wlx_text_edit_phase(ctx, &edit, inter, false);
-    if (changed && *length < buffer_cap) buffer[*length] = '\0';
-    bool kb_caret_changed = inter.focused && (pre_cursor != state->caret.cursor_pos
-        || pre_anchor != state->caret.selection_anchor);
+    WLX_Editor_Edit ed = wlx_editor_edit_stage(ctx, &opt, state, inter, idx,
+        buffer, buffer_cap, length);
+    bool changed = ed.changed;
 
     // Optional leading label, placed by the vertical component of opt.content_align
     // exactly like the inputbox's (the label never wraps).
@@ -2294,8 +2417,8 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
     WLX_Rect input_rect = field.input_rect;
 
     if (opt.font_size > 0) {
-        const char *doc = buffer;
-        size_t doc_len = *length;
+        const char *doc = ed.doc;
+        size_t doc_len = ed.doc_len;
 
         float ref_w = 0.0f;
         float line_h = wlx_text_line_height(ctx, ts, &ref_w);
@@ -2307,70 +2430,9 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
 
         float border_inset = opt.border_width > 0 ? opt.border_width + 1.0f : 0.0f;
 
-        // Line index: rebuilt on first sight and whenever the guard detects a
-        // document change, patched from the span of a widget edit; untouched
-        // on idle frames so no O(document) work runs outside edits.
+        // Line index guard: patch, rescan or nothing (wlx_editor_index_sync).
         WLX_Text_Geom_Store *geom = idx != NULL ? &idx->geom : NULL;
-        bool doc_rebuilt = false;
-        if (idx != NULL) {
-            // The retained geometry may survive an index update only when
-            // the update's one cause is this frame's widget edit: the edit
-            // span then shifts entry keys precisely. Any other signal
-            // (first sight, external length/revision change, probe fail)
-            // clears the store outright.
-            bool edit_only = changed && edit_span.edited && pre_probe_ok
-                && state->guard_length == pre_edit_len
-                && state->guard_revision == opt.revision
-                && pre_edit_len - (edit_span.old_end - edit_span.start)
-                    + (edit_span.new_end - edit_span.start) == doc_len;
-            bool stale = !state->index_seen || changed
-                || state->guard_length != doc_len
-                || state->guard_revision != opt.revision
-                || !wlx_editor_index_probe_ok(idx, doc, doc_len);
-            bool indexed = false;
-            if (stale) {
-                // A widget edit with a known span patches the index in
-                // place; every other signal, and a patch that refuses,
-                // takes the full newline scan.
-                if (edit_only) {
-                    indexed = wlx_editor_index_patch(idx, doc, doc_len,
-                        edit_span.start, edit_span.old_end, edit_span.new_end);
-                }
-                if (!indexed) indexed = wlx_editor_index_rebuild(idx, doc, doc_len);
-            }
-            if (indexed) {
-                state->index_seen = true;
-                state->guard_length = doc_len;
-                state->guard_revision = opt.revision;
-                doc_rebuilt = true;
-                if (edit_only) {
-                    wlx_text_geom_edit_shift(geom, edit_span.start,
-                        edit_span.old_end, edit_span.new_end);
-                    // The wrapped bottom anchor survives an edit ending
-                    // before its line starts: the bytes from that line
-                    // to the document end are untouched and its
-                    // end-relative line distance still holds, so only
-                    // its start byte shifts by the edit's delta.
-                    if (state->bottom_valid && edit_span.old_end < state->bottom_start_off) {
-                        state->bottom_start_off = state->bottom_start_off
-                            - edit_span.old_end + edit_span.new_end;
-                    } else {
-                        state->bottom_valid = false;
-                    }
-                } else {
-                    wlx_text_geom_clear(geom);
-                    state->bottom_valid = false;
-                    // A rebuild the widget's own edit did not cause means
-                    // the document changed under the journal (the probe
-                    // catches in-place rewrites the length guard cannot
-                    // see): its history goes with the geometry.
-                    wlx_text_undo_clear_if_present(ctx, persistent.id, doc_len);
-                }
-#ifdef WLX_DEBUG
-                assert(wlx_editor_index_probe_ok(idx, doc, doc_len));
-#endif
-            }
-        }
+        bool doc_rebuilt = wlx_editor_index_sync(ctx, persistent.id, state, idx, &ed);
         size_t line_count = idx != NULL ? idx->count : 0;
         float content_h = (float)line_count * line_h;
 
@@ -2380,9 +2442,8 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
         float gutter_w = eb.gutter_w;
         float win_band_h = eb.win_band_h;
 
-        // Retained-geometry environment: checked at the final band, before
-        // any consumer touches the store this frame. The sizing target is
-        // twice the window so scroll and caret lookups stay resident.
+        // The retained geometry's environment, at the final band
+        // (wlx_editor_geom_env_sync).
         if (geom != NULL) {
             WLX_Text_Geom_Env genv;
             memset(&genv, 0, sizeof(genv));
@@ -2394,18 +2455,7 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
             genv.line_h = line_h;
             genv.wrap = opt.wrap;
             genv.transform_generation = ctx->style_transform_generation;
-            size_t vp_lines = line_h > 0.0f
-                ? (size_t)(win_band_h / line_h) + 2 + WLX_EDITOR_OVERSCAN_LINES : 8;
-            size_t want = vp_lines * WLX_TEXT_GEOM_STORE_SLACK < WLX_TEXT_GEOM_STORE_MIN
-                ? (size_t)WLX_TEXT_GEOM_STORE_MIN
-                : vp_lines * WLX_TEXT_GEOM_STORE_SLACK;
-            // An environment change also drops the wrapped bottom
-            // anchor: its row counts were taken under the old one. (The
-            // wrapped mode implies a store - it is embedded in the index
-            // the mode requires - so this is the one invalidation site.)
-            if (!geom->env_seen || !wlx_text_geom_env_equal(&geom->env, &genv))
-                state->bottom_valid = false;
-            wlx_text_geom_env_check(geom, &genv, want);
+            wlx_editor_geom_env_sync(state, geom, &genv, win_band_h);
         }
 
         // Wrapped geometry inputs at the final band width, with the anchor
@@ -2452,7 +2502,7 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
         // Caret and selection input. Seeded with the shared key handler's
         // caret changes so they reach caret-follow even when only the
         // anchor moved.
-        bool caret_moved = kb_caret_changed;
+        bool caret_moved = ed.caret_changed;
         if (wlx_editor_caret_input(&f, &scr)) {
             caret_moved = true;
         }
@@ -2515,24 +2565,7 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
                 idx, geom, lines, win_count, sel_min, sel_max, opt.selection_color);
         }
 
-        // A composition string in progress: underlined, its selected
-        // clause in the selection colour.
-        if (win_count > 0 && inter.focused && wlx_text_edit_composing(&state->caret)
-            && state->caret.preedit_start + state->caret.preedit_len <= doc_len
-            && state->caret.cursor_pos >= state->caret.preedit_start
-            && state->caret.cursor_pos <= state->caret.preedit_start + state->caret.preedit_len) {
-            size_t p_lo = state->caret.preedit_start;
-            size_t p_hi = p_lo + state->caret.preedit_len;
-            size_t clause_end = wlx_preedit_clause_end(doc + p_lo, state->caret.preedit_len,
-                state->caret.cursor_pos - p_lo, ctx->input.preedit_sel_len);
-            if (clause_end > state->caret.cursor_pos - p_lo) {
-                wlx_text_draw_selection(ctx, band, doc, doc_len, ts, tab_advance,
-                    idx, geom, lines, win_count, state->caret.cursor_pos, p_lo + clause_end,
-                    opt.selection_color);
-            }
-            wlx_text_draw_underline(ctx, band, doc, doc_len, ts, tab_advance,
-                idx, geom, lines, win_count, p_lo, p_hi, ts.color);
-        }
+        wlx_editor_draw_preedit(&f, lines, win_count);
 
         if (win_count > 0) {
             wlx_editor_draw_window(&f, lines, win_count);

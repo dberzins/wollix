@@ -223,19 +223,26 @@ hit-testing).
 4. Interaction rect (starts after the previous frame's gutter width);
    interaction fetch.
 5. Multi-click clock advance.
-6. **Edits** (focus-gated) — before any geometry, so index, window,
-   and caret see the mutated buffer; edit span captured.
+6. **Edits** (`wlx_editor_edit_stage`) — before any geometry, so
+   index, window, and caret see the mutated buffer: the pre-edit index
+   probe, then the shared edit phase (`wlx_text_edit_phase`: the keys
+   on a focused frame, a composition span held without focus adopted);
+   its report (`WLX_Editor_Edit`) carries the edit span and the
+   pre-edit length and probe to step 9.
 7. Label/chrome; input rect (`wlx_text_field_frame`).
 8. Metrics: reference space measure gives `line_h` and the tab
    advance.
-9. Line index guard and rebuild; retained-geometry `edit_shift` (the
-   edit-only path) or `clear` (every other rebuild cause); the cached
-   wrapped bottom anchor shifts with an edit ending before its line and
-   drops otherwise.
+9. Line index guard and rebuild (`wlx_editor_index_sync`, decided
+   from step 6's report alone and pinned row by row by
+   `editor_index_sync_decision_table`); retained-geometry `edit_shift`
+   (the edit-only path) or `clear` (every other rebuild cause); the
+   cached wrapped bottom anchor shifts with an edit ending before its
+   line and drops otherwise.
 10. Band resolve (`wlx_editor_resolve_band`): gutter, scrollbar
     strips, pre-strip window band height.
-11. Retained-geometry environment check and store sizing; an
-    environment change also drops the cached bottom anchor.
+11. Retained-geometry environment check and store sizing
+    (`wlx_editor_geom_env_sync`); an environment change also drops the
+    cached bottom anchor.
 12. Wrap inputs at the final band width; anchor clamp against the
     current index; anchor row count.
 13. Scroll limits (`wlx_editor_scroll_limits`): derives the
@@ -256,7 +263,8 @@ hit-testing).
 18. Window build (wrapped or linear) — produces the frame's records;
     the wrapped build's bottom clamp may rewrite the anchor and the
     final `scroll_y` (the one sanctioned mid-build write).
-19. Selection draw, text draw, gutter draw. The text draw hands each
+19. Selection draw, composition decoration (`wlx_editor_draw_preedit`),
+    text draw, gutter draw. The text draw hands each
     visible record to `wlx_text_draw_record_spans` with the covering
     entry it found; the span-colour callback (`.span_color`) is asked
     there and nowhere else — after every geometry consumer above — and
@@ -404,7 +412,11 @@ deserves extra review care.
     geometry, wrap, hit-test or measure path carries a composition
     field, flag or branch, and its decoration (the underline and the
     clause band) is a range visual on the record walk the selection
-    band uses. Locked by the no-composition identity pins in the IME
+    band uses. The ranges come from one core helper
+    (`wlx_text_edit_preedit_ranges`, in the buffer's plain space); each
+    widget maps them into its own display space (the inputbox's mask
+    under `.password`) and draws them itself, so the record walk learns
+    nothing about composition. Locked by the no-composition identity pins in the IME
     suite (byte-identical draw calls and journals with an empty
     `preedit`) and by the composing rows of `make perf-editor` inside
     twice the typing bounds with no index rebuild.

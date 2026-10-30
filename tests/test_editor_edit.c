@@ -740,6 +740,138 @@ TEST(editor_index_patch_equals_rebuild) {
     ASSERT_TRUE(ok);
 }
 
+// ============================================================================
+// Index sync decision table: wlx_editor_index_sync called directly, one
+// row per cause. Each row stages the guard (the index last saw "ab\ncd\nef",
+// length 8, revision 0), two retained-geometry entries (line 0 at [0,3)
+// and line 2 at [6,8)), a wrapped bottom anchor on line 2 and one undo
+// step, then hands the sync an edit stage's report and checks all four
+// outputs: patch, rescan or nothing; the geometry shifted, kept or
+// cleared; the anchor shifted, kept or dropped; the history kept or
+// dropped.
+// ============================================================================
+
+#define IS_ABSENT ((size_t)-1)
+
+typedef struct {
+    const char *name;
+    bool seen;                  // the index was seen before this frame
+    uint32_t revision;          // this frame's revision (the guard holds 0)
+    const char *doc;            // the document as the edit left it
+    bool changed;               // the edit stage's report
+    bool edited;
+    size_t start, old_end, new_end;
+    size_t pre_len;
+    bool pre_probe_ok;
+    // Expected.
+    bool rebuilt;               // the return: the document changed
+    int rebuilds, patches;      // index counter deltas
+    size_t line0_at;            // line 0's entry start, or IS_ABSENT
+    size_t line2_at;            // line 2's entry start, or IS_ABSENT
+    bool bottom_valid;
+    size_t bottom_start_off;
+    bool history_kept;
+} Is_Row;
+
+static const Is_Row is_rows[] = {
+    { "idle frame",                    true, 0, "ab\ncd\nef", false, false, 0, 0, 0, 8, true,
+      false, 0, 0, 0, 6, true, 6, true },
+    { "first sight",                   false, 0, "ab\ncd\nef", false, false, 0, 0, 0, 8, true,
+      true, 1, 0, IS_ABSENT, IS_ABSENT, false, 6, false },
+    { "widget edit before the anchor", true, 0, "Xab\ncd\nef", true, true, 0, 0, 1, 8, true,
+      true, 0, 1, IS_ABSENT, 7, true, 7, true },
+    { "widget edit on the anchor line", true, 0, "ab\ncd\nefX", true, true, 8, 8, 9, 8, true,
+      true, 0, 1, 0, IS_ABSENT, false, 6, true },
+    { "widget edit, pre-edit probe failed", true, 0, "Xab\ncd\nef", true, true, 0, 0, 1, 8, false,
+      true, 1, 0, IS_ABSENT, IS_ABSENT, false, 6, false },
+    { "widget edit under a revision bump", true, 1, "Xab\ncd\nef", true, true, 0, 0, 1, 8, true,
+      true, 1, 0, IS_ABSENT, IS_ABSENT, false, 6, false },
+    { "widget edit the span does not account for", true, 0, "XYab\ncd\nef", true, true, 0, 0, 1, 8, true,
+      true, 1, 0, IS_ABSENT, IS_ABSENT, false, 6, false },
+    { "outside length change",         true, 0, "ab\ncd", false, false, 0, 0, 0, 5, true,
+      true, 1, 0, IS_ABSENT, IS_ABSENT, false, 6, false },
+    { "outside revision bump",         true, 1, "ab\ncd\nef", false, false, 0, 0, 0, 8, true,
+      true, 1, 0, IS_ABSENT, IS_ABSENT, false, 6, false },
+    { "in-place rewrite, same length", true, 0, "ab\ncdxef", false, false, 0, 0, 0, 8, true,
+      true, 1, 0, IS_ABSENT, IS_ABSENT, false, 6, false },
+};
+
+static void is_row_case(const Is_Row *r) {
+    static const char base[] = "ab\ncd\nef";
+    const WLX_Id id = 77;
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+
+    WLX_Editor_Line_Index *idx = wlx_editor_index_get(&ctx, id);
+    ASSERT_TRUE(idx != NULL);
+    ASSERT_TRUE(wlx_editor_index_rebuild(idx, base, 8));
+    WLX_Text_Geom_Env env = { .font_size = 10, .band_w = 100.0f, .line_h = 10.0f };
+    wlx_text_geom_env_check(&idx->geom, &env, 8);
+    ASSERT_TRUE(wlx_text_geom_acquire(&idx->geom, 0, 3) != NULL);
+    ASSERT_TRUE(wlx_text_geom_acquire(&idx->geom, 6, 8) != NULL);
+    WLX_Text_Undo_Journal *j = wlx_text_undo_get(&ctx, id, 8, 0, false);
+    ASSERT_TRUE(j != NULL);
+    wlx_text_undo_record(j, 0, NULL, 0, 1, 1, 1);
+    ASSERT_EQ_INT(1, (long)j->undo.count);
+
+    WLX_Editor_State st;
+    memset(&st, 0, sizeof(st));
+    st.index_seen = r->seen;
+    st.guard_length = 8;
+    st.guard_revision = 0;
+    st.bottom_valid = true;
+    st.bottom_start_off = 6;
+    uint32_t rebuilds = idx->rebuilds, patches = idx->patches;
+
+    WLX_Editor_Edit ed;
+    memset(&ed, 0, sizeof(ed));
+    ed.doc = r->doc;
+    ed.doc_len = strlen(r->doc);
+    ed.revision = r->revision;
+    ed.changed = r->changed;
+    ed.span.edited = r->edited;
+    ed.span.start = r->start;
+    ed.span.old_end = r->old_end;
+    ed.span.new_end = r->new_end;
+    ed.pre_len = r->pre_len;
+    ed.pre_probe_ok = r->pre_probe_ok;
+
+    bool rebuilt = wlx_editor_index_sync(&ctx, id, &st, idx, &ed);
+    ASSERT_EQ_INT(r->rebuilt, rebuilt);
+    ASSERT_EQ_INT(r->rebuilds, (long)(idx->rebuilds - rebuilds));
+    ASSERT_EQ_INT(r->patches, (long)(idx->patches - patches));
+    if (r->rebuilt) {
+        // The guard follows the document the sync indexed.
+        ASSERT_TRUE(st.index_seen);
+        ASSERT_EQ_INT((long)ed.doc_len, (long)st.guard_length);
+        ASSERT_EQ_INT((long)r->revision, (long)st.guard_revision);
+        ASSERT_TRUE(wlx_editor_index_probe_ok(idx, ed.doc, ed.doc_len));
+    }
+    bool line0 = wlx_text_geom_find(&idx->geom, 0, 3) != NULL;
+    ASSERT_EQ_INT(r->line0_at != IS_ABSENT, line0);
+    if (r->line2_at == IS_ABSENT) {
+        ASSERT_TRUE(wlx_text_geom_find(&idx->geom, 6, 8) == NULL);
+        ASSERT_TRUE(wlx_text_geom_find(&idx->geom, 7, 9) == NULL);
+    } else {
+        ASSERT_TRUE(wlx_text_geom_find(&idx->geom, r->line2_at, r->line2_at + 2) != NULL);
+    }
+    ASSERT_EQ_INT(r->bottom_valid, st.bottom_valid);
+    if (r->bottom_valid) ASSERT_EQ_INT((long)r->bottom_start_off, (long)st.bottom_start_off);
+    ASSERT_EQ_INT(r->history_kept ? 1 : 0, (long)j->undo.count);
+    wlx_context_destroy(&ctx);
+}
+
+// The rows share their assertion lines, so a failing row names itself.
+TEST(editor_index_sync_decision_table) {
+    for (size_t i = 0; i < sizeof is_rows / sizeof is_rows[0]; i++) {
+        int failed_before = _test_current_failed;
+        _test_current_failed = 0;
+        is_row_case(&is_rows[i]);
+        if (_test_current_failed) fprintf(stderr, "    (row: %s)\n", is_rows[i].name);
+        _test_current_failed |= failed_before;
+    }
+}
+
 SUITE(editor_edit) {
     RUN_TEST(edit_cluster_keys_step_and_delete_whole);
     RUN_TEST(edit_typing_inserts_at_caret_and_patches);
@@ -755,6 +887,7 @@ SUITE(editor_edit) {
     RUN_TEST(edit_revision_guard_interplay_with_edits);
     RUN_TEST(edit_same_frame_in_place_mutation_rebuilds_not_patches);
     RUN_TEST(editor_index_patch_equals_rebuild);
+    RUN_TEST(editor_index_sync_decision_table);
     RUN_TEST(edit_tab_prefix_measure_hits_next_stop);
     RUN_TEST(edit_tab_key_inserts_and_segments_draw_at_stops);
 }
