@@ -736,7 +736,7 @@ as on the editor; the history is dropped at the next lookup.
 |---|---|---|---|
 | `wlx_inputbox` | `wlx_text_edit_phase` from `wlx_inputbox_edit`, after the frame's one `strlen`, with the interaction id, `opt.revision`, `opt.password` | `read_only`, `allow_newline = multiline`, `word_delete`, `mask_clipboard = password` | the trailing NUL is rewritten only when the text changed |
 | `wlx_textarea` | the same: it is `wlx_inputbox` with `.multiline` preset | as above with `allow_newline` | Tab traverses focus, so there is no `TAB` step here |
-| `wlx_editor` | the focused branch of `wlx_editor_impl`, with `persistent.id`, `opt.revision`, password false | `read_only`, `allow_newline`, `allow_tab`, `word_delete` | plus the probe-path clear in the index guard |
+| `wlx_editor` | `wlx_text_edit_phase` from `wlx_editor_impl`, after the pre-edit index probe, with the interaction id, `opt.revision`, password false | `read_only`, `allow_newline`, `allow_tab`, `word_delete` | plus the probe-path clear in the index guard |
 
 The editor needs nothing else because the replay produces the frame's
 `WLX_Text_Edit_Span` like any keystroke:
@@ -818,7 +818,7 @@ which are unconditional). "Handler" below means `wlx_text_edit_handle_keys`.
 
 | Function | Role | Called from |
 |---|---|---|
-| `wlx_text_undo_get(ctx, id, length, revision, password)` | find or create a widget's journal; run the staleness guard; release the journal of a password field | `wlx_text_edit_phase` (the inputbox) and the editor's edit branches |
+| `wlx_text_undo_get(ctx, id, length, revision, password)` | find or create a widget's journal; run the staleness guard; release the journal of a password field | `wlx_text_edit_phase`, the one edit phase of every text widget |
 | `wlx_text_undo_find(ctx, id)` | lookup without creation | `get`, `clear_if_present`, tests |
 | `wlx_text_undo_drop(ctx, id)` | free and remove a journal | `get` for password fields |
 | `wlx_text_undo_clear(j, length)` | reset both stacks, re-arm the guard, forget replay state | the guard, `apply` on infeasible steps, `clear_if_present` |

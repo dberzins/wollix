@@ -2256,7 +2256,6 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
     // NUL opportunistically when the capacity allows one. kb_caret_changed
     // carries the handler's caret/selection changes (arrows, collapse,
     // select-all) into blink reset and caret-follow below.
-    bool kb_caret_changed = false;
     WLX_Text_Edit_Span edit_span = {0};
     size_t pre_edit_len = *length;
     // The line index, fetched before the keys run so the sampled
@@ -2268,44 +2267,23 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
     WLX_Editor_Line_Index *idx = wlx_editor_index_get(ctx, persistent.id);
     bool pre_probe_ok = idx != NULL && state->index_seen
         && wlx_editor_index_probe_ok(idx, buffer, *length);
-    if (inter.focused) {
-        size_t pre_cursor = state->caret.cursor_pos;
-        size_t pre_anchor = state->caret.selection_anchor;
-        // A tentative span left from an earlier focus is forgotten, never
-        // deleted (wlx_text_edit_preedit_on_focus).
-        if (inter.just_focused) {
-            wlx_text_edit_preedit_on_focus(ctx, &state->caret, persistent.id);
-        }
-        // The undo journal is found by widget id under the caller's
-        // revision, so history the buffer outgrew is dropped before the
-        // chords could replay it. Undo and redo replay through the same
-        // primitives as a keystroke, so the edit span below covers them.
-        WLX_Text_Edit edit = {
-            .st = &state->caret, .buffer = buffer, .buffer_cap = buffer_cap, .length = length,
-            .caps = { .read_only = opt.read_only, .allow_newline = true, .allow_tab = true,
-                      .word_delete = true },
-            .span = &edit_span,
-            .undo = wlx_text_undo_get(ctx, persistent.id, *length, opt.revision, false),
-            .id = persistent.id, .revision = opt.revision,
-        };
-        changed = wlx_text_edit_handle_keys(ctx, &edit);
-        if (changed && *length < buffer_cap) buffer[*length] = '\0';
-        kb_caret_changed = pre_cursor != state->caret.cursor_pos
-            || pre_anchor != state->caret.selection_anchor;
-    } else if (wlx_text_edit_composing(&state->caret)) {
-        // A composition string held without focus (focus left with one in
-        // the buffer, on the edge frame or silently: a frame the editor was
-        // not drawn) becomes typed text, and the edit span carries it to
-        // the index patch.
-        WLX_Text_Edit edit = {
-            .st = &state->caret, .buffer = buffer, .buffer_cap = buffer_cap, .length = length,
-            .span = &edit_span,
-            .undo = wlx_text_undo_get(ctx, persistent.id, *length, opt.revision, false),
-            .id = persistent.id, .revision = opt.revision,
-        };
-        changed = wlx_text_edit_adopt_preedit(&edit);
-        if (changed && *length < buffer_cap) buffer[*length] = '\0';
-    }
+    // The shared phase (wlx_text_edit_phase): the keys on a focused frame
+    // (undo and redo replay through the same primitives as a keystroke, so
+    // the edit span covers them), a composition string held without focus
+    // adopted as typed text; either way the edit span carries the change
+    // to the index patch.
+    size_t pre_cursor = state->caret.cursor_pos;
+    size_t pre_anchor = state->caret.selection_anchor;
+    WLX_Text_Edit edit = {
+        .st = &state->caret, .buffer = buffer, .buffer_cap = buffer_cap, .length = length,
+        .caps = { .read_only = opt.read_only, .allow_newline = true, .allow_tab = true,
+                  .word_delete = true },
+        .span = &edit_span, .revision = opt.revision,
+    };
+    changed = wlx_text_edit_phase(ctx, &edit, inter, false);
+    if (changed && *length < buffer_cap) buffer[*length] = '\0';
+    bool kb_caret_changed = inter.focused && (pre_cursor != state->caret.cursor_pos
+        || pre_anchor != state->caret.selection_anchor);
 
     // Optional leading label, placed by the vertical component of opt.content_align
     // exactly like the inputbox's (the label never wraps).
