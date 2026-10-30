@@ -2521,12 +2521,13 @@ WLX_Id wlx_focused_id(WLX_Context *ctx);
 Id of the widget holding the keyboard (Tab) focus ring, or `0`. Compare
 against `WLX_Interaction.id`. Tab / Shift-Tab move it through the previous
 frame's Tab stops in declaration order (topmost layer only, wrapping at both
-ends); any pointer press, or Escape with nothing active, clears it; a widget
-that stops being declared releases it at `wlx_end`. While non-zero, `wlx_end`
-draws an accent outline around the focused widget's rect
-(`WLX_FOCUS_RING_THICKNESS` / `WLX_FOCUS_RING_GAP`, `#ifndef`-overridable;
-color `theme->accent`). Independent of `WLX_Interaction.focused`, which keeps
-its typing-focus meaning.
+ends); any pointer press clears it (a Tab in the same frame does not move it),
+and so does Escape with nothing active; a widget that stops being declared
+releases it at `wlx_end`. While non-zero, `wlx_end` draws an accent outline
+around the focused widget's rect (`WLX_FOCUS_RING_THICKNESS` /
+`WLX_FOCUS_RING_GAP`, `#ifndef`-overridable; color `theme->accent`).
+Independent of `WLX_Interaction.focused`, which keeps its typing-focus
+meaning.
 
 ### `wlx_is_mouse_right_down` / `wlx_is_mouse_right_clicked` / `wlx_is_mouse_middle_down` / `wlx_is_mouse_middle_clicked`
 

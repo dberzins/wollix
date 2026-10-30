@@ -416,7 +416,9 @@ editor focuses it without inserting.
 
 **Leaving keyboard mode.** Any pointer press drops the ring (so the outline
 never shows in mouse-driven sessions); Escape drops it when no field is
-focused.
+focused. A Tab in the same frame as a press does not move the ring: the
+press decides which widget is focused, and the Tab is dropped, unless the
+press landed on a focused editor, which types it.
 
 Read the focused widget's id with `wlx_focused_id(ctx)` and compare it with
 `WLX_Interaction.id` (for example to scroll the focused control into view).

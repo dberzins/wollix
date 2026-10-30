@@ -6990,9 +6990,10 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
     // focused field's own Escape blur runs in its handler). Tab walks
     // the previous frame's focusable candidates on the highest layer
     // that has any, in declaration order (Shift reverses, both ends
-    // wrap), unless the active widget holds Tab for itself (editor) or a
+    // wrap), unless the active widget holds Tab for itself (editor), a
     // composition was held last frame (the frame is the input method's;
-    // wlx_begin has rolled that owner into composing_prev_id).
+    // wlx_begin has rolled that owner into composing_prev_id), or the
+    // frame has a fresh press.
     if (ctx->input.mouse_clicked) {
         ctx->interaction.focus_id = 0;
     }
@@ -7004,10 +7005,21 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
     if (ctx->composing_prev_id != 0 && wlx_is_key_actuated(ctx, WLX_KEY_TAB)) {
         ctx->interaction.tab_consumed = true;
     }
-    if (ctx->interaction.arbitrate
-            && ctx->composing_prev_id == 0
+    bool tab_walks = ctx->interaction.arbitrate
             && wlx_is_key_actuated(ctx, WLX_KEY_TAB)
-            && !(ctx->interaction.active_id != 0 && ctx->interaction.active_consumes_tab)) {
+            && !(ctx->interaction.active_id != 0 && ctx->interaction.active_consumes_tab);
+    // A fresh press wins the frame: the press owner alone decides focus
+    // (walked as well, the Tab's target would acquire and blur in its own
+    // query, so whichever was queried last decided), and the ring stays
+    // dropped. The Tab goes with the walk it would have made: a field the
+    // press focuses must not insert it, while an editor the press landed
+    // on with focus kept still holds it.
+    if (tab_walks && ctx->input.mouse_clicked) {
+        ctx->interaction.tab_consumed = true;
+    }
+    if (tab_walks
+            && ctx->composing_prev_id == 0
+            && !ctx->input.mouse_clicked) {
         // Start from the keyboard-focused widget, else from a mouse-focused
         // field, so Tab continues from where the user is.
         WLX_Id start_id = ctx->interaction.focus_id != 0

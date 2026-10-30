@@ -492,6 +492,19 @@ minor.
   redo".
 
 ### Fixed
+- **A press and a Tab in one frame no longer lose focus.** When a pointer
+  press and a Tab (or Shift+Tab) arrived in the same frame, the Tab walk's
+  target took focus and then dropped it again on the press, in its own
+  query. If it was queried after the pressed field, no field ended
+  focused: the pressed field showed focus for that frame and lost it with
+  no blur edge. A press on the focused field also gave that field a blur
+  and a focus edge in one frame. A button target kept the keyboard ring
+  through the press, so the ring could sit on a button while a field had
+  typing focus. Now a fresh press decides the frame's focus: the Tab does
+  not walk the ring, and it is dropped unless the press landed on a
+  focused editor, which still types it. Held Tab (auto-repeat) with a
+  click reached this, as did a slow frame that collected both events.
+  Present since keyboard traversal was added in v0.8.0.
 - **Widget ids no longer collide across call sites.** Two stateful widgets
   a few source lines apart inside one `wlx_push_id(row)` loop resolved to
   the same id from row 65 on (the combine added the stack value linearly

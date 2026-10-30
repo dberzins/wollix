@@ -3,7 +3,8 @@
 // both ends, topmost layer only), skipping sliders, disabled and decoration
 // widgets; Tab continues from a mouse-focused field and hands it the blur
 // edge; a Tab-focused button activates on Enter / Space; Escape and a
-// pointer press clear the ring; a focused widget that disappears is GC'd;
+// pointer press clear the ring, and a Tab in the same frame as a press
+// leaves focus to the press; a focused widget that disappears is GC'd;
 // the focus ring is one accent outline at frame end around the focused
 // rect, on top of every layer, and absent whenever nothing holds the ring.
 //
@@ -589,8 +590,9 @@ TEST(focus_next_stop_none_focusable_returns_zero) {
 
 // A press outside a Tab-holding editor releases it at frame begin and the
 // release clears its Tab claim with it: active_consumes_tab never outlives
-// the holder, and a Tab arriving in the same frame traverses instead of
-// being swallowed by (or inserted into) the released editor.
+// the holder, so a Tab arriving in the same frame is not inserted into the
+// released editor. The press wins the frame, so the Tab does not walk the
+// ring either (see the press-and-Tab section below).
 TEST(press_outside_field_clears_tab_claim) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
@@ -750,6 +752,168 @@ TEST(focus_ring_clamped_to_clip) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// A press and a Tab in one frame: the press decides the frame's focus. The
+// walk does not run (its target would acquire, then blur on the press in
+// its own query, so whichever widget was queried last decided), the ring
+// stays dropped, and the Tab is consumed unless a Tab-holding editor the
+// press landed on kept focus.
+// ============================================================================
+
+static const WLX_Rect tt_f1_rect = { 0, 0,  100, 40 };
+static const WLX_Rect tt_f2_rect = { 0, 60, 100, 40 };
+
+typedef struct {
+    WLX_Interaction f1, f2;
+} TT_Pair;
+
+// Two focus-class fields, f1 above f2, declared in that order: a walk
+// target queried after the pressed field is the one that used to clear
+// its focus.
+static TT_Pair tt_pair_frame(WLX_Context *ctx, int mx, int my, bool clicked,
+                             WLX_Key_Code key, uint32_t mods) {
+    bool keys_pressed[WLX_KEY_COUNT] = {0};
+    if (key != WLX_KEY_NONE) keys_pressed[key] = true;
+    test_frame_begin_full(ctx, mx, my, clicked, clicked, clicked, 0.0f, NULL,
+        key != WLX_KEY_NONE ? keys_pressed : NULL, NULL, mods, NULL);
+    TT_Pair r;
+    r.f1 = wlx_get_interaction(ctx, tt_f1_rect,
+        WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS, "tt_f1", 1);
+    r.f2 = wlx_get_interaction(ctx, tt_f2_rect,
+        WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS, "tt_f2", 1);
+    test_frame_end(ctx);
+    return r;
+}
+
+// Shift+Tab walks from nothing to the last stop, f2, which is queried
+// after f1: with no field focused before, and with f2 focused before (the
+// press releases it at frame begin), the pressed f1 ends focused.
+TEST(press_with_shift_tab_keeps_the_pressed_field) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    tt_pair_frame(&ctx, 300, 300, false, WLX_KEY_NONE, 0);
+    TT_Pair r = tt_pair_frame(&ctx, 50, 20, true, WLX_KEY_TAB, WLX_MOD_SHIFT);
+    ASSERT_TRUE(r.f1.focused);
+    ASSERT_FALSE(r.f2.just_focused);
+    r = tt_pair_frame(&ctx, 50, 20, false, WLX_KEY_NONE, 0);
+    ASSERT_TRUE(r.f1.focused);
+    ASSERT_FALSE(r.f1.just_unfocused);
+    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+
+    tt_pair_frame(&ctx, 50, 80, true, WLX_KEY_NONE, 0);
+    r = tt_pair_frame(&ctx, 50, 80, false, WLX_KEY_NONE, 0);
+    ASSERT_TRUE(r.f2.focused);
+    r = tt_pair_frame(&ctx, 50, 20, true, WLX_KEY_TAB, WLX_MOD_SHIFT);
+    ASSERT_TRUE(r.f1.focused);
+    ASSERT_TRUE(r.f2.just_unfocused);
+    ASSERT_FALSE(r.f2.just_focused);
+    r = tt_pair_frame(&ctx, 50, 20, false, WLX_KEY_NONE, 0);
+    ASSERT_TRUE(r.f1.focused);
+    ASSERT_FALSE(r.f2.focused);
+    wlx_context_destroy(&ctx);
+}
+
+// A press on the focused field with a Tab: the walk used to release it and
+// the press re-acquire it in one query (just_unfocused, just_focused and
+// focused at once), and the walk's target f2, queried later, then cleared
+// the focus. The field keeps its focus with no edge.
+TEST(press_on_the_focused_field_with_tab_keeps_it_without_edges) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    tt_pair_frame(&ctx, 300, 300, false, WLX_KEY_NONE, 0);
+    tt_pair_frame(&ctx, 50, 20, true, WLX_KEY_NONE, 0);
+    TT_Pair r = tt_pair_frame(&ctx, 50, 20, false, WLX_KEY_NONE, 0);
+    ASSERT_TRUE(r.f1.focused);
+    r = tt_pair_frame(&ctx, 50, 20, true, WLX_KEY_TAB, 0);
+    ASSERT_TRUE(r.f1.focused);
+    ASSERT_FALSE(r.f1.just_unfocused);
+    ASSERT_FALSE(r.f1.just_focused);
+    ASSERT_FALSE(r.f2.just_focused);
+    r = tt_pair_frame(&ctx, 50, 20, false, WLX_KEY_NONE, 0);
+    ASSERT_TRUE(r.f1.focused);
+    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+// A press on no stop with a Tab: the walk used to land on the first stop,
+// a button, and a press never clears a button's ring.
+TEST(press_on_nothing_with_tab_leaves_no_ring) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    tt_idle(&ctx);
+    TT_Result r = tt_frame(&ctx, 300, 300, true, true, WLX_KEY_TAB, 0, false);
+    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_FALSE(r.field.focused);
+    tt_idle(&ctx);
+    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+// A press on the field with Shift+Tab: the walk used to put the ring on
+// the last stop, a button, while the field took typing focus.
+TEST(press_on_a_field_with_shift_tab_leaves_no_ring_elsewhere) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    tt_idle(&ctx);
+    TT_Result r = tt_frame(&ctx, 50, 80, true, true, WLX_KEY_TAB, WLX_MOD_SHIFT, false);
+    ASSERT_TRUE(r.field.focused);
+    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    r = tt_idle(&ctx);
+    ASSERT_TRUE(r.field.focused);
+    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+// A press on an unfocused editor with a Tab: the press focuses it, the Tab
+// is not inserted, and the ring does not land on the button declared first.
+TEST(press_on_an_unfocused_editor_with_tab_consumes_it) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64];
+    memcpy(buf, "ab", 3);
+    size_t len = 2;
+
+    tt_editor_frame(&ctx, buf, sizeof(buf), &len, 0, 0, false, false, WLX_KEY_NONE, NULL);
+    bool focused = tt_editor_frame(&ctx, buf, sizeof(buf), &len, 200, 150, true, true,
+        WLX_KEY_TAB, NULL);
+    ASSERT_TRUE(focused);
+    ASSERT_EQ_INT(2, (long)len);
+    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    focused = tt_editor_frame(&ctx, buf, sizeof(buf), &len, 200, 150, false, false,
+        WLX_KEY_NONE, NULL);
+    ASSERT_TRUE(focused);
+    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+// A press on the focused editor with a Tab: the editor keeps focus and its
+// Tab claim, so no walk would have run, and the Tab is the editor's to
+// insert.
+TEST(press_on_the_focused_editor_with_tab_inserts_it) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64];
+    memcpy(buf, "ab", 3);
+    size_t len = 2;
+
+    tt_editor_frame(&ctx, buf, sizeof(buf), &len, 0, 0, false, false, WLX_KEY_NONE, NULL);
+    tt_editor_frame(&ctx, buf, sizeof(buf), &len, 200, 150, true, true, WLX_KEY_NONE, NULL);
+    bool focused = tt_editor_frame(&ctx, buf, sizeof(buf), &len, 200, 150, false, false,
+        WLX_KEY_NONE, NULL);
+    ASSERT_TRUE(focused);
+    focused = tt_editor_frame(&ctx, buf, sizeof(buf), &len, 200, 150, true, true,
+        WLX_KEY_TAB, NULL);
+    ASSERT_TRUE(focused);
+    ASSERT_EQ_INT(3, (long)len);
+    ASSERT_TRUE(memchr(buf, '\t', len) != NULL);
+    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(tab_traversal) {
     RUN_TEST(tab_walks_declaration_order_and_wraps);
     RUN_TEST(shift_tab_walks_backward_and_wraps);
@@ -777,4 +941,10 @@ SUITE(tab_traversal) {
     RUN_TEST(focus_ring_wraps_editor_including_gutter);
     RUN_TEST(tab_skips_fully_clipped_stop);
     RUN_TEST(focus_ring_clamped_to_clip);
+    RUN_TEST(press_with_shift_tab_keeps_the_pressed_field);
+    RUN_TEST(press_on_the_focused_field_with_tab_keeps_it_without_edges);
+    RUN_TEST(press_on_nothing_with_tab_leaves_no_ring);
+    RUN_TEST(press_on_a_field_with_shift_tab_leaves_no_ring_elsewhere);
+    RUN_TEST(press_on_an_unfocused_editor_with_tab_consumes_it);
+    RUN_TEST(press_on_the_focused_editor_with_tab_inserts_it);
 }
