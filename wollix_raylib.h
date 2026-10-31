@@ -566,32 +566,6 @@ static inline void wlx_raylib_draw_text_slice(const char *text, size_t len,
     wlx_cstr_tmp_end(&tmp);
 }
 
-static inline void wlx_raylib_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
-    WLX_UNUSED(user);
-    WLX_RAYLIB_SCOPE_BEGIN();
-    WLX_RAYLIB_PERF_INC(measure_text_calls);
-
-    size_t   len  = (text != NULL) ? strlen(text) : 0;
-    uint64_t hash = wlx_hash_fnv1a64(text != NULL ? text : "", len);
-
-    if (wlx_raylib_text_cache_lookup((uintptr_t)style.font, style, len, hash,
-                                     out_w, out_h)) {
-        WLX_RAYLIB_SCOPE_END(text_measure_ns);
-        return;
-    }
-
-    Font font = (style.font != WLX_FONT_DEFAULT)
-              ? *(Font *)(uintptr_t)style.font
-              : GetFontDefault();
-    Vector2 size = MeasureTextEx(font, text != NULL ? text : "",
-                                 (float)style.font_size, wlx_raylib_effective_spacing(style));
-    *out_w = size.x;
-    *out_h = size.y;
-    wlx_raylib_text_cache_store((uintptr_t)style.font, style, len, hash,
-                                *out_w, *out_h);
-    WLX_RAYLIB_SCOPE_END(text_measure_ns);
-}
-
 // Slice-aware measure: accepts explicit byte length so wlx_span_measure_text
 // can avoid the temporary null-terminated copy on internal measurement.
 // MeasureTextEx requires a C-string, so the slice is always copied through
@@ -637,6 +611,12 @@ static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_
 
     wlx_cstr_tmp_end(&tmp);
     WLX_RAYLIB_SCOPE_END(text_measure_ns);
+}
+
+// The legacy C-string measure forwards to the slice form; the core reaches
+// it only through a table that leaves the slice pair NULL.
+static inline void wlx_raylib_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    wlx_raylib_measure_text_slice(text, text != NULL ? strlen(text) : 0, style, out_w, out_h, user);
 }
 
 // Cumulative glyph advances of one run at each requested unit end,

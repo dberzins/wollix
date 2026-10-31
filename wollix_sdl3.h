@@ -1535,67 +1535,6 @@ static inline void wlx_sdl3_text_cache_clear(void) {
 #endif
 }
 
-static inline void wlx_sdl3_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
-    WLX_UNUSED(user);
-    assert(g_wlx_sdl3.renderer != NULL && "SDL3 renderer is not set");
-    if (text == NULL || text[0] == '\0') return;
-
-    WLX_SDL3_SCOPE_BEGIN();
-    WLX_SDL3_PERF_INC(draw_text_calls);
-
-#ifdef SDL_TTF_VERSION
-    if (style.font != WLX_FONT_DEFAULT) {
-        TTF_Font *font = (TTF_Font *)(uintptr_t)style.font;
-        wlx_sdl3_draw_ttf_text(font, text, 0, x, y, style);
-        WLX_SDL3_SCOPE_END(text_draw_ns);
-        return;
-    }
-#endif
-
-    // Fallback: debug font
-    SDL_Color sc = wlx_sdl3_to_color(style.color);
-    WLX_SDL3_PERF_INC(set_draw_blend_mode_calls);
-    SDL_SetRenderDrawBlendMode(g_wlx_sdl3.renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(g_wlx_sdl3.renderer, sc.r, sc.g, sc.b, sc.a);
-    SDL_RenderDebugText(g_wlx_sdl3.renderer,
-        wlx_sdl3_snap_text_coord(WLX_SDL3_PX(x)), wlx_sdl3_snap_text_coord(WLX_SDL3_PX(y)), text);
-    WLX_SDL3_SCOPE_END(text_draw_ns);
-}
-
-static inline void wlx_sdl3_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
-    WLX_UNUSED(user);
-    if (out_w == NULL || out_h == NULL) return;
-    if (text == NULL) text = "";
-
-    WLX_SDL3_SCOPE_BEGIN();
-    WLX_SDL3_PERF_INC(measure_text_calls);
-
-#ifdef SDL_TTF_VERSION
-    if (style.font != WLX_FONT_DEFAULT) {
-        TTF_Font *base_font = (TTF_Font *)(uintptr_t)style.font;
-        wlx_sdl3_measure_ttf_text(base_font, text, 0, style, out_w, out_h);
-        WLX_SDL3_SCOPE_END(text_measure_ns);
-        return;
-    }
-#endif
-
-    // Fallback: debug font estimation
-    size_t len = wlx_utf8_strlen(text);
-    float glyph_w = (style.font_size > 0) ? (style.font_size * 0.5f) : 8.0f;
-    float glyph_h = (style.font_size > 0) ? (float)style.font_size : 8.0f;
-
-    if (len == 0) {
-        *out_w = glyph_w;
-        *out_h = glyph_h;
-        WLX_SDL3_SCOPE_END(text_measure_ns);
-        return;
-    }
-
-    *out_w = (float)len * glyph_w;
-    *out_h = glyph_h;
-    WLX_SDL3_SCOPE_END(text_measure_ns);
-}
-
 // Slice-aware draw: accepts explicit byte length.
 // Uses SDL3_ttf with exact length for custom fonts; falls back to a
 // null-terminated copy for the debug font path.
@@ -1680,6 +1619,16 @@ static inline void wlx_sdl3_measure_text_slice(
         *out_h = glyph_h;
     }
     WLX_SDL3_SCOPE_END(text_measure_ns);
+}
+
+// The legacy C-string callbacks forward to the slice pair; the core reaches
+// them only through a table that leaves the slice pair NULL.
+static inline void wlx_sdl3_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    if (text != NULL && text[0] != '\0') wlx_sdl3_draw_text_slice(text, strlen(text), x, y, style, user);
+}
+
+static inline void wlx_sdl3_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    wlx_sdl3_measure_text_slice(text, text != NULL ? strlen(text) : 0, style, out_w, out_h, user);
 }
 
 // Cumulative advances at each requested unit end of one run, read from the

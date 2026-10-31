@@ -89,6 +89,20 @@ static int sa_red_count(SDL_Window *win, int y, int width) {
     return n;
 }
 
+// A region of the render target as RGBA32 bytes, into out (w * h * 4).
+static bool sa_read(SDL_Window *win, SDL_Rect r, Uint8 *out) {
+    SDL_Surface *s = SDL_RenderReadPixels(SDL_GetRenderer(win), &r);
+    if (s == NULL) return false;
+    SDL_Surface *c = SDL_ConvertSurface(s, SDL_PIXELFORMAT_RGBA32);
+    SDL_DestroySurface(s);
+    if (c == NULL) return false;
+    for (int y = 0; y < r.h; y++)
+        memcpy(out + (size_t)y * (size_t)r.w * 4, (const Uint8 *)c->pixels + (size_t)y * (size_t)c->pitch,
+               (size_t)r.w * 4);
+    SDL_DestroySurface(c);
+    return true;
+}
+
 // The left border, in device pixels, of a label filling the window's top
 // 60 units with a 4-unit red border at `roundness`, drawn at `scale`.
 static int sa_border_px(SDL_Window *win, WLX_Context *ctx, float roundness, float scale) {
@@ -142,6 +156,46 @@ TEST(sdl3_diagonal_line_honours_thickness) {
     ctx->backend.draw_line(20.0f, 10.0f, 80.0f, 70.0f, 1.0f, (WLX_Color){ 255, 0, 0, 255 },
         ctx->backend.user);
     ASSERT_TRUE(sa_red_count(win, 40, 200) <= 2);
+    wlx_context_destroy(ctx);
+    free(ctx);
+    sa_close(win);
+}
+
+// The legacy C-string text callbacks agree with the slice pair: the same
+// measure, and the same pixels, also against a slice cut out of a longer
+// string. (No SDL_ttf here: the debug-font path.)
+TEST(sdl3_legacy_text_callbacks_match_the_slice_pair) {
+    SDL_Window *win = sa_open(200, 100);
+    ASSERT_TRUE(win != NULL);
+    WLX_Context *ctx = calloc(1, sizeof *ctx);
+    wlx_context_init_sdl3(ctx, win, SDL_GetRenderer(win));
+    WLX_Backend *b = &ctx->backend;
+    WLX_Text_Style style = { .font = WLX_FONT_DEFAULT, .font_size = 16,
+                             .color = { 255, 255, 255, 255 } };
+    float lw = 0, lh = 0, sw = 0, sh = 0;
+    b->measure_text("Hello", style, &lw, &lh, b->user);
+    b->measure_text_slice("Hello, world", 5, style, &sw, &sh, b->user);
+    ASSERT_EQ_F(lw, sw, 0.0f);
+    ASSERT_EQ_F(lh, sh, 0.0f);
+    ASSERT_TRUE(lw > 0.0f);
+    b->measure_text("", style, &lw, &lh, b->user);
+    b->measure_text_slice("x", 0, style, &sw, &sh, b->user);
+    ASSERT_EQ_F(lw, sw, 0.0f);
+    ASSERT_EQ_F(lh, sh, 0.0f);
+
+    enum { W = 120, H = 24 };
+    static Uint8 legacy[W * H * 4], slice[W * H * 4];
+    SDL_Rect r = { 0, 0, W, H };
+    sa_clear(win);
+    b->draw_text("Hello", 4.0f, 4.0f, style, b->user);
+    ASSERT_TRUE(sa_read(win, r, legacy));
+    sa_clear(win);
+    b->draw_text_slice("Hello, world", 5, 4.0f, 4.0f, style, b->user);
+    ASSERT_TRUE(sa_read(win, r, slice));
+    ASSERT_TRUE(memcmp(legacy, slice, sizeof legacy) == 0);
+    int lit = 0;
+    for (int i = 0; i < W * H; i++) lit += legacy[i * 4] > 128;
+    ASSERT_TRUE(lit > 0);
     wlx_context_destroy(ctx);
     free(ctx);
     sa_close(win);
@@ -258,6 +312,7 @@ TEST(sdl3_text_burst_ends_at_the_first_overflow) {
 SUITE(adapter_sdl3) {
     RUN_TEST(sdl3_outline_honours_thickness);
     RUN_TEST(sdl3_diagonal_line_honours_thickness);
+    RUN_TEST(sdl3_legacy_text_callbacks_match_the_slice_pair);
     RUN_TEST(sdl3_rebound_context_restarts_text_input);
     RUN_TEST(sdl3_event_watch_survives_sdl_reinit);
     RUN_TEST(sdl3_text_burst_ends_at_the_first_overflow);
