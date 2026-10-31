@@ -512,6 +512,16 @@ minor.
   redo".
 
 ### Fixed
+- **Popup rows and the tooltip text fade once.** A dropdown's and a menu
+  button's row text took the theme opacity and the opacity stack twice
+  (the popup resolved its colour, then each row, an ordinary button,
+  resolved it again), so under `theme.opacity = 0.5` the rows drew at a
+  quarter alpha beside a face at half, and a menu item with its own
+  `.front_color` drew at twice its neighbours'. The rows now resolve once
+  from the popup's own colour and opacity: they match a plain button and
+  still fade with the popup's `.opacity`. The tooltip's text, which took
+  no opacity at all, now fades with the theme and the stack; its box,
+  like all popup chrome, stays unscaled.
 - **A theme built from its global block draws every widget.** Nine of
   `WLX_Theme`'s per-widget overrides documented a fallback the code never
   applied, so a theme written from scratch drew an inputbox and editor

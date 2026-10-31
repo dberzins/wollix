@@ -185,6 +185,13 @@ Container decor is the one exception, matching its `back_color` handling: the
 plain layout/grid decor path does not premultiply opacity, so container effect
 colors and gradient stops pass through unscaled just like `back_color`.
 
+Popups follow the same split. The list chrome of a dropdown, a menu button
+or a menu, and the tooltip's box, are container decor and stay unscaled.
+Their contents fade once, like any widget: a dropdown's or a menu button's
+rows are buttons that take the popup's own `.opacity` (so a faded popup
+fades its rows) under the theme and the stack, and the tooltip's text takes
+the theme and the stack.
+
 ---
 
 ## Configuration

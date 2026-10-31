@@ -17460,14 +17460,16 @@ static inline WLX_Overlay_Opt wlx_overlay_chrome_opt(WLX_Color back, WLX_Color b
 }
 
 // The list styling of a button-anchored popup (dropdown, menu button) as a
-// resolved WLX_Menu_Opt, so its rows and chrome go through the same helpers
-// a menu uses. `opt` carries the popup's resolved face and list_* fields.
-#define WLX_POPUP_LIST_OPT(opt, width_, item_padding_) \
+// WLX_Menu_Opt, so its rows and chrome go through the same helpers a menu
+// uses. `opt` carries the popup's resolved face and list_* fields; the
+// rows' front colour is the caller's, taken before the popup resolved its
+// visual state (the rows resolve their own; see wlx_popup_row_opt).
+#define WLX_POPUP_LIST_OPT(opt, width_, item_padding_, row_front_) \
     ((WLX_Menu_Opt){ \
         .width = (width_), .row_height = (opt).row_height, \
         .item_padding = (item_padding_), \
         WLX_TEXT_TYPOGRAPHY_COPY(opt), \
-        .front_color = (opt).front_color, .back_color = (opt).list_back_color, \
+        .front_color = (row_front_), .back_color = (opt).list_back_color, \
         .border_color = (opt).list_border_color, .border_width = (opt).list_border_width, \
         .roundness = (opt).roundness, .rounded_segments = (opt).rounded_segments, \
         .hover_brightness = (opt).hover_brightness, \
@@ -17475,16 +17477,20 @@ static inline WLX_Overlay_Opt wlx_overlay_chrome_opt(WLX_Color back, WLX_Color b
     })
 
 // A popup row: a flat button on the list background, styled from the list's
-// resolved WLX_Menu_Opt. Callers add their own text inset (the dropdown its
-// face content padding, the menu item its item_padding); front_override
-// ({0} = none) recolors one row.
+// WLX_Menu_Opt. Callers add their own text inset (the dropdown its face
+// content padding, the menu item its item_padding); front_override ({0} =
+// none) recolors one row. A row is an ordinary button and resolves its
+// visual state once, so the style's front colour is the opener's own,
+// before its visual state, and opacity is the opener's unresolved opacity
+// (WLX_UNSET for a menu): the rows fade with the popup, once.
 static inline WLX_Button_Opt wlx_popup_row_opt(const WLX_Menu_Opt *style,
-        bool disabled, WLX_Color front_override) {
+        bool disabled, WLX_Color front_override, float opacity) {
     return wlx_default_button_opt(
         .height           = style->row_height,
         WLX_TEXT_TYPOGRAPHY_COPY(*style),
         .wrap             = false,
         .disabled         = disabled,
+        .opacity          = opacity,
         .front_color      = wlx_color_is_zero(front_override) ? style->front_color : front_override,
         .back_color       = style->back_color,
         .border_width     = 0,
@@ -17545,6 +17551,10 @@ WLXDEF bool wlx_dropdown_impl(WLX_Context *ctx, const char *label,
     if (!WLX_CONTRACT_AT(ctx, count == 0 || options != NULL, WLX_ERR_BAD_ARGUMENT,
             "wlx_dropdown: options is NULL with a nonzero count; showing no options", file, line))
         count = 0;
+    // The rows resolve their own visual state from the caller's colour and
+    // opacity (wlx_popup_row_opt).
+    WLX_Color row_front = opt.front_color;
+    float row_opacity = opt.opacity;
     wlx_resolve_opt_dropdown(ctx, &opt);
 
     bool scope_pushed = wlx_scope_push(ctx, opt.id);
@@ -17598,12 +17608,12 @@ WLXDEF bool wlx_dropdown_impl(WLX_Context *ctx, const char *label,
         if (list_h > opt.max_list_height) list_h = opt.max_list_height;
         WLX_Rect list_rect = { wr.x, wr.y + wr.h, wr.w, list_h };
 
-        WLX_Menu_Opt list = WLX_POPUP_LIST_OPT(opt, wr.w, 0.0f);
+        WLX_Menu_Opt list = WLX_POPUP_LIST_OPT(opt, wr.w, 0.0f, row_front);
         WLX_Overlay_Opt lopt = wlx_overlay_chrome_opt(list.back_color, list.border_color,
             list.border_width, list.roundness, list.rounded_segments, true);
 
         // Rows inherit the face's content padding (all five fields).
-        WLX_Button_Opt ropt = wlx_popup_row_opt(&list, false, (WLX_Color){0});
+        WLX_Button_Opt ropt = wlx_popup_row_opt(&list, false, (WLX_Color){0}, row_opacity);
         ropt.content_padding        = opt.content_padding;
         ropt.content_padding_top    = opt.content_padding_top;
         ropt.content_padding_right  = opt.content_padding_right;
@@ -17700,10 +17710,13 @@ WLXDEF bool wlx_tooltip_for_impl(WLX_Context *ctx, WLX_Rect anchor,
         return false;
     }
 
+    // The text fades with the theme and the opacity stack, as every widget's
+    // text does; the tip's chrome, like all container chrome, does not.
     WLX_Text_Style ts = {
         .font      = opt.font,
         .font_size = opt.font_size,
-        .color     = opt.front_color,
+        .color     = wlx_color_apply_opacity(opt.front_color,
+                         wlx_resolve_opacity_for(ctx, WLX_UNSET)),
         .spacing   = opt.spacing,
     };
     size_t text_len = (text != NULL) ? strlen(text) : 0;
@@ -17766,6 +17779,7 @@ struct WLX_Menu_Frame {
     bool            scope_pushed;
     bool            restore_last_rect;  // wlx_menu_end re-publishes anchor_rect as the last widget rect
     WLX_Rect        anchor_rect;        // the opener's face (menu button); a menu is one widget
+    float           row_opacity;        // the opener's unresolved opacity its rows carry (WLX_UNSET for a menu)
 };
 
 // Shared closed-menu exit for the three begins: record the closed state,
@@ -17805,7 +17819,7 @@ static void wlx_resolve_opt_menu(const WLX_Context *ctx, WLX_Menu_Opt *opt) {
 // be allocated; the caller then reports a closed menu for this frame.
 static bool wlx_menu_frame_push(WLX_Context *ctx, bool *open,
     WLX_Menu_State *state, float x, float y, const WLX_Menu_Opt *style,
-    bool claim_before, bool scope_pushed, const char *file, int line)
+    float row_opacity, bool claim_before, bool scope_pushed, const char *file, int line)
 {
     // Overflow would write past the stack (memory corruption in release
     // builds), so this guard survives NDEBUG.
@@ -17836,6 +17850,7 @@ static bool wlx_menu_frame_push(WLX_Context *ctx, bool *open,
     mf->scope_pushed      = scope_pushed;
     mf->restore_last_rect = false;
     mf->anchor_rect       = (WLX_Rect){0};
+    mf->row_opacity       = row_opacity;
     state->was_open = true;
     return true;
 }
@@ -17859,7 +17874,7 @@ WLXDEF bool wlx_menu_begin_impl(WLX_Context *ctx, bool *open, float x, float y,
     // an auto-growing layout, so a changed item list overflows or underfills
     // the panel for one frame only. clip stays off for the same reason.
     return wlx_menu_frame_push(ctx, open, state, x, y, &opt,
-        ctx->interaction.press_claimed, scope_pushed, file, line);
+        WLX_UNSET, ctx->interaction.press_claimed, scope_pushed, file, line);
 }
 
 static void wlx_resolve_opt_menu_button(const WLX_Context *ctx, WLX_Menu_Button_Opt *opt) {
@@ -17892,6 +17907,10 @@ WLXDEF bool wlx_menu_button_begin_impl(WLX_Context *ctx, const char *label,
     if (!WLX_CONTRACT_AT(ctx, open != NULL, WLX_ERR_BAD_ARGUMENT,
             "wlx_menu_button_begin: open must not be NULL; the button and its menu are skipped", file, line))
         return false;
+    // The items resolve their own visual state from the caller's colour and
+    // opacity (wlx_popup_row_opt).
+    WLX_Color row_front = opt.front_color;
+    float row_opacity = opt.opacity;
     wlx_resolve_opt_menu_button(ctx, &opt);
 
     bool scope_pushed = wlx_scope_push(ctx, opt.id);
@@ -17935,10 +17954,10 @@ WLXDEF bool wlx_menu_button_begin_impl(WLX_Context *ctx, const char *label,
     // List styling flows through the shared frame push as a resolved
     // point-anchored opt; the anchor is the face's bottom edge.
     WLX_Menu_Opt mo = WLX_POPUP_LIST_OPT(opt,
-        opt.menu_width > 0.0f ? opt.menu_width : wr.w, opt.item_padding);
+        opt.menu_width > 0.0f ? opt.menu_width : wr.w, opt.item_padding, row_front);
 
     if (!wlx_menu_frame_push(ctx, open, state, wr.x, wr.y + wr.h, &mo,
-            claim_before, scope_pushed, file, line)) {
+            row_opacity, claim_before, scope_pushed, file, line)) {
         return false;
     }
     // A menu button is one widget: after wlx_menu_end the last-rect query
@@ -18015,7 +18034,7 @@ WLXDEF bool wlx_submenu_begin_impl(WLX_Context *ctx, bool *open,
     // the trigger's release toggle closes cleanly instead of fighting an
     // outside-close on the press.
     return wlx_menu_frame_push(ctx, open, state, x, y, &opt,
-        parent->claim_before, scope_pushed, file, line);
+        parent->row_opacity, parent->claim_before, scope_pushed, file, line);
 }
 
 WLXDEF bool wlx_menu_item_impl(WLX_Context *ctx, const char *text,
@@ -18031,7 +18050,8 @@ WLXDEF bool wlx_menu_item_impl(WLX_Context *ctx, const char *text,
     WLX_Menu_Frame *mf = &ctx->menu_stack[ctx->menu_stack_count - 1];
     mf->row_cursor++;
 
-    WLX_Button_Opt ropt = wlx_popup_row_opt(&mf->style, opt.disabled, opt.front_color);
+    WLX_Button_Opt ropt = wlx_popup_row_opt(&mf->style, opt.disabled, opt.front_color,
+        mf->row_opacity);
     ropt.content_padding_left  = mf->style.item_padding;
     ropt.content_padding_right = mf->style.item_padding;
 
