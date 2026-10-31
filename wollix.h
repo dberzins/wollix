@@ -4681,6 +4681,18 @@ WLXDEF WLX_Panel_Opt        wlx_panel_opt_defaults(void);
 #ifdef WOLLIX_IMPLEMENTATION
 #include <math.h>
 
+// The innermost open layout record, and the one enclosing it; NULL when the
+// stack holds fewer layouts. Records live in the frame's layout pool and stay
+// put until the frame ends.
+static inline WLX_Layout *wlx_layout_top(const WLX_Context *ctx) {
+    size_t n = ctx->arena.layouts.count;
+    return n > 0 ? &wlx_pool_layouts(ctx)[n - 1] : NULL;
+}
+static inline WLX_Layout *wlx_layout_parent(const WLX_Context *ctx) {
+    size_t n = ctx->arena.layouts.count;
+    return n > 1 ? &wlx_pool_layouts(ctx)[n - 2] : NULL;
+}
+
 // Internal interaction resolver with an explicit disabled gate. Forward-declared
 // here so interaction-aware container begins can resolve before its definition.
 static inline WLX_Interaction wlx_get_interaction_for(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, bool disabled, const char *file, int line);
@@ -5175,7 +5187,7 @@ static inline void wlx_cmd_record_scissor_end(WLX_Context *ctx) {
 // Does nothing if the current range IS the layout range or if no layout is active.
 static inline void wlx_cmd_close_sibling_range(WLX_Context *ctx) {
     if (ctx->arena.layouts.count > 0 && ctx->current_range_idx >= 0) {
-        WLX_Layout *parent = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+        WLX_Layout *parent = wlx_layout_top(ctx);
         if (parent->cmd_range_idx >= 0 && ctx->current_range_idx != parent->cmd_range_idx) {
             wlx_pool_cmd_ranges(ctx)[ctx->current_range_idx].end_idx = ctx->arena.commands.count;
             ctx->current_range_idx = wlx_pool_cmd_ranges(ctx)[ctx->current_range_idx].parent_range_idx;
@@ -5623,7 +5635,7 @@ static inline WLX_Rect wlx_get_widget_cell_rect(WLX_Context *ctx, int pos, size_
     } else {
         ctx->site_file = file;
         ctx->site_line = line;
-        rect = wlx_get_slot_rect(ctx, &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1], pos, span);
+        rect = wlx_get_slot_rect(ctx, wlx_layout_top(ctx), pos, span);
         ctx->site_file = NULL;
         ctx->site_line = 0;
     }
@@ -5752,7 +5764,7 @@ static inline void wlx_contribute_to_parent_layout(
 // pos: the widget's slot override (< 0 = next sequential slot).
 static inline bool wlx_parent_wants_intrinsic_width(WLX_Context *ctx, int pos) {
     if (ctx->arena.layouts.count == 0) return false;
-    const WLX_Layout *parent = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    const WLX_Layout *parent = wlx_layout_top(ctx);
     if (!wlx_layout_is_horz(parent)) return false;
     return wlx_layout_slot_is_content(ctx, parent, (pos >= 0) ? (size_t)pos : parent->index);
 }
@@ -5849,8 +5861,8 @@ static inline WLX_Widget_Rect wlx_widget_begin(WLX_Context *ctx, WLX_Widget_Layo
     // A widget whose slot fetch reported an overrun occupies no slot and
     // contributes nothing (the collapsed cell is not content).
     if (ctx->arena.layouts.count > 0
-        && !wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].slot_clamped) {
-        WLX_Layout *parent_l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+        && !wlx_layout_top(ctx)->slot_clamped) {
+        WLX_Layout *parent_l = wlx_layout_top(ctx);
         float h_contrib = (ly.height >= 0) ? ly.height
                        : (ly.min_h > cell.h) ? ly.min_h : cell.h;
         // The fetch above recorded the first slot it served (fetch_first):
@@ -5964,7 +5976,7 @@ static void wlx_error_report(WLX_Context *ctx, WLX_Error_Code code, const char *
     e.layout_file = NULL;
     e.layout_line = 0;
     if (ctx->arena.layouts.count > 0 && ctx->arena.layouts.items != NULL) {
-        const WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+        const WLX_Layout *l = wlx_layout_top(ctx);
         e.layout_file = l->file;
         e.layout_line = l->line;
     }
@@ -6138,7 +6150,7 @@ static inline bool wlx_active_scissor_rect(const WLX_Context *ctx, WLX_Rect *out
 // matching release via clip_active. Shared by the counted and the
 // auto-counted begin.
 static inline void wlx_layout_clip_begin(WLX_Context *ctx) {
-    WLX_Layout *top = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    WLX_Layout *top = wlx_layout_top(ctx);
     WLX_Rect clip_rect = top->rect;
     WLX_Rect active;
     if (wlx_active_scissor_rect(ctx, &active)) {
@@ -8123,7 +8135,7 @@ static inline WLX_Layout_Frame wlx_layout_frame_begin(
         ctx->site_file = file;
         ctx->site_line = line;
         r = wlx_get_slot_rect(ctx,
-            &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1], co.pos, co.span);
+            wlx_layout_top(ctx), co.pos, co.span);
         ctx->site_file = NULL;
         ctx->site_line = 0;
     }
@@ -8373,7 +8385,7 @@ WLXDEF void wlx_layout_begin_impl(WLX_Context *ctx, size_t count, WLX_Orient ori
     // onto their siblings. Checked after redistribution, and suppressed when an
     // active clip (this layout's own or an ancestor's) already contains it.
     WLX_DBG(slot_overflow, ctx,
-        &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1], file, line);
+        wlx_layout_top(ctx), file, line);
 }
 
 // Begin an absolutely positioned overlay subtree on the next layer. The
@@ -8500,7 +8512,7 @@ WLXDEF void wlx_overlay_end(WLX_Context *ctx)
 
 static void wlx_overlay_close(WLX_Context *ctx)
 {
-    WLX_Layout *top = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    WLX_Layout *top = wlx_layout_top(ctx);
     assert(top->owner == WLX_OWNER_OVERLAY);
     bool had_clip = top->overlay_clip;
 
@@ -8665,7 +8677,7 @@ WLXDEF void wlx_layout_end(WLX_Context *ctx) {
 
 // True when the innermost container is `want`; otherwise one report.
 static bool wlx_contract_closes(WLX_Context *ctx, WLX_Layout_Owner want, const char *msg) {
-    const WLX_Layout *top = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    const WLX_Layout *top = wlx_layout_top(ctx);
     return WLX_CONTRACT(ctx, top->owner == (uint8_t)want, WLX_ERR_UNBALANCED_END, msg);
 }
 
@@ -8678,7 +8690,7 @@ static bool wlx_owner_open(const WLX_Context *ctx, WLX_Layout_Owner want) {
 
 // Close the innermost container with its own end.
 static void wlx_container_close(WLX_Context *ctx) {
-    switch ((WLX_Layout_Owner)wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].owner) {
+    switch ((WLX_Layout_Owner)wlx_layout_top(ctx)->owner) {
     case WLX_OWNER_OVERLAY:      wlx_overlay_close(ctx); break;
     case WLX_OWNER_SCROLL_PANEL: wlx_scroll_panel_close(ctx); break;
     case WLX_OWNER_LAYOUT:
@@ -8690,13 +8702,13 @@ static void wlx_container_close(WLX_Context *ctx) {
 // that one is open).
 static void wlx_close_until(WLX_Context *ctx, WLX_Layout_Owner want) {
     while (ctx->arena.layouts.count > 0
-        && wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].owner != (uint8_t)want) {
+        && wlx_layout_top(ctx)->owner != (uint8_t)want) {
         wlx_container_close(ctx);
     }
 }
 
 static void wlx_layout_close(WLX_Context *ctx) {
-    WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    WLX_Layout *l = wlx_layout_top(ctx);
 
     // Single owner of clip scissor release: any layout (including a panel body)
     // that began a clip scissor at begin releases it here once its child range
@@ -8744,8 +8756,8 @@ static void wlx_layout_close(WLX_Context *ctx) {
     // still set: nothing fetches from the parent while its child is open)
     // occupies no slot and contributes nothing.
     if (l->owner != WLX_OWNER_OVERLAY && ctx->arena.layouts.count > 1
-        && !wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2].slot_clamped) {
-        WLX_Layout *parent = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2];
+        && !wlx_layout_parent(ctx)->slot_clamped) {
+        WLX_Layout *parent = wlx_layout_parent(ctx);
         // VERT parents only: the bucket stores the parent's main-axis extent,
         // and a nested layout has no intrinsic width to offer a HORZ parent
         // (elastic layouts cannot report a natural width).
@@ -8785,8 +8797,8 @@ static void wlx_layout_close(WLX_Context *ctx) {
     // layout in wlx_scroll_panel_end reads the fully-aggregated tree total.
     // Overlay roots float outside the slot tree and contribute nothing.
     if (l->owner != WLX_OWNER_OVERLAY && ctx->arena.layouts.count > 1
-        && !wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2].slot_clamped) {
-        WLX_Layout *parent = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 2];
+        && !wlx_layout_parent(ctx)->slot_clamped) {
+        WLX_Layout *parent = wlx_layout_parent(ctx);
         float child_h = l->accumulated_content_height + l->padding_top + l->padding_bottom;
         // For VERT linear parents with explicitly-sized slots (PX or
         // CONTENT), the child occupies exactly the slot's allocated
@@ -8895,7 +8907,7 @@ static void wlx_layout_close(WLX_Context *ctx) {
 WLXDEF WLX_Rect wlx_get_parent_rect(WLX_Context *ctx) {
     assert(ctx != NULL);
     if (ctx->arena.layouts.count > 0) {
-        return wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].rect;
+        return wlx_layout_top(ctx)->rect;
     }
     return ctx->rect;
 }
@@ -8964,7 +8976,7 @@ WLXDEF void wlx_layout_auto_slot(WLX_Context *ctx, WLX_Slot_Size size) {
             "wlx_layout_auto_slot called with no layout open"))
         return;
 
-    WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    WLX_Layout *l = wlx_layout_top(ctx);
     if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_LINEAR && l->linear.dynamic, WLX_ERR_BAD_ARGUMENT,
             "wlx_layout_auto_slot is only valid inside a wlx_layout_begin_auto block"))
         return;
@@ -9006,7 +9018,7 @@ WLXDEF void wlx_grid_auto_row_px(WLX_Context *ctx, float px) {
         return;
     // The kind first: a call in the wrong layout returns with one report,
     // whatever size it carried.
-    WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    WLX_Layout *l = wlx_layout_top(ctx);
     if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_GRID && l->grid.dynamic, WLX_ERR_BAD_ARGUMENT,
             "wlx_grid_auto_row_px is only valid inside a wlx_grid_begin_auto block"))
         return;
@@ -9024,7 +9036,7 @@ WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Styl
             "wlx_grid_cell called with no layout open", file, line))
         return;
 
-    WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    WLX_Layout *l = wlx_layout_top(ctx);
     if (!WLX_CONTRACT_AT(ctx, l->kind == WLX_LAYOUT_GRID, WLX_ERR_BAD_ARGUMENT,
             "wlx_grid_cell is only valid inside a wlx_grid_begin block", file, line))
         return;
@@ -9072,7 +9084,7 @@ WLXDEF void wlx_slot_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt, const 
     if (!WLX_CONTRACT_AT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
             "wlx_slot_style called with no layout open", file, line))
         return;
-    WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    WLX_Layout *l = wlx_layout_top(ctx);
     if (!WLX_CONTRACT_AT(ctx, l->kind == WLX_LAYOUT_LINEAR, WLX_ERR_BAD_ARGUMENT,
             "wlx_slot_style is only valid inside a linear layout", file, line))
         return;
@@ -9087,7 +9099,7 @@ WLXDEF void wlx_grid_cell_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt, c
     if (!WLX_CONTRACT_AT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
             "wlx_grid_cell_style called with no layout open", file, line))
         return;
-    WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    WLX_Layout *l = wlx_layout_top(ctx);
     if (!WLX_CONTRACT_AT(ctx, l->kind == WLX_LAYOUT_GRID, WLX_ERR_BAD_ARGUMENT,
             "wlx_grid_cell_style is only valid inside a grid layout", file, line))
         return;
@@ -17114,7 +17126,7 @@ static inline void wlx_scroll_panel_resolve_rect(
 static inline void wlx_scroll_panel_contribute_to_parent(WLX_Context *ctx, float vp_contrib,
                                                          float w_contrib) {
     if (ctx->arena.layouts.count == 0) return;
-    WLX_Layout *parent_l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    WLX_Layout *parent_l = wlx_layout_top(ctx);
     // A panel whose slot fetch reported an overrun occupies no slot and
     // contributes nothing, like a widget or a nested layout.
     if (parent_l->slot_clamped) return;
@@ -17369,12 +17381,12 @@ WLXDEF void wlx_scroll_panel_end(WLX_Context *ctx) {
 
 static void wlx_scroll_panel_close(WLX_Context *ctx) {
     assert(ctx->arena.scroll_panels.count > 0 && ctx->arena.layouts.count > 0
-        && wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].owner == WLX_OWNER_SCROLL_PANEL);
+        && wlx_layout_top(ctx)->owner == WLX_OWNER_SCROLL_PANEL);
     // The wrapper layout's accumulated_content_height now contains the
     // fully-aggregated content tree height, propagated up from all nested
     // layouts via wlx_layout_end.  This is the single authoritative source
     // for auto-scroll content measurement.
-    WLX_Layout *wrapper = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    WLX_Layout *wrapper = wlx_layout_top(ctx);
     if (ctx->auto_scroll.panel_id) {
         ctx->auto_scroll.total_height = wrapper->accumulated_content_height;
     }
@@ -19081,7 +19093,7 @@ static inline void wlx_dbg_companions_retire(WLX_Context *ctx) {
 
 static inline void wlx_dbg_layout_end(WLX_Context *ctx) {
     if (!ctx->dbg) return;
-    WLX_Layout *l = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    WLX_Layout *l = wlx_layout_top(ctx);
     const WLX_Slot_Size *sizes = wlx_layout_content_sizes(ctx, l);
     if (l->content_state == NULL || sizes == NULL) return;
 
