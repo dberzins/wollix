@@ -1797,7 +1797,7 @@ typedef struct {
     float band_w;
     float line_h;
     bool wrap;
-    uint32_t transform_generation;  // ctx->style_transform_generation the entries were measured under
+    uint32_t env_generation;  // ctx->text_env_generation the entries were measured under
 } WLX_Text_Geom_Env;
 
 // Per-editor retained geometry store: a bounded, LRU-evicted set of line
@@ -2274,7 +2274,7 @@ typedef struct WLX_Context {
     // under an earlier transform is dropped.
     WLX_Style_Transform_Fn style_transform;
     void    *style_transform_user;
-    uint32_t style_transform_generation;  // bumped by wlx_set_style_transform and by a content-scale change
+    uint32_t text_env_generation;  // bumped by wlx_set_style_transform and by a content-scale change
     WLX_Input_State input;
 
     // Frame delta seconds, sampled from backend.get_frame_time exactly once
@@ -2286,7 +2286,7 @@ typedef struct WLX_Context {
     // when the callback is absent or its value is unusable). Read by the
     // slot-boundary snap and wlx_content_scale only. prev_content_scale is
     // the previous frame's value (1.0 before the first frame): a change bumps
-    // style_transform_generation so retained text geometry measured under the
+    // text_env_generation so retained text geometry measured under the
     // old scale is dropped.
     float content_scale;
     float prev_content_scale;
@@ -2324,6 +2324,30 @@ typedef struct WLX_Context {
         bool     focus_clip_active;   // focus_clip holds a clip (false when no container clips the widget)
     } interaction;
 
+    // Text entry: the composition anchor and the composition's owners.
+    // wlx_text_entry_frame_begin (wlx_begin) clears the frame's half and
+    // rolls the owner; wlx_text_entry_frame_flush (wlx_end) pushes the
+    // anchor.
+    struct {
+        // The anchor: the focused editable text widget records its caret
+        // line in area during the frame; the flush compares it with
+        // applied, the value last pushed through
+        // backend.set_text_input_area, and pushes on change.
+        WLX_Text_Input_Area area;
+        WLX_Text_Input_Area applied;
+        // The widgets behind the recorded and the pushed anchor: a change
+        // of owner is pushed as a loss of focus first.
+        WLX_Id owner;
+        WLX_Id applied_owner;
+        // The widget that applied this frame's composition string (0 =
+        // none) and the one that applied the previous frame's: a string
+        // the backend still carries after focus moved belongs to that
+        // widget's composition and reaches no other, and that widget
+        // focused again keeps its span (wlx_text_edit_preedit_on_focus).
+        WLX_Id composing_id;
+        WLX_Id composing_prev_id;
+    } text_entry;
+
     // Double-buffered interaction candidates: cands[cand_frame & 1] collects
     // this frame's queries; the other buffer holds the previous frame's list
     // for ownership arbitration. Grow-and-reuse; freed in
@@ -2344,23 +2368,6 @@ typedef struct WLX_Context {
     // Cursor shape last pushed to backend.set_cursor (zero = ARROW = the
     // platform default, so no first-frame push is needed).
     uint8_t cursor_applied;
-
-    // Composition anchor: the focused editable text widget records its
-    // caret line here during the frame; wlx_end compares it with the value
-    // last pushed through backend.set_text_input_area and pushes on change.
-    WLX_Text_Input_Area text_input_area;
-    WLX_Text_Input_Area text_input_applied;
-    // The widgets behind the recorded and the pushed anchor: a change of
-    // owner is pushed as a loss of focus first (see wlx_end).
-    WLX_Id text_input_owner;
-    WLX_Id text_input_applied_owner;
-    // The widget that applied this frame's composition string (0 = none)
-    // and the one that applied the previous frame's: a string the backend
-    // still carries after focus moved belongs to that widget's composition
-    // and reaches no other, and that widget focused again keeps its span
-    // (wlx_text_edit_preedit_on_focus).
-    WLX_Id composing_id;
-    WLX_Id composing_prev_id;
 
     // Per-frame buffer pool. Owns layouts, commands, cmd_ranges, scratch,
     // slot offsets, scroll-panel stack, id stack, and opacity stack.
@@ -7010,8 +7017,8 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
     // that has any, in declaration order (Shift reverses, both ends
     // wrap), unless the active widget holds Tab for itself (editor), a
     // composition was held last frame (the frame is the input method's;
-    // wlx_begin has rolled that owner into composing_prev_id), or the
-    // frame has a fresh press.
+    // wlx_begin has rolled that owner into text_entry.composing_prev_id),
+    // or the frame has a fresh press.
     if (ctx->input.mouse_clicked) {
         ctx->interaction.focus_id = 0;
     }
@@ -7020,7 +7027,7 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
     }
     // The input method's Tab is no widget's either: a text field that
     // takes focus by this frame's press must not insert it.
-    if (ctx->composing_prev_id != 0 && wlx_is_key_actuated(ctx, WLX_KEY_TAB)) {
+    if (ctx->text_entry.composing_prev_id != 0 && wlx_is_key_actuated(ctx, WLX_KEY_TAB)) {
         ctx->interaction.tab_consumed = true;
     }
     bool tab_walks = ctx->interaction.arbitrate
@@ -7036,7 +7043,7 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
         ctx->interaction.tab_consumed = true;
     }
     if (tab_walks
-            && ctx->composing_prev_id == 0
+            && ctx->text_entry.composing_prev_id == 0
             && !ctx->input.mouse_clicked) {
         // Start from the keyboard-focused widget, else from a mouse-focused
         // field, so Tab continues from where the user is.
@@ -7105,7 +7112,7 @@ static void wlx_frame_sample_content_scale(WLX_Context *ctx) {
     // 1.0 before the first frame (what the accessor reports for a zeroed
     // context), so a first frame at 1.0 is not a change.
     float prev = (ctx->prev_content_scale > 0.0f) ? ctx->prev_content_scale : 1.0f;
-    if (ctx->content_scale != prev) ctx->style_transform_generation++;
+    if (ctx->content_scale != prev) ctx->text_env_generation++;
     ctx->prev_content_scale = ctx->content_scale;
 }
 
@@ -7167,12 +7174,12 @@ WLXDEF float wlx_content_scale(const WLX_Context *ctx) {
 
 WLXDEF WLX_Text_Input_Area wlx_text_input_area(const WLX_Context *ctx) {
     assert(ctx != NULL);
-    return ctx->text_input_applied;
+    return ctx->text_entry.applied;
 }
 
 WLXDEF bool wlx_text_composing(const WLX_Context *ctx) {
     assert(ctx != NULL);
-    return ctx->composing_id != 0;
+    return ctx->text_entry.composing_id != 0;
 }
 
 static inline bool wlx_text_input_area_equal(const WLX_Text_Input_Area *a,
@@ -7195,17 +7202,17 @@ static inline void wlx_text_input_area_record(WLX_Context *ctx, WLX_Id id, WLX_R
     a.cursor = cursor;
     a.multiline = multiline;
     a.password = password;
-    ctx->text_input_area = a;
-    ctx->text_input_owner = id;
+    ctx->text_entry.area = a;
+    ctx->text_entry.owner = id;
 }
 
 // The composition anchor and its owner are rebuilt by this frame's
 // widgets; last frame's composition owner rolls into composing_prev_id.
 static void wlx_text_entry_frame_begin(WLX_Context *ctx) {
-    memset(&ctx->text_input_area, 0, sizeof(ctx->text_input_area));
-    ctx->text_input_owner = 0;
-    ctx->composing_prev_id = ctx->composing_id;
-    ctx->composing_id = 0;
+    memset(&ctx->text_entry.area, 0, sizeof(ctx->text_entry.area));
+    ctx->text_entry.owner = 0;
+    ctx->text_entry.composing_prev_id = ctx->text_entry.composing_id;
+    ctx->text_entry.composing_id = 0;
 }
 
 // Composition anchor: pushed to the backend only when it changed since
@@ -7215,15 +7222,15 @@ static void wlx_text_entry_frame_begin(WLX_Context *ctx) {
 // widget's composition on the platform, and the new owner's anchor
 // follows on the next frame.
 static void wlx_text_entry_frame_flush(WLX_Context *ctx) {
-    if (ctx->text_input_area.active && ctx->text_input_applied.active
-            && ctx->text_input_owner != ctx->text_input_applied_owner) {
-        memset(&ctx->text_input_area, 0, sizeof(ctx->text_input_area));
+    if (ctx->text_entry.area.active && ctx->text_entry.applied.active
+            && ctx->text_entry.owner != ctx->text_entry.applied_owner) {
+        memset(&ctx->text_entry.area, 0, sizeof(ctx->text_entry.area));
     }
-    if (!wlx_text_input_area_equal(&ctx->text_input_area, &ctx->text_input_applied)) {
-        ctx->text_input_applied = ctx->text_input_area;
-        ctx->text_input_applied_owner = ctx->text_input_area.active ? ctx->text_input_owner : 0;
+    if (!wlx_text_input_area_equal(&ctx->text_entry.area, &ctx->text_entry.applied)) {
+        ctx->text_entry.applied = ctx->text_entry.area;
+        ctx->text_entry.applied_owner = ctx->text_entry.area.active ? ctx->text_entry.owner : 0;
         if (ctx->backend.set_text_input_area != NULL) {
-            ctx->backend.set_text_input_area(&ctx->text_input_applied, ctx->backend.user);
+            ctx->backend.set_text_input_area(&ctx->text_entry.applied, ctx->backend.user);
         }
     }
 }
@@ -8945,7 +8952,7 @@ WLXDEF void wlx_set_style_transform(WLX_Context *ctx, WLX_Style_Transform_Fn fn,
     assert(ctx != NULL);
     ctx->style_transform = fn;
     ctx->style_transform_user = user;
-    ctx->style_transform_generation++;
+    ctx->text_env_generation++;
 }
 
 WLXDEF void wlx_set_cull_offscreen(WLX_Context *ctx, bool enabled) {
@@ -9355,7 +9362,7 @@ static inline void wlx_interaction_handle_focus(WLX_Context *ctx, WLX_Id id, boo
     // A widget that held a composition last frame does not blur on Enter
     // or Escape: the frame belongs to the input method, which confirms or
     // cancels with those keys (the text handler runs no keys on it either).
-    bool composed = ctx->composing_prev_id != 0 && ctx->composing_prev_id == id;
+    bool composed = ctx->text_entry.composing_prev_id != 0 && ctx->text_entry.composing_prev_id == id;
 
     if (result->focused && !hold_enter && !composed && wlx_is_key_pressed(ctx, WLX_KEY_ENTER)) {
         wlx_interaction_blur(ctx, result);
@@ -11037,7 +11044,7 @@ static bool wlx_text_geom_env_equal(const WLX_Text_Geom_Env *a,
         && a->spacing == b->spacing && a->tab_advance == b->tab_advance
         && a->band_w == b->band_w && a->line_h == b->line_h
         && a->wrap == b->wrap
-        && a->transform_generation == b->transform_generation;
+        && a->env_generation == b->env_generation;
 }
 
 // Compare the measurement environment and clear the store when any part of
@@ -15124,7 +15131,7 @@ static bool wlx_text_edit_preedit_ranges(const WLX_Context *ctx, const WLX_Text_
 static inline void wlx_text_edit_preedit_on_focus(const WLX_Context *ctx,
     WLX_Text_Edit_State *st, WLX_Id id)
 {
-    if (ctx->composing_prev_id != id) wlx_text_edit_forget_preedit(st);
+    if (ctx->text_entry.composing_prev_id != id) wlx_text_edit_forget_preedit(st);
 }
 
 // True when the recorded span still describes bytes this widget put in
@@ -15286,7 +15293,7 @@ static bool wlx_text_edit_compose(WLX_Context *ctx, const WLX_Text_Edit *e,
     // A string another widget applied last frame is that widget's
     // composition: focus moved here in mid-composition and the backend
     // learns of it at this frame's end. It is not this widget's to show.
-    if (ctx->composing_prev_id != 0 && ctx->composing_prev_id != e->id) pre_len = 0;
+    if (ctx->text_entry.composing_prev_id != 0 && ctx->text_entry.composing_prev_id != e->id) pre_len = 0;
     // A held string: the input method stages the bytes the span already
     // holds and commits nothing. The span stays (no byte moves, nothing
     // changed) and the caret follows the input method's cursor inside it,
@@ -15301,7 +15308,7 @@ static bool wlx_text_edit_compose(WLX_Context *ctx, const WLX_Text_Edit *e,
             st->selection_anchor = caret;
             *moved = true;
         }
-        ctx->composing_id = e->id;
+        ctx->text_entry.composing_id = e->id;
         return true;
     }
     bool had_span = wlx_text_edit_preedit_take(e, NULL) > 0;
@@ -15351,7 +15358,7 @@ static bool wlx_text_edit_compose(WLX_Context *ctx, const WLX_Text_Edit *e,
         st->preedit_revision = e->revision;
         st->cursor_pos = start + at;
         st->selection_anchor = st->cursor_pos;
-        ctx->composing_id = e->id;
+        ctx->text_entry.composing_id = e->id;
         *changed = true;
     }
     return true;

@@ -52,7 +52,7 @@ TEST(content_scale_null_callback_is_one) {
     ASSERT_EQ_F(wlx_content_scale(&ctx), 1.0f, 0.0f);
     test_frame_end(&ctx);
     ASSERT_EQ_INT(0, wlx_error_count(&ctx));
-    ASSERT_EQ_INT(0, (int)ctx.style_transform_generation);   // a first frame at 1.0 is not a change
+    ASSERT_EQ_INT(0, (int)ctx.text_env_generation);   // a first frame at 1.0 is not a change
     wlx_context_destroy(&ctx);
 }
 
@@ -156,20 +156,20 @@ TEST(content_scale_change_bumps_generation) {
     cs_scale_value = 1.0f;
     test_frame_begin(&ctx, 0, 0, false, false);
     test_frame_end(&ctx);
-    uint32_t g0 = ctx.style_transform_generation;
+    uint32_t g0 = ctx.text_env_generation;
 
     test_frame_begin(&ctx, 0, 0, false, false);   // same scale: no bump
     test_frame_end(&ctx);
-    ASSERT_EQ_INT((int)g0, (int)ctx.style_transform_generation);
+    ASSERT_EQ_INT((int)g0, (int)ctx.text_env_generation);
 
     cs_scale_value = 2.0f;                         // change: one bump
     test_frame_begin(&ctx, 0, 0, false, false);
     test_frame_end(&ctx);
-    ASSERT_EQ_INT((int)g0 + 1, (int)ctx.style_transform_generation);
+    ASSERT_EQ_INT((int)g0 + 1, (int)ctx.text_env_generation);
 
     test_frame_begin(&ctx, 0, 0, false, false);   // held: no bump
     test_frame_end(&ctx);
-    ASSERT_EQ_INT((int)g0 + 1, (int)ctx.style_transform_generation);
+    ASSERT_EQ_INT((int)g0 + 1, (int)ctx.text_env_generation);
     wlx_context_destroy(&ctx);
 }
 

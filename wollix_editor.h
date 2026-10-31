@@ -2454,7 +2454,7 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
             genv.band_w = band.w;
             genv.line_h = line_h;
             genv.wrap = opt.wrap;
-            genv.transform_generation = ctx->style_transform_generation;
+            genv.env_generation = ctx->text_env_generation;
             wlx_editor_geom_env_sync(state, geom, &genv, win_band_h);
         }
 

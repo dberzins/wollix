@@ -208,9 +208,9 @@ TEST(style_transform_reset_clears_geometry) {
     size_t after_set = s->count;
     ASSERT_TRUE(after_set > 0);
     wlx_set_style_transform(&ctx, st_identity, NULL);
-    ASSERT_EQ_INT((int)s->env.transform_generation + 1, (int)ctx.style_transform_generation);
+    ASSERT_EQ_INT((int)s->env.env_generation + 1, (int)ctx.text_env_generation);
     gc_frame(&ctx, buf, sizeof(buf), &len, 1, false);
-    ASSERT_EQ_INT((int)s->env.transform_generation, (int)ctx.style_transform_generation);
+    ASSERT_EQ_INT((int)s->env.env_generation, (int)ctx.text_env_generation);
     wlx_context_destroy(&ctx);
 }
 
