@@ -1068,8 +1068,8 @@ typedef struct {
     float accumulated_content_height;
 
     union {
-        struct { /* linear fields */ } linear;
-        struct { /* grid fields   */ } grid;
+        WLX_Layout_Linear linear;   // the linear layout's fields
+        WLX_Layout_Grid   grid;     // the grid's fields
     };
 } WLX_Layout;
 ```

@@ -1122,6 +1122,47 @@ typedef struct {
 // stable across builds (the call site is part of the hash).
 typedef uint64_t WLX_Id;
 
+// The kind-specific halves of a layout record, named so the union in
+// WLX_Layout declares no type of its own (C++ allows an anonymous union
+// to hold only members of named types).
+typedef struct {
+    WLX_Orient orient;
+    // auto-sizing / dynamic append
+    bool   dynamic;
+    float  slot_size;
+    size_t slot_size_offsets_base;
+    float  next_slot_size;
+    // per-slot style override (one-shot, consumed by wlx_get_slot_rect)
+    WLX_Color next_slot_back_color;
+    WLX_Color next_slot_border_color;
+    float     next_slot_border_width;
+} WLX_Layout_Linear;
+
+typedef struct {
+    size_t rows;
+    size_t cols;
+    // auto-advance cursor
+    size_t cursor_row;
+    size_t cursor_col;
+    // per-cell override (consumed by next child)
+    bool   cell_set;
+    size_t next_row;
+    size_t next_col;
+    size_t next_row_span;
+    size_t next_col_span;
+    // dynamic (auto-sizing) grid: rows grow on demand
+    bool   dynamic;
+    float  row_size;            // fixed px per row
+    size_t row_offsets_base;    // index in scratch buffer where row_offsets starts
+    size_t col_offsets_base;    // index in scratch buffer where col_offsets starts
+    float  next_row_size;       // per-row override
+    size_t last_placed_row;     // row of the most recently placed cell
+    // per-cell style override (one-shot, consumed by wlx_get_slot_rect)
+    WLX_Color next_cell_back_color;
+    WLX_Color next_cell_border_color;
+    float     next_cell_border_width;
+} WLX_Layout_Grid;
+
 typedef struct WLX_Layout {
     WLX_Layout_Kind kind;
     WLX_Rect rect;
@@ -1170,43 +1211,8 @@ typedef struct WLX_Layout {
     bool has_grid_row_content_heights;      // true when grid_row_content_heights_off is valid
 
     union {
-        struct {
-            WLX_Orient orient;
-            // auto-sizing / dynamic append
-            bool   dynamic;
-            float  slot_size;
-            size_t slot_size_offsets_base;
-            float  next_slot_size;
-            // per-slot style override (one-shot, consumed by wlx_get_slot_rect)
-            WLX_Color next_slot_back_color;
-            WLX_Color next_slot_border_color;
-            float     next_slot_border_width;
-        } linear;
-
-        struct {
-            size_t rows;
-            size_t cols;
-            // auto-advance cursor
-            size_t cursor_row;
-            size_t cursor_col;
-            // per-cell override (consumed by next child)
-            bool   cell_set;
-            size_t next_row;
-            size_t next_col;
-            size_t next_row_span;
-            size_t next_col_span;
-            // dynamic (auto-sizing) grid: rows grow on demand
-            bool   dynamic;
-            float  row_size;            // fixed px per row
-            size_t row_offsets_base;    // index in scratch buffer where row_offsets starts
-            size_t col_offsets_base;    // index in scratch buffer where col_offsets starts
-            float  next_row_size;       // per-row override
-            size_t last_placed_row;     // row of the most recently placed cell
-            // per-cell style override (one-shot, consumed by wlx_get_slot_rect)
-            WLX_Color next_cell_back_color;
-            WLX_Color next_cell_border_color;
-            float     next_cell_border_width;
-        } grid;
+        WLX_Layout_Linear linear;
+        WLX_Layout_Grid   grid;
     };
 } WLX_Layout;
 

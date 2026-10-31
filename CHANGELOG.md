@@ -519,7 +519,11 @@ minor.
   brace-initialised twin the other literal helpers have, and the C++
   gate (`tests/test_cpp_path.cpp`, Makefile and CMake) builds with
   `-pedantic-errors`, so a future literal macro without its twin fails
-  it.
+  it. Under that flag clang++ also rejected `WLX_Layout`, whose anonymous
+  union declared its two arms' struct types in place (a C++ extension);
+  the arms are now the named types `WLX_Layout_Linear` and
+  `WLX_Layout_Grid`, with the same members (`l->linear.x` and
+  `l->grid.x` read as before).
 - **Popup rows and the tooltip text fade once.** A dropdown's and a menu
   button's row text took the theme opacity and the opacity stack twice
   (the popup resolved its colour, then each row, an ordinary button,
