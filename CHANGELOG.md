@@ -512,6 +512,15 @@ minor.
   redo".
 
 ### Fixed
+- **SDL3: sharp outlines and thick diagonal lines keep their
+  thickness.** The SDL3 adapter drew every sharp outline (a widget border
+  at `roundness = 0`) one pixel wide whatever its `border_width`, while a
+  rounded outline of the same width drew its full width; and a diagonal
+  line (a checkbox's check mark) drew one pixel wide at any thickness. A
+  sharp outline now lies inside its rect at its width, as a rounded one
+  does, and a thick diagonal line is a quad of its width. A headless test
+  binary, `make test-sdl3` (SDL's offscreen video driver and software
+  renderer, not part of `make test`), pins both, and CI runs it.
 - **`WLX_TEXT_STYLE_DEFAULT` compiles as C++.** It was the one public
   literal macro without a `__cplusplus` spelling, so a C++ caller got a
   C99 compound literal with designated initialisers (rejected by

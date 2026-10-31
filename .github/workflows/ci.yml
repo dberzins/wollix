@@ -134,6 +134,9 @@ jobs:
       - name: Build SDL3 dashboard + gallery
         run: make dashboard_sdl3 gallery_sdl3
 
+      - name: Run the SDL3 adapter test (headless)
+        run: make test-sdl3
+
   build-wasm:
     runs-on: ubuntu-latest
     steps:

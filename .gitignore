@@ -78,3 +78,4 @@ tests/test_offset_stack_override
 tests/test_defaults_once
 tests/test_undo_disabled
 tests/test_cpp_path
+tests/test_adapter_sdl3

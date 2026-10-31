@@ -659,16 +659,30 @@ static inline void wlx_sdl3_draw_rect(WLX_Rect rect, WLX_Color color, void *user
     WLX_SDL3_SCOPE_END(geometry_ns);
 }
 
+// The outline lies inside the rect, as the rounded outline's does: four
+// bands `thick` wide, clamped to half the smaller side. SDL_RenderRect is
+// always one pixel wide, so it serves only a thickness of one or less.
 static inline void wlx_sdl3_draw_rect_lines_impl(WLX_Rect rect, float thick, WLX_Color color) {
-    WLX_UNUSED(thick);
-
     WLX_SDL3_PERF_INC(set_draw_blend_mode_calls);
     SDL_SetRenderDrawBlendMode(g_wlx_sdl3_renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(g_wlx_sdl3_renderer, color.r, color.g, color.b, color.a);
 
     SDL_FRect r = wlx_sdl3_to_frect(rect);
+    if (thick <= 1.0f) {
+        WLX_SDL3_PERF_INC(render_rect_calls);
+        SDL_RenderRect(g_wlx_sdl3_renderer, &r);
+        return;
+    }
+    float half = (r.w < r.h ? r.w : r.h) * 0.5f;
+    float t = thick < half ? thick : half;
+    SDL_FRect bands[4] = {
+        { r.x,             r.y,             r.w, t             },
+        { r.x,             r.y + r.h - t,   r.w, t             },
+        { r.x,             r.y + t,         t,   r.h - 2.0f * t },
+        { r.x + r.w - t,   r.y + t,         t,   r.h - 2.0f * t },
+    };
     WLX_SDL3_PERF_INC(render_rect_calls);
-    SDL_RenderRect(g_wlx_sdl3_renderer, &r);
+    SDL_RenderFillRects(g_wlx_sdl3_renderer, bands, 4);
 }
 
 static inline void wlx_sdl3_draw_rect_lines(WLX_Rect rect, float thick, WLX_Color color, void *user) {
@@ -840,8 +854,25 @@ static inline void wlx_sdl3_draw_line(float x1, float y1, float x2, float y2, fl
         }
         WLX_SDL3_PERF_INC(render_rect_calls);
         SDL_RenderFillRect(g_wlx_sdl3_renderer, &r);
+    } else if (thick > 1.0f && (x1 != x2 || y1 != y2)) {
+        // Thick diagonal line (checkbox check mark): one quad, the segment
+        // pushed out by half the thickness along its normal.
+        float dx = x2 - x1, dy = y2 - y1;
+        float k = thick * 0.5f / sqrtf(dx * dx + dy * dy);
+        float nx = -dy * k, ny = dx * k;
+        SDL_FColor fc = wlx_sdl3_to_fcolor(color);
+        SDL_Vertex verts[4] = {
+            { { x1 + nx, y1 + ny }, fc, { 0, 0 } },
+            { { x1 - nx, y1 - ny }, fc, { 0, 0 } },
+            { { x2 - nx, y2 - ny }, fc, { 0, 0 } },
+            { { x2 + nx, y2 + ny }, fc, { 0, 0 } },
+        };
+        static const int indices[6] = { 0, 1, 2, 0, 2, 3 };
+        WLX_SDL3_PERF_INC(geometry_submit_calls);
+        WLX_SDL3_PERF_INC(render_geometry_calls);
+        SDL_RenderGeometry(g_wlx_sdl3_renderer, NULL, verts, 4, indices, 6);
     } else {
-        // Thin and diagonal lines (checkbox check mark) keep SDL_RenderLine.
+        // Thin lines keep SDL_RenderLine.
         WLX_SDL3_PERF_INC(render_line_calls);
         SDL_RenderLine(g_wlx_sdl3_renderer, x1, y1, x2, y2);
     }

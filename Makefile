@@ -78,7 +78,7 @@ DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
 WASM_SITE_TARGETS = $(WASM_SITE_DIR)/dashboard.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js $(WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 GALLERY_WASM_SITE_TARGETS = $(GALLERY_WASM_SITE_DIR)/gallery.wasm $(GALLERY_WASM_SITE_DIR)/index.html $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 
-.PHONY: all clean debug release help test test-single-pass perf-test test-asan test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
+.PHONY: all clean debug release help test test-single-pass test-sdl3 perf-test test-asan test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
 
 # The dashboard is the primary showcase, so the default build includes it. It
 # keeps its own -DWLX_PERF recipe ($(DASHBOARD_BIN)) rather than joining the
@@ -206,6 +206,7 @@ OFFSET_STACK_OVERRIDE_BIN = $(TEST_DIR)/test_offset_stack_override
 UNDO_DISABLED_BIN = $(TEST_DIR)/test_undo_disabled
 DEFAULTS_ONCE_BIN = $(TEST_DIR)/test_defaults_once
 CPP_PATH_BIN = $(TEST_DIR)/test_cpp_path
+TEST_SDL3_BIN = $(TEST_DIR)/test_adapter_sdl3
 
 # One list, mirrored by the CMake test list in CMakeLists.txt: a binary added
 # here is added there in the same commit, and vice versa.
@@ -273,6 +274,15 @@ $(CPP_PATH_BIN): $(TEST_DIR)/test_cpp_path.cpp $(TEST_DIR)/test_defaults_once_im
 
 PERF_TEST_BIN = $(TEST_DIR)/test_runner_perf
 
+# The SDL3 adapter headless (offscreen video driver, software renderer;
+# the binary sets both through SDL hints). Not part of `test`: SDL3 is an
+# optional dependency.
+test-sdl3: $(TEST_SDL3_BIN)
+	./$(TEST_SDL3_BIN)
+
+$(TEST_SDL3_BIN): $(TEST_DIR)/test_adapter_sdl3.c $(TEST_DIR)/tests.h wollix.h wollix_sdl3.h
+	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -I$(TEST_DIR) -o $@ $< $(SDL3_LDFLAGS) -lSDL3 -lm
+
 perf-test: $(PERF_TEST_BIN)
 	./$(PERF_TEST_BIN)
 
@@ -309,7 +319,7 @@ test-demos: $(DEFAULT_TARGETS) $(DASHBOARD_BIN)
 	@echo "All demos built successfully."
 
 clean:
-	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(OFFSET_STACK_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN) $(CPP_PATH_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
+	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(OFFSET_STACK_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN) $(CPP_PATH_BIN) $(TEST_SDL3_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
 	rm -rf $(WASM_SITE_DIR) $(GALLERY_WASM_SITE_DIR)
 
 # Help target
