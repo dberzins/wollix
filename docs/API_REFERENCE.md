@@ -363,6 +363,9 @@ core falls back to temporary null-terminated strings.
     ((WLX_Text_Style){ .font = WLX_FONT_DEFAULT, .font_size = 0, .color = {0}, .spacing = 0 })
 ```
 
+Under `__cplusplus` it is the equivalent brace-initialised prvalue (see the
+C++ path's literal helpers).
+
 Text spacing support matrix for this slice:
 
 | Backend / path | Status | Behavior |
@@ -4139,10 +4142,10 @@ line`:
 take no options. The `_end` calls, the interaction and input queries, the
 theme and utility functions are plain functions and need no substitute.
 
-**Literal helpers.** `WLX_RGBA` and every `WLX_SLOT_*` macro expand, under
-`__cplusplus`, to a brace-initialised prvalue with the casts C++11
-list-initialisation needs, so `WLX_SLOT_PX(px)` with an `int` argument is
-fine. `WLX_SIZES` is C-only (an array compound literal has no C++
+**Literal helpers.** `WLX_RGBA`, every `WLX_SLOT_*` macro and
+`WLX_TEXT_STYLE_DEFAULT` expand, under `__cplusplus`, to a
+brace-initialised prvalue with the casts C++11 list-initialisation needs,
+so `WLX_SLOT_PX(px)` with an `int` argument is fine. `WLX_SIZES` is C-only (an array compound literal has no C++
 expression form): name the array and pass the count and pointer.
 
 ```cpp

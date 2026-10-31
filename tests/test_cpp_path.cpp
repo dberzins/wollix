@@ -2,8 +2,10 @@
 // against the implementation compiled as C11 in its own translation unit
 // (test_defaults_once_impl.c). Exercises: the headers' C linkage guards,
 // options from wlx_<x>_opt_defaults() with assigned fields, the _impl
-// struct-form entries, the C++ spellings of the literal helper macros, and
-// a layout with a named sizes array in place of WLX_SIZES. Returns non-zero
+// struct-form entries, the C++ spellings of the literal helper macros
+// (WLX_TEXT_STYLE_DEFAULT among them), and a layout with a named sizes
+// array in place of WLX_SIZES. Built with -pedantic-errors, so a public
+// literal macro without its C++ spelling fails to compile here. Returns non-zero
 // on the first failed check.
 
 #include "wollix.h"
@@ -50,6 +52,9 @@ static void check_literals(void) {
     WLX_Color k = WLX_BLACK;
     CHECK(c.r == 255 && c.g == 0 && c.a == 128);
     CHECK(k.a == 255);
+
+    WLX_Text_Style ts = WLX_TEXT_STYLE_DEFAULT;
+    CHECK(ts.font == WLX_FONT_DEFAULT && ts.font_size == 0 && ts.color.a == 0 && ts.spacing == 0);
 }
 
 // Defaults functions return the defaults, not zeros, and say so.

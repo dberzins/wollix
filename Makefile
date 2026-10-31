@@ -28,7 +28,7 @@ else
 CXX = g++
 endif
 endif
-CXX_GATE_FLAGS = -std=c++11 -Wall -Wextra -Wundef -Werror -Wno-missing-field-initializers
+CXX_GATE_FLAGS = -std=c++11 -pedantic-errors -Wall -Wextra -Wundef -Werror -Wno-missing-field-initializers
 
 CFLAGS = $(BASE_CFLAGS) -DWLX_DEBUG
 INCLUDES = -I. -I$(HOME)/opt/raylib/include

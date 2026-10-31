@@ -512,6 +512,14 @@ minor.
   redo".
 
 ### Fixed
+- **`WLX_TEXT_STYLE_DEFAULT` compiles as C++.** It was the one public
+  literal macro without a `__cplusplus` spelling, so a C++ caller got a
+  C99 compound literal with designated initialisers (rejected by
+  `-pedantic-errors` before C++20, and by MSVC's C++). It now has the
+  brace-initialised twin the other literal helpers have, and the C++
+  gate (`tests/test_cpp_path.cpp`, Makefile and CMake) builds with
+  `-pedantic-errors`, so a future literal macro without its twin fails
+  it.
 - **Popup rows and the tooltip text fade once.** A dropdown's and a menu
   button's row text took the theme opacity and the opacity stack twice
   (the popup resolved its colour, then each row, an ordinary button,

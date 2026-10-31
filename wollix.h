@@ -639,8 +639,15 @@ typedef struct {
     int      spacing;    // 0 -> natural backend spacing; nonzero = opt-in extra tracking
 } WLX_Text_Style;
 
+// The default text style. In C++ (no compound literals or C99 designated
+// initialisers before C++20) it is a brace-initialised prvalue.
+#ifdef __cplusplus
+#define WLX_TEXT_STYLE_DEFAULT \
+    (WLX_Text_Style{ WLX_FONT_DEFAULT, 0, WLX_Color{ 0, 0, 0, 0 }, 0 })
+#else
 #define WLX_TEXT_STYLE_DEFAULT \
     ((WLX_Text_Style){ .font = WLX_FONT_DEFAULT, .font_size = 0, .color = {0}, .spacing = 0 })
+#endif
 
 // Mouse cursor shape the core asks the backend to show. ARROW is 0 so a
 // zero-initialized context matches every platform's default cursor. The

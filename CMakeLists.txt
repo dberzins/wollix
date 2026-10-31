@@ -93,7 +93,7 @@ set(_wollix_warn_c
   $<$<COMPILE_LANG_AND_ID:C,GNU,Clang,AppleClang>:-Wall;-Wextra;-Wundef;-Werror=switch>
   $<$<COMPILE_LANG_AND_ID:C,MSVC>:${_wollix_warn_msvc}>)
 set(_wollix_warn_cxx
-  $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Wall;-Wextra;-Wundef;-Werror;-Wno-missing-field-initializers>
+  $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-pedantic-errors;-Wall;-Wextra;-Wundef;-Werror;-Wno-missing-field-initializers>
   $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:${_wollix_warn_msvc}>)
 
 # ----------------------------------------------------------------------------
