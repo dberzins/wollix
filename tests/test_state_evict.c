@@ -51,6 +51,32 @@ static void sev_empty_frames(WLX_Context *ctx, int n) {
     }
 }
 
+#ifdef WLX_DEBUG
+static int sev_osc_warns;      // content-slot oscillation reports
+static int sev_repeat_warns;   // same-frame state repeat reports
+static const char *sev_repeat_file;
+static int sev_repeat_line;
+
+static void sev_warn_cb(const char *file, int line, const char *msg, void *user) {
+    (void)user;
+    if (strstr(msg, "oscillation") != NULL) sev_osc_warns++;
+    if (strstr(msg, "state requested twice in one frame") != NULL) {
+        sev_repeat_warns++;
+        sev_repeat_file = file;
+        sev_repeat_line = line;
+    }
+}
+
+static void sev_quiet_debug(WLX_Context *ctx) {
+    wlx_dbg_init(ctx);
+    ctx->dbg->warn_cb = sev_warn_cb;
+    sev_osc_warns = 0;
+    sev_repeat_warns = 0;
+    sev_repeat_file = NULL;
+    sev_repeat_line = 0;
+}
+#endif
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -152,6 +178,9 @@ TEST(evict_min_age_counts_complete_frames) {
 TEST(prune_mid_frame_keeps_current) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 800, 600);
+#ifdef WLX_DEBUG
+    sev_quiet_debug(&ctx);
+#endif
 
     test_frame_begin(&ctx, 0, 0, false, false);
     *sev_state(&ctx, "sev/c.c", 1, 0) = 11;
@@ -166,6 +195,13 @@ TEST(prune_mid_frame_keeps_current) {
     ASSERT_TRUE(sev_state(&ctx, "sev/c.c", 1, 0) == a);
     ASSERT_EQ_INT(*sev_state(&ctx, "sev/c.c", 2, 0), 0);  // back zeroed
     test_frame_end(&ctx);
+#ifdef WLX_DEBUG
+    // The repeat of site 1 is deliberate; a debug build reports it, once.
+    // Site 2's request after the prune is a new entry, not a repeat.
+    ASSERT_EQ_INT(sev_repeat_warns, 1);
+    ASSERT_EQ_STR(sev_repeat_file, "sev/c.c");
+    ASSERT_EQ_INT(sev_repeat_line, 1);
+#endif
     wlx_context_destroy(&ctx);
 }
 
@@ -470,19 +506,6 @@ TEST(evict_perf_counts_live_caches) {
 #endif
 
 #ifdef WLX_DEBUG
-static int sev_osc_warns;
-
-static void sev_warn_cb(const char *file, int line, const char *msg, void *user) {
-    (void)file; (void)line; (void)user;
-    if (strstr(msg, "oscillation") != NULL) sev_osc_warns++;
-}
-
-static void sev_quiet_debug(WLX_Context *ctx) {
-    wlx_dbg_init(ctx);
-    ctx->dbg->warn_cb = sev_warn_cb;
-    sev_osc_warns = 0;
-}
-
 // A layout with one CONTENT slot at a synthetic site under push_id(k), the
 // slot measuring a widget of height h. Returns the layout's content state.
 static WLX_Content_Slot_State *sev_content_layout(WLX_Context *ctx, const char *file,

@@ -2385,7 +2385,12 @@ resources.
 
 State IDs use call-site `file`/`line` plus the ID stack, so they are stable
 across frames. Use exactly **one** call per
-widget instance per frame.
+widget instance per frame: a second request for one id in the same frame
+returns the same block, so two instances silently share it. Under
+`WLX_DEBUG` that second request is reported, once per call site, with a
+hint to wrap the repeat in `wlx_push_id` / `wlx_pop_id` or give its
+container an `.id`. A widget's interaction and its state share one id, so
+requesting both does not count as a repeat.
 
 ```c
 typedef struct { float scroll_y; int page; } MyState;

@@ -357,6 +357,13 @@ minor.
   point after a route change. `WLX_STATE_EVICT_THRESHOLD`,
   `WLX_STATE_MIN_AGE` and `WLX_STATE_RECYCLE` are `#ifndef`-overridable
   before the include.
+- **Debug builds report a repeated state request.** Under `WLX_DEBUG`, a
+  second `wlx_get_state` request for one id in a frame (a CONTENT layout
+  or a stateful helper reached twice without `wlx_push_id`, two
+  containers without `.id`) is reported once per call site: both requests
+  share one block, which the interaction path's duplicate check could not
+  see for widgets that have no interaction. A widget's interaction and its
+  state share one id and are not a repeat; release builds are unchanged.
 - **State counts in the perf frame.** `WLX_Perf_Frame.state` carries the
   state map's entries and slot capacity, and the live editor line indices
   and undo journals at frame end (a reclaimed widget's item, kept zeroed

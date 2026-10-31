@@ -2712,6 +2712,8 @@ WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint
 // State IDs are mix(hash(file, line) ^ id_stack_hash) - the same formula as Widget IDs.
 // The id stack is modified automatically by container `.id` (Scope ID) and manually
 // by wlx_push_id()/wlx_pop_id() when the same source line is reached multiple times.
+// One request per id per frame: a second returns the same block, and WLX_DEBUG
+// builds report it once per call site.
 WLXDEF WLX_State wlx_get_state_impl(WLX_Context *ctx, size_t state_size, const char *file, int line);
 #define wlx_get_state(ctx, type) wlx_get_state_impl((ctx), sizeof(type), __FILE__, __LINE__)
 
@@ -9202,10 +9204,17 @@ static inline WLX_Id wlx_site_hash(WLX_Context *ctx, const char *file, int line)
     return wlx_hash_id(file, line);
 }
 
+// A widget's id, for its interaction and its persistent state alike: the
+// call site mixed with the id stack.
+static inline WLX_Id wlx_widget_id(WLX_Context *ctx, const char *file, int line) {
+    WLX_Id id = wlx_combine_id_hash(wlx_site_hash(ctx, file, line), wlx_id_stack_hash(ctx));
+    return (id == 0) ? 1 : id;  // reserve 0 for "no widget"
+}
+
 static inline WLX_Id wlx_interaction_make_id(WLX_Context *ctx, const char *file, int line) {
-    WLX_Id base = wlx_combine_id_hash(wlx_site_hash(ctx, file, line), wlx_id_stack_hash(ctx));
-    WLX_DBG(interaction_id, ctx, base, file, line);
-    return (base == 0) ? 1 : base;  // reserve 0 for "no widget"
+    WLX_Id id = wlx_widget_id(ctx, file, line);
+    WLX_DBG(interaction_id, ctx, id, file, line);
+    return id;
 }
 
 // A widget rect clipped to the current layer's container clips - scroll
@@ -9724,12 +9733,25 @@ static void wlx_state_frame_sweep(WLX_Context *ctx) {
 // times (e.g. widgets generated in a loop). Interaction IDs use the same
 // derivation, so the same rule applies to them.
 WLXDEF WLX_State wlx_get_state_impl(WLX_Context *ctx, size_t state_size, const char *file, int line) {
-    WLX_Id id = wlx_combine_id_hash(wlx_site_hash(ctx, file, line), wlx_id_stack_hash(ctx));
-    if (id == 0) id = 1;
+    WLX_Id id = wlx_widget_id(ctx, file, line);
 
+#ifdef WLX_DEBUG
+    size_t count_before = ctx->states.count;
+#endif
     WLX_State_Map_Slot *slot = wlx_state_map_get(&ctx->states, id, state_size);
     WLX_HARD_ASSERT(slot->data_size == state_size,
         "state id collision: two call sites resolved to the same id with different state sizes");
+#ifdef WLX_DEBUG
+    // A new slot's last_seen is not set, so only a slot that existed before
+    // this request can carry an earlier request of this frame.
+    if (ctx->states.count == count_before && slot->last_seen == ctx->frame_index) {
+        wlx_dbg_warn_once(ctx, file, line,
+            "wollix: state requested twice in one frame for one id; both "
+            "requests share one block\n"
+            "  hint: wrap each repeat in wlx_push_id(ctx, i) / wlx_pop_id(ctx), "
+            "or give its container an .id");
+    }
+#endif
     slot->last_seen = ctx->frame_index;
     return (WLX_State){ .id = id, .data = slot->data };
 }

@@ -7,7 +7,11 @@
 //   when they share a suffix; a nested push_id grid is collision-free; ids
 //   are stable across frames and split by container scope; interaction and
 //   state ids of one site agree; 0 is never handed out; and the WLX_DEBUG
-//   site table reports two sites that share one key. Sites in two files
+//   site table reports two sites that share one key. Under WLX_DEBUG, a
+//   second state request for one id in a frame is reported once per site,
+//   naming it, while one request per frame (alone, beside the widget's
+//   interaction, under a push_id loop, from a stateful widget or a CONTENT
+//   layout) is not. Sites in two files
 //   stay apart: a header and its .c (.m, .cc / .hh) at any line distance,
 //   and two paths of equal length such as ab.c / bA.c. String scopes of
 //   different strings stay apart ("ab" / "bA").
@@ -24,6 +28,7 @@
 #endif
 
 #include <stdlib.h>
+#include <string.h>
 
 // ============================================================================
 // Helpers
@@ -314,6 +319,80 @@ TEST(id_debug_cross_site_warns) {
     test_frame_end(&ctx);
     wlx_context_destroy(&ctx);
 }
+
+static int wid_repeat_warns;
+static const char *wid_repeat_file;
+static int wid_repeat_line;
+static int wid_other_warns;
+
+static void wid_warn_cb(const char *file, int line, const char *msg, void *user) {
+    (void)user;
+    if (strstr(msg, "state requested twice in one frame") != NULL) {
+        wid_repeat_warns++;
+        wid_repeat_file = file;
+        wid_repeat_line = line;
+    } else {
+        wid_other_warns++;
+    }
+}
+
+static void wid_quiet_debug(WLX_Context *ctx) {
+    wlx_dbg_init(ctx);
+    ctx->dbg->warn_cb = wid_warn_cb;
+    wid_repeat_warns = 0;
+    wid_repeat_file = NULL;
+    wid_repeat_line = 0;
+    wid_other_warns = 0;
+}
+
+TEST(id_debug_state_repeat_warns_once) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    wid_quiet_debug(&ctx);
+
+    // One site requested twice in each of three frames: one report, at it.
+    for (int f = 0; f < 3; f++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        WLX_Id first = wid_state_at(&ctx, "app/repeat.c", 7);
+        WLX_Id second = wid_state_at(&ctx, "app/repeat.c", 7);
+        ASSERT_TRUE(first == second);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_INT(wid_repeat_warns, 1);
+    ASSERT_EQ_STR(wid_repeat_file, "app/repeat.c");
+    ASSERT_EQ_INT(wid_repeat_line, 7);
+    ASSERT_EQ_INT(wid_other_warns, 0);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(id_debug_state_once_per_frame_quiet) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    wid_quiet_debug(&ctx);
+    char box[32] = "";
+
+    for (int f = 0; f < 50; f++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        (void)wid_state_at(&ctx, "app/once.c", 3);
+        // A widget's interaction and its state share one id.
+        (void)wlx_interaction_make_id(&ctx, "app/both.c", 5);
+        (void)wid_state_at(&ctx, "app/both.c", 5);
+        for (WLX_Id i = 0; i < 8; i++) {
+            wlx_push_id(&ctx, i);
+            (void)wid_state_at(&ctx, "app/loop.c", 9);
+            wlx_pop_id(&ctx);
+        }
+        wlx_layout_begin(&ctx, 2, WLX_VERT,
+            .sizes = (WLX_Slot_Size[]){ WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) });
+            wlx_widget(&ctx, .height = 20);
+            wlx_inputbox(&ctx, NULL, box, sizeof(box));
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_INT(wid_repeat_warns, 0);
+    ASSERT_EQ_INT(wid_other_warns, 0);
+    wlx_context_destroy(&ctx);
+}
 #endif
 
 // ============================================================================
@@ -332,5 +411,7 @@ SUITE(widget_id) {
     RUN_TEST(id_string_scope_distinct);
 #ifdef WLX_DEBUG
     RUN_TEST(id_debug_cross_site_warns);
+    RUN_TEST(id_debug_state_repeat_warns_once);
+    RUN_TEST(id_debug_state_once_per_frame_quiet);
 #endif
 }
