@@ -737,6 +737,12 @@ extern WLX_Input_State wlx_wasm_input_state;
 // The JS host (web/wollix_wasm.js INPUT_OFFSETS) writes input fields at these
 // fixed byte offsets. Lock them here so any change to WLX_Input_State or
 // WLX_KEY_COUNT fails the build until the JS table is updated to match.
+_Static_assert(offsetof(WLX_Input_State, mouse_x)       == 0,   "WASM INPUT_OFFSETS.mouse_x out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_y)       == 4,   "WASM INPUT_OFFSETS.mouse_y out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_down)    == 8,   "WASM INPUT_OFFSETS.mouse_down out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_clicked) == 9,   "WASM INPUT_OFFSETS.mouse_clicked out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_held)    == 10,  "WASM INPUT_OFFSETS.mouse_held out of sync");
+_Static_assert(offsetof(WLX_Input_State, wheel_delta)   == 12,  "WASM INPUT_OFFSETS.wheel_delta out of sync");
 _Static_assert(offsetof(WLX_Input_State, keys_down)     == 16,  "WASM INPUT_OFFSETS.keys_down out of sync");
 _Static_assert(offsetof(WLX_Input_State, keys_pressed)  == 80,  "WASM INPUT_OFFSETS.keys_pressed out of sync");
 _Static_assert(offsetof(WLX_Input_State, text_input)    == 144, "WASM INPUT_OFFSETS.text_input out of sync");
@@ -744,11 +750,20 @@ _Static_assert(offsetof(WLX_Input_State, keys_repeated) == 272, "WASM INPUT_OFFS
 _Static_assert(offsetof(WLX_Input_State, modifiers)     == 336, "WASM INPUT_OFFSETS.modifiers out of sync");
 _Static_assert(offsetof(WLX_Input_State, wheel_delta_x) == 340, "WASM INPUT_OFFSETS.wheel_delta_x out of sync");
 _Static_assert(offsetof(WLX_Input_State, mouse_right_down) == 344, "WASM INPUT_OFFSETS.mouse_right_down out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_right_clicked) == 345, "WASM INPUT_OFFSETS.mouse_right_clicked out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_middle_down) == 346, "WASM INPUT_OFFSETS.mouse_middle_down out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_middle_clicked) == 347, "WASM INPUT_OFFSETS.mouse_middle_clicked out of sync");
 _Static_assert(offsetof(WLX_Input_State, preedit)       == 348, "WASM INPUT_OFFSETS.preedit out of sync");
 _Static_assert(offsetof(WLX_Input_State, preedit_cursor) == 476, "WASM INPUT_OFFSETS.preedit_cursor out of sync");
 _Static_assert(offsetof(WLX_Input_State, preedit_sel_len) == 480, "WASM INPUT_OFFSETS.preedit_sel_len out of sync");
 _Static_assert(WLX_INPUT_TEXT_BYTES == 128 && WLX_INPUT_PREEDIT_BYTES == 128, "WASM INPUT_TEXT_BYTES / INPUT_PREEDIT_BYTES out of sync");
-_Static_assert(sizeof(WLX_Input_State)                  == 484, "WASM INPUT_SIZE out of sync");
+_Static_assert(sizeof(WLX_Input_State)                  == 484, "WASM WLX_Input_State size out of sync");
+// The host mirrors WLX_Key_Code (WLX_KEY, every value spelled out) and
+// WLX_Key_Mod (WLX_MOD) by value: a renumbering moves one of these anchors.
+_Static_assert(WLX_KEY_ESCAPE == 1 && WLX_KEY_A == 10 && WLX_KEY_0 == 36
+    && WLX_KEY_DELETE == 46 && WLX_KEY_F1 == 51 && WLX_KEY_INSERT == 63 && WLX_KEY_COUNT == 64
+    && WLX_MOD_SHIFT == 1 && WLX_MOD_CTRL == 2 && WLX_MOD_ALT == 4 && WLX_MOD_SUPER == 8,
+    "WASM WLX_KEY / WLX_MOD tables out of sync");
 
 static inline WLX_Input_State *wlx_wasm_get_input_ptr(void) {
     return &wlx_wasm_input_state;

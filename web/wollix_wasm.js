@@ -50,7 +50,6 @@ const INPUT_OFFSETS = {
     preedit_cursor:       476, // int32 (codepoints into preedit, -1 unknown)
     preedit_sel_len:      480, // int32 (codepoints, -1 unknown)
 };
-const INPUT_SIZE = 484;
 // Byte capacities of the two text channels, NUL included (WLX_INPUT_TEXT_BYTES,
 // WLX_INPUT_PREEDIT_BYTES in wollix.h; wollix_wasm.h asserts both).
 const INPUT_TEXT_BYTES = 128;

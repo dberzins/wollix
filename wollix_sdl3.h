@@ -244,6 +244,7 @@ static inline WLX_Texture wlx_texture_from_sdl3(SDL_Texture *texture, int width,
 
 static inline SDL_Scancode wlx_sdl3_to_scancode(WLX_Key_Code key) {
     switch (key) {
+        case WLX_KEY_NONE: return SDL_SCANCODE_UNKNOWN;
         case WLX_KEY_ESCAPE: return SDL_SCANCODE_ESCAPE;
         case WLX_KEY_ENTER: return SDL_SCANCODE_RETURN;
         case WLX_KEY_BACKSPACE: return SDL_SCANCODE_BACKSPACE;
@@ -307,8 +308,9 @@ static inline SDL_Scancode wlx_sdl3_to_scancode(WLX_Key_Code key) {
         case WLX_KEY_F11: return SDL_SCANCODE_F11;
         case WLX_KEY_F12: return SDL_SCANCODE_F12;
         case WLX_KEY_INSERT: return SDL_SCANCODE_INSERT;
-        default: return SDL_SCANCODE_UNKNOWN;
+        case WLX_KEY_COUNT: return SDL_SCANCODE_UNKNOWN;
     }
+    return SDL_SCANCODE_UNKNOWN;
 }
 // The composition is over: the next frame's input carries no string, so the
 // focused widget drops its tentative span.
