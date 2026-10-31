@@ -476,7 +476,6 @@ static inline WLX_Theme dashboard_wlx_theme(Dashboard_Mode mode,
             .track        = t->ramp.low,
             .track_active = t->color.accent,
             .thumb        = t->color.on_surface,
-            .track_height = 0,
         },
         .radio = {
             .ring         = t->color.outline_variant,

@@ -1343,54 +1343,54 @@ typedef struct {
     // Opacity
     float   opacity;             // Global opacity multiplier (<0 = unset sentinel, 0.0–1.0 = explicit)
 
-    // Widget-specific overrides (zero = use globals)
+    // Widget-specific overrides: each comment names what a zero value (for
+    // a border width, a negative one) falls back to
     struct {
-        WLX_Color border_focus;  // {0} → derive from accent
-        WLX_Color cursor;        // {0} → use foreground
-        WLX_Color selection;     // {0} → derive from accent (translucent)
-        float     border_width;  // 0 → use global border_width
+        WLX_Color border_focus;  // {0} → accent
+        WLX_Color cursor;        // {0} → foreground
+        WLX_Color selection;     // {0} → accent at alpha 90
+        float     border_width;  // < 0 → global border_width; 0 → no border
     } input;
 
     struct {
-        WLX_Color track;         // {0} → derive from surface
-        WLX_Color thumb;         // {0} → use foreground
-        WLX_Color label;         // {0} → use foreground
-        float    track_height;   // 0 → default (6)
-        float    thumb_width;    // 0 → default (14)
+        WLX_Color track;         // {0} → midway between surface and border
+        WLX_Color thumb;         // {0} → foreground
+        WLX_Color label;         // {0} → foreground
+        float    track_height;   // <= 0 → 6
+        float    thumb_width;    // <= 0 → 14
     } slider;
 
     struct {
-        WLX_Color check;         // {0} → use foreground
-        WLX_Color border;        // {0} → use theme border
-        float     border_width;  // 0 → use global border_width
+        WLX_Color check;         // {0} → foreground
+        WLX_Color border;        // {0} → border
+        float     border_width;  // < 0 → global border_width; 0 → no border
     } checkbox;
 
     struct {
-        WLX_Color track;              // {0} → derive from surface
-        WLX_Color track_active;       // {0} → derive from accent
-        WLX_Color thumb;              // {0} → use foreground
-        float     track_height;       // 0 → default (computed from widget height)
-        float     track_to_height_ratio; // 0 → default (2.0)
-        float     thumb_inset_ratio;  // 0 → default (0.15)
+        WLX_Color track;              // {0} → slider.track (and its fallback)
+        WLX_Color track_active;       // {0} → accent
+        WLX_Color thumb;              // {0} → foreground
+        float     track_to_height_ratio; // <= 0 → 2.0
+        float     thumb_inset_ratio;  // <= 0 → 0.15
     } toggle;
 
     struct {
-        WLX_Color ring;               // {0} → use border
-        WLX_Color fill;               // {0} → use accent
-        WLX_Color label;              // {0} → use foreground
-        float     border_width;       // 0 → use global border_width
-        float     selected_inset_ratio; // 0 → default (0.25)
+        WLX_Color ring;               // {0} → border
+        WLX_Color fill;               // {0} → accent
+        WLX_Color label;              // {0} → foreground
+        float     border_width;       // < 0 → global border_width; 0 → no border
+        float     selected_inset_ratio; // <= 0 → 0.25
     } radio;
 
     struct {
-        WLX_Color track;         // {0} → fall back to slider.track
-        WLX_Color fill;          // {0} → fall back to accent
-        float     track_height;  // 0 → fall back to slider.track_height
+        WLX_Color track;         // {0} → slider.track (and its fallback)
+        WLX_Color fill;          // {0} → accent
+        float     track_height;  // <= 0 → slider.track_height (and its fallback)
     } progress;
 
     struct {
         WLX_Color bar;           // Scrollbar thumb color
-        float    width;          // Scrollbar width (0 → default 10)
+        float    width;          // Scrollbar width (<= 0 → 10)
     } scrollbar;
 
     struct {
@@ -1405,8 +1405,11 @@ typedef struct {
 } WLX_Theme;
 ```
 
-All `{0}` color values are sentinels meaning "derive from the corresponding
-global." Set `ctx->theme` before `wlx_begin()`.
+Every per-widget override has a fallback, so a theme written from the
+global block alone still draws every widget: a zero colour or a size `<= 0`
+takes the value its comment names, read through at every use (a theme
+swapped mid-frame takes effect at once). Set `ctx->theme` before
+`wlx_begin()`.
 
 The `shadow` / `glow` sub-structs hold the default numeric knobs for the
 first-class glow/shadow effect fields (see

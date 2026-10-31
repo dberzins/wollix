@@ -1,6 +1,8 @@
 // test_sentinel.c - option default and sentinel contract: explicit zero is
 // zero, an unset field resolves to its documented fallback, request tokens
-// are not sentinels, and the enumerated v0.9 default changes hold.
+// are not sentinels, and the enumerated v0.9 default changes hold. A theme
+// whose per-widget overrides are all zero resolves every widget through
+// the fallbacks its comments name.
 // Included from test_main.c (single TU build); the resolvers are reachable
 // directly, so most cases pin resolution without running a frame.
 
@@ -764,6 +766,95 @@ TEST(scroll_panel_roundness_is_square) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Theme overrides: a zero override takes the fallback its comment names
+// ============================================================================
+
+// The dark preset's globals with every per-widget override left zero, as a
+// theme written from scratch would have them.
+static WLX_Theme globals_only_theme(void) {
+    WLX_Theme t = wlx_theme_dark;
+    memset(&t.input, 0, sizeof t.input);
+    memset(&t.slider, 0, sizeof t.slider);
+    memset(&t.checkbox, 0, sizeof t.checkbox);
+    memset(&t.toggle, 0, sizeof t.toggle);
+    memset(&t.radio, 0, sizeof t.radio);
+    memset(&t.progress, 0, sizeof t.progress);
+    memset(&t.scrollbar, 0, sizeof t.scrollbar);
+    return t;
+}
+
+static bool sentinel_color_eq(WLX_Color a, WLX_Color b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
+
+TEST(theme_from_scratch_has_working_defaults) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Theme theme = globals_only_theme();
+    ctx.theme = &theme;
+    // Midway between the surface (40) and the border (60).
+    WLX_Color mid_track = { 50, 50, 50, 255 };
+
+    WLX_Inputbox_Opt box = wlx_default_inputbox_opt();
+    wlx_resolve_opt_inputbox(&ctx, &box);
+    ASSERT_TRUE(sentinel_color_eq(box.cursor_color, theme.foreground));
+    ASSERT_TRUE(sentinel_color_eq(box.border_focus_color, theme.accent));
+
+    WLX_Editor_Opt ed = wlx_default_editor_opt();
+    wlx_resolve_opt_editor(&ctx, &ed);
+    ASSERT_TRUE(sentinel_color_eq(ed.cursor_color, theme.foreground));
+    ASSERT_TRUE(sentinel_color_eq(ed.border_focus_color, theme.accent));
+
+    WLX_Slider_Opt slider = wlx_default_slider_opt();
+    wlx_resolve_opt_slider(&ctx, &slider);
+    ASSERT_TRUE(sentinel_color_eq(slider.track_color, mid_track));
+    ASSERT_TRUE(sentinel_color_eq(slider.thumb_color, theme.foreground));
+    ASSERT_TRUE(sentinel_color_eq(slider.label_color, theme.foreground));
+    ASSERT_EQ_F(slider.track_height, 6.0f, 0.0001f);
+    ASSERT_EQ_F(slider.thumb_width, 14.0f, 0.0001f);
+
+    WLX_Checkbox_Opt check = wlx_default_checkbox_opt();
+    wlx_resolve_opt_checkbox(&ctx, &check);
+    ASSERT_TRUE(sentinel_color_eq(check.check_color, theme.foreground));
+
+    WLX_Scroll_Panel_Opt panel = wlx_default_scroll_panel_opt();
+    wlx_resolve_opt_scroll_panel(&ctx, &panel);
+    ASSERT_EQ_F(panel.scrollbar_width, 10.0f, 0.0001f);
+
+    WLX_Toggle_Opt toggle = wlx_default_toggle_opt();
+    wlx_resolve_opt_toggle(&ctx, &toggle);
+    ASSERT_TRUE(sentinel_color_eq(toggle.track_color, mid_track));
+
+    WLX_Progress_Opt progress = wlx_default_progress_opt();
+    wlx_resolve_opt_progress(&ctx, &progress);
+    ASSERT_TRUE(sentinel_color_eq(progress.track_color, mid_track));
+    ASSERT_EQ_F(progress.track_height, 6.0f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(radio_label_color_from_theme) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Theme theme = wlx_theme_dark;
+    theme.radio.label = (WLX_Color){ 11, 22, 33, 255 };
+    ctx.theme = &theme;
+
+    WLX_Radio_Opt themed = wlx_default_radio_opt();
+    wlx_resolve_opt_radio(&ctx, &themed);
+    ASSERT_TRUE(sentinel_color_eq(themed.front_color, theme.radio.label));
+
+    // An explicit colour still wins, and a zero label is the foreground.
+    WLX_Radio_Opt explicit_front = wlx_default_radio_opt(.front_color = { 1, 2, 3, 255 });
+    wlx_resolve_opt_radio(&ctx, &explicit_front);
+    ASSERT_TRUE(sentinel_color_eq(explicit_front.front_color, (WLX_Color){ 1, 2, 3, 255 }));
+    theme.radio.label = (WLX_Color){0};
+    WLX_Radio_Opt plain = wlx_default_radio_opt();
+    wlx_resolve_opt_radio(&ctx, &plain);
+    ASSERT_TRUE(sentinel_color_eq(plain.front_color, theme.foreground));
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(sentinel) {
     RUN_TEST(sentinel_explicit_zero_is_zero);
     RUN_TEST(sentinel_unset_inherits);
@@ -794,4 +885,6 @@ SUITE(sentinel) {
     RUN_TEST(rounded_segments_zero_takes_theme);
     RUN_TEST(wheel_scroll_speed_zero_scrolls_default);
     RUN_TEST(scroll_panel_roundness_is_square);
+    RUN_TEST(theme_from_scratch_has_working_defaults);
+    RUN_TEST(radio_label_color_from_theme);
 }

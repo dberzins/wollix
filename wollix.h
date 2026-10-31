@@ -2055,55 +2055,56 @@ typedef struct {
     float opacity;              // global opacity multiplier (<0 = unset sentinel, 0.0-1.0 = explicit)
     float disabled_opacity;     // alpha multiplier applied when a widget is disabled (<0 = unset sentinel, 0.0-1.0 = explicit)
 
-    // --- Widget-specific overrides (zero = use globals) ---
+    // --- Widget-specific overrides ---
+    // Each field's comment names what a zero value (or, for a border width,
+    // a negative one) falls back to.
     struct {
-        WLX_Color border_focus;  // {0} -> derive from accent
-        WLX_Color cursor;        // {0} -> use foreground
-        WLX_Color selection;     // {0} -> derive from accent (translucent)
-        float     border_width;  // 0 -> use global border_width
+        WLX_Color border_focus;  // {0} -> accent
+        WLX_Color cursor;        // {0} -> foreground
+        WLX_Color selection;     // {0} -> accent at alpha 90
+        float     border_width;  // < 0 -> global border_width; 0 -> no border
     } input;
 
     struct {
-        WLX_Color track;         // {0} -> derive from surface
-        WLX_Color thumb;         // {0} -> use foreground
-        WLX_Color label;         // {0} -> use foreground
-        float    track_height;  // 0 -> default (6)
-        float    thumb_width;   // 0 -> default (14); also default visual height
+        WLX_Color track;         // {0} -> midway between surface and border
+        WLX_Color thumb;         // {0} -> foreground
+        WLX_Color label;         // {0} -> foreground
+        float    track_height;  // <= 0 -> 6
+        float    thumb_width;   // <= 0 -> 14; also the default visual height
     } slider;
 
     struct {
-        WLX_Color check;         // {0} -> use foreground
-        WLX_Color border;        // {0} -> use theme border
-        float     border_width;  // 0 -> use global border_width
+        WLX_Color check;         // {0} -> foreground
+        WLX_Color border;        // {0} -> border
+        float     border_width;  // < 0 -> global border_width; 0 -> no border
     } checkbox;
 
     struct {
-        WLX_Color track;              // {0} -> derive from surface
-        WLX_Color track_active;       // {0} -> derive from accent
-        WLX_Color thumb;              // {0} -> use foreground
-        float     track_height;       // 0 -> default (computed from widget height)
-        float     track_to_height_ratio; // 0 -> default (2.0)
-        float     thumb_inset_ratio;  // 0 -> default (0.15)
+        WLX_Color track;              // {0} -> slider.track (and its fallback)
+        WLX_Color track_active;       // {0} -> accent
+        WLX_Color thumb;              // {0} -> foreground
+        float     track_to_height_ratio; // <= 0 -> 2.0
+        float     thumb_inset_ratio;  // <= 0 -> 0.15
     } toggle;
 
     struct {
-        WLX_Color ring;               // {0} -> use border
-        WLX_Color fill;               // {0} -> use accent
-        WLX_Color label;              // {0} -> use foreground
-        float     border_width;       // 0 -> use global border_width
-        float     selected_inset_ratio; // 0 -> default (0.25)
+        WLX_Color ring;               // {0} -> border
+        WLX_Color fill;               // {0} -> accent
+        WLX_Color label;              // {0} -> foreground
+        float     border_width;       // < 0 -> global border_width; 0 -> no border
+        float     selected_inset_ratio; // <= 0 -> 0.25
     } radio;
 
     struct {
-        WLX_Color track;         // {0} -> fall back to slider.track
-        WLX_Color fill;          // {0} -> fall back to accent
-        float     track_height;  // 0 -> fall back to slider.track_height
+        WLX_Color track;         // {0} -> slider.track (and its fallback)
+        WLX_Color fill;          // {0} -> accent
+        float     track_height;  // <= 0 -> slider.track_height (and its fallback)
         float     segment_gap;   // default inter-cell gap; 0 -> 2px fallback (segmented mode)
     } progress;
 
     struct {
         WLX_Color bar;           // scrollbar thumb color
-        float    width;         // scrollbar width (0 -> default 10)
+        float    width;         // scrollbar width (<= 0 -> 10)
     } scrollbar;
 
     struct {
@@ -4760,7 +4761,6 @@ const WLX_Theme wlx_theme_dark = {
         .track        = {0},
         .track_active = { 90, 140, 210, 255},
         .thumb        = {0},
-        .track_height = 0,
     },
     .radio = {
         .ring         = {0},
@@ -4818,7 +4818,6 @@ const WLX_Theme wlx_theme_light = {
         .track        = {0},
         .track_active = { 55,  80, 190, 255},
         .thumb        = {0},
-        .track_height = 0,
     },
     .radio = {
         .ring         = {0},
@@ -4878,7 +4877,6 @@ const WLX_Theme wlx_theme_glass = {
         .track        = {0},
         .track_active = { 90, 110, 200, 255},
         .thumb        = {0},
-        .track_height = 0,
     },
     .radio = {
         .ring         = {0},
@@ -4957,6 +4955,48 @@ static inline WLX_Color wlx_color_hover_tint(
     WLX_Color c, bool hover, bool disabled, float brightness)
 {
     return (hover && !disabled) ? wlx_color_brightness(c, brightness) : c;
+}
+
+// The theme's per-widget overrides that fall back to a global or a fixed
+// size: a zero colour or a size <= 0 takes the fallback the field's comment
+// names. Read through these at every use rather than resolved once, since
+// the theme pointer may change within a frame.
+static const float WLX_THEME_SLIDER_TRACK_HEIGHT = 6.0f;
+static const float WLX_THEME_SLIDER_THUMB_WIDTH  = 14.0f;
+// Scrollbar strip width when the theme leaves its knob unset.
+static const float WLX_SCROLLBAR_FALLBACK_WIDTH  = 10.0f;
+
+static inline WLX_Color wlx_theme_input_border_focus(const WLX_Theme *t) {
+    return wlx_color_or(t->input.border_focus, t->accent);
+}
+static inline WLX_Color wlx_theme_input_cursor(const WLX_Theme *t) {
+    return wlx_color_or(t->input.cursor, t->foreground);
+}
+// Midway between the surface the track sits on and the border colour.
+static inline WLX_Color wlx_theme_slider_track(const WLX_Theme *t) {
+    return wlx_color_is_zero(t->slider.track)
+        ? wlx_color_lerp(t->surface, t->border, 0.5f) : t->slider.track;
+}
+static inline WLX_Color wlx_theme_slider_thumb(const WLX_Theme *t) {
+    return wlx_color_or(t->slider.thumb, t->foreground);
+}
+static inline WLX_Color wlx_theme_slider_label(const WLX_Theme *t) {
+    return wlx_color_or(t->slider.label, t->foreground);
+}
+static inline float wlx_theme_slider_track_height(const WLX_Theme *t) {
+    return t->slider.track_height > 0.0f ? t->slider.track_height : WLX_THEME_SLIDER_TRACK_HEIGHT;
+}
+static inline float wlx_theme_slider_thumb_width(const WLX_Theme *t) {
+    return t->slider.thumb_width > 0.0f ? t->slider.thumb_width : WLX_THEME_SLIDER_THUMB_WIDTH;
+}
+static inline WLX_Color wlx_theme_checkbox_check(const WLX_Theme *t) {
+    return wlx_color_or(t->checkbox.check, t->foreground);
+}
+static inline WLX_Color wlx_theme_radio_label(const WLX_Theme *t) {
+    return wlx_color_or(t->radio.label, t->foreground);
+}
+static inline float wlx_theme_scrollbar_width(const WLX_Theme *t) {
+    return t->scrollbar.width > 0.0f ? t->scrollbar.width : WLX_SCROLLBAR_FALLBACK_WIDTH;
 }
 
 // ============================================================================
@@ -12857,9 +12897,6 @@ static const float WLX_CHECKBOX_CHECK_GLOW_ALPHA = 0.25f;
 // multiline inputbox so both feel identical under the same wheel.
 static const float WLX_SCROLL_PANEL_DEFAULT_WHEEL_SCROLL_SPEED = 20.0f;
 
-// Scrollbar strip width when the theme leaves its knob unset.
-static const float WLX_SCROLLBAR_FALLBACK_WIDTH = 10.0f;
-
 // Shortest thumb a scrollbar draws. A proportional thumb over a long
 // document (30k lines in a 20-row band) is a fraction of a pixel: the
 // length floors here (or at the track, when the track is shorter) and
@@ -13909,7 +13946,7 @@ static void wlx_resolve_opt_checkbox(const WLX_Context *ctx, WLX_Checkbox_Opt *o
 
     if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
-    if (wlx_color_is_zero(opt->check_color)) opt->check_color = theme->checkbox.check;
+    if (wlx_color_is_zero(opt->check_color)) opt->check_color = wlx_theme_checkbox_check(theme);
     if (wlx_color_is_zero(opt->tex_checked_tint))   opt->tex_checked_tint   = WLX_WHITE;
     if (wlx_color_is_zero(opt->tex_unchecked_tint)) opt->tex_unchecked_tint = WLX_WHITE;
     // Widget-specific border fallbacks before common helper
@@ -14043,8 +14080,8 @@ static void wlx_resolve_opt_inputbox(const WLX_Context *ctx, WLX_Inputbox_Opt *o
     if (wlx_color_is_zero(opt->back_color))         opt->back_color         = theme->surface;
     // Widget-specific border_width fallback before common helper
     if (wlx_is_negative_unset(opt->border_width))   opt->border_width       = theme->input.border_width;
-    if (wlx_color_is_zero(opt->border_focus_color)) opt->border_focus_color = theme->input.border_focus;
-    if (wlx_color_is_zero(opt->cursor_color))       opt->cursor_color       = theme->input.cursor;
+    if (wlx_color_is_zero(opt->border_focus_color)) opt->border_focus_color = wlx_theme_input_border_focus(theme);
+    if (wlx_color_is_zero(opt->cursor_color))       opt->cursor_color       = wlx_theme_input_cursor(theme);
     if (wlx_color_is_zero(opt->selection_color))    opt->selection_color    = theme->input.selection;
     // Custom themes that predate the selection field fall back to a
     // translucent accent so the highlight is never invisible.
@@ -15921,8 +15958,7 @@ static WLX_Inputbox_Lines wlx_inputbox_build_lines(WLX_Context *ctx,
     // stops at the first width-truncated line, which makes content
     // height anti-monotonic in width and would let a narrow probe flip
     // the decision every frame.
-    float sb_w = ctx->theme->scrollbar.width > 0.0f
-        ? ctx->theme->scrollbar.width : WLX_SCROLLBAR_FALLBACK_WIDTH;
+    float sb_w = wlx_theme_scrollbar_width(ctx->theme);
     WLX_Rect sb_track = { input_rect.x + border_inset, text_rect.y,
                           input_rect.w - border_inset * 2.0f, text_rect.h };
     bool predict_sb = opt->multiline && opt->wrap && opt->show_scrollbar
@@ -16403,11 +16439,11 @@ static void wlx_resolve_opt_slider(const WLX_Context *ctx, WLX_Slider_Opt *opt) 
     const WLX_Theme *theme = ctx->theme;
 
     // Widget-specific fallbacks
-    if (wlx_color_is_zero(opt->track_color)) opt->track_color = theme->slider.track;
-    if (wlx_color_is_zero(opt->thumb_color)) opt->thumb_color = theme->slider.thumb;
-    if (wlx_color_is_zero(opt->label_color)) opt->label_color = theme->slider.label;
-    if (opt->track_height <= 0)              opt->track_height = theme->slider.track_height;
-    if (opt->thumb_width  <= 0)              opt->thumb_width  = theme->slider.thumb_width;
+    if (wlx_color_is_zero(opt->track_color)) opt->track_color = wlx_theme_slider_track(theme);
+    if (wlx_color_is_zero(opt->thumb_color)) opt->thumb_color = wlx_theme_slider_thumb(theme);
+    if (wlx_color_is_zero(opt->label_color)) opt->label_color = wlx_theme_slider_label(theme);
+    if (opt->track_height <= 0)              opt->track_height = wlx_theme_slider_track_height(theme);
+    if (opt->thumb_width  <= 0)              opt->thumb_width  = wlx_theme_slider_thumb_width(theme);
 
     // Common helpers (typography, border, roundness)
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
@@ -16683,11 +16719,11 @@ static WLX_Rect wlx_progress_cell_rect(WLX_Rect track, int segments,
 
 static void wlx_resolve_opt_progress(const WLX_Context *ctx, WLX_Progress_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
-    if (wlx_color_is_zero(opt->track_color))  opt->track_color  = wlx_color_or(theme->progress.track, theme->slider.track);
+    if (wlx_color_is_zero(opt->track_color))  opt->track_color  = wlx_color_or(theme->progress.track, wlx_theme_slider_track(theme));
     if (wlx_color_is_zero(opt->fill_color))   opt->fill_color   = wlx_color_or(theme->progress.fill,  theme->accent);
     if (wlx_color_is_zero(opt->border_color)) opt->border_color = theme->border;
     if (wlx_is_negative_unset(opt->border_width))      opt->border_width = theme->border_width;
-    if (opt->track_height <= 0)               opt->track_height = theme->progress.track_height > 0 ? theme->progress.track_height : theme->slider.track_height;
+    if (opt->track_height <= 0)               opt->track_height = theme->progress.track_height > 0 ? theme->progress.track_height : wlx_theme_slider_track_height(theme);
     if (opt->min_height <= 0)                 opt->min_height   = opt->track_height;
     if (opt->segment_gap <= 0)                opt->segment_gap  = theme->progress.segment_gap > 0 ? theme->progress.segment_gap : 2.0f;
     wlx_resolve_roundness(theme, &opt->roundness, &opt->rounded_segments);
@@ -16829,7 +16865,7 @@ WLXDEF void wlx_image_impl(WLX_Context *ctx, WLX_Texture texture, WLX_Image_Opt 
 
 static void wlx_resolve_opt_toggle(const WLX_Context *ctx, WLX_Toggle_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
-    opt->track_color        = wlx_color_or(opt->track_color,        wlx_color_or(theme->toggle.track, theme->slider.track));
+    opt->track_color        = wlx_color_or(opt->track_color,        wlx_color_or(theme->toggle.track, wlx_theme_slider_track(theme)));
     opt->track_active_color = wlx_color_or(opt->track_active_color, wlx_color_or(theme->toggle.track_active, theme->accent));
     opt->thumb_color        = wlx_color_or(opt->thumb_color,        wlx_color_or(theme->toggle.thumb, theme->foreground));
     if (wlx_color_is_zero(opt->front_color))       opt->front_color      = theme->foreground;
@@ -16948,7 +16984,7 @@ static void wlx_resolve_opt_radio(const WLX_Context *ctx, WLX_Radio_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
     opt->ring_color  = wlx_color_or(opt->ring_color,  wlx_color_or(theme->radio.ring, theme->border));
     opt->fill_color  = wlx_color_or(opt->fill_color,  wlx_color_or(theme->radio.fill, theme->accent));
-    if (wlx_color_is_zero(opt->front_color))  opt->front_color       = theme->foreground;
+    if (wlx_color_is_zero(opt->front_color))  opt->front_color       = wlx_theme_radio_label(theme);
     // Widget-specific ring border fallbacks (ring uses hardcoded roundness; no wlx_resolve_border)
     if (wlx_is_negative_unset(opt->ring_border_width)) opt->ring_border_width = theme->radio.border_width;
     if (wlx_is_negative_unset(opt->ring_border_width)) opt->ring_border_width = theme->border_width;
@@ -17056,7 +17092,7 @@ static void wlx_resolve_opt_scroll_panel(const WLX_Context *ctx, WLX_Scroll_Pane
     if (wlx_color_is_zero(opt->border_color))     opt->border_color               = theme->border;
     if (wlx_is_negative_unset(opt->border_width))            opt->border_width               = theme->border_width;
     if (wlx_is_float_unset(opt->scrollbar_hover_brightness)) opt->scrollbar_hover_brightness = theme->hover_brightness;
-    if (wlx_is_negative_unset(opt->scrollbar_width))       opt->scrollbar_width            = theme->scrollbar.width;
+    if (wlx_is_negative_unset(opt->scrollbar_width))       opt->scrollbar_width            = wlx_theme_scrollbar_width(theme);
     WLX_RESOLVE_VISUAL_STATE(ctx, opt, false,
         &opt->back_color, &opt->scrollbar_color, &opt->border_color,
         &opt->shadow_color, &opt->glow_color);

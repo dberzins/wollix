@@ -1180,8 +1180,7 @@ static WLX_Editor_Band wlx_editor_resolve_band(WLX_Context *ctx, const WLX_Edito
     // the horizontal one on the sticky max-seen line width. A
     // horizontal bar shortens the band, which can newly overflow it
     // vertically - resolved in one deterministic pass, no oscillation.
-    float sb_w = ctx->theme->scrollbar.width > 0.0f
-        ? ctx->theme->scrollbar.width : WLX_SCROLLBAR_FALLBACK_WIDTH;
+    float sb_w = wlx_theme_scrollbar_width(ctx->theme);
     // Wrapped content overflows when the document has more hard lines
     // than the band has rows (every line is at least one row), when
     // the view is already scrolled, or when the few visible lines
@@ -2307,8 +2306,8 @@ static void wlx_resolve_opt_editor(const WLX_Context *ctx, WLX_Editor_Opt *opt) 
     if (wlx_color_is_zero(opt->front_color))        opt->front_color        = theme->foreground;
     if (wlx_color_is_zero(opt->back_color))         opt->back_color         = theme->surface;
     if (wlx_is_negative_unset(opt->border_width))   opt->border_width       = theme->input.border_width;
-    if (wlx_color_is_zero(opt->border_focus_color)) opt->border_focus_color = theme->input.border_focus;
-    if (wlx_color_is_zero(opt->cursor_color))       opt->cursor_color       = theme->input.cursor;
+    if (wlx_color_is_zero(opt->border_focus_color)) opt->border_focus_color = wlx_theme_input_border_focus(theme);
+    if (wlx_color_is_zero(opt->cursor_color))       opt->cursor_color       = wlx_theme_input_cursor(theme);
     if (wlx_color_is_zero(opt->selection_color))    opt->selection_color    = theme->input.selection;
     if (wlx_color_is_zero(opt->selection_color)) {
         opt->selection_color = theme->accent;

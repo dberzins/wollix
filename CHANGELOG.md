@@ -512,6 +512,24 @@ minor.
   redo".
 
 ### Fixed
+- **A theme built from its global block draws every widget.** Nine of
+  `WLX_Theme`'s per-widget overrides documented a fallback the code never
+  applied, so a theme written from scratch drew an inputbox and editor
+  caret and focus border in a zero (transparent) colour, a slider with a
+  zero-height track and a zero-width thumb in zero colours, a checkbox
+  check in a zero colour, and a scroll panel with a zero-width bar. Each
+  zero override now takes its documented fallback, at every reader: the
+  focus border the accent; the caret, the slider's thumb and label and
+  the check the foreground; the slider track the colour midway between
+  the surface and the border (the toggle's and the progress bar's tracks
+  follow it); the slider track 6 px and thumb 14 px; the scroll panel's
+  bar 10 px, as the inputbox's and the editor's already were. The three
+  per-widget border widths keep their behaviour (negative is unset, 0 is
+  no border) and their comments now say so. The bundled presets set every
+  field, so no preset's look changes.
+- **`WLX_Theme.radio.label` is read.** It was declared and set in every
+  preset but never read; a radio's label colour now falls back to it
+  before the foreground.
 - **Word motion and the double-click word never split a cluster.** The
   backward word step and the word bounds scanned bytes, so a space
   carrying a combining mark (one grapheme cluster) was cut in two:
@@ -853,6 +871,10 @@ minor.
   called it calls `wlx_text_codepoint_prev(s, len, pos)`, which steps one
   byte over malformed input. Its cases now pin `wlx_text_codepoint_prev`,
   with a malformed-run case.
+- `WLX_Theme.toggle.track_height`: no code read it (a toggle's track is
+  as tall as its font size, and `track_to_height_ratio` sets its width),
+  and its comment promised a computed default that did not exist. A theme
+  that set it drops the line.
 - Six storage typedefs no API takes or returns: `WLX_Commands`,
   `WLX_Cmd_Ranges`, `WLX_Layout_Stack`, `WLX_Id_Stack`,
   `WLX_Opacity_Stack` and `WLX_Scroll_Panel_Stack`. The context has kept
