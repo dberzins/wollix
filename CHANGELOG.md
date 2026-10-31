@@ -153,7 +153,9 @@ values differ). Default
   application whose live set stays under it sees no change. Reclaimed
   blocks are recycled by size (bare-WASM builds, whose `free` is a no-op,
   reclaim too); an editor's line index and a widget's undo journal go with
-  their state entry. Migration: state that owns resources, or must outlive
+  their state entry, and so does the `WLX_DEBUG` content-slot oscillation
+  record, which follows the layout's id: a recycled block brings no bounce
+  history to the layout that receives it. Migration: state that owns resources, or must outlive
   long absences under pressure, defines `WLX_STATE_EVICT_THRESHOLD` as
   `0`; `WLX_State.data` is valid through the frame that returned it, so a
   pointer kept across frames is outside the contract (under an address
@@ -356,8 +358,9 @@ minor.
   `WLX_STATE_MIN_AGE` and `WLX_STATE_RECYCLE` are `#ifndef`-overridable
   before the include.
 - **State counts in the perf frame.** `WLX_Perf_Frame.state` carries the
-  state map's entries and slot capacity, the editor line index count and
-  the undo journal count at frame end; the gallery's benchmark CSV prints
+  state map's entries and slot capacity, and the live editor line indices
+  and undo journals at frame end (a reclaimed widget's item, kept zeroed
+  for reuse, is not counted); the gallery's benchmark CSV prints
   them and the desktop `WLX_PERF` dashboard reports each new peak on
   stderr.
 - **Every backend text call in the perf frame.** `WLX_Perf_Text_Stats`

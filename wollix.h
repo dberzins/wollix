@@ -1110,6 +1110,11 @@ typedef struct {
     size_t scissor_from;   // index into scissor_stack
 } WLX_Clip_Base;
 
+// Widget id: the key of interaction and persistent state, 64-bit on every
+// target. 0 is reserved for "no widget" and the empty slot. Values are not
+// stable across builds (the call site is part of the hash).
+typedef uint64_t WLX_Id;
+
 typedef struct WLX_Layout {
     WLX_Layout_Kind kind;
     WLX_Rect rect;
@@ -1151,6 +1156,7 @@ typedef struct WLX_Layout {
     size_t content_sizes_scratch_off;       // byte offset into ctx->scratch of that array;
                                             // read only via wlx_layout_content_sizes
     WLX_Content_Slot_State *content_state;  // persistent state pointer
+    WLX_Id content_state_id;                // that state's id (keys the debug oscillation check)
     size_t content_slot_measures_off;        // index into slot_size_offsets for the content measure buffer
     bool has_content_slot_measures;          // true when content_slot_measures_off is valid
     size_t grid_row_content_heights_off;    // index into slot_size_offsets for grid_row_content_heights
@@ -1399,11 +1405,6 @@ typedef struct WLX_Cmd WLX_Cmd;
 typedef struct WLX_Cmd_Range WLX_Cmd_Range;
 typedef struct WLX_Scroll_Panel_State WLX_Scroll_Panel_State;
 
-// Widget id: the key of interaction and persistent state, 64-bit on every
-// target. 0 is reserved for "no widget" and the empty slot. Values are not
-// stable across builds (the call site is part of the hash).
-typedef uint64_t WLX_Id;
-
 typedef struct {
     WLX_Allocator *contiguous;  // backs flat float offset arrays
     WLX_Allocator *general;     // backs scratch, commands, layouts, stacks
@@ -1532,7 +1533,8 @@ typedef struct {
 } WLX_Perf_Arena_Stats;
 
 // Persistent per-id storage the context holds at frame end: state map
-// entries and slot capacity, editor line indices, text undo journals.
+// entries and slot capacity, live editor line indices and text undo journals
+// (a reclaimed widget's item, retired in place for reuse, is not counted).
 typedef struct {
     size_t entries;
     size_t capacity;
@@ -4712,6 +4714,7 @@ static inline void wlx_dbg_split_begin(WLX_Context *ctx);
 static inline void wlx_dbg_split_suppress_warn(WLX_Context *ctx, bool suppress);
 static inline void wlx_dbg_split_next(WLX_Context *ctx, const char *file, int line);
 static inline void wlx_dbg_split_end(WLX_Context *ctx);
+static inline void wlx_dbg_companions_retire(WLX_Context *ctx);
 #endif // WLX_DEBUG
 
 #ifdef WLX_PERF
@@ -8208,10 +8211,12 @@ static inline bool wlx_prepare_content_sizes(
     const WLX_Slot_Size *sizes, size_t count,
     const char *file, int line,
     WLX_Content_Slot_State **out_state,
+    WLX_Id *out_state_id,
     size_t *out_sizes_off,
     WLX_Slot_Size *resolved)
 {
     *out_state     = NULL;
+    *out_state_id  = 0;
     *out_sizes_off = 0;
 
     if (!wlx_has_content_sizes(sizes, count)) return false;
@@ -8230,6 +8235,7 @@ static inline bool wlx_prepare_content_sizes(
     WLX_State persistent = wlx_get_state_impl(ctx, sizeof(WLX_Content_Slot_State), file, line);
     WLX_Content_Slot_State *state = (WLX_Content_Slot_State *)persistent.data;
     *out_state = state;
+    *out_state_id = persistent.id;
     for (size_t i = 0; i < count; i++) {
         resolved[i] = sizes[i];
         if (sizes[i].kind == WLX_SIZE_CONTENT) {
@@ -8295,15 +8301,17 @@ WLXDEF void wlx_layout_begin_impl(WLX_Context *ctx, size_t count, WLX_Orient ori
 
     // --- CONTENT slot pre-resolution ---
     WLX_Content_Slot_State *cstate = NULL;
+    WLX_Id cstate_id = 0;
     size_t sizes_off = 0;
     WLX_Slot_Size resolved[WLX_CONTENT_SLOTS_MAX];
     if (wlx_prepare_content_sizes(ctx, opt.sizes, count, file, line,
-            &cstate, &sizes_off, resolved)) {
+            &cstate, &cstate_id, &sizes_off, resolved)) {
         wlx_compute_slot_offsets(ctx, &l, resolved);
         size_t slot_measures_off = wlx_alloc_content_measure_buffer(ctx, count);
         l.has_content_sizes = true;
         l.content_sizes_scratch_off = sizes_off;
         l.content_state = cstate;
+        l.content_state_id = cstate_id;
         l.content_slot_measures_off = slot_measures_off;
         l.has_content_slot_measures = true;
     } else if (opt.sizes != NULL) {
@@ -8527,11 +8535,12 @@ WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_
 
     // --- CONTENT row pre-resolution ---
     WLX_Content_Slot_State *cstate = NULL;
+    WLX_Id cstate_id = 0;
     WLX_Slot_Size resolved[WLX_CONTENT_SLOTS_MAX];
     const WLX_Slot_Size *effective_row_sizes = opt.row_sizes;
     size_t sizes_copy_off = 0;
     if (wlx_prepare_content_sizes(ctx, opt.row_sizes, rows, file, line,
-            &cstate, &sizes_copy_off, resolved)) {
+            &cstate, &cstate_id, &sizes_copy_off, resolved)) {
         effective_row_sizes = resolved;
     }
 
@@ -8545,6 +8554,7 @@ WLXDEF void wlx_grid_begin_impl(WLX_Context *ctx, size_t rows, size_t cols, WLX_
         l.has_content_sizes = true;
         l.content_sizes_scratch_off = sizes_copy_off;
         l.content_state = cstate;
+        l.content_state_id = cstate_id;
     }
 
     // Always allocate per-row content tracking. Used both for CONTENT-row
@@ -9653,8 +9663,9 @@ static size_t wlx_state_map_sweep(WLX_State_Map *map, uint32_t frame_index, uint
 // Retire every editor line index and undo journal whose widget no longer
 // has a state entry: the buffers are freed and the item zeroed in place
 // (id 0 marks it free for the next widget), so nothing moves and no pointer
-// taken earlier in the frame moves either. A cache item can lose its
-// entry only through the sweep, so this runs only after one that evicted.
+// taken earlier in the frame moves either. Under WLX_DEBUG the content
+// oscillation companions of reclaimed layouts go too. A cache item can lose
+// its entry only through the sweep, so this runs only after one that evicted.
 static void wlx_state_caches_retire(WLX_Context *ctx) {
     WLX_State_Map *map = &ctx->states;
     for (size_t i = 0; i < ctx->editor_indices.count; i++) {
@@ -9673,6 +9684,7 @@ static void wlx_state_caches_retire(WLX_Context *ctx) {
         wlx_text_undo_stack_free(&j->redo);
         wlx_zero_struct(*j);
     }
+    WLX_DBG(companions_retire, ctx);
 }
 
 static size_t wlx_state_reclaim(WLX_Context *ctx, uint32_t min_age) {
@@ -18573,8 +18585,14 @@ static inline void wlx_perf_frame_publish(WLX_Context *ctx) {
     wlx_perf_capture_arenas(ctx);
     perf->current.state.entries = ctx->states.count;
     perf->current.state.capacity = ctx->states.capacity;
-    perf->current.state.editor_indices = ctx->editor_indices.count;
-    perf->current.state.undo_journals = ctx->text_undo.count;
+    // Live items only: a reclaimed widget's index or journal is retired in
+    // place (zeroed for reuse), not removed from its array.
+    perf->current.state.editor_indices = 0;
+    for (size_t i = 0; i < ctx->editor_indices.count; i++)
+        if (ctx->editor_indices.items[i].id != 0) perf->current.state.editor_indices++;
+    perf->current.state.undo_journals = 0;
+    for (size_t i = 0; i < ctx->text_undo.count; i++)
+        if (ctx->text_undo.items[i].id != 0) perf->current.state.undo_journals++;
     perf->last = perf->current;
     perf->capturing = false;
     if (wlx_perf_allocator_sink == &perf->current.allocator) {
@@ -18613,7 +18631,7 @@ typedef struct {
 } WLX_Debug_Content_Slot_State;
 
 typedef struct {
-    WLX_Content_Slot_State *key;
+    WLX_Id id;   // the CONTENT layout's state id
     WLX_Debug_Content_Slot_State *data;
 } WLX_Debug_Companion;
 
@@ -18656,7 +18674,8 @@ typedef struct WLX_Debug_Context {
     WLX_Id warned_site_keys[64];
     int warned_sites_count;
 
-    // Content-slot oscillation companions (keyed by content_state pointer)
+    // Content-slot oscillation companions, keyed by the layout's state id
+    // and released with that state (wlx_dbg_companions_retire)
     WLX_Debug_Companion content_companions[32];
     int content_companions_count;
 } WLX_Debug_Context;
@@ -18930,13 +18949,13 @@ static inline void wlx_dbg_layout_begin(WLX_Context *ctx, int vb_force,
 }
 
 static inline WLX_Debug_Content_Slot_State *wlx_dbg_get_companion(
-    WLX_Context *ctx, WLX_Content_Slot_State *key) {
+    WLX_Context *ctx, WLX_Id id) {
 
     WLX_Debug_Companion *comps = ctx->dbg->content_companions;
 
     // Linear scan - content-state instances are rare (<=10 typical)
     for (int i = 0; i < ctx->dbg->content_companions_count; i++) {
-        if (comps[i].key == key)
+        if (comps[i].id == id)
             return comps[i].data;
     }
     // Allocate new companion
@@ -18946,9 +18965,27 @@ static inline WLX_Debug_Content_Slot_State *wlx_dbg_get_companion(
         (WLX_Debug_Content_Slot_State *)wlx_calloc(1, sizeof(WLX_Debug_Content_Slot_State));
     if (!comp) return NULL;
     int ci = ctx->dbg->content_companions_count++;
-    comps[ci].key = key;
+    comps[ci].id = id;
     comps[ci].data = comp;
     return comp;
+}
+
+// Release the companion of every CONTENT layout whose state was reclaimed:
+// a companion follows its layout's id, so a block the reclamation hands to
+// another layout brings no oscillation history with it, and dead entries
+// do not fill the table.
+static inline void wlx_dbg_companions_retire(WLX_Context *ctx) {
+    if (!ctx->dbg) return;
+    WLX_Debug_Companion *comps = ctx->dbg->content_companions;
+    WLX_State_Map *map = &ctx->states;
+    for (int i = 0; i < ctx->dbg->content_companions_count; ) {
+        if (map->capacity != 0 && wlx_state_map_find(map, comps[i].id)->id == comps[i].id) {
+            i++;
+            continue;
+        }
+        wlx_free(comps[i].data);
+        comps[i] = comps[--ctx->dbg->content_companions_count];
+    }
 }
 
 static inline void wlx_dbg_layout_end(WLX_Context *ctx) {
@@ -18957,7 +18994,7 @@ static inline void wlx_dbg_layout_end(WLX_Context *ctx) {
     const WLX_Slot_Size *sizes = wlx_layout_content_sizes(ctx, l);
     if (l->content_state == NULL || sizes == NULL) return;
 
-    WLX_Debug_Content_Slot_State *comp = wlx_dbg_get_companion(ctx, l->content_state);
+    WLX_Debug_Content_Slot_State *comp = wlx_dbg_get_companion(ctx, l->content_state_id);
     if (!comp) return;
 
     // Determine iteration count and measure source based on layout kind

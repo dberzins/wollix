@@ -4836,7 +4836,9 @@ Core frame snapshot published after each completed `wlx_end()`.
 - `allocator` stores `wlx_malloc` / `wlx_calloc` / `wlx_realloc` / `wlx_free`
     counters and byte totals.
 - `state` stores the persistent storage held at frame end: state map
-    `entries` and slot `capacity`, `editor_indices` and `undo_journals`.
+    `entries` and slot `capacity`, and the live `editor_indices` and
+    `undo_journals` (a reclaimed widget's index or journal is retired in
+    place for reuse and not counted).
 
 Supporting core sub-structs:
 

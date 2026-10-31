@@ -11,7 +11,12 @@
 //   zeroed for the same size; backward-shift deletion agrees with a
 //   reference model over random sequences on a 64-slot table with crafted
 //   collisions across the wrap; a trigger no count reaches disables the
-//   automatic sweep while the explicit prune still works.
+//   automatic sweep while the explicit prune still works. Under WLX_DEBUG,
+//   the content oscillation check follows the layout's id: a reclaimed
+//   layout's companion is released with its state, so a recycled block
+//   brings no bounce history and pruned layouts do not fill the table.
+//   Under WLX_PERF, the frame's state counts drop when a reclaimed widget's
+//   index and journal are retired in place.
 
 #ifndef WOLLIX_H_
 #define WOLLIX_IMPLEMENTATION
@@ -431,6 +436,135 @@ TEST(password_drop_retires_in_place) {
     wlx_context_destroy(&ctx);
 }
 
+#ifdef WLX_PERF
+TEST(evict_perf_counts_live_caches) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char doc[64] = "one\ntwo";
+    size_t len = strlen(doc);
+    char box[64] = "";
+
+    sev_editor_frame(&ctx, doc, sizeof(doc), &len, 1);
+    sev_box_frame(&ctx, box, sizeof(box), false, NULL, false);
+    sev_box_frame(&ctx, box, sizeof(box), true, NULL, false);
+    sev_box_frame(&ctx, box, sizeof(box), false, "ab", false);
+    const WLX_Perf_Frame *pf = wlx_perf_get_last_frame(&ctx);
+    ASSERT_EQ_INT((int)pf->state.editor_indices, 1);
+    ASSERT_EQ_INT((int)pf->state.undo_journals, 1);
+
+    sev_empty_frames(&ctx, WLX_STATE_MIN_AGE + 2);
+    ctx.states.trigger = 1;
+    sev_empty_frames(&ctx, 1);
+    ASSERT_EQ_INT((int)ctx.editor_indices.count, 1);   // retired in place
+    ASSERT_EQ_INT((int)ctx.text_undo.count, 1);
+    pf = wlx_perf_get_last_frame(&ctx);
+    ASSERT_EQ_INT((int)pf->state.editor_indices, 0);
+    ASSERT_EQ_INT((int)pf->state.undo_journals, 0);
+
+    sev_editor_frame(&ctx, doc, sizeof(doc), &len, 1);  // the item reused
+    pf = wlx_perf_get_last_frame(&ctx);
+    ASSERT_EQ_INT((int)pf->state.editor_indices, 1);
+    ASSERT_EQ_INT((int)pf->state.undo_journals, 0);
+    wlx_context_destroy(&ctx);
+}
+#endif
+
+#ifdef WLX_DEBUG
+static int sev_osc_warns;
+
+static void sev_warn_cb(const char *file, int line, const char *msg, void *user) {
+    (void)file; (void)line; (void)user;
+    if (strstr(msg, "oscillation") != NULL) sev_osc_warns++;
+}
+
+static void sev_quiet_debug(WLX_Context *ctx) {
+    wlx_dbg_init(ctx);
+    ctx->dbg->warn_cb = sev_warn_cb;
+    sev_osc_warns = 0;
+}
+
+// A layout with one CONTENT slot at a synthetic site under push_id(k), the
+// slot measuring a widget of height h. Returns the layout's content state.
+static WLX_Content_Slot_State *sev_content_layout(WLX_Context *ctx, const char *file,
+                                                  WLX_Id k, float h) {
+    wlx_push_id(ctx, k);
+    wlx_layout_begin_impl(ctx, 1, WLX_VERT, wlx_default_layout_opt(
+        .sizes = (WLX_Slot_Size[]){ WLX_SLOT_CONTENT }, .padding = 0, .gap = 0),
+        file, 1);
+    WLX_Content_Slot_State *cs =
+        wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].content_state;
+    wlx_widget(ctx, .height = h);
+    wlx_layout_end(ctx);
+    wlx_pop_id(ctx);
+    return cs;
+}
+
+static void sev_content_frame(WLX_Context *ctx, const char *file, WLX_Id k, float h) {
+    test_frame_begin(ctx, 0, 0, false, false);
+    sev_content_layout(ctx, file, k, h);
+    test_frame_end(ctx);
+}
+
+TEST(evict_recycled_content_block_brings_no_oscillation) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    sev_quiet_debug(&ctx);
+
+    // Layout A bounces 10 <-> 37: two bounces counted, one short of the
+    // warning.
+    const float hs[] = { 10, 37, 10, 37 };
+    WLX_Content_Slot_State *a = NULL;
+    for (int f = 0; f < 4; f++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        a = sev_content_layout(&ctx, "sev/osc_a.c", 0, hs[f]);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_INT(sev_osc_warns, 0);
+    ASSERT_EQ_INT(ctx.dbg->content_companions_count, 1);
+    sev_empty_frames(&ctx, 1);
+    ASSERT_EQ_INT((int)wlx_state_prune(&ctx, 1), 1);
+    ASSERT_EQ_INT(ctx.dbg->content_companions_count, 0);
+
+    // Steady layout B: its first frame measures 0 -> 10, which against A's
+    // history would read as the third bounce.
+    for (int f = 0; f < 3; f++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        WLX_Content_Slot_State *b = sev_content_layout(&ctx, "sev/osc_b.c", 0, 10);
+#if WLX_STATE_RECYCLE
+        ASSERT_TRUE(b == a);                     // A's block, recycled
+#else
+        (void)b; (void)a;
+#endif
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_INT(sev_osc_warns, 0);
+    ASSERT_EQ_INT(ctx.dbg->content_companions_count, 1);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(evict_releases_content_companions) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    sev_quiet_debug(&ctx);
+
+    // More CONTENT layouts than the companion table holds.
+    test_frame_begin(&ctx, 0, 0, false, false);
+    for (WLX_Id k = 0; k < 40; k++) sev_content_layout(&ctx, "sev/osc_c.c", k, 10);
+    test_frame_end(&ctx);
+    ASSERT_TRUE(ctx.dbg->content_companions_count > 0);
+    sev_empty_frames(&ctx, 1);
+    ASSERT_EQ_INT((int)wlx_state_prune(&ctx, 1), 40);
+    ASSERT_EQ_INT(ctx.dbg->content_companions_count, 0);
+
+    // A new layout still gets a companion, and its bounce is reported.
+    const float hs[] = { 10, 37, 10, 37, 10, 37 };
+    for (int f = 0; f < 6; f++) sev_content_frame(&ctx, "sev/osc_d.c", 0, hs[f]);
+    ASSERT_EQ_INT(ctx.dbg->content_companions_count, 1);
+    ASSERT_EQ_INT(sev_osc_warns, 1);
+    wlx_context_destroy(&ctx);
+}
+#endif
+
 // ============================================================================
 // Suite
 // ============================================================================
@@ -449,4 +583,11 @@ SUITE(state_evict) {
     RUN_TEST(cascade_keeps_live);
     RUN_TEST(retired_item_reused);
     RUN_TEST(password_drop_retires_in_place);
+#ifdef WLX_PERF
+    RUN_TEST(evict_perf_counts_live_caches);
+#endif
+#ifdef WLX_DEBUG
+    RUN_TEST(evict_recycled_content_block_brings_no_oscillation);
+    RUN_TEST(evict_releases_content_companions);
+#endif
 }
