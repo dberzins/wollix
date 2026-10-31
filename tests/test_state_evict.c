@@ -287,13 +287,7 @@ TEST(evict_backward_shift_model) {
             else ASSERT_TRUE(s->id == 0);
         }
     }
-    for (size_t i = 0; i < map.capacity; i++) if (map.slots[i].id != 0) wlx_free(map.slots[i].data);
-    for (size_t i = 0; i < map.free_class_count; i++) {
-        void *b = map.free_classes[i].head;
-        while (b) { void *n; memcpy(&n, b, sizeof n); wlx_free(b); b = n; }
-    }
-    wlx_free(map.free_classes);
-    wlx_free(map.slots);
+    wlx_state_map_destroy(&map);
 }
 
 TEST(evict_unreachable_trigger_disables_sweep) {

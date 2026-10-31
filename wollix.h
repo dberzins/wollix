@@ -7670,42 +7670,38 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
 // terminal lifecycle exit.
 static void wlx_text_geom_store_free(WLX_Text_Geom_Store *s);
 static void wlx_text_undo_stack_free(WLX_Text_Undo_Stack *s);
+static void wlx_state_map_destroy(WLX_State_Map *map);
+
+// Release an editor line index's buffers and zero the item in place: id 0
+// marks it free for the next widget, and items in the cache never move.
+static void wlx_editor_index_release(WLX_Editor_Line_Index *idx) {
+    wlx_free(idx->offsets);
+    wlx_text_geom_store_free(&idx->geom);
+    wlx_zero_struct(*idx);
+}
+
+// Release an undo journal's two stacks and zero the item in place, as
+// above.
+static void wlx_text_undo_journal_release(WLX_Text_Undo_Journal *j) {
+    wlx_text_undo_stack_free(&j->undo);
+    wlx_text_undo_stack_free(&j->redo);
+    wlx_zero_struct(*j);
+}
 
 WLXDEF void wlx_context_destroy(WLX_Context *ctx) {
     WLX_PERF_HOOK(destroy, ctx);
-    // Free state map data entries and the reclaimed blocks kept for reuse
-    for (size_t i = 0; i < ctx->states.capacity; i++) {
-        if (ctx->states.slots[i].id != 0) {
-            wlx_free(ctx->states.slots[i].data);
-        }
-    }
-    for (size_t i = 0; i < ctx->states.free_class_count; i++) {
-        void *block = ctx->states.free_classes[i].head;
-        while (block != NULL) {
-            void *next;
-            memcpy(&next, block, sizeof(void *));
-            wlx_free(block);
-            block = next;
-        }
-    }
-    wlx_free(ctx->states.free_classes);
-    // Release pool-owned per-frame buffers and the persistent state map.
+    wlx_state_map_destroy(&ctx->states);
+    // Release pool-owned per-frame buffers.
     wlx_arena_pool_destroy(&ctx->arena);
     wlx_free(ctx->cands[0].items);
     wlx_free(ctx->cands[1].items);
-    wlx_free(ctx->states.slots);
     wlx_free(ctx->text_line_scratch);
     wlx_free(ctx->menu_stack);
-    for (size_t i = 0; i < ctx->editor_indices.count; i++) {
-        WLX_Editor_Line_Index *idx = &ctx->editor_indices.items[i];
-        wlx_free(idx->offsets);
-        wlx_text_geom_store_free(&idx->geom);
-    }
+    for (size_t i = 0; i < ctx->editor_indices.count; i++)
+        wlx_editor_index_release(&ctx->editor_indices.items[i]);
     wlx_free(ctx->editor_indices.items);
-    for (size_t i = 0; i < ctx->text_undo.count; i++) {
-        wlx_text_undo_stack_free(&ctx->text_undo.items[i].undo);
-        wlx_text_undo_stack_free(&ctx->text_undo.items[i].redo);
-    }
+    for (size_t i = 0; i < ctx->text_undo.count; i++)
+        wlx_text_undo_journal_release(&ctx->text_undo.items[i]);
     wlx_free(ctx->text_undo.items);
     WLX_DBG(destroy, ctx);
     // Zero out the context so it's safe to reuse or free
@@ -9574,6 +9570,34 @@ static WLX_State_Map_Slot *wlx_state_map_find(WLX_State_Map *map, WLX_Id id) {
     }
 }
 
+// The live entry for `id`, or NULL when the map holds none (an empty map,
+// which find cannot probe, included).
+static WLX_State_Map_Slot *wlx_state_map_lookup(WLX_State_Map *map, WLX_Id id) {
+    if (map->capacity == 0 || id == 0) return NULL;
+    WLX_State_Map_Slot *slot = wlx_state_map_find(map, id);
+    return slot->id == id ? slot : NULL;
+}
+
+// Free every entry's data block, the reclaimed blocks kept for reuse and
+// the tables themselves, leaving the map empty.
+static void wlx_state_map_destroy(WLX_State_Map *map) {
+    for (size_t i = 0; i < map->capacity; i++) {
+        if (map->slots[i].id != 0) wlx_free(map->slots[i].data);
+    }
+    for (size_t i = 0; i < map->free_class_count; i++) {
+        void *block = map->free_classes[i].head;
+        while (block != NULL) {
+            void *next;
+            memcpy(&next, block, sizeof(void *));
+            wlx_free(block);
+            block = next;
+        }
+    }
+    wlx_free(map->free_classes);
+    wlx_free(map->slots);
+    wlx_zero_struct(*map);
+}
+
 // Grow and rehash when load factor exceeded
 static void wlx_state_map_grow(WLX_State_Map *map) {
     size_t old_cap = map->capacity;
@@ -9714,22 +9738,15 @@ static size_t wlx_state_map_sweep(WLX_State_Map *map, uint32_t frame_index, uint
 // oscillation companions of reclaimed layouts go too. A cache item can lose
 // its entry only through the sweep, so this runs only after one that evicted.
 static void wlx_state_caches_retire(WLX_Context *ctx) {
-    WLX_State_Map *map = &ctx->states;
     for (size_t i = 0; i < ctx->editor_indices.count; i++) {
         WLX_Editor_Line_Index *idx = &ctx->editor_indices.items[i];
-        if (idx->id == 0) continue;
-        if (map->capacity != 0 && wlx_state_map_find(map, idx->id)->id == idx->id) continue;
-        wlx_free(idx->offsets);
-        wlx_text_geom_store_free(&idx->geom);
-        wlx_zero_struct(*idx);
+        if (idx->id != 0 && wlx_state_map_lookup(&ctx->states, idx->id) == NULL)
+            wlx_editor_index_release(idx);
     }
     for (size_t i = 0; i < ctx->text_undo.count; i++) {
         WLX_Text_Undo_Journal *j = &ctx->text_undo.items[i];
-        if (j->id == 0) continue;
-        if (map->capacity != 0 && wlx_state_map_find(map, j->id)->id == j->id) continue;
-        wlx_text_undo_stack_free(&j->undo);
-        wlx_text_undo_stack_free(&j->redo);
-        wlx_zero_struct(*j);
+        if (j->id != 0 && wlx_state_map_lookup(&ctx->states, j->id) == NULL)
+            wlx_text_undo_journal_release(j);
     }
     WLX_DBG(companions_retire, ctx);
 }
@@ -14497,10 +14514,7 @@ static WLX_Text_Undo_Journal *wlx_text_undo_find(WLX_Context *ctx, WLX_Id id) {
 // this cache never move.
 static void wlx_text_undo_drop(WLX_Context *ctx, WLX_Id id) {
     WLX_Text_Undo_Journal *j = wlx_text_undo_find(ctx, id);
-    if (j == NULL) return;
-    wlx_text_undo_stack_free(&j->undo);
-    wlx_text_undo_stack_free(&j->redo);
-    wlx_zero_struct(*j);
+    if (j != NULL) wlx_text_undo_journal_release(j);
 }
 
 // Drop a widget's history when it has one, at the given document length:
@@ -17334,9 +17348,9 @@ static void wlx_scroll_panel_close(WLX_Context *ctx) {
     // deltas are clamped to the stale (previous-frame) content_height, then
     // the content_height changes, and next frame's clamp snaps the offset
     // to a different value - producing visible flicker.
-    if (state_sp->auto_height && ctx->auto_scroll.panel_id != 0 && ctx->states.capacity > 0) {
-        WLX_State_Map_Slot *slot = wlx_state_map_find(&ctx->states, ctx->auto_scroll.panel_id);
-        if (slot->id != 0) {
+    if (state_sp->auto_height) {
+        WLX_State_Map_Slot *slot = wlx_state_map_lookup(&ctx->states, ctx->auto_scroll.panel_id);
+        if (slot != NULL) {
             WLX_Scroll_Panel_State *state = (WLX_Scroll_Panel_State *)slot->data;
             float measured = ctx->auto_scroll.total_height;
             if (measured > 0) {
@@ -19037,9 +19051,8 @@ static inline WLX_Debug_Content_Slot_State *wlx_dbg_get_companion(
 static inline void wlx_dbg_companions_retire(WLX_Context *ctx) {
     if (!ctx->dbg) return;
     WLX_Debug_Companion *comps = ctx->dbg->content_companions;
-    WLX_State_Map *map = &ctx->states;
     for (int i = 0; i < ctx->dbg->content_companions_count; ) {
-        if (map->capacity != 0 && wlx_state_map_find(map, comps[i].id)->id == comps[i].id) {
+        if (wlx_state_map_lookup(&ctx->states, comps[i].id) != NULL) {
             i++;
             continue;
         }
