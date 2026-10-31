@@ -5538,6 +5538,17 @@ static inline WLX_Rect wlx_rect_inset_sides(WLX_Rect r,
     return r;
 }
 
+// A clip rect in whole numbers, for a backend scissor: each edge rounded on
+// its own. Rounding x and w separately would let their errors add (a
+// device-grid edge times the scale, 33.333 * 1.5 = 49.99999, truncated to
+// 49 plus a truncated width drops a column).
+static inline void wlx_rect_round_edges(WLX_Rect r, int *x0, int *y0, int *x1, int *y1) {
+    *x0 = (int)floorf(r.x + 0.5f);
+    *y0 = (int)floorf(r.y + 0.5f);
+    *x1 = (int)floorf(r.x + r.w + 0.5f);
+    *y1 = (int)floorf(r.y + r.h + 0.5f);
+}
+
 typedef struct {
     float top, right, bottom, left;
 } WLX_Resolved_Padding;
@@ -6950,6 +6961,19 @@ WLXDEF size_t wlx_clipboard_get_copy(WLX_Context *ctx, char *out, size_t out_siz
     memcpy(out, src, copy);
     out[copy] = '\0';
     return copy;
+}
+
+// A backend clipboard transport's C string: the span copied into a
+// grow-and-reuse buffer (wlx_buf_reserve), NUL terminated, capped at
+// max - 1 bytes and cut at a UTF-8 boundary there. NULL when the buffer
+// cannot grow; text may be NULL when len is 0.
+static inline const char *wlx_clipboard_cstr(char **buf, size_t *cap,
+                                             const char *text, size_t len, size_t max) {
+    if (len > max - 1) len = wlx_utf8_floor(text, max - 1);
+    if (!wlx_buf_reserve(buf, cap, len + 1)) return NULL;
+    if (len > 0) memcpy(*buf, text, len);
+    (*buf)[len] = '\0';
+    return *buf;
 }
 
 WLXDEF bool wlx_rect_contains(WLX_Rect r, float px, float py) {

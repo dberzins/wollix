@@ -740,10 +740,8 @@ static inline void wlx_raylib_begin_scissor(WLX_Rect rect, void *user) {
     // grid between units (33.5 at 2x) cannot be expressed exactly; rounding
     // each edge on its own keeps the error to one device pixel and stops it
     // compounding through the width.
-    int x0 = (int)floorf(rect.x + 0.5f);
-    int y0 = (int)floorf(rect.y + 0.5f);
-    int x1 = (int)floorf(rect.x + rect.w + 0.5f);
-    int y1 = (int)floorf(rect.y + rect.h + 0.5f);
+    int x0, y0, x1, y1;
+    wlx_rect_round_edges(rect, &x0, &y0, &x1, &y1);
     BeginScissorMode(x0, y0, x1 - x0, y1 - y0);
     WLX_RAYLIB_SCOPE_END(scissor_ns);
 }
@@ -801,22 +799,14 @@ static inline const char *wlx_raylib_clipboard_get(void *user) {
 
 static inline void wlx_raylib_clipboard_set(const char *text, size_t len, void *user) {
     WLX_UNUSED(user);
-    // SetClipboardText needs a NUL-terminated string; copy the span into a
-    // core wlx_buf_reserve grow-and-reuse buffer (process lifetime) so
-    // arbitrarily long spans survive, bounded only by the soft cap.
+    // SetClipboardText needs a NUL-terminated string; the copy lives in a
+    // grow-and-reuse buffer (process lifetime) so arbitrarily long spans
+    // survive, bounded only by the soft cap.
     static char *buf = NULL;
     static size_t cap = 0;
     if (text == NULL) return;
-    if (len > WLX_RAYLIB_CLIPBOARD_MAX - 1) {
-        len = WLX_RAYLIB_CLIPBOARD_MAX - 1;
-        // Never split a UTF-8 sequence at the cap (text[len] stays inside
-        // the original span here, since the original length exceeds it).
-        len = wlx_utf8_floor(text, len);
-    }
-    if (!wlx_buf_reserve(&buf, &cap, len + 1)) return;
-    memcpy(buf, text, len);
-    buf[len] = '\0';
-    SetClipboardText(buf);
+    const char *copy = wlx_clipboard_cstr(&buf, &cap, text, len, WLX_RAYLIB_CLIPBOARD_MAX);
+    if (copy != NULL) SetClipboardText(copy);
 }
 
 // The core calls this only when the resolved shape changes. The enum is

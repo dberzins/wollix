@@ -1818,13 +1818,8 @@ static inline void wlx_sdl3_begin_scissor(WLX_Rect rect, void *user) {
     WLX_SDL3_PERF_INC(begin_scissor_calls);
     WLX_SDL3_PERF_INC(clip_change_calls);
 
-    // Edges rounded on their own: a device-grid boundary times the scale is a
-    // whole pixel only up to float error (33.333 * 1.5 = 49.99999), and a
-    // truncated x plus a truncated w would drop a pixel column.
-    int x0 = (int)floorf(rect.x + 0.5f);
-    int y0 = (int)floorf(rect.y + 0.5f);
-    int x1 = (int)floorf(rect.x + rect.w + 0.5f);
-    int y1 = (int)floorf(rect.y + rect.h + 0.5f);
+    int x0, y0, x1, y1;
+    wlx_rect_round_edges(rect, &x0, &y0, &x1, &y1);
     SDL_Rect r = { .x = x0, .y = y0, .w = x1 - x0, .h = y1 - y0 };
     WLX_SDL3_PERF_INC(set_clip_rect_calls);
     SDL_SetRenderClipRect(g_wlx_sdl3.renderer, &r);
@@ -1890,36 +1885,21 @@ static inline const char *wlx_sdl3_clipboard_get(void *user) {
     static char *buf = NULL;
     static size_t cap = 0;
     char *text = SDL_GetClipboardText();
-    size_t len = text != NULL ? strlen(text) : 0;
-    if (len > WLX_SDL3_CLIPBOARD_MAX - 1) {
-        len = WLX_SDL3_CLIPBOARD_MAX - 1;
-        len = wlx_utf8_floor(text, len);
-    }
-    if (!wlx_buf_reserve(&buf, &cap, len + 1)) {
-        if (text != NULL) SDL_free(text);
-        return "";
-    }
-    if (len > 0) memcpy(buf, text, len);
-    buf[len] = '\0';
+    const char *copy = wlx_clipboard_cstr(&buf, &cap, text,
+        text != NULL ? strlen(text) : 0, WLX_SDL3_CLIPBOARD_MAX);
     if (text != NULL) SDL_free(text);
-    return buf;
+    return copy != NULL ? copy : "";
 }
 
 static inline void wlx_sdl3_clipboard_set(const char *text, size_t len, void *user) {
     WLX_UNUSED(user);
-    // SDL_SetClipboardText needs a NUL-terminated string; same core
-    // wlx_buf_reserve grow-and-reuse discipline as the get side.
+    // SDL_SetClipboardText needs a NUL-terminated string; the same
+    // grow-and-reuse copy as the get side.
     static char *buf = NULL;
     static size_t cap = 0;
     if (text == NULL) return;
-    if (len > WLX_SDL3_CLIPBOARD_MAX - 1) {
-        len = WLX_SDL3_CLIPBOARD_MAX - 1;
-        len = wlx_utf8_floor(text, len);
-    }
-    if (!wlx_buf_reserve(&buf, &cap, len + 1)) return;
-    memcpy(buf, text, len);
-    buf[len] = '\0';
-    SDL_SetClipboardText(buf);
+    const char *copy = wlx_clipboard_cstr(&buf, &cap, text, len, WLX_SDL3_CLIPBOARD_MAX);
+    if (copy != NULL) SDL_SetClipboardText(copy);
 }
 
 // SDL cursors are objects: create each system cursor on first use and keep
