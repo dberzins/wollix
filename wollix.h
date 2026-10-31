@@ -2025,9 +2025,9 @@ static inline void wlx_arena_pool_destroy(WLX_Arena_Pool *pool) {
 
 // Request token for WLX_CONTENT_PADDING_FIELDS uniform `content_padding`.
 // Pass `.content_padding = WLX_PADDING_USE_THEME` to opt a widget into the
-// project-wide inner padding knob (WLX_Theme.padding, defaulting to
-// WLX_STYLE_CONTENT_PADDING). Numerically distinct from WLX_UNSET so the
-// resolver can tell "unset" apart from "explicit theme request".
+// project-wide inner padding knob, WLX_Theme.padding (0 in the three
+// bundled presets). Numerically distinct from WLX_UNSET so the resolver can
+// tell "unset" apart from "explicit theme request".
 #define WLX_PADDING_USE_THEME (-2.0f)
 
 // Sentinel for WLX_Parent_Contribution slot_index / grid_row: skips the
@@ -2938,7 +2938,7 @@ typedef enum {
 // constants below for the text fields and the compound ones - so writing
 // WLX_UNSET means the same as
 // omitting the field; a uniform of WLX_PADDING_USE_THEME opts in to the
-// theme's `padding` knob (default WLX_STYLE_CONTENT_PADDING). The resolver
+// theme's `padding` knob (0 in the bundled presets). The resolver
 // clamps the resolved inset proportionally so the content rect never has
 // negative dimensions.
 // The text fields' default inset, shared by wlx_inputbox and wlx_editor.
@@ -5495,7 +5495,9 @@ static inline WLX_Resolved_Padding wlx_resolve_padding(
 // falls back to the uniform. An unset uniform resolves to `widget_default`
 // (0 for leaf widgets, the widget's documented inset for compound ones)
 // unless it is WLX_PADDING_USE_THEME, in which case the side resolves to
-// the theme's `padding` knob (WLX_STYLE_CONTENT_PADDING default).
+// the theme's `padding` knob (0 in the bundled presets;
+// WLX_STYLE_CONTENT_PADDING only for a NULL theme, which wlx_begin never
+// leaves in a frame).
 static inline WLX_Resolved_Padding wlx_resolve_content_padding_ex(
     const WLX_Theme *theme, float widget_default,
     float uniform, float pt, float pr, float pb, float pl) {

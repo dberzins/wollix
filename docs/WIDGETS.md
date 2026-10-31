@@ -313,8 +313,9 @@ Resolution rules (same for every consumer):
   widgets and to the compound widget's own default; writing `WLX_UNSET`
   explicitly means the same as omitting the field.
 - `WLX_PADDING_USE_THEME` on the uniform (`-2.0f`) resolves all
-  still-unset sides to the theme's `padding` knob
-  (`WLX_STYLE_CONTENT_PADDING` by default).
+  still-unset sides to the theme's `padding` knob. The three bundled
+  presets set it to 0, so the token pads only under a theme that sets
+  `padding`.
 - On tight rects the resolved padding is clamped proportionally so the
   content rect never has negative dimensions.
 

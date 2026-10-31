@@ -166,7 +166,7 @@ are not unset markers and never appear in a default macro.
 
 | Token | Where | Meaning |
 |---|---|---|
-| `WLX_PADDING_USE_THEME` (`-2.0f`) | uniform `content_padding` | resolve all still-unset sides to the theme's `padding` knob (`WLX_STYLE_CONTENT_PADDING` by default) |
+| `WLX_PADDING_USE_THEME` (`-2.0f`) | uniform `content_padding` | resolve all still-unset sides to the theme's `padding` knob (0 in the three bundled presets, so the token pads only under a theme that sets it) |
 | `WLX_SCROLL_AUTO_HEIGHT` (`-1.0f`) | the `content_height` argument of `wlx_scroll_panel_begin` | measure the content during the frame |
 
 ---
