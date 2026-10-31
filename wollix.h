@@ -10003,25 +10003,11 @@ static inline size_t wlx_text_codepoint_prev(const char *text, size_t length, si
 }
 
 // Byte class used by word-wise cursor motion: whitespace separates words;
-// every other byte is a word byte. Scanning single bytes is UTF-8 safe here
-// because the separators are ASCII and multibyte sequences never contain
-// ASCII bytes, so the returned positions always land on codepoint boundaries.
+// every other byte is a word byte. The separators are ASCII, which never
+// occurs inside a multibyte sequence; the word steps and word bounds below
+// the unit stepper read a unit's class from its first byte.
 static inline bool wlx_utf8_is_word_separator(char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
-}
-
-// Move left to the start of the previous word: skip separators, then the word.
-static inline size_t wlx_utf8_word_prev(const char *s, size_t byte_pos) {
-    while (byte_pos > 0 && wlx_utf8_is_word_separator(s[byte_pos - 1])) byte_pos--;
-    while (byte_pos > 0 && !wlx_utf8_is_word_separator(s[byte_pos - 1])) byte_pos--;
-    return byte_pos;
-}
-
-// Move right to the end of the next word: skip separators, then the word.
-static inline size_t wlx_utf8_word_next(const char *s, size_t byte_pos, size_t len) {
-    while (byte_pos < len && wlx_utf8_is_word_separator(s[byte_pos])) byte_pos++;
-    while (byte_pos < len && !wlx_utf8_is_word_separator(s[byte_pos])) byte_pos++;
-    return byte_pos;
 }
 
 #ifndef WLX_TEXT_RUN_MAX_UNITS
@@ -10410,6 +10396,34 @@ static inline size_t wlx_text_unit_prev(const char *text, size_t length, size_t 
     while (prev > 0 && !wlx_text_unit_boundary(text, length, prev))
         prev = wlx_text_codepoint_prev(text, length, prev);
     return prev;
+}
+
+// Start of the word before pos: skip the separator units before it, then
+// the word units. A unit's class is its first byte's, so a space carrying
+// a combining mark is one separator unit and the step never stops inside
+// it.
+static inline size_t wlx_text_word_prev(const char *text, size_t length, size_t pos) {
+    if (pos > length) pos = length;
+    while (pos > 0) {
+        size_t p = wlx_text_unit_prev(text, length, pos);
+        if (!wlx_utf8_is_word_separator(text[p])) break;
+        pos = p;
+    }
+    while (pos > 0) {
+        size_t p = wlx_text_unit_prev(text, length, pos);
+        if (wlx_utf8_is_word_separator(text[p])) break;
+        pos = p;
+    }
+    return pos;
+}
+
+// End of the word after pos: skip separators, then the word. It stops
+// before a separator byte or at the end, and an ASCII byte never joins the
+// unit before it, so a byte walk already lands on unit boundaries.
+static inline size_t wlx_text_word_next(const char *text, size_t length, size_t pos) {
+    while (pos < length && wlx_utf8_is_word_separator(text[pos])) pos++;
+    while (pos < length && !wlx_utf8_is_word_separator(text[pos])) pos++;
+    return pos;
 }
 
 static inline bool wlx_measure_text_range(WLX_Context *ctx, const char *text, size_t length, size_t start, size_t end,
@@ -12683,8 +12697,10 @@ static inline size_t wlx_text_offset_at_point(WLX_Context *ctx, WLX_Rect rect, c
 
 // Word range around a byte offset: the run of word bytes containing it, or
 // the run of separators when the offset sits between words (mirrors common
-// double-click behaviour). Byte-level scanning is UTF-8 safe because the
-// separators are ASCII.
+// double-click behaviour). The byte runs are UTF-8 safe because the
+// separators are ASCII; each end is then rounded up to a unit boundary, so
+// a space carrying a combining mark goes with the separators and never
+// splits.
 static void wlx_text_word_bounds(const char *text, size_t length, size_t offset,
     size_t *out_start, size_t *out_end)
 {
@@ -12702,6 +12718,8 @@ static void wlx_text_word_bounds(const char *text, size_t length, size_t offset,
     size_t end = offset;
     while (start > 0 && wlx_utf8_is_word_separator(text[start - 1]) == sep_class) start--;
     while (end < length && wlx_utf8_is_word_separator(text[end]) == sep_class) end++;
+    if (!wlx_text_unit_boundary(text, length, start)) start = wlx_text_unit_next(text, length, start);
+    if (!wlx_text_unit_boundary(text, length, end)) end = wlx_text_unit_next(text, length, end);
     if (out_start) *out_start = start;
     if (out_end) *out_end = end;
 }
@@ -15148,11 +15166,11 @@ static inline size_t wlx_text_edit_step(const char *buffer, size_t length, size_
 {
     if (forward) {
         if (pos >= length) return pos;
-        return word ? wlx_utf8_word_next(buffer, pos, length)
+        return word ? wlx_text_word_next(buffer, length, pos)
                     : wlx_text_unit_next(buffer, length, pos);
     }
     if (pos == 0) return pos;
-    return word ? wlx_utf8_word_prev(buffer, pos) : wlx_text_unit_prev(buffer, length, pos);
+    return word ? wlx_text_word_prev(buffer, length, pos) : wlx_text_unit_prev(buffer, length, pos);
 }
 
 // The one journaled replace: the live selection is deleted, then `len`

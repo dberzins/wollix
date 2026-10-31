@@ -12,7 +12,9 @@
 // truncation, read-only and password fields, the forget rules, keys and
 // the mouse off while composing, the text-input-area pushes, wrapped
 // reflow and the editor's index patched (no rebuild) across composing
-// frames.
+// frames. Last, word motion on the same four shapes: Ctrl+Left,
+// Ctrl+Backspace and the double-click word never stop inside a space that
+// carries a combining mark (one text unit).
 //
 // Geometry model (mock backend): char width = font_size/2 = 5 px at
 // font_size 10, line height 10. Fixtures: a 400x100 context holding one
@@ -2185,6 +2187,72 @@ TEST(ime_span_held_by_an_undrawn_field_is_adopted_when_drawn) {
     }
 }
 
+// ============================================================================
+// Word motion over text units (every shape: a rule of the shared edit phase)
+// ============================================================================
+
+// "xy ab " + U+0301: the space and the mark are one unit [5, 8). The word
+// steps treat it as the separator it starts with, landing where a plain
+// space would.
+static void word_steps_body(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[64] = "xy ab \xCC\x81";
+    size_t len = strlen(buf);
+
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ASSERT_EQ_INT(8, (int)ime_caret(&ctx)->cursor_pos);
+    ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_LEFT, WLX_MOD_CTRL);
+    ASSERT_EQ_INT(3, (int)ime_caret(&ctx)->cursor_pos);
+    ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, 0);
+    ASSERT_EQ_INT(8, (int)ime_caret(&ctx)->cursor_pos);
+    ime_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_BACKSPACE, WLX_MOD_CTRL);
+    ASSERT_EQ_STR(buf, "xy ");
+    ASSERT_EQ_INT(3, (int)ime_caret(&ctx)->cursor_pos);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(word_steps_never_split_a_unit) {
+    IME_FOR_SHAPES(ime_shapes, word_steps_body);
+}
+
+// A double-click at screen x on "x " + U+0301 + "yz" (text origin x 9,
+// 5 px a byte): returns the selection as anchor / caret.
+static void word_double_click(Ime_Widget w, int x, size_t *anchor, size_t *caret) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[64] = "x \xCC\x81yz";
+    size_t len = strlen(buf);
+
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    ime_idle(&ctx, buf, sizeof(buf), &len);
+    for (int i = 0; i < 2; i++) {
+        ime_frame(&ctx, buf, sizeof(buf), &len, x, 50, true, WLX_KEY_NONE, 0, NULL);
+        ime_frame(&ctx, buf, sizeof(buf), &len, x, 50, false, WLX_KEY_NONE, 0, NULL);
+    }
+    *anchor = ime_caret(&ctx)->selection_anchor;
+    *caret = ime_caret(&ctx)->cursor_pos;
+    wlx_context_destroy(&ctx);
+}
+
+static void word_double_click_body(Ime_Widget w) {
+    size_t anchor = 0, caret = 0;
+    // On "yz" (x 30 hits offset 4): the word, without the mark.
+    word_double_click(w, 30, &anchor, &caret);
+    ASSERT_EQ_INT(4, (int)anchor);
+    ASSERT_EQ_INT(6, (int)caret);
+    // On the space (x 16 hits offset 1): the whole space + mark unit.
+    word_double_click(w, 16, &anchor, &caret);
+    ASSERT_EQ_INT(1, (int)anchor);
+    ASSERT_EQ_INT(4, (int)caret);
+}
+
+TEST(word_double_click_never_splits_a_unit) {
+    IME_FOR_SHAPES(ime_shapes, word_double_click_body);
+}
+
 SUITE(ime) {
     RUN_TEST(ime_identity_inputbox);
     RUN_TEST(ime_identity_textarea);
@@ -2227,4 +2295,6 @@ SUITE(ime) {
     RUN_TEST(ime_commit_that_fills_the_buffer_leaves_a_boundary_caret);
     RUN_TEST(ime_press_and_tab_as_a_composition_starts);
     RUN_TEST(ime_span_held_by_an_undrawn_field_is_adopted_when_drawn);
+    RUN_TEST(word_steps_never_split_a_unit);
+    RUN_TEST(word_double_click_never_splits_a_unit);
 }

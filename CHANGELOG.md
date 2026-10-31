@@ -512,6 +512,14 @@ minor.
   redo".
 
 ### Fixed
+- **Word motion and the double-click word never split a cluster.** The
+  backward word step and the word bounds scanned bytes, so a space
+  carrying a combining mark (one grapheme cluster) was cut in two:
+  Ctrl+Left and Ctrl+Backspace after it stopped at its mark, and a
+  double-click on the word after it also took the space and the mark. The
+  backward step now walks clusters, classed by their first byte, and the
+  word bounds round up to a cluster boundary, so such a space behaves as a
+  plain space in the inputbox, the textarea and the editor.
 - **`wlx_utf8_strlen` stops at the terminator.** A string ending in a
   truncated multibyte sequence (a lead byte the terminator cuts short)
   made the count step over the terminator and read past the string,
