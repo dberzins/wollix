@@ -512,6 +512,12 @@ minor.
   redo".
 
 ### Fixed
+- **`wlx_utf8_strlen` stops at the terminator.** A string ending in a
+  truncated multibyte sequence (a lead byte the terminator cuts short)
+  made the count step over the terminator and read past the string,
+  since v0.1.0. The count is now bounded by `strlen`, with a cut-short
+  lead counted once, as `wlx_utf8_slicelen` counts it. The core never
+  calls it; the SDL3 adapter's legacy `measure_text` does.
 - **A frame after an unbalanced one starts clean.** A frame that left a
   layout open (its `wlx_end` reports that) made any report raised in the
   next `wlx_begin` - a NULL input handler, an unusable content scale -

@@ -9963,16 +9963,6 @@ static inline size_t wlx_utf8_encode(uint32_t cp, char *out) {
     return 3;
 }
 
-// Count codepoints in a NUL-terminated UTF-8 string.
-static inline size_t wlx_utf8_strlen(const char *s) {
-    size_t count = 0;
-    while (*s) {
-        s += wlx_utf8_char_len(s);
-        count++;
-    }
-    return count;
-}
-
 // Count codepoints in a UTF-8 slice.
 static inline size_t wlx_utf8_slicelen(const char *s, size_t len) {
     size_t count = 0;
@@ -9982,6 +9972,13 @@ static inline size_t wlx_utf8_slicelen(const char *s, size_t len) {
         count++;
     }
     return count;
+}
+
+// Count codepoints in a NUL-terminated UTF-8 string. Bounded by the
+// terminator: a lead byte whose sequence the terminator cuts short counts
+// once, and nothing past the terminator is read.
+static inline size_t wlx_utf8_strlen(const char *s) {
+    return wlx_utf8_slicelen(s, strlen(s));
 }
 
 // Move byte position backward to the previous codepoint boundary.

@@ -181,6 +181,21 @@ TEST(utf8_strlen_4byte) {
     ASSERT_EQ_INT(3, wlx_utf8_strlen("A\xF0\x90\x90\x80\x42"));
 }
 
+TEST(utf8_strlen_truncated_lead_stays_in_string) {
+    // A 4-byte lead right before the terminator: the count stops at the
+    // terminator (each lead counts once, as in wlx_utf8_slicelen) instead
+    // of stepping over it. The buffer is exactly the string's size, so an
+    // address sanitizer reports any read past it.
+    char *s = (char *)malloc(3);
+    ASSERT_TRUE(s != NULL);
+    s[0] = 'a';
+    s[1] = (char)0xF0;
+    s[2] = '\0';
+    size_t n = wlx_utf8_strlen(s);
+    free(s);
+    ASSERT_EQ_INT(2, (long)n);
+}
+
 // ============================================================================
 // wlx_utf8_prev
 // ============================================================================
@@ -352,6 +367,7 @@ SUITE(utf8) {
     RUN_TEST(utf8_strlen_latvian);
     RUN_TEST(utf8_strlen_3byte);
     RUN_TEST(utf8_strlen_4byte);
+    RUN_TEST(utf8_strlen_truncated_lead_stays_in_string);
 
     // prev
     RUN_TEST(utf8_prev_ascii);
