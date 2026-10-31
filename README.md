@@ -369,6 +369,7 @@ CMake project (below) is the consumer surface and the Windows build.
 make                # Build all Raylib demos + the dashboard showcase (default)
 make test           # Build and run the unit test suite (includes the C++ caller gate)
 make perf-test      # Build and run the unit test suite with WLX_PERF enabled
+make test-sdl3      # Run the SDL3 adapter headless (offscreen driver; needs SDL3)
 make perf-editor    # Run the editor perf gate (frame cost + measure traffic)
 make test-demos     # Build all Raylib demos + the dashboard and verify they compile
 make all            # Build all Raylib demos + the dashboard (same as bare make)
