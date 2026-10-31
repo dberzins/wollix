@@ -290,6 +290,31 @@ TEST(null_input_handler_reports_and_runs_without_input) {
     wlx_context_destroy(&ctx);
 }
 
+// A report raised in wlx_begin names no layout of the frame before: that
+// frame left a layout open, and its wlx_end reported it with the layout as
+// the site, but the next frame starts from an empty pool before its first
+// check.
+TEST(begin_report_names_no_stale_layout) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);              // never ended
+    wlx_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(es_last.layout_file != NULL);
+    wlx_begin(&ctx, ctx.rect, NULL);
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_TRUE(es_last.layout_file == NULL);
+    ASSERT_EQ_INT(0, es_last.layout_line);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_layout_end(&ctx);
+    wlx_end(&ctx);
+    ASSERT_EQ_INT(2, es_count);
+    wlx_context_destroy(&ctx);
+}
+
 TEST(slot_overrun_skips_content_contribution) {
     float two   = es_content_height_with_labels(2);
     float three = es_content_height_with_labels(3);   // the third label overruns
@@ -1162,6 +1187,7 @@ TEST(split_nests_past_tracker_depth) {
 SUITE(error_surface) {
     RUN_TEST(error_handler_receives_record);
     RUN_TEST(error_handler_null_restores_default);
+    RUN_TEST(begin_report_names_no_stale_layout);
     RUN_TEST(error_count_is_never_throttled);
     RUN_TEST(error_layout_site_recorded_by_every_begin);
     RUN_TEST(error_direct_create_has_no_site);

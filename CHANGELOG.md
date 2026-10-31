@@ -502,6 +502,14 @@ minor.
   redo".
 
 ### Fixed
+- **A frame after an unbalanced one starts clean.** A frame that left a
+  layout open (its `wlx_end` reports that) made any report raised in the
+  next `wlx_begin` - a NULL input handler, an unusable content scale -
+  name that stale layout as its site. A frame that left an auto-height
+  scroll panel open made the next frame's `WLX_DEBUG` checks treat its
+  root layout as inside the panel and warn about its FLEX and FILL
+  slots. `wlx_begin` now resets the per-frame pool before its first
+  check and stops tracking the panel.
 - **A press and a Tab in one frame no longer lose focus.** When a pointer
   press and a Tab (or Shift+Tab) arrived in the same frame, the Tab walk's
   target took focus and then dropped it again on the press, in its own

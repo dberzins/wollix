@@ -7057,6 +7057,15 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
 static void wlx_state_frame_sweep(WLX_Context *ctx);
 
 WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler) {
+    // The frame starts from an empty pool, before anything here can
+    // report: a layout, scope id or scroll panel the previous frame left
+    // open (its wlx_end reported it) must not be named as this frame's
+    // site. Lazy pool init: callers that zero-init WLX_Context and skip
+    // wlx_context_init still get the default macro-backed allocators.
+    if (ctx->arena.layouts.item_size == 0) {
+        wlx_arena_pool_init(&ctx->arena, NULL);
+    }
+    wlx_arena_pool_reset(&ctx->arena);
     wlx_assert_backend_ready(ctx);
     WLX_PERF_HOOK(frame_begin, ctx);
     WLX_PERF_HOOK(input_begin, ctx);
@@ -7108,17 +7117,15 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
         ctx->prev_content_scale = ctx->content_scale;
     }
     wlx_frame_arbitrate(ctx);
-    // Lazy pool init: callers that zero-init WLX_Context and skip
-    // wlx_context_init still get the default macro-backed allocators.
-    if (ctx->arena.layouts.item_size == 0) {
-        wlx_arena_pool_init(&ctx->arena, NULL);
-    }
-    wlx_arena_pool_reset(&ctx->arena);
     ctx->current_range_idx = -1;
     ctx->current_layer = 0;
     ctx->scissor_stack_count = 0;
     ctx->clip_base = (WLX_Clip_Base){0};
     ctx->menu_stack_count = 0;
+    // An auto-height scroll panel the previous frame left open is not
+    // tracked into this one.
+    ctx->auto_scroll.panel_id = 0;
+    ctx->auto_scroll.total_height = 0;
     ctx->last_widget_rect = (WLX_Rect){0};
     ctx->immediate_mode = false;
     ctx->rect = r;
