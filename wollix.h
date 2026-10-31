@@ -1587,24 +1587,6 @@ typedef struct WLX_Cmd_Range {
     int    parent_range_idx;   // WLX_NO_RANGE for root
 } WLX_Cmd_Range;
 
-typedef struct {
-    WLX_Cmd *items;
-    size_t count;
-    size_t capacity;
-} WLX_Commands;
-
-typedef struct {
-    WLX_Cmd_Range *items;
-    size_t count;
-    size_t capacity;
-} WLX_Cmd_Ranges;
-
-typedef struct {
-    WLX_Layout *items;
-    size_t count;
-    size_t capacity;
-} WLX_Layout_Stack;
-
 // Shared caret/selection/gesture state for text-editing widgets. POD; the
 // zero value is the default state. Embedded FIRST in each widget state so
 // the zero-fill contract of wlx_get_state_impl covers it unchanged.
@@ -1936,32 +1918,11 @@ typedef struct {
     uint32_t clock;
 } WLX_Text_Undo_Cache;
 
-// ID stack for loop disambiguation - use wlx_push_id()/wlx_pop_id()
-typedef struct {
-    size_t *items;
-    size_t count;
-    size_t capacity;
-} WLX_Id_Stack;
-
-// Opacity stack - push/pop region-level opacity via wlx_push_opacity()/wlx_pop_opacity()
-typedef struct {
-    float *items;
-    size_t count;
-    size_t capacity;
-} WLX_Opacity_Stack;
-
 // Handle returned by wlx_get_state() - gives access to both the ID and the data pointer
 typedef struct {
     WLX_Id id;
     void *data;
 } WLX_State;
-
-// Stack of active scroll panel state pointers (for nested scroll panels)
-typedef struct {
-    WLX_Scroll_Panel_State **items;
-    size_t count;
-    size_t capacity;
-} WLX_Scroll_Panel_Stack;
 
 // ============================================================================
 // Arena pool init/reset/destroy
@@ -9884,6 +9845,20 @@ WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget_Opt opt, const char *fi
 //      advances ("advance provider" sources).
 //   6. Alignment, emission, and the from-lines geometry consumers.
 
+// The UTF-8 helpers come in two tiers; pick by whether the bytes have been
+// validated:
+//   raw - byte class only, no validation; for counts, slice truncation and
+//     byte-class reads on text whose encoding the caller vouches for:
+//     wlx_utf8_floor (with the buffer helpers), wlx_utf8_char_len,
+//     wlx_utf8_decode, wlx_utf8_encode, wlx_utf8_strlen, wlx_utf8_slicelen,
+//     wlx_utf8_is_word_separator;
+//   validating - a sequence counts only when it is well formed and lies
+//     fully in range, and any other byte is a one-byte step:
+//     wlx_text_utf8_sequence_at, wlx_text_utf8_boundary,
+//     wlx_text_codepoint_next / _prev.
+// Caret motion, deletes and hit-tests step text units (grapheme clusters,
+// wlx_text_unit_next / _prev below), which are built on the validating tier.
+
 // This function returns how many bytes the next UTF-8 character uses, based on the first byte in s.
 // UTF-8 leading-byte patterns:
 //       0xxxxxxx -> 1 byte (ASCII)
@@ -9979,18 +9954,6 @@ static inline size_t wlx_utf8_slicelen(const char *s, size_t len) {
 // once, and nothing past the terminator is read.
 static inline size_t wlx_utf8_strlen(const char *s) {
     return wlx_utf8_slicelen(s, strlen(s));
-}
-
-// Move byte position backward to the previous codepoint boundary.
-// Returns new byte position (0 if already at start).
-static inline size_t wlx_utf8_prev(const char *s, size_t byte_pos) {
-    if (byte_pos == 0) return 0;
-    byte_pos--;
-    // Walk back over continuation bytes (10xxxxxx)
-    while (byte_pos > 0 && ((unsigned char)s[byte_pos] & 0xC0) == 0x80) {
-        byte_pos--;
-    }
-    return byte_pos;
 }
 
 static inline bool wlx_text_utf8_is_continuation(unsigned char c) {

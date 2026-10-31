@@ -197,35 +197,52 @@ TEST(utf8_strlen_truncated_lead_stays_in_string) {
 }
 
 // ============================================================================
-// wlx_utf8_prev
+// wlx_text_codepoint_prev
 // ============================================================================
 
-TEST(utf8_prev_ascii) {
+TEST(codepoint_prev_ascii) {
     const char *s = "AB";
-    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 2));
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1));
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 0));
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_prev(s, 2, 2));
+    ASSERT_EQ_INT(0, (long)wlx_text_codepoint_prev(s, 2, 1));
+    ASSERT_EQ_INT(0, (long)wlx_text_codepoint_prev(s, 2, 0));
 }
 
-TEST(utf8_prev_2byte) {
-    // "Aö" = 'A' (1 byte) + ö (2 bytes) = 3 bytes total
+TEST(codepoint_prev_2byte) {
+    // 'A' + U+00F6 (2 bytes) = 3 bytes
     const char *s = "A\xC3\xB6";
-    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 3)); // end -> before ö
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1)); // before ö -> before A
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_prev(s, 3, 3)); // end -> before U+00F6
+    ASSERT_EQ_INT(0, (long)wlx_text_codepoint_prev(s, 3, 1)); // -> before 'A'
 }
 
-TEST(utf8_prev_3byte) {
-    // "A€" = 'A' (1 byte) + € (3 bytes) = 4 bytes total
+TEST(codepoint_prev_3byte) {
+    // 'A' + U+20AC (3 bytes) = 4 bytes
     const char *s = "A\xE2\x82\xAC";
-    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 4)); // end -> before €
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1)); // before € -> before A
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_prev(s, 4, 4));
+    ASSERT_EQ_INT(0, (long)wlx_text_codepoint_prev(s, 4, 1));
 }
 
-TEST(utf8_prev_4byte) {
-    // "A𐐀" = 'A' (1 byte) + 𐐀 (4 bytes) = 5 bytes total
+TEST(codepoint_prev_4byte) {
+    // 'A' + U+10400 (4 bytes) = 5 bytes
     const char *s = "A\xF0\x90\x90\x80";
-    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 5)); // end -> before 𐐀
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1)); // before 𐐀 -> before A
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_prev(s, 5, 5));
+    ASSERT_EQ_INT(0, (long)wlx_text_codepoint_prev(s, 5, 1));
+}
+
+TEST(codepoint_prev_malformed_runs_step_one_byte) {
+    // Stray continuations: one byte back each, never a jump to the
+    // byte before the run.
+    const char *strays = "A\x80\x80";
+    ASSERT_EQ_INT(2, (long)wlx_text_codepoint_prev(strays, 3, 3));
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_prev(strays, 3, 2));
+    // A truncated 3-byte sequence is two one-byte steps.
+    const char *cut = "A\xE2\x82";
+    ASSERT_EQ_INT(2, (long)wlx_text_codepoint_prev(cut, 3, 3));
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_prev(cut, 3, 2));
+    // A valid sequence followed by an extra continuation: the extra byte
+    // steps alone, then the sequence steps whole.
+    const char *extra = "\xC3\xB6\x80";
+    ASSERT_EQ_INT(2, (long)wlx_text_codepoint_prev(extra, 3, 3));
+    ASSERT_EQ_INT(0, (long)wlx_text_codepoint_prev(extra, 3, 2));
 }
 
 // ============================================================================
@@ -370,10 +387,11 @@ SUITE(utf8) {
     RUN_TEST(utf8_strlen_truncated_lead_stays_in_string);
 
     // prev
-    RUN_TEST(utf8_prev_ascii);
-    RUN_TEST(utf8_prev_2byte);
-    RUN_TEST(utf8_prev_3byte);
-    RUN_TEST(utf8_prev_4byte);
+    RUN_TEST(codepoint_prev_ascii);
+    RUN_TEST(codepoint_prev_2byte);
+    RUN_TEST(codepoint_prev_3byte);
+    RUN_TEST(codepoint_prev_4byte);
+    RUN_TEST(codepoint_prev_malformed_runs_step_one_byte);
 
     // next
     RUN_TEST(codepoint_next_ascii);

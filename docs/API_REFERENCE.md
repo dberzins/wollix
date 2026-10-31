@@ -1074,18 +1074,6 @@ typedef struct {
 Internal layout node pushed onto the layout stack. Typically not accessed
 directly — use the layout API functions instead.
 
-### `WLX_Layout_Stack`
-
-```c
-typedef struct {
-    WLX_Layout *items;
-    size_t count, capacity;
-} WLX_Layout_Stack;
-```
-
-Dynamic array of `WLX_Layout` nodes. Managed by the library; stored in
-`ctx->arena.layouts`.
-
 ### `WLX_Widget_Opt`
 
 ```c
@@ -1204,20 +1192,6 @@ typedef struct {
 
 Open-addressing hash map of all persistent state entries. Stored in
 `ctx->states`.
-
-### `WLX_Id_Stack`
-
-```c
-typedef struct {
-    size_t *items;
-    size_t count, capacity;
-} WLX_Id_Stack;
-```
-
-The ID stack. Each entry is the running hash of the stack up to that push
-(not the pushed value itself), so the hash of the whole stack is its top
-entry. Pushed by `wlx_push_id()` and by container `.id`; stored in
-`ctx->arena.id_stack`.
 
 ### `WLX_Allocator`
 

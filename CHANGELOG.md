@@ -838,6 +838,20 @@ minor.
   `wlx_text_codepoint_next(s, len, pos)`, which steps identically,
   malformed bytes included. The codepoint-stepping cases in
   `tests/test_utf8.c` now pin `wlx_text_codepoint_next` directly.
+- `wlx_utf8_prev`, the backward twin of `wlx_utf8_next`: nothing in the
+  core, the adapters or the editor called it, and it agreed with
+  `wlx_text_codepoint_prev` only on valid UTF-8 (over a run of stray
+  continuation bytes it jumped to the byte before the run). Code that
+  called it calls `wlx_text_codepoint_prev(s, len, pos)`, which steps one
+  byte over malformed input. Its cases now pin `wlx_text_codepoint_prev`,
+  with a malformed-run case.
+- Six storage typedefs no API takes or returns: `WLX_Commands`,
+  `WLX_Cmd_Ranges`, `WLX_Layout_Stack`, `WLX_Id_Stack`,
+  `WLX_Opacity_Stack` and `WLX_Scroll_Panel_Stack`. The context has kept
+  those stacks in `WLX_Sub_Arena` since v0.5.0, so the typedefs described
+  storage that no longer existed (`WLX_Id_Stack` still said `size_t`
+  entries, where ids are 64-bit `WLX_Id`). Their API_REFERENCE sections
+  go with them.
 
 ## [0.8.0] - 2026-09-12
 
