@@ -794,11 +794,15 @@ typedef struct {
     float (*get_content_scale)(void *user); /* optional */
     // Optional composition anchor. The core pushes the focused editable
     // text widget's caret line (WLX_Text_Input_Area) once per frame from
-    // wlx_end and only when it changed, so implementations stay
-    // stateless: start or stop the platform's text input on the active
-    // edge and re-anchor its candidate window on every call. The inactive
-    // edge ends any composition in flight: drop the string, so the next
-    // frame's preedit is empty. NULL -> the platform is never told.
+    // wlx_end and only when it changed: start or stop the platform's text
+    // input on the active edge and re-anchor its candidate window on every
+    // call. The inactive edge ends any composition in flight: drop the
+    // string, so the next frame's preedit is empty. An implementation keeps
+    // only what its platform needs between pushes (whether text input is
+    // started, the anchor to hand over again after a window move) and
+    // forgets it when bound to a new window; binding a context to it also
+    // clears ctx->text_entry.applied, the last pushed anchor, so the next
+    // frame pushes again. NULL -> the platform is never told.
     void (*set_text_input_area)(const WLX_Text_Input_Area *area, void *user); /* optional */
 } WLX_Backend;
 

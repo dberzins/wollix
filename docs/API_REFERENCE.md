@@ -483,8 +483,11 @@ focusing and placing its hidden text proxy. The anchor is in units
 relative to the window, and a window move changes nothing in it, so the
 core does not push; an adapter whose platform turned the anchor into a
 screen position hands it over again itself (the SDL3 adapter does on
-X11, after `SDL_EVENT_WINDOW_MOVED`). Hosts without the callback
-read the last pushed value with `wlx_text_input_area`. The table's
+X11, after `SDL_EVENT_WINDOW_MOVED`). What an adapter keeps between
+pushes belongs to the window it is bound to: binding a context to a new
+window resets it and clears the core's last pushed anchor, so a field that
+keeps its focus is anchored again on the next frame. Hosts without the
+callback read the last pushed value with `wlx_text_input_area`. The table's
 shape, this member included, is the frozen v2 contract.
 
 | Callback | Purpose |
@@ -4420,6 +4423,14 @@ key auto-repeat, window focus loss (it clears a composition) and window moves
 composition anchor starts it while an editable text widget has focus and stops
 it when focus leaves.
 
+Call it again to re-bind a context to a replacement window, or after an
+`SDL_Quit` / `SDL_Init` cycle: the adapter's window state (see
+`wlx_backend_sdl3`) starts clean, the event watch is installed again (once:
+a second call does not add a second watch), and the context's last pushed
+composition anchor is cleared, so a field that keeps its focus starts text
+input on the new window on the next frame. The adapter serves one window at
+a time.
+
 ### `wlx_sdl3_ime_hints`
 
 ```c
@@ -4452,7 +4463,11 @@ window coordinates to units through `SDL_RenderCoordinatesFromWindow`.
 static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer);
 ```
 
-Returns a `WLX_Backend` struct with all SDL3 function pointers.
+Returns a `WLX_Backend` struct with all SDL3 function pointers, and binds
+the adapter to `renderer`: its window state (the wheel, committed-text and
+composition buffers, the text input flags and anchor, the key repeats and
+the frame clock) is reset to its defaults, so call it once per window, not
+per frame.
 
 ### `wlx_sdl3_root_rect`
 

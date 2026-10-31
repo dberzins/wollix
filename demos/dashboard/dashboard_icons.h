@@ -141,7 +141,7 @@ static WLX_Texture s_dashboard_icon_atlas;
 // backend renderer set by wlx_context_init_sdl3.
 static void dashboard_icon_atlas_create(WLX_Context *ctx) {
     (void)ctx;
-    SDL_Texture *tex = SDL_CreateTexture(g_wlx_sdl3_renderer,
+    SDL_Texture *tex = SDL_CreateTexture(g_wlx_sdl3.renderer,
         SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC,
         WLX_ICONS_WIDTH, WLX_ICONS_HEIGHT);
     if (!tex) {

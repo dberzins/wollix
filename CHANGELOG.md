@@ -521,6 +521,21 @@ minor.
   does, and a thick diagonal line is a quad of its width. A headless test
   binary, `make test-sdl3` (SDL's offscreen video driver and software
   renderer, not part of `make test`), pins both, and CI runs it.
+- **SDL3: a replacement window and an SDL re-init keep text input and the
+  event watch.** The adapter kept its window state in 18 file-scope
+  variables, and binding a new renderer reset two of them. A context
+  re-bound to a replacement window with `wlx_context_init_sdl3` therefore
+  kept the old window's "text input started" flag, and the core, which
+  pushes the composition anchor only when it changes, never told the new
+  window: a field that kept its focus took no typed text. And the event
+  watch was installed once per process behind a flag, so after an
+  `SDL_Quit` / `SDL_Init` cycle (which drops it) the wheel, committed text,
+  composition and key repeats stopped arriving. The window state is now one
+  struct that `wlx_backend_sdl3` resets to its defaults,
+  `wlx_context_init_sdl3` removes and re-adds the watch and clears the
+  context's last pushed anchor, and `make test-sdl3` pins both cases.
+  Code that read the adapter's private renderer variable,
+  `g_wlx_sdl3_renderer`, reads `g_wlx_sdl3.renderer`.
 - **`WLX_TEXT_STYLE_DEFAULT` compiles as C++.** It was the one public
   literal macro without a `__cplusplus` spelling, so a C++ caller got a
   C99 compound literal with designated initialisers (rejected by

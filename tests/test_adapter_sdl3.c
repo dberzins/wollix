@@ -17,11 +17,24 @@
 // Fixture
 // ============================================================================
 
-static float sa_scale;   // > 0 forces the adapter's device scale for the frame
+static float sa_scale;      // > 0 forces the adapter's device scale for the frame
+static int   sa_click = -1; // >= 0 puts the mouse at (100, 30), pressed when 1
 
 static void sa_input(WLX_Context *ctx) {
     wlx_process_sdl3_input(ctx);
-    if (sa_scale > 0.0f) g_wlx_sdl3_scale = sa_scale;
+    if (sa_scale > 0.0f) g_wlx_sdl3.scale = sa_scale;
+    if (sa_click >= 0) {
+        ctx->input.mouse_x = 100;
+        ctx->input.mouse_y = 30;
+        ctx->input.mouse_down = ctx->input.mouse_clicked = ctx->input.mouse_held = sa_click != 0;
+    }
+}
+
+// The hints go before every SDL_Init: SDL_Quit resets them.
+static bool sa_init(void) {
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
+    return SDL_Init(SDL_INIT_VIDEO);
 }
 
 static SDL_Window *sa_open(int w, int h) {
@@ -135,18 +148,80 @@ TEST(sdl3_diagonal_line_honours_thickness) {
 }
 
 // ============================================================================
+// Session
+// ============================================================================
+
+// One frame of a window-high inputbox under the mouse.
+static void sa_field_frame(WLX_Context *ctx, char *buf, size_t cap) {
+    wlx_begin(ctx, wlx_sdl3_root_rect(), sa_input);
+    wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+    wlx_inputbox(ctx, NULL, buf, cap, .height = 60);
+    wlx_layout_end(ctx);
+    wlx_end(ctx);
+}
+
+// A context re-bound to a replacement window keeps its focused field's
+// text input: the adapter forgets the old window, and the core hands the
+// unchanged anchor to the new one.
+TEST(sdl3_rebound_context_restarts_text_input) {
+    SDL_Window *a = sa_open(200, 100);
+    ASSERT_TRUE(a != NULL);
+    WLX_Context *ctx = calloc(1, sizeof *ctx);
+    wlx_context_init_sdl3(ctx, a, SDL_GetRenderer(a));
+    char buf[64] = "";
+    sa_click = 0; sa_field_frame(ctx, buf, sizeof buf);
+    sa_click = 1; sa_field_frame(ctx, buf, sizeof buf);
+    sa_click = 0; sa_field_frame(ctx, buf, sizeof buf);
+    sa_field_frame(ctx, buf, sizeof buf);
+    ASSERT_TRUE(SDL_TextInputActive(a));
+    sa_close(a);
+
+    SDL_Window *b = sa_open(200, 100);
+    ASSERT_TRUE(b != NULL);
+    wlx_context_init_sdl3(ctx, b, SDL_GetRenderer(b));
+    for (int i = 0; i < 3; i++) sa_field_frame(ctx, buf, sizeof buf);
+    ASSERT_TRUE(SDL_TextInputActive(b));
+    sa_click = -1;
+    wlx_context_destroy(ctx);
+    free(ctx);
+    sa_close(b);
+}
+
+// The event watch is SDL's, and SDL_Quit drops it: a context initialised
+// after a re-init still hears the events the watch collects (the wheel).
+TEST(sdl3_event_watch_survives_sdl_reinit) {
+    SDL_Quit();
+    ASSERT_TRUE(sa_init());
+    SDL_Window *win = sa_open(200, 100);
+    ASSERT_TRUE(win != NULL);
+    WLX_Context *ctx = calloc(1, sizeof *ctx);
+    wlx_context_init_sdl3(ctx, win, SDL_GetRenderer(win));
+    SDL_Event e;
+    SDL_zero(e);
+    e.type = SDL_EVENT_MOUSE_WHEEL;
+    e.wheel.windowID = SDL_GetWindowID(win);
+    e.wheel.y = 1.0f;
+    ASSERT_TRUE(SDL_PushEvent(&e));
+    wlx_process_sdl3_input(ctx);
+    ASSERT_EQ_F(ctx->input.wheel_delta, 1.0f, 1e-6f);
+    wlx_context_destroy(ctx);
+    free(ctx);
+    sa_close(win);
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
 SUITE(adapter_sdl3) {
     RUN_TEST(sdl3_outline_honours_thickness);
     RUN_TEST(sdl3_diagonal_line_honours_thickness);
+    RUN_TEST(sdl3_rebound_context_restarts_text_input);
+    RUN_TEST(sdl3_event_watch_survives_sdl_reinit);
 }
 
 int main(void) {
-    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    if (!sa_init()) {
         fprintf(stderr, "test_adapter_sdl3: SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
