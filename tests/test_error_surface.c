@@ -1005,6 +1005,86 @@ TEST(slot_style_entries_report_the_call_site) {
     wlx_context_destroy(&ctx);
 }
 
+// One report since the last check, with its code, message and site: the
+// caller's line, or none (file NULL, line 0) for an entry without a site.
+#define ES_EXPECT_REPORT(n, want_code, want_msg, has_site, want_line) do { \
+    ASSERT_EQ_INT((n), es_count); \
+    ASSERT_EQ_INT((int)(want_code), (int)es_last.code); \
+    ASSERT_EQ_STR(es_last.message, (want_msg)); \
+    if (has_site) { \
+        ASSERT_TRUE(es_same_file(es_last.file)); \
+        ASSERT_EQ_INT((want_line), es_last.line); \
+    } else { \
+        ASSERT_TRUE(es_last.file == NULL); \
+        ASSERT_EQ_INT(0, es_last.line); \
+    } \
+} while (0)
+
+// Every report of the five layout entries and the two slot-size checks,
+// by code, message and site, so a shared contract cannot change what a
+// caller's handler sees.
+TEST(layout_entry_contracts_pinned) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    int l;
+
+    // No layout open.
+    wlx_layout_auto_slot_px(&ctx, 10.0f);
+    ES_EXPECT_REPORT(1, WLX_ERR_NO_LAYOUT, "wlx_layout_auto_slot called with no layout open", false, 0);
+    wlx_grid_auto_row_px(&ctx, 10.0f);
+    ES_EXPECT_REPORT(2, WLX_ERR_NO_LAYOUT, "wlx_grid_auto_row_px called with no layout open", false, 0);
+    l = __LINE__ + 1;
+    wlx_grid_cell(&ctx, 0, 0);
+    ES_EXPECT_REPORT(3, WLX_ERR_NO_LAYOUT, "wlx_grid_cell called with no layout open", true, l);
+    l = __LINE__ + 1;
+    wlx_slot_style(&ctx, .border_width = 1.0f);
+    ES_EXPECT_REPORT(4, WLX_ERR_NO_LAYOUT, "wlx_slot_style called with no layout open", true, l);
+    l = __LINE__ + 1;
+    wlx_grid_cell_style(&ctx, .border_width = 1.0f);
+    ES_EXPECT_REPORT(5, WLX_ERR_NO_LAYOUT, "wlx_grid_cell_style called with no layout open", true, l);
+
+    // The wrong kind: a fixed linear layout, then a fixed grid.
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_layout_auto_slot_px(&ctx, 10.0f);
+    ES_EXPECT_REPORT(6, WLX_ERR_BAD_ARGUMENT,
+        "wlx_layout_auto_slot is only valid inside a wlx_layout_begin_auto block", false, 0);
+    wlx_grid_auto_row_px(&ctx, 10.0f);
+    ES_EXPECT_REPORT(7, WLX_ERR_BAD_ARGUMENT,
+        "wlx_grid_auto_row_px is only valid inside a wlx_grid_begin_auto block", false, 0);
+    l = __LINE__ + 1;
+    wlx_grid_cell(&ctx, 0, 0);
+    ES_EXPECT_REPORT(8, WLX_ERR_BAD_ARGUMENT,
+        "wlx_grid_cell is only valid inside a wlx_grid_begin block", true, l);
+    l = __LINE__ + 1;
+    wlx_grid_cell_style(&ctx, .border_width = 1.0f);
+    ES_EXPECT_REPORT(9, WLX_ERR_BAD_ARGUMENT,
+        "wlx_grid_cell_style is only valid inside a grid layout", true, l);
+    wlx_layout_end(&ctx);
+    wlx_grid_begin(&ctx, 1, 1);
+    l = __LINE__ + 1;
+    wlx_slot_style(&ctx, .border_width = 1.0f);
+    ES_EXPECT_REPORT(10, WLX_ERR_BAD_ARGUMENT,
+        "wlx_slot_style is only valid inside a linear layout", true, l);
+    wlx_grid_end(&ctx);
+
+    // A negative auto slot size: the constructor reports without a site,
+    // the begin form at the caller's line; both take 1 px.
+    WLX_Layout made = wlx_create_layout_auto(&ctx, ctx.rect, WLX_VERT, -1.0f);
+    ES_EXPECT_REPORT(11, WLX_ERR_BAD_ARGUMENT,
+        "auto layout slot size is negative (0 means variable-size mode); using 1 px", false, 0);
+    ASSERT_EQ_F(made.linear.slot_size, 1.0f, 0.0001f);
+    l = __LINE__ + 1;
+    wlx_layout_begin_auto(&ctx, WLX_VERT, -1.0f);
+    ES_EXPECT_REPORT(12, WLX_ERR_BAD_ARGUMENT,
+        "wlx_layout_begin_auto: slot size is negative (0 means variable-size mode); using 1 px",
+        true, l);
+    ASSERT_EQ_F(es_top(&ctx)->linear.slot_size, 1.0f, 0.0001f);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
 // A list clipper outside a scroll panel has no viewport: one report naming
 // the caller's line, and the parent rect stands in at offset 0, so the rows
 // that fit it are built (300 px of 20 px rows: 0 to 15).
@@ -1224,6 +1304,7 @@ SUITE(error_surface) {
     RUN_TEST(open_layout_with_scope_id_reports_once);
     RUN_TEST(grid_auto_row_px_wrong_kind_reports_once);
     RUN_TEST(slot_style_entries_report_the_call_site);
+    RUN_TEST(layout_entry_contracts_pinned);
     RUN_TEST(list_clipper_outside_scroll_panel_reports);
     RUN_TEST(auto_grid_cell_grows_rows);
     RUN_TEST(null_call_site_reports_and_runs);

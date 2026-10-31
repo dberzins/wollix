@@ -6467,6 +6467,33 @@ static inline float wlx_contract_positive_px(WLX_Context *ctx, float px, const c
     return px;
 }
 
+// A pixel size that must not be negative (0 means something, as the auto
+// layout's variable-size mode) is reported and clamped to 1 px.
+static inline float wlx_contract_nonneg_px(WLX_Context *ctx, float px, const char *msg,
+                                           const char *file, int line) {
+    if (!WLX_CONTRACT_AT(ctx, px >= 0.0f, WLX_ERR_BAD_ARGUMENT, msg, file, line))
+        return 1.0f;
+    return px;
+}
+
+// The open layout of `kind` for an entry valid only inside one. No layout
+// open is reported as WLX_ERR_NO_LAYOUT; another kind, or a fixed layout
+// where need_dynamic asks for an auto one, as WLX_ERR_BAD_ARGUMENT; either
+// at file / line (NULL, 0 for an entry that records no site). NULL after
+// the report.
+static WLX_Layout *wlx_contract_layout(WLX_Context *ctx, WLX_Layout_Kind kind, bool need_dynamic,
+    const char *msg_none, const char *msg_kind, const char *file, int line)
+{
+    WLX_Layout *l = wlx_layout_top(ctx);
+    if (!WLX_CONTRACT_AT(ctx, l != NULL, WLX_ERR_NO_LAYOUT, msg_none, file, line))
+        return NULL;
+    bool fits = l->kind == kind && (!need_dynamic
+        || (kind == WLX_LAYOUT_GRID ? l->grid.dynamic : l->linear.dynamic));
+    if (!WLX_CONTRACT_AT(ctx, fits, WLX_ERR_BAD_ARGUMENT, msg_kind, file, line))
+        return NULL;
+    return l;
+}
+
 // A layout gap is a non-negative spacing (Rule U, unset = 0): WLX_UNSET,
 // WLX_FLOAT_UNSET and any other negative value read as 0, silently.
 static inline float wlx_layout_gap(float gap) {
@@ -6507,10 +6534,8 @@ WLXDEF WLX_Layout wlx_create_layout(WLX_Context *ctx, WLX_Rect r, size_t count, 
 // slot_px  - fixed pixel size per slot along the layout axis. (Must be >= 0)
 WLXDEF WLX_Layout wlx_create_layout_auto(WLX_Context *ctx, WLX_Rect r, WLX_Orient orient, float slot_px) {
     assert(ctx != NULL);
-    // 0 is the variable-size mode; only a negative size is a violation.
-    if (!WLX_CONTRACT(ctx, slot_px >= 0.0f, WLX_ERR_BAD_ARGUMENT,
-            "auto layout slot size is negative (0 means variable-size mode); using 1 px"))
-        slot_px = 1.0f;
+    slot_px = wlx_contract_nonneg_px(ctx, slot_px,
+        "auto layout slot size is negative (0 means variable-size mode); using 1 px", NULL, 0);
 
     size_t base = ctx->arena.dyn_offsets.count;
     wlx_sub_arena_extend_to(&ctx->arena.dyn_offsets, base + 1);
@@ -8542,10 +8567,9 @@ WLXDEF void wlx_layout_begin_auto_impl(WLX_Context *ctx, WLX_Orient orient, floa
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_layout_begin_auto", "wlx_layout_opt_defaults", file, line);
     WLX_Layout_Frame frame = wlx_layout_frame_begin(ctx, WLX_LAYOUT_COMMON_OPT(opt), file, line);
 
-    if (!WLX_CONTRACT_AT(ctx, slot_px >= 0.0f, WLX_ERR_BAD_ARGUMENT,
-            "wlx_layout_begin_auto: slot size is negative (0 means variable-size mode); using 1 px",
-            file, line))
-        slot_px = 1.0f;
+    slot_px = wlx_contract_nonneg_px(ctx, slot_px,
+        "wlx_layout_begin_auto: slot size is negative (0 means variable-size mode); using 1 px",
+        file, line);
     WLX_Layout l = wlx_create_layout_auto(ctx, frame.rect, orient, slot_px);
     l.file = file;
     l.line = line;
@@ -8972,14 +8996,10 @@ WLXDEF int wlx_error_count(const WLX_Context *ctx) {
 // innermost dynamic layout.  FLEX/AUTO are greedy (take all remaining space).
 WLXDEF void wlx_layout_auto_slot(WLX_Context *ctx, WLX_Slot_Size size) {
     assert(ctx != NULL);
-    if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
-            "wlx_layout_auto_slot called with no layout open"))
-        return;
-
-    WLX_Layout *l = wlx_layout_top(ctx);
-    if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_LINEAR && l->linear.dynamic, WLX_ERR_BAD_ARGUMENT,
-            "wlx_layout_auto_slot is only valid inside a wlx_layout_begin_auto block"))
-        return;
+    WLX_Layout *l = wlx_contract_layout(ctx, WLX_LAYOUT_LINEAR, true,
+        "wlx_layout_auto_slot called with no layout open",
+        "wlx_layout_auto_slot is only valid inside a wlx_layout_begin_auto block", NULL, 0);
+    if (l == NULL) return;
 
     float total = wlx_layout_main_extent(l);
     float used  = (l->count > 0) ? wlx_layout_offsets(ctx, l)[l->count] : 0.0f;
@@ -9013,15 +9033,12 @@ WLXDEF void wlx_layout_auto_slot_px(WLX_Context *ctx, float px) {
 
 WLXDEF void wlx_grid_auto_row_px(WLX_Context *ctx, float px) {
     assert(ctx != NULL);
-    if (!WLX_CONTRACT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
-            "wlx_grid_auto_row_px called with no layout open"))
-        return;
     // The kind first: a call in the wrong layout returns with one report,
     // whatever size it carried.
-    WLX_Layout *l = wlx_layout_top(ctx);
-    if (!WLX_CONTRACT(ctx, l->kind == WLX_LAYOUT_GRID && l->grid.dynamic, WLX_ERR_BAD_ARGUMENT,
-            "wlx_grid_auto_row_px is only valid inside a wlx_grid_begin_auto block"))
-        return;
+    WLX_Layout *l = wlx_contract_layout(ctx, WLX_LAYOUT_GRID, true,
+        "wlx_grid_auto_row_px called with no layout open",
+        "wlx_grid_auto_row_px is only valid inside a wlx_grid_begin_auto block", NULL, 0);
+    if (l == NULL) return;
     px = wlx_contract_positive_px(ctx, px,
         "wlx_grid_auto_row_px: row size must be positive; using 1 px", NULL, 0);
 
@@ -9032,14 +9049,10 @@ WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Styl
                                const char *file, int line) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_cell", "wlx_slot_style_opt_defaults", file, line);
     assert(ctx != NULL);
-    if (!WLX_CONTRACT_AT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
-            "wlx_grid_cell called with no layout open", file, line))
-        return;
-
-    WLX_Layout *l = wlx_layout_top(ctx);
-    if (!WLX_CONTRACT_AT(ctx, l->kind == WLX_LAYOUT_GRID, WLX_ERR_BAD_ARGUMENT,
-            "wlx_grid_cell is only valid inside a wlx_grid_begin block", file, line))
-        return;
+    WLX_Layout *l = wlx_contract_layout(ctx, WLX_LAYOUT_GRID, false,
+        "wlx_grid_cell called with no layout open",
+        "wlx_grid_cell is only valid inside a wlx_grid_begin block", file, line);
+    if (l == NULL) return;
 
     // -1 means "use cursor position for that axis"
     size_t r = (row < 0) ? l->grid.cursor_row : (size_t)row;
@@ -9081,13 +9094,10 @@ WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Styl
 WLXDEF void wlx_slot_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt, const char *file, int line) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_slot_style", "wlx_slot_style_opt_defaults", file, line);
     assert(ctx != NULL);
-    if (!WLX_CONTRACT_AT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
-            "wlx_slot_style called with no layout open", file, line))
-        return;
-    WLX_Layout *l = wlx_layout_top(ctx);
-    if (!WLX_CONTRACT_AT(ctx, l->kind == WLX_LAYOUT_LINEAR, WLX_ERR_BAD_ARGUMENT,
-            "wlx_slot_style is only valid inside a linear layout", file, line))
-        return;
+    WLX_Layout *l = wlx_contract_layout(ctx, WLX_LAYOUT_LINEAR, false,
+        "wlx_slot_style called with no layout open",
+        "wlx_slot_style is only valid inside a linear layout", file, line);
+    if (l == NULL) return;
     l->linear.next_slot_back_color   = opt.back_color;
     l->linear.next_slot_border_color = opt.border_color;
     l->linear.next_slot_border_width = opt.border_width;
@@ -9096,13 +9106,10 @@ WLXDEF void wlx_slot_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt, const 
 WLXDEF void wlx_grid_cell_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt, const char *file, int line) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_grid_cell_style", "wlx_slot_style_opt_defaults", file, line);
     assert(ctx != NULL);
-    if (!WLX_CONTRACT_AT(ctx, ctx->arena.layouts.count > 0, WLX_ERR_NO_LAYOUT,
-            "wlx_grid_cell_style called with no layout open", file, line))
-        return;
-    WLX_Layout *l = wlx_layout_top(ctx);
-    if (!WLX_CONTRACT_AT(ctx, l->kind == WLX_LAYOUT_GRID, WLX_ERR_BAD_ARGUMENT,
-            "wlx_grid_cell_style is only valid inside a grid layout", file, line))
-        return;
+    WLX_Layout *l = wlx_contract_layout(ctx, WLX_LAYOUT_GRID, false,
+        "wlx_grid_cell_style called with no layout open",
+        "wlx_grid_cell_style is only valid inside a grid layout", file, line);
+    if (l == NULL) return;
     l->grid.next_cell_back_color   = opt.back_color;
     l->grid.next_cell_border_color = opt.border_color;
     l->grid.next_cell_border_width = opt.border_width;
