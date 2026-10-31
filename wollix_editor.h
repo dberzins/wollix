@@ -563,8 +563,9 @@ static float wlx_editor_caret_x(WLX_Context *ctx, const char *doc, size_t len, W
         end = next;
         units++;
     }
+    WLX_Text_Measure_Args m = { ctx, doc, len, ts, tab_advance, 0.0f };
     float w = 0.0f, h = 0.0f;
-    if (!wlx_text_measure_prefix_tabs(ctx, doc, len, line_start, end, ts, tab_advance, &w, &h)) w = 0.0f;
+    if (!wlx_text_measure_prefix_tabs(&m, line_start, end, &w, &h)) w = 0.0f;
     return w;
 }
 
@@ -593,18 +594,8 @@ static size_t wlx_editor_offset_in_record(WLX_Context *ctx, const char *text, si
         }
     }
 
-    size_t off = line->visible_start;
-    float prev_w = 0.0f;
-    while (off < line->visible_end) {
-        size_t next = wlx_text_unit_next(text, length, off);
-        if (next > line->visible_end) next = line->visible_end;
-        float w = 0.0f, h = 0.0f;
-        if (!wlx_text_measure_prefix_tabs(ctx, text, length, line->visible_start, next, ts, tab_advance, &w, &h)) break;
-        if (content_x < (prev_w + w) * 0.5f) return off;
-        prev_w = w;
-        off = next;
-    }
-    return off;
+    WLX_Text_Measure_Args m = { ctx, text, length, ts, tab_advance, 0.0f };
+    return wlx_text_record_offset_at_x(&m, line, 0.0f, content_x);
 }
 
 // Nearest caret offset at a content-space x on one document line, resolved
@@ -889,21 +880,15 @@ static float wlx_editor_wrap_caret_x(const WLX_Text_Build_Inputs *inputs,
 {
     size_t cx_end = caret < rec->visible_end ? caret : rec->visible_end;
     if (cx_end <= rec->visible_start) return 0.0f;
+    const WLX_Text_Geom_Entry *e = NULL;
     if (inputs->geom != NULL && line_next > rec->visible_start
         && line_next <= inputs->length) {
-        WLX_Text_Geom_Entry *e = wlx_text_geom_find_containing(inputs->geom,
-            rec->visible_start, line_next);
-        if (e != NULL) {
-            float adv = 0.0f;
-            if (wlx_text_geom_advance_at(e, cx_end - e->line_start, &adv))
-                return adv;
-        }
+        e = wlx_text_geom_find_containing(inputs->geom, rec->visible_start, line_next);
     }
-    float w = 0.0f, h = 0.0f;
-    if (!wlx_text_measure_prefix_tabs(inputs->ctx, inputs->text, inputs->length,
-            rec->visible_start, cx_end, inputs->style, inputs->tab_advance, &w, &h)) {
-        w = 0.0f;
-    }
+    WLX_Text_Measure_Args m = { inputs->ctx, inputs->text, inputs->length,
+        inputs->style, inputs->tab_advance, 0.0f };
+    float w = 0.0f;
+    if (!wlx_text_record_x_at(&m, e, rec->visible_start, cx_end, &w)) w = 0.0f;
     return w;
 }
 
@@ -1882,13 +1867,13 @@ static void wlx_editor_draw_preedit(const WLX_Editor_Frame *f,
     if (win_count == 0 || !wlx_text_edit_preedit_ranges(f->ctx, &f->state->caret,
             f->inter.focused, f->doc, f->doc_len, &pr)) return;
     WLX_Rect band = f->eb.band;
+    WLX_Text_Measure_Args m = { f->ctx, f->doc, f->doc_len, f->ts, f->tab_advance, 0.0f };
     if (pr.clause_end > pr.clause_start) {
-        wlx_text_draw_selection(f->ctx, band, f->doc, f->doc_len, f->ts, f->tab_advance,
-            f->idx, f->geom, lines, win_count, pr.clause_start, pr.clause_end,
-            f->opt->selection_color);
+        wlx_text_draw_selection(band, &m, f->idx, f->geom, lines, win_count,
+            pr.clause_start, pr.clause_end, f->opt->selection_color);
     }
-    wlx_text_draw_underline(f->ctx, band, f->doc, f->doc_len, f->ts, f->tab_advance,
-        f->idx, f->geom, lines, win_count, pr.span_start, pr.span_end, f->ts.color);
+    wlx_text_draw_underline(band, &m, f->idx, f->geom, lines, win_count,
+        pr.span_start, pr.span_end, f->ts.color);
 }
 
 // Gutter numbers: the index position of each visible record,
@@ -2561,8 +2546,9 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
             && wlx_text_edit_has_selection(&state->caret)) {
             size_t sel_min = wlx_text_edit_selection_min(&state->caret);
             size_t sel_max = wlx_text_edit_selection_max(&state->caret);
-            wlx_text_draw_selection(ctx, band, doc, doc_len, ts, tab_advance,
-                idx, geom, lines, win_count, sel_min, sel_max, opt.selection_color);
+            WLX_Text_Measure_Args m = { ctx, doc, doc_len, ts, tab_advance, 0.0f };
+            wlx_text_draw_selection(band, &m, idx, geom, lines, win_count,
+                sel_min, sel_max, opt.selection_color);
         }
 
         wlx_editor_draw_preedit(&f, lines, win_count);

@@ -396,19 +396,19 @@ TEST(edit_tab_prefix_measure_hits_next_stop) {
     float w = 0.0f, h = 0.0f;
 
     test_frame_begin(&ctx, 0, 0, false, false);
-    ASSERT_TRUE(wlx_text_measure_prefix_tabs(&ctx, "\tX", 2, 0, 1, ts, 20.0f, &w, &h));
+    ASSERT_TRUE(wlx_text_measure_prefix_tabs(&(WLX_Text_Measure_Args){ &ctx, "\tX", 2, ts, 20.0f, 0.0f }, 0, 1, &w, &h));
     ASSERT_EQ_F(w, 20.0f, 0.01f);
-    ASSERT_TRUE(wlx_text_measure_prefix_tabs(&ctx, "\tX", 2, 0, 2, ts, 20.0f, &w, &h));
+    ASSERT_TRUE(wlx_text_measure_prefix_tabs(&(WLX_Text_Measure_Args){ &ctx, "\tX", 2, ts, 20.0f, 0.0f }, 0, 2, &w, &h));
     ASSERT_EQ_F(w, 25.0f, 0.01f);
 
     // "aaaaa" is 25px: the following tab advances to 40, not 45.
-    ASSERT_TRUE(wlx_text_measure_prefix_tabs(&ctx, "aaaaa\tbb", 8, 0, 7, ts, 20.0f, &w, &h));
+    ASSERT_TRUE(wlx_text_measure_prefix_tabs(&(WLX_Text_Measure_Args){ &ctx, "aaaaa\tbb", 8, ts, 20.0f, 0.0f }, 0, 7, &w, &h));
     ASSERT_EQ_F(w, 45.0f, 0.01f);
-    ASSERT_TRUE(wlx_text_measure_prefix_tabs(&ctx, "aaaaa\tbb", 8, 0, 6, ts, 20.0f, &w, &h));
+    ASSERT_TRUE(wlx_text_measure_prefix_tabs(&(WLX_Text_Measure_Args){ &ctx, "aaaaa\tbb", 8, ts, 20.0f, 0.0f }, 0, 6, &w, &h));
     ASSERT_EQ_F(w, 40.0f, 0.01f);
 
     // Passthrough (tab_advance 0) measures the raw backend width.
-    ASSERT_TRUE(wlx_text_measure_prefix_tabs(&ctx, "\tX", 2, 0, 2, ts, 0.0f, &w, &h));
+    ASSERT_TRUE(wlx_text_measure_prefix_tabs(&(WLX_Text_Measure_Args){ &ctx, "\tX", 2, ts, 0.0f, 0.0f }, 0, 2, &w, &h));
     ASSERT_EQ_F(w, 10.0f, 0.01f);
     test_frame_end(&ctx);
     wlx_context_destroy(&ctx);

@@ -10686,17 +10686,16 @@ static bool wlx_text_measure_prefix_tabs_known(const WLX_Text_Measure_Args *args
 // caret x, hit tests): one [start, end) scan answers the precheck. The
 // build loop calls the _known entry instead - its growing prefixes share
 // their line start, and rescanning per call is O(n^2) bytes per line.
-static bool wlx_text_measure_prefix_tabs(WLX_Context *ctx, const char *text, size_t length,
-    size_t start, size_t end, WLX_Text_Style style, float tab_advance, float *out_w, float *out_h)
+static bool wlx_text_measure_prefix_tabs(const WLX_Text_Measure_Args *args,
+    size_t start, size_t end, float *out_w, float *out_h)
 {
     bool has_tab = false;
-    if (tab_advance > 0.0f && text != NULL) {
+    if (args->tab_advance > 0.0f && args->text != NULL) {
         for (size_t i = start; i < end; i++) {
-            if (text[i] == '\t') { has_tab = true; break; }
+            if (args->text[i] == '\t') { has_tab = true; break; }
         }
     }
-    WLX_Text_Measure_Args args = { ctx, text, length, style, tab_advance, 0.0f };
-    return wlx_text_measure_prefix_tabs_known(&args, start, end, has_tab, out_w, out_h);
+    return wlx_text_measure_prefix_tabs_known(args, start, end, has_tab, out_w, out_h);
 }
 
 // One fit decision of the line scan, shared by every measuring walk and
@@ -11148,6 +11147,44 @@ static inline bool wlx_text_geom_advance_at(const WLX_Text_Geom_Entry *e,
     if (u == SIZE_MAX) return false;
     *out_x = e->advances[u];
     return true;
+}
+
+// The x of off from start - a record's first byte, or an entry's measure
+// origin - in the frame the entry's advances use: 0 at or before start;
+// the stored advance when e holds off as a measured unit end; else, with
+// m, the tab-aware prefix measure from start. A NULL m asks the store
+// only. False when nothing answers (no stored unit end and no m, or the
+// measure failed). The one rule every caret x, selection edge and
+// hit-test walk reads.
+static bool wlx_text_record_x_at(const WLX_Text_Measure_Args *m,
+    const WLX_Text_Geom_Entry *e, size_t start, size_t off, float *out_x)
+{
+    if (off <= start) { *out_x = 0.0f; return true; }
+    if (e != NULL && wlx_text_geom_advance_at(e, off - e->line_start, out_x)) return true;
+    if (m == NULL) return false;
+    float h = 0.0f;
+    return wlx_text_measure_prefix_tabs(m, start, off, out_x, &h);
+}
+
+// The offset of line's visible range nearest x by the midpoint rule over
+// measured unit prefixes: x is compared with origin_x plus the midpoint of
+// each unit's prefix extents (the editor passes 0 and a content-space x).
+// The measuring walk; the stored walk is wlx_text_geom_offset_at_x.
+static size_t wlx_text_record_offset_at_x(const WLX_Text_Measure_Args *m,
+    const WLX_Text_Line_Record *line, float origin_x, float x)
+{
+    size_t off = line->visible_start;
+    float prev_w = 0.0f;
+    while (off < line->visible_end) {
+        size_t next = wlx_text_unit_next(m->text, m->length, off);
+        if (next > line->visible_end) next = line->visible_end;
+        float w = 0.0f;
+        if (!wlx_text_record_x_at(m, NULL, line->visible_start, next, &w)) break;
+        if (x < origin_x + (prev_w + w) * 0.5f) return off;
+        prev_w = w;
+        off = next;
+    }
+    return off;
 }
 
 // The entry authoritative for a record spanning [start, end) of the
@@ -11802,15 +11839,7 @@ static WLX_EXTENSION_USED bool wlx_text_geom_x_at(const WLX_Text_Measure_Args *a
     if (rel == (size_t)e->origin_rel) { *out_x = e->origin_x; return true; }
     if (rel > (size_t)e->origin_rel && e->units > 0) {
         bool covered = (size_t)e->unit_ends[e->units - 1] >= rel;
-        if (covered) {
-            float adv = 0.0f;
-            if (wlx_text_geom_advance_at(e, rel, &adv)) {
-                *out_x = e->origin_x + adv;
-                return true;
-            }
-            // A covered caret off any measured unit boundary falls to
-            // the exact prefix measure below, never to the pin.
-        } else if (!anchor || e->units >= (size_t)WLX_EDITOR_MAX_LINE_UNITS) {
+        if (!covered && (!anchor || e->units >= (size_t)WLX_EDITOR_MAX_LINE_UNITS)) {
             // Beyond coverage: at the per-record budget the origin
             // policy already re-anchored, so this is one window's
             // worth past the origin; a passive consumer pins here
@@ -11819,15 +11848,15 @@ static WLX_EXTENSION_USED bool wlx_text_geom_x_at(const WLX_Text_Measure_Args *a
             return true;
         }
         if (covered || e->complete) {
-            // Off any measured unit boundary, or inside a complete
-            // line's separator: measure the exact origin-relative
-            // prefix (tab stops restart at the origin, matching the
-            // drawn window).
-            float w = 0.0f, h = 0.0f;
-            if (wlx_text_measure_prefix_tabs(args->ctx, args->text, args->length,
-                    wlx_text_geom_origin_abs(e), e->line_start + rel,
-                    args->style, args->tab_advance, &w, &h)) {
-                *out_x = e->origin_x + w;
+            // A covered caret reads its stored advance, or off any
+            // measured unit boundary (never the pin) the exact
+            // origin-relative prefix, as does a caret inside a complete
+            // line's separator (tab stops restart at the origin,
+            // matching the drawn window).
+            float x = 0.0f;
+            if (wlx_text_record_x_at(args, e, wlx_text_geom_origin_abs(e),
+                    e->line_start + rel, &x)) {
+                *out_x = e->origin_x + x;
                 return true;
             }
         }
@@ -12529,6 +12558,7 @@ static bool wlx_text_resolve_cursor_from_lines(WLX_Context *ctx, WLX_Rect rect, 
         return true;
     }
 
+    WLX_Text_Measure_Args m = { ctx, text, length, style, 0.0f, 0.0f };
     for (size_t i = 0; i < line_count; i++) {
         const WLX_Text_Line_Record *line = &lines[i];
         if (wlx_text_cursor_is_on_line(line, cursor_offset)) {
@@ -12536,11 +12566,8 @@ static bool wlx_text_resolve_cursor_from_lines(WLX_Context *ctx, WLX_Rect rect, 
             if (!line->empty_visual) {
                 if (cursor_offset >= line->visible_end) {
                     prefix_w = line->measured_w;
-                } else if (cursor_offset > line->visible_start) {
-                    float prefix_h = 0.0f;
-                    bool measured = wlx_measure_text_range(ctx, text, length, line->visible_start, cursor_offset, style,
-                        &prefix_w, &prefix_h);
-                    if (!measured) prefix_w = 0.0f;
+                } else if (!wlx_text_record_x_at(&m, NULL, line->visible_start, cursor_offset, &prefix_w)) {
+                    prefix_w = 0.0f;
                 }
             }
 
@@ -12681,18 +12708,8 @@ static size_t wlx_text_offset_at_point_from_lines(WLX_Context *ctx, const char *
 
     if (line->empty_visual) return line->cursor_start;
 
-    size_t off = line->visible_start;
-    float prev_w = 0.0f;
-    while (off < line->visible_end) {
-        size_t next = wlx_text_unit_next(text, length, off);
-        if (next > line->visible_end) next = line->visible_end;
-        float w = 0.0f, h = 0.0f;
-        if (!wlx_measure_text_range(ctx, text, length, line->visible_start, next, style, &w, &h)) break;
-        if (px < line->origin_x + (prev_w + w) * 0.5f) return off;
-        prev_w = w;
-        off = next;
-    }
-    return off;
+    WLX_Text_Measure_Args m = { ctx, text, length, style, 0.0f, 0.0f };
+    return wlx_text_record_offset_at_x(&m, line, line->origin_x, px);
 }
 
 // Convenience wrapper over wlx_text_offset_at_point_from_lines that prepares
@@ -14140,35 +14157,27 @@ static inline size_t wlx_editor_line_next(const WLX_Editor_Line_Index *idx,
 // boundaries resolve from the stored advances; otherwise (and always for
 // the inputbox, which passes NULL for both) the prefixes measure. Returns
 // false when the range has no width on this record or cannot be measured.
-static bool wlx_text_range_extents(WLX_Context *ctx, const char *text, size_t len,
-    WLX_Text_Style ts, float tab_advance, const WLX_Editor_Line_Index *idx,
-    WLX_Text_Geom_Store *geom, const WLX_Text_Line_Record *line,
-    size_t lo, size_t hi, float *out_x0, float *out_x1)
+static bool wlx_text_range_extents(const WLX_Text_Measure_Args *m,
+    const WLX_Editor_Line_Index *idx, WLX_Text_Geom_Store *geom,
+    const WLX_Text_Line_Record *line, size_t lo, size_t hi,
+    float *out_x0, float *out_x1)
 {
-    float lead_w = 0.0f, hi_w = 0.0f, unused_h = 0.0f;
+    float lead_w = 0.0f, hi_w = 0.0f;
     bool replayed = false;
     if (geom != NULL && idx != NULL && idx->count > 0 && !line->empty_visual) {
         size_t li = wlx_editor_index_line_of(idx, line->visible_start);
-        size_t lnext = wlx_editor_line_next(idx, li, len);
+        size_t lnext = wlx_editor_line_next(idx, li, m->length);
         WLX_Text_Geom_Entry *e = lnext > line->visible_start
             ? wlx_text_geom_find_containing(geom, line->visible_start, lnext)
             : NULL;
-        if (e != NULL && e->units > 0) {
-            bool ok = true;
-            if (lo > line->visible_start)
-                ok = wlx_text_geom_advance_at(e, lo - e->line_start, &lead_w);
-            if (ok && wlx_text_geom_advance_at(e, hi - e->line_start, &hi_w))
-                replayed = true;
-        }
+        // Both edges from the store, or both measured below.
+        replayed = e != NULL && e->units > 0
+            && wlx_text_record_x_at(NULL, e, line->visible_start, lo, &lead_w)
+            && wlx_text_record_x_at(NULL, e, line->visible_start, hi, &hi_w);
     }
     if (!replayed) {
-        lead_w = 0.0f;
-        if (lo > line->visible_start) {
-            wlx_text_measure_prefix_tabs(ctx, text, len, line->visible_start, lo, ts, tab_advance,
-                &lead_w, &unused_h);
-        }
-        if (!wlx_text_measure_prefix_tabs(ctx, text, len, line->visible_start, hi, ts, tab_advance,
-                &hi_w, &unused_h)) return false;
+        if (!wlx_text_record_x_at(m, NULL, line->visible_start, lo, &lead_w)) lead_w = 0.0f;
+        if (!wlx_text_record_x_at(m, NULL, line->visible_start, hi, &hi_w)) return false;
     }
     if (hi_w - lead_w <= 0.0f) return false;
     *out_x0 = lead_w;
@@ -14178,12 +14187,13 @@ static bool wlx_text_range_extents(WLX_Context *ctx, const char *text, size_t le
 
 // Draw the selection band over the given records (see
 // wlx_text_range_extents for the idx / geom hooks).
-static void wlx_text_draw_selection(WLX_Context *ctx, WLX_Rect band, const char *text, size_t len,
-    WLX_Text_Style ts, float tab_advance, const WLX_Editor_Line_Index *idx,
-    WLX_Text_Geom_Store *geom, const WLX_Text_Line_Record *lines, size_t count,
+static void wlx_text_draw_selection(WLX_Rect band, const WLX_Text_Measure_Args *m,
+    const WLX_Editor_Line_Index *idx, WLX_Text_Geom_Store *geom,
+    const WLX_Text_Line_Record *lines, size_t count,
     size_t sel_min, size_t sel_max, WLX_Color color)
 {
-    if (sel_min >= sel_max || len == 0 || color.a == 0) return;
+    WLX_Context *ctx = m->ctx;
+    if (sel_min >= sel_max || m->length == 0 || color.a == 0) return;
     if (lines == NULL || count == 0) return;
 
     WLX_Scissor_Scope sc = wlx_scissor_scope_begin(ctx, band);
@@ -14193,7 +14203,7 @@ static void wlx_text_draw_selection(WLX_Context *ctx, WLX_Rect band, const char 
         size_t hi = sel_max < line->visible_end ? sel_max : line->visible_end;
         if (lo >= hi) continue;
         float x0, x1;
-        if (!wlx_text_range_extents(ctx, text, len, ts, tab_advance, idx, geom, line, lo, hi, &x0, &x1))
+        if (!wlx_text_range_extents(m, idx, geom, line, lo, hi, &x0, &x1))
             continue;
         wlx_draw_rect(ctx, (WLX_Rect){ line->origin_x + x0, line->origin_y, x1 - x0, line->line_h }, color);
     }
@@ -14203,12 +14213,13 @@ static void wlx_text_draw_selection(WLX_Context *ctx, WLX_Rect band, const char 
 // Underline the byte range [lo, hi) over the given records: a caret-width
 // line along the bottom of each record's row, the visual of a composition
 // string in progress. Same extents as the selection band.
-static void wlx_text_draw_underline(WLX_Context *ctx, WLX_Rect band, const char *text, size_t len,
-    WLX_Text_Style ts, float tab_advance, const WLX_Editor_Line_Index *idx,
-    WLX_Text_Geom_Store *geom, const WLX_Text_Line_Record *lines, size_t count,
+static void wlx_text_draw_underline(WLX_Rect band, const WLX_Text_Measure_Args *m,
+    const WLX_Editor_Line_Index *idx, WLX_Text_Geom_Store *geom,
+    const WLX_Text_Line_Record *lines, size_t count,
     size_t lo_byte, size_t hi_byte, WLX_Color color)
 {
-    if (lo_byte >= hi_byte || len == 0 || color.a == 0) return;
+    WLX_Context *ctx = m->ctx;
+    if (lo_byte >= hi_byte || m->length == 0 || color.a == 0) return;
     if (lines == NULL || count == 0) return;
 
     WLX_Scissor_Scope sc = wlx_scissor_scope_begin(ctx, band);
@@ -14218,7 +14229,7 @@ static void wlx_text_draw_underline(WLX_Context *ctx, WLX_Rect band, const char 
         size_t hi = hi_byte < line->visible_end ? hi_byte : line->visible_end;
         if (lo >= hi) continue;
         float x0, x1;
-        if (!wlx_text_range_extents(ctx, text, len, ts, tab_advance, idx, geom, line, lo, hi, &x0, &x1))
+        if (!wlx_text_range_extents(m, idx, geom, line, lo, hi, &x0, &x1))
             continue;
         float y = line->origin_y + line->line_h - WLX_TEXT_CARET_WIDTH * 0.5f;
         wlx_draw_line(ctx, line->origin_x + x0, y, line->origin_x + x1, y, WLX_TEXT_CARET_WIDTH, color);
@@ -16191,8 +16202,11 @@ static void wlx_inputbox_draw_content(WLX_Context *ctx, const WLX_Inputbox_Opt *
     WLX_Rect text_rect = il->text_rect;
     float line_h = ib->line_h;
 
+    // The inputbox draws no tab stops: its measures are the plain range
+    // measures, which a tab advance of 0 selects.
+    WLX_Text_Measure_Args m = { ctx, disp_text, disp_len, ts, 0.0f, 0.0f };
     if (inter.focused && wlx_text_edit_has_selection(&state->caret)) {
-        wlx_text_draw_selection(ctx, text_rect, disp_text, disp_len, ts, 0.0f,
+        wlx_text_draw_selection(text_rect, &m,
             NULL, NULL, il->lines, il->line_count,
             wlx_inputbox_display_offset(buffer, ib->buf_len, wlx_text_edit_selection_min(&state->caret), opt->password),
             wlx_inputbox_display_offset(buffer, ib->buf_len, wlx_text_edit_selection_max(&state->caret), opt->password),
@@ -16205,13 +16219,13 @@ static void wlx_inputbox_draw_content(WLX_Context *ctx, const WLX_Inputbox_Opt *
     WLX_Text_Preedit_Ranges pr;
     if (wlx_text_edit_preedit_ranges(ctx, &state->caret, inter.focused, buffer, ib->buf_len, &pr)) {
         if (pr.clause_end > pr.clause_start) {
-            wlx_text_draw_selection(ctx, text_rect, disp_text, disp_len, ts, 0.0f,
+            wlx_text_draw_selection(text_rect, &m,
                 NULL, NULL, il->lines, il->line_count,
                 wlx_inputbox_display_offset(buffer, ib->buf_len, pr.clause_start, opt->password),
                 wlx_inputbox_display_offset(buffer, ib->buf_len, pr.clause_end, opt->password),
                 opt->selection_color);
         }
-        wlx_text_draw_underline(ctx, text_rect, disp_text, disp_len, ts, 0.0f,
+        wlx_text_draw_underline(text_rect, &m,
             NULL, NULL, il->lines, il->line_count,
             wlx_inputbox_display_offset(buffer, ib->buf_len, pr.span_start, opt->password),
             wlx_inputbox_display_offset(buffer, ib->buf_len, pr.span_end, opt->password),
