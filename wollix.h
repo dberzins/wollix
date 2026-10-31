@@ -13781,17 +13781,24 @@ static void wlx_draw_widget_content(WLX_Context *ctx, WLX_Rect content_rect,
     }
 }
 
+// The face fallbacks the button-like widgets share - the button, the
+// dropdown and the menu button: front and back colours, typography, border
+// and hover brightness. Not for the menu or the tooltip, which have no
+// sizing fields (their min_height is a throwaway).
+#define WLX_RESOLVE_FACE(theme, opt) do { \
+    if (wlx_color_is_zero((opt)->front_color)) (opt)->front_color = (theme)->foreground; \
+    if (wlx_color_is_zero((opt)->back_color))  (opt)->back_color  = (theme)->surface;    \
+    wlx_resolve_typography((theme), &(opt)->font, &(opt)->font_size, &(opt)->min_height); \
+    wlx_resolve_border((theme), &(opt)->border_color, &(opt)->border_width,              \
+        &(opt)->roundness, &(opt)->rounded_segments);                                    \
+    if (wlx_is_float_unset((opt)->hover_brightness))                                     \
+        (opt)->hover_brightness = (theme)->hover_brightness;                             \
+} while (0)
+
 static void wlx_resolve_opt_button(const WLX_Context *ctx, WLX_Button_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
 
-    if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
-    if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
-
-    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
-    wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-
-    if (wlx_is_float_unset(opt->hover_brightness))
-        opt->hover_brightness = theme->hover_brightness;
+    WLX_RESOLVE_FACE(theme, opt);
 
     wlx_resolve_widget_content(&opt->texture_tint, &opt->image_text_gap, opt->font_size);
 
@@ -17468,6 +17475,19 @@ static inline WLX_Overlay_Opt wlx_overlay_chrome_opt(WLX_Color back, WLX_Color b
     return lopt;
 }
 
+// The face of a button-anchored popup (dropdown, menu button): a text-only
+// button built from the button defaults, carrying the popup's resolved face
+// fields, so a button default reaches both faces.
+#define WLX_POPUP_FACE_OPT(opt) \
+    wlx_default_button_opt( \
+        WLX_LAYOUT_SLOT_COPY(opt), WLX_WIDGET_SIZING_COPY(opt), \
+        WLX_WIDGET_STATE_COPY(opt), WLX_TEXT_TYPOGRAPHY_COPY(opt), \
+        WLX_TEXT_COLOR_COPY(opt), WLX_BORDER_COPY(opt), \
+        WLX_CONTENT_PADDING_COPY(opt), \
+        .hover_brightness = (opt).hover_brightness, \
+        .hover_back_color = (opt).hover_back_color, \
+        .wrap             = false)
+
 // The list styling of a button-anchored popup (dropdown, menu button) as a
 // WLX_Menu_Opt, so its rows and chrome go through the same helpers a menu
 // uses. `opt` carries the popup's resolved face and list_* fields; the
@@ -17529,14 +17549,7 @@ enum { WLX_DROPDOWN_LIST_SALT = 0x64726F70 };
 static void wlx_resolve_opt_dropdown(const WLX_Context *ctx, WLX_Dropdown_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
 
-    if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
-    if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
-
-    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
-    wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-
-    if (wlx_is_float_unset(opt->hover_brightness))
-        opt->hover_brightness = theme->hover_brightness;
+    WLX_RESOLVE_FACE(theme, opt);
 
     if (opt->row_height <= 0.0f) opt->row_height = (float)opt->font_size + WLX_POPUP_ROW_HEIGHT_PAD;
     if (opt->max_list_height <= 0.0f) opt->max_list_height = WLX_DROPDOWN_MAX_LIST_HEIGHT;
@@ -17593,16 +17606,8 @@ WLXDEF bool wlx_dropdown_impl(WLX_Context *ctx, const char *label,
     }
 
     // The face is a button drawn from the resolved dropdown options
-    // (text-only: the image fields stay zero).
-    WLX_Button_Opt face = {
-        WLX_LAYOUT_SLOT_COPY(opt), WLX_WIDGET_SIZING_COPY(opt),
-        WLX_WIDGET_STATE_COPY(opt), WLX_TEXT_TYPOGRAPHY_COPY(opt),
-        WLX_TEXT_COLOR_COPY(opt), WLX_BORDER_COPY(opt),
-        WLX_CONTENT_PADDING_COPY(opt),
-        .hover_brightness = opt.hover_brightness,
-        .hover_back_color = opt.hover_back_color,
-        .wrap             = false,
-    };
+    // (text-only: the image fields keep their inert defaults).
+    WLX_Button_Opt face = WLX_POPUP_FACE_OPT(opt);
     size_t face_len = (face_text != NULL) ? strlen(face_text) : 0;
     WLX_Rect wr;
     WLX_Interaction inter = wlx_button_face(ctx, face_text, face_len, &face, wly,
@@ -17889,14 +17894,7 @@ WLXDEF bool wlx_menu_begin_impl(WLX_Context *ctx, bool *open, float x, float y,
 static void wlx_resolve_opt_menu_button(const WLX_Context *ctx, WLX_Menu_Button_Opt *opt) {
     const WLX_Theme *theme = ctx->theme;
 
-    if (wlx_color_is_zero(opt->front_color)) opt->front_color = theme->foreground;
-    if (wlx_color_is_zero(opt->back_color))  opt->back_color  = theme->surface;
-
-    wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
-    wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);
-
-    if (wlx_is_float_unset(opt->hover_brightness))
-        opt->hover_brightness = theme->hover_brightness;
+    WLX_RESOLVE_FACE(theme, opt);
 
     if (opt->row_height <= 0.0f)  opt->row_height = (float)opt->font_size + WLX_POPUP_ROW_HEIGHT_PAD;
     if (opt->item_padding < 0.0f) opt->item_padding = WLX_MENU_ITEM_PADDING;
@@ -17942,16 +17940,8 @@ WLXDEF bool wlx_menu_button_begin_impl(WLX_Context *ctx, const char *label,
     }
 
     // The face is a button drawn from the resolved menu-button options
-    // (text-only: the image fields stay zero).
-    WLX_Button_Opt face = {
-        WLX_LAYOUT_SLOT_COPY(opt), WLX_WIDGET_SIZING_COPY(opt),
-        WLX_WIDGET_STATE_COPY(opt), WLX_TEXT_TYPOGRAPHY_COPY(opt),
-        WLX_TEXT_COLOR_COPY(opt), WLX_BORDER_COPY(opt),
-        WLX_CONTENT_PADDING_COPY(opt),
-        .hover_brightness = opt.hover_brightness,
-        .hover_back_color = opt.hover_back_color,
-        .wrap             = false,
-    };
+    // (text-only: the image fields keep their inert defaults).
+    WLX_Button_Opt face = WLX_POPUP_FACE_OPT(opt);
     WLX_Rect wr;
     WLX_Interaction inter = wlx_button_face(ctx, label, label_len, &face, wly,
                                             NULL, &wr, file, line);
