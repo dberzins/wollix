@@ -1,7 +1,10 @@
 // test_grapheme.c - the text unit as an approximated grapheme cluster: the
 // boundary predicate, the two unit steppers as exact inverses, the four
 // join rules with their exclusions, and the consumers that read the unit
-// (caret normalization, hit-test, wrap cut, insert truncation).
+// (caret normalization, hit-test, wrap cut, insert truncation). The
+// lead-byte prefilter admits the lead of every codepoint a join rule tests
+// on its right-hand side, so a table range added under another lead fails
+// here instead of silently never joining.
 //
 // Geometry model (mock backend): char width = font_size/2 = 5 px per byte
 // at font_size 10, so a 3-byte cluster is one 15 px unit and an 18-byte
@@ -368,6 +371,34 @@ TEST(gr_normalize_floors_to_cluster_start) {
     ASSERT_EQ_INT(0, (long)wlx_text_normalize_cursor_offset(NULL, 0, 3));
 }
 
+// Every codepoint the three join rules test on their right-hand side - the
+// Extend table, the two pictographic blocks, the regional indicators -
+// encodes under a lead byte the prefilter admits.
+TEST(gr_prefilter_admits_every_joining_lead) {
+    static const uint32_t rules[][2] = {
+        { 0x2600u, 0x27BFu }, { 0x1F000u, 0x1FAFFu },   // pictographic
+        { 0x1F1E6u, 0x1F1FFu },                         // regional indicators
+    };
+    size_t refused = 0;
+    uint32_t first_refused = 0;
+    for (size_t t = 0; t < 2; t++) {
+        size_t n = t == 0 ? wlx_array_len(wlx_text_extend_ranges) : wlx_array_len(rules);
+        for (size_t i = 0; i < n; i++) {
+            uint32_t lo = t == 0 ? wlx_text_extend_ranges[i][0] : rules[i][0];
+            uint32_t hi = t == 0 ? wlx_text_extend_ranges[i][1] : rules[i][1];
+            for (uint32_t cp = lo; cp <= hi; cp++) {
+                char enc[4];
+                wlx_utf8_encode(cp, enc);
+                if (!wlx_text_unit_lead_may_join((unsigned char)enc[0])) {
+                    if (refused++ == 0) first_refused = cp;
+                }
+            }
+        }
+    }
+    if (refused != 0) printf("    first refused: U+%04X\n", (unsigned)first_refused);
+    ASSERT_EQ_INT(0, (long)refused);
+}
+
 SUITE(grapheme) {
     RUN_TEST(gr_extend_marks_join_their_base);
     RUN_TEST(gr_zwj_sequences);
@@ -378,6 +409,7 @@ SUITE(grapheme) {
     RUN_TEST(gr_steppers_are_exact_inverses_over_corpus);
     RUN_TEST(gr_malformed_input_steps_like_codepoints);
     RUN_TEST(gr_codepoint_helpers_unchanged);
+    RUN_TEST(gr_prefilter_admits_every_joining_lead);
     RUN_TEST(gr_hit_test_returns_unit_boundaries);
     RUN_TEST(gr_wrap_cuts_at_unit_boundaries);
     RUN_TEST(gr_insert_truncates_on_unit_boundary);

@@ -7,8 +7,9 @@
 // right then left reproduces identical geometry on the additive mock),
 // tab stops restarting at the origin, END reaching the true end of a
 // budget-deep line with the view following, editing at far offsets with
-// the caret visible, and the near-content regime keeping every origin at
-// the line start.
+// the caret visible, the near-content regime keeping every origin at
+// the line start, and the space-preferring backscan of an in-coverage
+// re-anchor counting bytes (WLX_EDITOR_ORIGIN_BACKSCAN), not units.
 //
 // Geometry model (mock backend): char width = font_size/2 = 5px at the
 // fixture's font_size 10, line height = 10, tab advance 20. Fixture:
@@ -720,6 +721,44 @@ TEST(origin_moves_land_on_cluster_boundaries) {
     }
 }
 
+// A line of 3-byte units (15 px each) with one space: the budget's 1024
+// units end at about 15350 px, so a view at 15200 re-anchors inside the
+// measured coverage. The covering unit ends at byte 3004 (unit 1001); the
+// backscan prefers a space edge within WLX_EDITOR_ORIGIN_BACKSCAN (64)
+// bytes behind it, however many units that is.
+static size_t wo_origin_with_space_at(int space_unit, bool advances) {
+    WLX_Context ctx;
+    wo_ctx_init(&ctx, advances);
+    static char buf[10000];
+    size_t n = 0;
+    for (int i = 0; i < 3000; i++) {
+        if (i == space_unit) buf[n++] = ' ';
+        else { memcpy(buf + n, "\xE6\x97\xA5", 3); n += 3; }
+    }
+    buf[n] = '\0';
+    size_t len = n;
+    wo_frame(&ctx, buf, sizeof(buf), &len);
+    wo_frame(&ctx, buf, sizeof(buf), &len);
+    WLX_Editor_State *st = wo_state(&ctx);
+    st->scroll_x = 15200.0f;
+    wo_frame(&ctx, buf, sizeof(buf), &len);
+    wo_frame(&ctx, buf, sizeof(buf), &len);
+    WLX_Text_Geom_Entry *e = wo_entry(&ctx, 0);
+    size_t origin = e != NULL ? (size_t)e->origin_rel : 0;
+    wlx_context_destroy(&ctx);
+    return origin;
+}
+
+TEST(origin_backscan_counts_bytes) {
+    for (int adv = 0; adv < 2; adv++) {
+        // 16 units (48 bytes) behind the covering end: the space edge wins.
+        ASSERT_EQ_INT(3 * 985 + 1, (long)wo_origin_with_space_at(985, adv == 1));
+        // 31 units but 93 bytes behind: outside the window, so the origin
+        // stays on the covering unit end.
+        ASSERT_EQ_INT(3004, (long)wo_origin_with_space_at(970, adv == 1));
+    }
+}
+
 SUITE(editor_windowed_origin) {
     RUN_TEST(origin_moves_land_on_cluster_boundaries);
     RUN_TEST(origin_deep_view_caret_hit_draw_agree);
@@ -731,4 +770,5 @@ SUITE(editor_windowed_origin) {
     RUN_TEST(origin_end_reaches_line_end_and_view_follows);
     RUN_TEST(origin_editing_at_far_depth_keeps_caret_visible_and_exact);
     RUN_TEST(origin_near_content_keeps_line_start_origins);
+    RUN_TEST(origin_backscan_counts_bytes);
 }

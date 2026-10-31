@@ -11609,10 +11609,13 @@ static void wlx_text_geom_window_linear(const WLX_Text_Build_Inputs *inputs,
                 if (e->advances[mid] < target_rel) lo = mid + 1; else hi = mid;
             }
             size_t pick = lo < e->units ? lo : e->units - 1;
-            size_t stop = pick > (size_t)WLX_EDITOR_ORIGIN_BACKSCAN
-                ? pick - (size_t)WLX_EDITOR_ORIGIN_BACKSCAN : 0;
-            for (size_t k = pick + 1; k > stop; k--) {
-                size_t end_abs = line_start + e->unit_ends[k - 1];
+            // The backscan window is in bytes back from the picked unit
+            // end, as at the re-entry snap (a unit is a byte on ASCII).
+            size_t pick_end = (size_t)e->unit_ends[pick];
+            for (size_t k = pick + 1; k > 0; k--) {
+                size_t end_rel = (size_t)e->unit_ends[k - 1];
+                if (pick_end - end_rel > (size_t)WLX_EDITOR_ORIGIN_BACKSCAN) break;
+                size_t end_abs = line_start + end_rel;
                 if (end_abs > 0 && text[end_abs - 1] == ' ') { pick = k - 1; break; }
             }
             // Never anchor right of the view's left edge: the retreat rule
