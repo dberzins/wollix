@@ -1132,10 +1132,6 @@ typedef struct {
     float  slot_size;
     size_t slot_size_offsets_base;
     float  next_slot_size;
-    // per-slot style override (one-shot, consumed by wlx_get_slot_rect)
-    WLX_Color next_slot_back_color;
-    WLX_Color next_slot_border_color;
-    float     next_slot_border_width;
 } WLX_Layout_Linear;
 
 typedef struct {
@@ -1157,11 +1153,16 @@ typedef struct {
     size_t col_offsets_base;    // index in scratch buffer where col_offsets starts
     float  next_row_size;       // per-row override
     size_t last_placed_row;     // row of the most recently placed cell
-    // per-cell style override (one-shot, consumed by wlx_get_slot_rect)
-    WLX_Color next_cell_back_color;
-    WLX_Color next_cell_border_color;
-    float     next_cell_border_width;
 } WLX_Layout_Grid;
+
+// A one-shot style for the next slot or cell (wlx_slot_style,
+// wlx_grid_cell_style, wlx_grid_cell): taken, and cleared, by the next
+// slot fetch, which draws it in place of the layout's slot decor.
+typedef struct {
+    WLX_Color back_color;
+    WLX_Color border_color;
+    float     border_width;
+} WLX_Pending_Slot_Style;
 
 typedef struct WLX_Layout {
     WLX_Layout_Kind kind;
@@ -1209,6 +1210,8 @@ typedef struct WLX_Layout {
     bool has_content_slot_measures;          // true when content_slot_measures_off is valid
     size_t grid_row_content_heights_off;    // index into slot_size_offsets for grid_row_content_heights
     bool has_grid_row_content_heights;      // true when grid_row_content_heights_off is valid
+
+    WLX_Pending_Slot_Style pending_style;
 
     union {
         WLX_Layout_Linear linear;
@@ -6713,6 +6716,25 @@ static inline WLX_Rect wlx_grid_overrun_rect(const WLX_Context *ctx, const WLX_L
     return (WLX_Rect){ l->rect.x, l->rect.y + row_off[l->grid.rows], l->rect.w, 0.0f };
 }
 
+// The layout's pending slot style, cleared: each slot fetch takes it once,
+// whether the slot is placed or refused.
+static inline WLX_Pending_Slot_Style wlx_layout_take_pending(WLX_Layout *l) {
+    WLX_Pending_Slot_Style p = l->pending_style;
+    wlx_zero_struct(l->pending_style);
+    return p;
+}
+
+// Draw a placed slot's decor: the pending style when one carries a fill or
+// a border, else the layout's slot decor.
+static void wlx_layout_draw_slot_decor(WLX_Context *ctx, WLX_Layout *l, WLX_Rect slot_rect) {
+    WLX_Pending_Slot_Style p = wlx_layout_take_pending(l);
+    bool has_override = !wlx_color_is_zero(p.back_color) || p.border_width > 0;
+    WLX_Color bg = has_override ? p.back_color   : l->slot_back_color;
+    WLX_Color bc = has_override ? p.border_color : l->slot_border_color;
+    float     bw = has_override ? p.border_width : l->slot_border_width;
+    wlx_draw_layout_background(ctx, slot_rect, bg, bc, bw, 0, 0);
+}
+
 WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size_t span) {
     assert(l != NULL);
     l->slot_clamped = false;
@@ -6769,26 +6791,13 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
 
         if (!WLX_CONTRACT(ctx, cols_ok && row + rspan <= l->grid.rows,
                 WLX_ERR_GRID_BOUNDS, "grid overrun: the cell or span lies outside the grid")) {
-            l->grid.next_cell_back_color   = (WLX_Color){0};
-            l->grid.next_cell_border_color = (WLX_Color){0};
-            l->grid.next_cell_border_width = 0.0f;
+            (void)wlx_layout_take_pending(l);
             l->slot_clamped = true;
             return wlx_grid_overrun_rect(ctx, l);
         }
 
         WLX_Rect slot_rect = wlx_calc_grid_slot_rect(ctx, l, row, col, rspan, cspan);
-
-        {
-            bool has_override = !wlx_color_is_zero(l->grid.next_cell_back_color)
-                             || l->grid.next_cell_border_width > 0;
-            WLX_Color bg  = has_override ? l->grid.next_cell_back_color   : l->slot_back_color;
-            WLX_Color bc  = has_override ? l->grid.next_cell_border_color : l->slot_border_color;
-            float     bw  = has_override ? l->grid.next_cell_border_width : l->slot_border_width;
-            l->grid.next_cell_back_color   = (WLX_Color){0};
-            l->grid.next_cell_border_color = (WLX_Color){0};
-            l->grid.next_cell_border_width = 0.0f;
-            wlx_draw_layout_background(ctx, slot_rect, bg, bc, bw, 0, 0);
-        }
+        wlx_layout_draw_slot_decor(ctx, l, slot_rect);
 
         l->grid.last_placed_row = row;
         l->fetch_first = row * l->grid.cols + col;
@@ -6833,25 +6842,12 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
         && !WLX_CONTRACT(ctx, cell_index + span <= l->count, WLX_ERR_SLOT_OVERRUN,
                (pos < 0) ? "slot overrun: more children than slots in this layout"
                          : "slot position past the layout's slot count")) {
-        l->linear.next_slot_back_color   = (WLX_Color){0};
-        l->linear.next_slot_border_color = (WLX_Color){0};
-        l->linear.next_slot_border_width = 0.0f;
+        (void)wlx_layout_take_pending(l);
         l->slot_clamped = true;
         return wlx_layout_overrun_rect(l);
     }
     WLX_Rect slot_rect = wlx_calc_layout_slot_rect(ctx, l, cell_index, span);
-
-    {
-        bool has_override = !wlx_color_is_zero(l->linear.next_slot_back_color)
-                         || l->linear.next_slot_border_width > 0;
-        WLX_Color bg  = has_override ? l->linear.next_slot_back_color   : l->slot_back_color;
-        WLX_Color bc  = has_override ? l->linear.next_slot_border_color : l->slot_border_color;
-        float     bw  = has_override ? l->linear.next_slot_border_width : l->slot_border_width;
-        l->linear.next_slot_back_color   = (WLX_Color){0};
-        l->linear.next_slot_border_color = (WLX_Color){0};
-        l->linear.next_slot_border_width = 0.0f;
-        wlx_draw_layout_background(ctx, slot_rect, bg, bc, bw, 0, 0);
-    }
+    wlx_layout_draw_slot_decor(ctx, l, slot_rect);
 
     l->index = cell_index + span;
     l->fetch_first = cell_index;
@@ -9085,9 +9081,8 @@ WLXDEF void wlx_grid_cell_impl(WLX_Context *ctx, int row, int col, WLX_Slot_Styl
     l->grid.next_col_span = cs;
 
     if (!wlx_color_is_zero(opt.back_color) || opt.border_width > 0) {
-        l->grid.next_cell_back_color   = opt.back_color;
-        l->grid.next_cell_border_color = opt.border_color;
-        l->grid.next_cell_border_width = opt.border_width;
+        l->pending_style = (WLX_Pending_Slot_Style){
+            opt.back_color, opt.border_color, opt.border_width };
     }
 }
 
@@ -9098,9 +9093,8 @@ WLXDEF void wlx_slot_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt, const 
         "wlx_slot_style called with no layout open",
         "wlx_slot_style is only valid inside a linear layout", file, line);
     if (l == NULL) return;
-    l->linear.next_slot_back_color   = opt.back_color;
-    l->linear.next_slot_border_color = opt.border_color;
-    l->linear.next_slot_border_width = opt.border_width;
+    l->pending_style = (WLX_Pending_Slot_Style){
+        opt.back_color, opt.border_color, opt.border_width };
 }
 
 WLXDEF void wlx_grid_cell_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt, const char *file, int line) {
@@ -9110,9 +9104,8 @@ WLXDEF void wlx_grid_cell_style_impl(WLX_Context *ctx, WLX_Slot_Style_Opt opt, c
         "wlx_grid_cell_style called with no layout open",
         "wlx_grid_cell_style is only valid inside a grid layout", file, line);
     if (l == NULL) return;
-    l->grid.next_cell_back_color   = opt.back_color;
-    l->grid.next_cell_border_color = opt.border_color;
-    l->grid.next_cell_border_width = opt.border_width;
+    l->pending_style = (WLX_Pending_Slot_Style){
+        opt.back_color, opt.border_color, opt.border_width };
 }
 
 WLXDEF WLX_Rect wlx_get_align_rect(WLX_Rect parent_rect, float width, float height, WLX_Align align) {
