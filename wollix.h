@@ -600,6 +600,22 @@ static inline size_t wlx_utf8_floor(const char *s, size_t pos) {
     return pos;
 }
 
+// Append src_len bytes of UTF-8 to a NUL-terminated buffer of cap bytes
+// holding len (len < cap), whole sequences only: the first codepoint that
+// does not fit is dropped with the rest of src, never split at the cap.
+// Returns the new length; one short of len + src_len means src overflowed,
+// which ends the frame's burst for an adapter filling WLX_Input_State's
+// text_input (the commit-stream rule).
+static inline size_t wlx_utf8_append_whole(char *dst, size_t cap, size_t len,
+                                           const char *src, size_t src_len) {
+    size_t room = cap - 1 - len;
+    size_t take = src_len <= room ? src_len : wlx_utf8_floor(src, room);
+    memcpy(dst + len, src, take);
+    len += take;
+    dst[len] = '\0';
+    return len;
+}
+
 // Initial capacity for growable internal buffers (see wlx_sub_arena_reserve).
 // Overridable before include.
 #ifndef WLX_DA_INIT_CAP

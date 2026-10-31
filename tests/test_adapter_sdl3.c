@@ -210,6 +210,48 @@ TEST(sdl3_event_watch_survives_sdl_reinit) {
 }
 
 // ============================================================================
+// Committed text
+// ============================================================================
+
+static void sa_push_text(SDL_Window *win, const char *text) {
+    SDL_Event e;
+    SDL_zero(e);
+    e.type = SDL_EVENT_TEXT_INPUT;
+    e.text.windowID = SDL_GetWindowID(win);
+    e.text.text = text;
+    SDL_PushEvent(&e);
+}
+
+// The commit-stream rule: the first codepoint that does not fit ends the
+// frame's burst. The overflowing event keeps its prefix that fits, and a
+// later short event of the same frame, which would fit, is dropped too;
+// the next frame starts empty.
+TEST(sdl3_text_burst_ends_at_the_first_overflow) {
+    SDL_Window *win = sa_open(200, 100);
+    ASSERT_TRUE(win != NULL);
+    WLX_Context *ctx = calloc(1, sizeof *ctx);
+    wlx_context_init_sdl3(ctx, win, SDL_GetRenderer(win));
+    // WLX_INPUT_TEXT_BYTES - 3 ASCII bytes leave room for 2 more.
+    static char fill[WLX_INPUT_TEXT_BYTES];
+    memset(fill, 'a', WLX_INPUT_TEXT_BYTES - 3);
+    fill[WLX_INPUT_TEXT_BYTES - 3] = '\0';
+    sa_push_text(win, fill);
+    sa_push_text(win, "b\xE2\x82\xAC");  // "b" fits, the euro sign (3 bytes) does not
+    sa_push_text(win, "c");                // fits, but the burst is over
+    wlx_process_sdl3_input(ctx);
+    size_t n = strlen(ctx->input.text_input);
+    ASSERT_EQ_INT(WLX_INPUT_TEXT_BYTES - 2, (int)n);
+    ASSERT_TRUE(ctx->input.text_input[n - 1] == 'b');
+    sa_push_text(win, "d");
+    wlx_process_sdl3_input(ctx);
+    ASSERT_EQ_STR("d", ctx->input.text_input);
+    SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
+    wlx_context_destroy(ctx);
+    free(ctx);
+    sa_close(win);
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
@@ -218,6 +260,7 @@ SUITE(adapter_sdl3) {
     RUN_TEST(sdl3_diagonal_line_honours_thickness);
     RUN_TEST(sdl3_rebound_context_restarts_text_input);
     RUN_TEST(sdl3_event_watch_survives_sdl_reinit);
+    RUN_TEST(sdl3_text_burst_ends_at_the_first_overflow);
 }
 
 int main(void) {

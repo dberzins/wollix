@@ -120,6 +120,13 @@ const BROWSER_OWNED_KEYS = new Set([
 const decoder = new TextDecoder("utf-8");
 const encoder = new TextEncoder();
 
+// Largest offset <= pos that does not point at a UTF-8 continuation byte,
+// as the core's wlx_utf8_floor: a cut there never splits a sequence.
+function utf8Floor(bytes, pos) {
+    while (pos > 0 && (bytes[pos] & 0xC0) === 0x80) pos--;
+    return pos;
+}
+
 function unpackColor(rgba) {
     return {
         r: (rgba >>> 24) & 0xFF,
@@ -1216,14 +1223,13 @@ function probeCtxFilterSupported() {
         u32[(base + INPUT_OFFSETS.modifiers) >> 2] = input.modifiers;
 
         // text_input and preedit: NUL-terminated UTF-8 in a fixed field.
-        // Truncation must never split a UTF-8 sequence: back off any
-        // continuation bytes at the cap. The rest of the field is zeroed.
+        // The frame's committed text is one string, so cutting it at the
+        // last sequence boundary that fits keeps the prefix and drops the
+        // rest of the burst (the commit-stream rule). The rest of the field
+        // is zeroed.
         const writeTextField = (str, offset, cap) => {
             const bytes = encoder.encode(str);
-            let len = Math.min(bytes.length, cap - 1);
-            if (len < bytes.length) {
-                while (len > 0 && (bytes[len] & 0xC0) === 0x80) len--;
-            }
+            const len = bytes.length < cap ? bytes.length : utf8Floor(bytes, cap - 1);
             u8.set(bytes.subarray(0, len), base + offset);
             u8.fill(0, base + offset + len, base + offset + cap);
         };

@@ -536,6 +536,15 @@ minor.
   context's last pushed anchor, and `make test-sdl3` pins both cases.
   Code that read the adapter's private renderer variable,
   `g_wlx_sdl3_renderer`, reads `g_wlx_sdl3.renderer`.
+- **SDL3: a frame's committed text ends at its first overflow, as on
+  Raylib and the web.** `text_input` is documented as a stream whose
+  first codepoint that does not fit is dropped with the rest of the
+  frame's burst. The SDL3 adapter truncated each event on its own and
+  kept appending later events that fit, so a frame that overflowed could
+  deliver text with a gap in the middle. It now stops at the first
+  overflow, as the Raylib adapter and the web host already did. All three
+  share the rule through a new core helper, `wlx_utf8_append_whole`, beside
+  `wlx_utf8_floor` (the web host has the same cut as `utf8Floor`).
 - **`WLX_TEXT_STYLE_DEFAULT` compiles as C++.** It was the one public
   literal macro without a `__cplusplus` spelling, so a C++ caller got a
   C99 compound literal with designated initialisers (rejected by

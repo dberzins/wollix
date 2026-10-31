@@ -331,6 +331,36 @@ TEST(text_unit_next_agrees_with_codepoint_next_on_codepoints) {
 }
 
 // ============================================================================
+// wlx_utf8_append_whole: the commit-stream append
+// ============================================================================
+
+TEST(utf8_append_whole_fits) {
+    char buf[8] = "x";
+    ASSERT_EQ_INT(3, (int)wlx_utf8_append_whole(buf, sizeof buf, 1, "ab", 2));
+    ASSERT_EQ_STR("xab", buf);
+    // An exact fit leaves room for the NUL only.
+    ASSERT_EQ_INT(7, (int)wlx_utf8_append_whole(buf, sizeof buf, 3, "cdef", 4));
+    ASSERT_EQ_STR("xabcdef", buf);
+    // Nothing to append, or no room: unchanged, still terminated.
+    ASSERT_EQ_INT(7, (int)wlx_utf8_append_whole(buf, sizeof buf, 7, "", 0));
+    ASSERT_EQ_INT(7, (int)wlx_utf8_append_whole(buf, sizeof buf, 7, "g", 1));
+    ASSERT_EQ_STR("xabcdef", buf);
+}
+
+TEST(utf8_append_whole_drops_the_rest_at_the_first_overflow) {
+    // Room for 2 bytes: e-acute (2) fits, the euro sign (3) does not.
+    char buf[4] = "x";
+    const char *src = "\xC3\xA9\xE2\x82\xAC";
+    ASSERT_EQ_INT(3, (int)wlx_utf8_append_whole(buf, sizeof buf, 1, src, 5));
+    ASSERT_EQ_STR("x\xC3\xA9", buf);
+    // A 4-byte codepoint with 3 bytes of room: nothing lands, and the ASCII
+    // after it, which would fit, goes with it.
+    char b2[5] = "z";
+    ASSERT_EQ_INT(1, (int)wlx_utf8_append_whole(b2, sizeof b2, 1, "\xF0\x9F\x98\x80" "a", 5));
+    ASSERT_EQ_STR("z", b2);
+}
+
+// ============================================================================
 // Round-trip: encode then decode
 // ============================================================================
 
@@ -402,6 +432,10 @@ SUITE(utf8) {
     RUN_TEST(codepoint_next_malformed_continuation_steps_one_byte);
     RUN_TEST(codepoint_next_truncated_sequence_at_end);
     RUN_TEST(text_unit_next_agrees_with_codepoint_next_on_codepoints);
+
+    // append whole
+    RUN_TEST(utf8_append_whole_fits);
+    RUN_TEST(utf8_append_whole_drops_the_rest_at_the_first_overflow);
 
     // round-trip
     RUN_TEST(utf8_roundtrip);

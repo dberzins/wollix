@@ -38,6 +38,7 @@ typedef struct {
     float wheel_delta_x;
     char   text_input[WLX_INPUT_TEXT_BYTES];
     size_t text_len;
+    bool   text_overflowed;  // this frame's committed text hit the cap: the burst is over
     // Composition state from SDL_EVENT_TEXT_EDITING: the whole current
     // string (replaced on each event, not appended), its codepoint cursor
     // and selected clause; cleared when text input stops or the window
@@ -309,23 +310,6 @@ static inline SDL_Scancode wlx_sdl3_to_scancode(WLX_Key_Code key) {
         default: return SDL_SCANCODE_UNKNOWN;
     }
 }
-// Append src to a NUL-terminated field of cap bytes holding len bytes,
-// whole UTF-8 sequences only: a codepoint that does not fit is dropped with
-// the rest of src, never split at the cap. Returns the new length.
-static size_t wlx_sdl3_append_codepoints(char *dst, size_t cap, size_t len, const char *src) {
-    size_t room = cap - 1;
-    while (*src != '\0') {
-        size_t seq = 1;
-        while (src[seq] != '\0' && ((unsigned char)src[seq] & 0xC0) == 0x80) seq++;
-        if (len + seq > room) break;
-        memcpy(&dst[len], src, seq);
-        len += seq;
-        src += seq;
-    }
-    dst[len] = '\0';
-    return len;
-}
-
 // The composition is over: the next frame's input carries no string, so the
 // focused widget drops its tentative span.
 static void wlx_sdl3_clear_preedit(void) {
@@ -374,9 +358,15 @@ static bool wlx_sdl3_event_watch(void *userdata, SDL_Event *event) {
             break;
         }
         case SDL_EVENT_TEXT_INPUT: {
-            // Committed text accumulates across the frame's events.
-            g_wlx_sdl3.text_len = wlx_sdl3_append_codepoints(g_wlx_sdl3.text_input,
-                sizeof(g_wlx_sdl3.text_input), g_wlx_sdl3.text_len, event->text.text);
+            // Committed text accumulates across the frame's events, until
+            // the first codepoint that does not fit: that ends the frame's
+            // burst, so a later short event cannot land after a gap.
+            if (g_wlx_sdl3.text_overflowed || event->text.text == NULL) break;
+            size_t src_len = strlen(event->text.text);
+            size_t len = wlx_utf8_append_whole(g_wlx_sdl3.text_input,
+                sizeof(g_wlx_sdl3.text_input), g_wlx_sdl3.text_len, event->text.text, src_len);
+            g_wlx_sdl3.text_overflowed = len - g_wlx_sdl3.text_len < src_len;
+            g_wlx_sdl3.text_len = len;
             break;
         }
         case SDL_EVENT_TEXT_EDITING: {
@@ -384,9 +374,9 @@ static bool wlx_sdl3_event_watch(void *userdata, SDL_Event *event) {
             // current string, an empty one ends the composition. Ignored
             // while text input is off (a stale event after a stop).
             if (!g_wlx_sdl3.text_active) break;
-            g_wlx_sdl3.preedit[0] = '\0';
-            (void)wlx_sdl3_append_codepoints(g_wlx_sdl3.preedit, sizeof(g_wlx_sdl3.preedit), 0,
-                event->edit.text != NULL ? event->edit.text : "");
+            const char *edit = event->edit.text != NULL ? event->edit.text : "";
+            (void)wlx_utf8_append_whole(g_wlx_sdl3.preedit, sizeof(g_wlx_sdl3.preedit), 0,
+                edit, strlen(edit));
             g_wlx_sdl3.preedit_cursor = (int32_t)event->edit.start;
             g_wlx_sdl3.preedit_sel = (int32_t)event->edit.length;
             break;
@@ -505,6 +495,7 @@ static inline void wlx_process_sdl3_input(WLX_Context *ctx) {
     }
     wlx_zero_struct(g_wlx_sdl3.text_input);
     g_wlx_sdl3.text_len = 0;
+    g_wlx_sdl3.text_overflowed = false;
 
     // The composition string persists between frames until the input
     // method replaces or ends it; it is state, not a per-frame stream.

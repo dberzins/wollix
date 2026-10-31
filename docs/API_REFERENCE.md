@@ -914,7 +914,11 @@ semantics and never affect focus or the left-press ownership. Query with
 **Text channels.** `text_input` is a *stream*: the backend accumulates the
 frame's committed text into it (NUL terminated, whole UTF-8 sequences
 only, a codepoint that does not fit is dropped with the rest of the burst
-and never split at the cap) and the core drains it once per frame.
+and never split at the cap, so a later event of the same frame does not
+land after the gap) and the core drains it once per frame. An adapter
+appends each event with `wlx_utf8_append_whole(dst, cap, len, src,
+src_len)`, which returns the new length; one short of `len + src_len`
+means the burst is over.
 `preedit` is *state*: the whole composition string the platform's input
 method currently shows, as of the end of the frame's event pump, replaced
 by each update and empty when no composition is in flight, under the same

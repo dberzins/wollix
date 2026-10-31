@@ -296,19 +296,19 @@ static inline void wlx_process_raylib_input(WLX_Context *ctx) {
     if (IsKeyDown(KEY_LEFT_ALT)     || IsKeyDown(KEY_RIGHT_ALT))     ctx->input.modifiers |= WLX_MOD_ALT;
     if (IsKeyDown(KEY_LEFT_SUPER)   || IsKeyDown(KEY_RIGHT_SUPER))   ctx->input.modifiers |= WLX_MOD_SUPER;
 
+    // The first codepoint that does not fit ends the frame's burst; Raylib
+    // drops what is left in its queue when it polls the next frame.
     wlx_zero_struct(ctx->input.text_input);
     int key = GetCharPressed();
-    int text_len = 0;
+    size_t text_len = 0;
     while (key > 0) {
         if (key >= 32) {
             char encoded[4];
             size_t enc_len = wlx_utf8_encode((uint32_t)key, encoded);
-            if (text_len + (int)enc_len < (int)sizeof(ctx->input.text_input)) {
-                memcpy(&ctx->input.text_input[text_len], encoded, enc_len);
-                text_len += (int)enc_len;
-            } else {
-                break;  // buffer full
-            }
+            size_t len = wlx_utf8_append_whole(ctx->input.text_input,
+                sizeof(ctx->input.text_input), text_len, encoded, enc_len);
+            if (len == text_len) break;
+            text_len = len;
         }
         key = GetCharPressed();
     }
