@@ -6735,6 +6735,104 @@ static void wlx_layout_draw_slot_decor(WLX_Context *ctx, WLX_Layout *l, WLX_Rect
     wlx_draw_layout_background(ctx, slot_rect, bg, bc, bw, 0, 0);
 }
 
+// The grid arm of the slot fetch: the explicit placement of wlx_grid_cell
+// or the cursor's cell (a span counts columns), rows grown on demand in an
+// auto grid, the cell's decor drawn and the cursor advanced row-major.
+static WLX_Rect wlx_grid_slot_rect(WLX_Context *ctx, WLX_Layout *l, size_t span) {
+    size_t row, col, rspan, cspan;
+
+    if (l->grid.cell_set) {
+        // Explicit placement via grid_cell()
+        row   = l->grid.next_row;
+        col   = l->grid.next_col;
+        rspan = l->grid.next_row_span;
+        cspan = l->grid.next_col_span;
+        l->grid.cell_set = false;
+    } else {
+        // Auto-advance: row-major, left-to-right, top-to-bottom
+        row   = l->grid.cursor_row;
+        col   = l->grid.cursor_col;
+        rspan = 1;
+        cspan = span;  // 1D span -> col_span for grid auto-advance
+    }
+
+    // Dynamic grid: grow rows on demand when cursor/explicit placement
+    // reaches beyond the current row count. A span that does not fit
+    // the columns is an overrun and grows nothing.
+    bool cols_ok = col + cspan <= l->grid.cols;
+    if (cols_ok && l->grid.dynamic && (row + rspan) > l->grid.rows) {
+        size_t rows_needed = (row + rspan) - l->grid.rows;
+        size_t new_total = l->grid.rows + rows_needed;
+
+        wlx_sub_arena_extend_to(&ctx->arena.dyn_offsets,
+            l->grid.row_offsets_base + new_total + 1);
+
+        float *row_off = wlx_grid_row_offsets(ctx, l);
+        for (size_t r = l->grid.rows; r < new_total; r++) {
+            float effective = (l->grid.next_row_size > 0.0f)
+                ? l->grid.next_row_size : l->grid.row_size;
+            float gap_add = (r > 0) ? l->gap : 0.0f;
+            row_off[r + 1] = row_off[r] + effective + gap_add;
+            l->grid.next_row_size = 0.0f;
+        }
+        l->grid.rows = new_total;
+        l->count = l->grid.rows * l->grid.cols;
+    }
+
+    if (!WLX_CONTRACT(ctx, cols_ok && row + rspan <= l->grid.rows,
+            WLX_ERR_GRID_BOUNDS, "grid overrun: the cell or span lies outside the grid")) {
+        (void)wlx_layout_take_pending(l);
+        l->slot_clamped = true;
+        return wlx_grid_overrun_rect(ctx, l);
+    }
+
+    WLX_Rect slot_rect = wlx_calc_grid_slot_rect(ctx, l, row, col, rspan, cspan);
+    wlx_layout_draw_slot_decor(ctx, l, slot_rect);
+
+    l->grid.last_placed_row = row;
+    l->fetch_first = row * l->grid.cols + col;
+
+    // Advance cursor past this cell (row-major order)
+    l->grid.cursor_col = col + cspan;
+    if (l->grid.cursor_col >= l->grid.cols) {
+        l->grid.cursor_col = 0;
+        l->grid.cursor_row += 1;
+    }
+
+    // Keep l->index in sync for compatibility (e.g. scroll height)
+    l->index = l->grid.cursor_row * l->grid.cols + l->grid.cursor_col;
+
+    return slot_rect;
+}
+
+// Append span slots to an auto linear layout: the next size (from
+// wlx_layout_auto_slot, else the fixed slot size; a missing size is
+// reported and takes 1 px), snapped offsets past the last slot. A position
+// is reported and dropped (the slot is taken in sequence); returns the
+// position to use.
+static int wlx_layout_grow_dynamic(WLX_Context *ctx, WLX_Layout *l, int pos, size_t span) {
+    if (!WLX_CONTRACT(ctx, pos < 0, WLX_ERR_BAD_ARGUMENT,
+            "positional slot access on a dynamic layout: the slot is taken in sequence"))
+        pos = -1;
+
+    float effective = (l->linear.next_slot_size > 0.0f) ? l->linear.next_slot_size : l->linear.slot_size;
+    effective = wlx_contract_positive_px(ctx, effective,
+        "auto layout in variable-size mode: no wlx_layout_auto_slot_px before this child; using 1 px",
+        NULL, 0);
+    l->linear.next_slot_size = 0.0f;
+
+    wlx_sub_arena_extend_to(&ctx->arena.dyn_offsets,
+        l->linear.slot_size_offsets_base + l->count + span + 1);
+    float *offsets = wlx_layout_offsets(ctx, l);
+    for (size_t s = 0; s < span; s++) {
+        float gap_add = (l->count + s > 0) ? l->gap : 0.0f;
+        offsets[l->count + 1 + s] = wlx_snap_unit(offsets[l->count + s] + effective + gap_add,
+                                                  wlx_content_scale_of(ctx));
+    }
+    l->count += span;
+    return pos;
+}
+
 WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size_t span) {
     assert(l != NULL);
     l->slot_clamped = false;
@@ -6748,94 +6846,8 @@ WLXDEF WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size
             "slot span exceeds WLX_MAX_SLOT_COUNT (a negative int?); using 1"))
         span = 1;
 
-    if (l->kind == WLX_LAYOUT_GRID) {
-        size_t row, col, rspan, cspan;
-
-        if (l->grid.cell_set) {
-            // Explicit placement via grid_cell()
-            row   = l->grid.next_row;
-            col   = l->grid.next_col;
-            rspan = l->grid.next_row_span;
-            cspan = l->grid.next_col_span;
-            l->grid.cell_set = false;
-        } else {
-            // Auto-advance: row-major, left-to-right, top-to-bottom
-            row   = l->grid.cursor_row;
-            col   = l->grid.cursor_col;
-            rspan = 1;
-            cspan = span;  // 1D span -> col_span for grid auto-advance
-        }
-
-        // Dynamic grid: grow rows on demand when cursor/explicit placement
-        // reaches beyond the current row count. A span that does not fit
-        // the columns is an overrun and grows nothing.
-        bool cols_ok = col + cspan <= l->grid.cols;
-        if (cols_ok && l->grid.dynamic && (row + rspan) > l->grid.rows) {
-            size_t rows_needed = (row + rspan) - l->grid.rows;
-            size_t new_total = l->grid.rows + rows_needed;
-
-            wlx_sub_arena_extend_to(&ctx->arena.dyn_offsets,
-                l->grid.row_offsets_base + new_total + 1);
-
-            float *row_off = wlx_grid_row_offsets(ctx, l);
-            for (size_t r = l->grid.rows; r < new_total; r++) {
-                float effective = (l->grid.next_row_size > 0.0f)
-                    ? l->grid.next_row_size : l->grid.row_size;
-                float gap_add = (r > 0) ? l->gap : 0.0f;
-                row_off[r + 1] = row_off[r] + effective + gap_add;
-                l->grid.next_row_size = 0.0f;
-            }
-            l->grid.rows = new_total;
-            l->count = l->grid.rows * l->grid.cols;
-        }
-
-        if (!WLX_CONTRACT(ctx, cols_ok && row + rspan <= l->grid.rows,
-                WLX_ERR_GRID_BOUNDS, "grid overrun: the cell or span lies outside the grid")) {
-            (void)wlx_layout_take_pending(l);
-            l->slot_clamped = true;
-            return wlx_grid_overrun_rect(ctx, l);
-        }
-
-        WLX_Rect slot_rect = wlx_calc_grid_slot_rect(ctx, l, row, col, rspan, cspan);
-        wlx_layout_draw_slot_decor(ctx, l, slot_rect);
-
-        l->grid.last_placed_row = row;
-        l->fetch_first = row * l->grid.cols + col;
-
-        // Advance cursor past this cell (row-major order)
-        l->grid.cursor_col = col + cspan;
-        if (l->grid.cursor_col >= l->grid.cols) {
-            l->grid.cursor_col = 0;
-            l->grid.cursor_row += 1;
-        }
-
-        // Keep l->index in sync for compatibility (e.g. scroll height)
-        l->index = l->grid.cursor_row * l->grid.cols + l->grid.cursor_col;
-
-        return slot_rect;
-    }
-
-    if (l->linear.dynamic) {
-        if (!WLX_CONTRACT(ctx, pos < 0, WLX_ERR_BAD_ARGUMENT,
-                "positional slot access on a dynamic layout: the slot is taken in sequence"))
-            pos = -1;
-
-        float effective = (l->linear.next_slot_size > 0.0f) ? l->linear.next_slot_size : l->linear.slot_size;
-        effective = wlx_contract_positive_px(ctx, effective,
-            "auto layout in variable-size mode: no wlx_layout_auto_slot_px before this child; using 1 px",
-            NULL, 0);
-        l->linear.next_slot_size = 0.0f;
-
-        wlx_sub_arena_extend_to(&ctx->arena.dyn_offsets,
-            l->linear.slot_size_offsets_base + l->count + span + 1);
-        float *offsets = wlx_layout_offsets(ctx, l);
-        for (size_t s = 0; s < span; s++) {
-            float gap_add = (l->count + s > 0) ? l->gap : 0.0f;
-            offsets[l->count + 1 + s] = wlx_snap_unit(offsets[l->count + s] + effective + gap_add,
-                                                      wlx_content_scale_of(ctx));
-        }
-        l->count += span;
-    }
+    if (l->kind == WLX_LAYOUT_GRID) return wlx_grid_slot_rect(ctx, l, span);
+    if (l->linear.dynamic) pos = wlx_layout_grow_dynamic(ctx, l, pos, span);
 
     size_t cell_index = (pos < 0) ? l->index : (size_t)pos;
     if (!l->linear.dynamic
