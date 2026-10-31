@@ -256,7 +256,7 @@ $(UNDO_DISABLED_BIN): $(TEST_DIR)/test_undo_disabled.c $(TEST_DIR)/test_mock_bac
 # struct has a wlx_*_opt_defaults function: the declaration TU is built with
 # the initializer-override warning promoted to an error (the inverse of
 # BASE_CFLAGS); the implementation TU keeps the normal flags.
-$(DEFAULTS_ONCE_BIN): $(TEST_DIR)/test_defaults_once.c $(TEST_DIR)/test_defaults_once_impl.c wollix.h wollix_editor.h
+$(DEFAULTS_ONCE_BIN): $(TEST_DIR)/test_defaults_once.c $(TEST_DIR)/test_defaults_once_impl.c $(TEST_DIR)/option_structs.h wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) $(DEFAULTS_ONCE_FLAGS) -I. -c -o $(TEST_DIR)/test_defaults_once.o $(TEST_DIR)/test_defaults_once.c
 	$(CC) $(BASE_CFLAGS) -I. -c -o $(TEST_DIR)/test_defaults_once_impl.o $(TEST_DIR)/test_defaults_once_impl.c
 	$(CC) -o $@ $(TEST_DIR)/test_defaults_once.o $(TEST_DIR)/test_defaults_once_impl.o -lm

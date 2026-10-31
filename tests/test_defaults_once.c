@@ -14,6 +14,7 @@
 
 #include "wollix.h"
 #include "wollix_editor.h"
+#include "option_structs.h"
 
 #include <stdio.h>
 
@@ -23,33 +24,9 @@
 
 int main(void) {
     int count = 0;
-    EXPAND_ONCE(slot_style,   WLX_Slot_Style_Opt);
-    EXPAND_ONCE(grid,         WLX_Grid_Opt);
-    EXPAND_ONCE(grid_auto,    WLX_Grid_Auto_Opt);
-    EXPAND_ONCE(layout,       WLX_Layout_Opt);
-    EXPAND_ONCE(overlay,      WLX_Overlay_Opt);
-    EXPAND_ONCE(widget,       WLX_Widget_Opt);
-    EXPAND_ONCE(label,        WLX_Label_Opt);
-    EXPAND_ONCE(button,       WLX_Button_Opt);
-    EXPAND_ONCE(dropdown,     WLX_Dropdown_Opt);
-    EXPAND_ONCE(tooltip,      WLX_Tooltip_Opt);
-    EXPAND_ONCE(menu,         WLX_Menu_Opt);
-    EXPAND_ONCE(menu_item,    WLX_Menu_Item_Opt);
-    EXPAND_ONCE(menu_button,  WLX_Menu_Button_Opt);
-    EXPAND_ONCE(checkbox,     WLX_Checkbox_Opt);
-    EXPAND_ONCE(inputbox,     WLX_Inputbox_Opt);
-    EXPAND_ONCE(slider,       WLX_Slider_Opt);
-    EXPAND_ONCE(separator,    WLX_Separator_Opt);
-    EXPAND_ONCE(progress,     WLX_Progress_Opt);
-    EXPAND_ONCE(image,        WLX_Image_Opt);
-    EXPAND_ONCE(toggle,       WLX_Toggle_Opt);
-    EXPAND_ONCE(radio,        WLX_Radio_Opt);
-    EXPAND_ONCE(scroll_panel, WLX_Scroll_Panel_Opt);
-    EXPAND_ONCE(list_clipper, WLX_List_Clipper_Opt);
-    EXPAND_ONCE(split,        WLX_Split_Opt);
-    EXPAND_ONCE(split_next,   WLX_Split_Next_Opt);
-    EXPAND_ONCE(panel,        WLX_Panel_Opt);
-    EXPAND_ONCE(editor,       WLX_Editor_Opt);
+#define X(name, type, groups) EXPAND_ONCE(name, type);
+    OPTION_STRUCTS(X)
+#undef X
 
     // A spot check that the function really is the macro: the defaults a
     // caller is most likely to lean on.

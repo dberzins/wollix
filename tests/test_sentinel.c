@@ -2,7 +2,9 @@
 // zero, an unset field resolves to its documented fallback, request tokens
 // are not sentinels, and the enumerated v0.9 default changes hold. A theme
 // whose per-widget overrides are all zero resolves every widget through
-// the fallbacks its comments name.
+// the fallbacks its comments name. Every defaults function installs the
+// DEFAULTS of every field group its struct embeds (tests/option_structs.h
+// names them), with every Rule U field at WLX_UNSET.
 // Included from test_main.c (single TU build); the resolvers are reachable
 // directly, so most cases pin resolution without running a frame.
 
@@ -855,6 +857,89 @@ TEST(radio_label_color_from_theme) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Group defaults: every struct installs the DEFAULTS of every group it embeds
+// ============================================================================
+
+#include "option_structs.h"
+
+static int sgd_failures;
+
+static void sgd_fail(const char *name, const char *group) {
+    sgd_failures++;
+    printf("    wlx_%s_opt_defaults: the %s group's defaults are not installed\n", name, group);
+}
+
+#define SGD_EXPECT(cond, name, group) do { if (!(cond)) sgd_fail((name), (group)); } while (0)
+#define SGD_ZERO(c) ((c).r == 0 && (c).g == 0 && (c).b == 0 && (c).a == 0)
+#define SGD_UNSET(v) ((float)(v) == (float)WLX_UNSET)
+
+#define SGD_CHECK_LAYOUT_SLOT(d, n) SGD_EXPECT((d).pos == WLX_UNSET && (d).span == 1 \
+    && !(d).overflow && (d).padding == 0 && SGD_UNSET((d).padding_top) \
+    && SGD_UNSET((d).padding_right) && SGD_UNSET((d).padding_bottom) \
+    && SGD_UNSET((d).padding_left), n, "LAYOUT_SLOT")
+#define SGD_CHECK_WIDGET_SIZING(d, n) SGD_EXPECT((d).slot_align == WLX_LEFT \
+    && SGD_UNSET((d).width) && SGD_UNSET((d).height) && (d).min_width == 0 \
+    && (d).min_height == 0 && (d).max_width == 0 && (d).max_height == 0 \
+    && SGD_UNSET((d).opacity), n, "WIDGET_SIZING")
+#define SGD_CHECK_WIDGET_STATE(d, n) SGD_EXPECT(!(d).disabled, n, "WIDGET_STATE")
+#define SGD_CHECK_TEXT_TYPOGRAPHY(d, n) SGD_EXPECT((d).font == WLX_FONT_DEFAULT \
+    && (d).font_size == 0 && (d).content_align == WLX_LEFT && (d).spacing == 0, \
+    n, "TEXT_TYPOGRAPHY")
+// The wrap default is per widget by design (on for the inputbox, the
+// editor and the button family, off elsewhere), so the group has no check.
+#define SGD_CHECK_TEXT_WRAP(d, n) ((void)(d), (void)(n))
+#define SGD_CHECK_TEXT_COLOR(d, n) SGD_EXPECT(SGD_ZERO((d).front_color) \
+    && SGD_ZERO((d).back_color), n, "TEXT_COLOR")
+#define SGD_EFFECTS_UNSET(d) (SGD_ZERO((d).shadow_color) && (d).shadow_offset_x == 0 \
+    && (d).shadow_offset_y == 0 && (d).shadow_blur == 0 && (d).shadow_layers == 0 \
+    && SGD_ZERO((d).glow_color) && (d).glow_spread == 0 && (d).glow_rings == 0 \
+    && SGD_ZERO((d).gradient_top) && SGD_ZERO((d).gradient_bottom))
+#define SGD_SIDES_UNSET(d) (SGD_ZERO((d).border_color_top) && SGD_ZERO((d).border_color_right) \
+    && SGD_ZERO((d).border_color_bottom) && SGD_ZERO((d).border_color_left) \
+    && SGD_UNSET((d).border_width_top) && SGD_UNSET((d).border_width_right) \
+    && SGD_UNSET((d).border_width_bottom) && SGD_UNSET((d).border_width_left))
+#define SGD_CHECK_BORDER(d, n) SGD_EXPECT(SGD_ZERO((d).border_color) \
+    && SGD_UNSET((d).border_width) && SGD_UNSET((d).roundness) && (d).corner_radius == 0 \
+    && (d).rounded_segments == WLX_UNSET && (d).rounded_corners == 0 \
+    && SGD_SIDES_UNSET(d) && SGD_EFFECTS_UNSET(d), n, "BORDER")
+#define SGD_CHECK_CONTENT_PADDING(d, n) SGD_EXPECT(SGD_UNSET((d).content_padding) \
+    && SGD_UNSET((d).content_padding_top) && SGD_UNSET((d).content_padding_right) \
+    && SGD_UNSET((d).content_padding_bottom) && SGD_UNSET((d).content_padding_left), \
+    n, "CONTENT_PADDING")
+// Plain containers take literal-zero chrome and a panel the theme's
+// (WLX_CONTAINER_DECOR_DEFAULTS_CHROME): either form, the same for all three.
+#define SGD_CHROME_FORM(d) (((d).border_width == 0 && (d).roundness == 0 && (d).rounded_segments == 0) \
+    || (SGD_UNSET((d).border_width) && SGD_UNSET((d).roundness) && (d).rounded_segments == WLX_UNSET))
+#define SGD_CHECK_CONTAINER_DECOR(d, n) SGD_EXPECT(SGD_ZERO((d).back_color) \
+    && SGD_ZERO((d).border_color) && SGD_CHROME_FORM(d) && (d).corner_radius == 0 \
+    && (d).rounded_corners == 0 && (d).gap == 0 && SGD_SIDES_UNSET(d) \
+    && SGD_EFFECTS_UNSET(d) && (d).interact == 0 && (d).interact_out == NULL \
+    && SGD_ZERO((d).hover_back_color) && SGD_ZERO((d).hover_border_color) \
+    && SGD_ZERO((d).hover_border_color_top) && SGD_ZERO((d).hover_border_color_right) \
+    && SGD_ZERO((d).hover_border_color_bottom) && SGD_ZERO((d).hover_border_color_left), \
+    n, "CONTAINER_DECOR")
+#define SGD_CHECK_SLOT_DECOR(d, n) SGD_EXPECT(SGD_ZERO((d).slot_back_color) \
+    && SGD_ZERO((d).slot_border_color) && (d).slot_border_width == 0, n, "SLOT_DECOR")
+
+TEST(sentinel_group_defaults) {
+    sgd_failures = 0;
+    int structs = 0;
+#define G(group) SGD_CHECK_##group(d, sgd_name);
+#define X(name, type, groups) { \
+        type d = wlx_##name##_opt_defaults(); \
+        const char *sgd_name = #name; \
+        (void)d; (void)sgd_name; \
+        groups \
+        structs++; \
+    }
+    OPTION_STRUCTS(X)
+#undef X
+#undef G
+    ASSERT_EQ_INT(27, structs);
+    ASSERT_EQ_INT(0, sgd_failures);
+}
+
 SUITE(sentinel) {
     RUN_TEST(sentinel_explicit_zero_is_zero);
     RUN_TEST(sentinel_unset_inherits);
@@ -887,4 +972,5 @@ SUITE(sentinel) {
     RUN_TEST(scroll_panel_roundness_is_square);
     RUN_TEST(theme_from_scratch_has_working_defaults);
     RUN_TEST(radio_label_color_from_theme);
+    RUN_TEST(sentinel_group_defaults);
 }

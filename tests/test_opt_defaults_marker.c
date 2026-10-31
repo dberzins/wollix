@@ -17,35 +17,12 @@
 #ifndef TEST_MOCK_BACKEND_H_
 #include "test_mock_backend.h"
 #endif
+#include "option_structs.h"
 
 TEST(marker_set_by_every_defaults_function) {
-    ASSERT_TRUE(wlx_slot_style_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_grid_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_grid_auto_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_layout_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_overlay_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_widget_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_label_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_button_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_dropdown_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_tooltip_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_menu_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_menu_item_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_menu_button_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_checkbox_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_inputbox_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_slider_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_separator_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_progress_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_image_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_toggle_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_radio_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_scroll_panel_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_list_clipper_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_split_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_split_next_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_panel_opt_defaults().from_defaults);
-    ASSERT_TRUE(wlx_editor_opt_defaults().from_defaults);
+#define X(name, type, groups) ASSERT_TRUE(wlx_##name##_opt_defaults().from_defaults);
+    OPTION_STRUCTS(X)
+#undef X
 }
 
 TEST(marker_set_by_the_macro_and_kept_by_copies) {
