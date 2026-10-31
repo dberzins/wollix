@@ -10111,6 +10111,8 @@ typedef struct WLX_Text_Line_Record {
     bool empty_visual;
 } WLX_Text_Line_Record;
 
+// A record's ranges and its scan's measurement; an empty visible range
+// takes width 0 and the line height whatever it carries.
 typedef struct WLX_Text_Line_Record_Opt {
     size_t source_start;
     size_t visible_start;
@@ -10119,9 +10121,7 @@ typedef struct WLX_Text_Line_Record_Opt {
     size_t separator_end;
     float measured_w;
     float measured_h;
-    bool has_measurement;
     float line_h;
-    WLX_Text_Style style;
     bool ended_by_newline;
 } WLX_Text_Line_Record_Opt;
 
@@ -10552,8 +10552,8 @@ static inline bool wlx_text_hard_line_start_at(const char *text, size_t length, 
     return wlx_text_separator_before(text, length, off, NULL);
 }
 
-static inline void wlx_text_line_record_from_range(WLX_Context *ctx, WLX_Text_Line_Record *line, const char *text,
-    size_t length, WLX_Text_Line_Record_Opt opt) {
+static inline void wlx_text_line_record_from_range(WLX_Text_Line_Record *line,
+    WLX_Text_Line_Record_Opt opt) {
     assert(line != NULL);
     wlx_zero_struct(*line);
     line->source_start = opt.source_start;
@@ -10571,17 +10571,8 @@ static inline void wlx_text_line_record_from_range(WLX_Context *ctx, WLX_Text_Li
     line->empty_visual = (line->visible_start == line->visible_end);
 
     if (!line->empty_visual) {
-        if (opt.has_measurement) {
-            line->measured_w = opt.measured_w;
-            line->measured_h = opt.measured_h;
-        } else {
-            bool measured = wlx_measure_text_range(ctx, text, length, line->visible_start, line->visible_end, opt.style,
-                &line->measured_w, &line->measured_h);
-            if (!measured) {
-                line->measured_w = 0.0f;
-                line->measured_h = opt.line_h;
-            }
-        }
+        line->measured_w = opt.measured_w;
+        line->measured_h = opt.measured_h;
     } else {
         line->measured_w = 0.0f;
         line->measured_h = opt.line_h;
@@ -12191,6 +12182,82 @@ static bool wlx_text_scan_measure(const WLX_Text_Build_Inputs *inputs,
     return have_line;
 }
 
+// An empty record at source_offset: the caret-addressable record after a
+// final separator (separator_end == source_offset), or a blank line
+// ending in the separator [source_offset, separator_end).
+static void wlx_text_empty_record(const WLX_Text_Build_Inputs *inputs,
+    WLX_Text_Line_Record *line, size_t source_offset, size_t separator_end,
+    bool ended_by_newline)
+{
+    wlx_text_line_record_from_range(line, (WLX_Text_Line_Record_Opt){
+        .source_start     = source_offset,
+        .visible_start    = source_offset,
+        .visible_end      = source_offset,
+        .separator_start  = source_offset,
+        .separator_end    = separator_end,
+        .measured_h       = inputs->line_h,
+        .line_h           = inputs->line_h,
+        .ended_by_newline = ended_by_newline,
+    });
+}
+
+// Where a scanned record ends after its visible range.
+typedef struct {
+    size_t separator_start;
+    size_t separator_end;
+    bool   ended_by_newline;
+    bool   skip_to_eof;   // no separator follows the skipped tail: the record runs to the text end
+} WLX_Text_Record_Tail;
+
+// The record's separator: a newline at visible_end, else - for a record
+// whose tail is skipped (a truncated record, or a wrapped row whose hard
+// line spent its budget) - the newline that ends the invisible tail,
+// found without measuring; the record keeps the full source range, so
+// offset math over the tail stays well-defined. A caller-supplied
+// next-line-start hint replaces the newline scan; the separator sits
+// immediately before that start (CRLF two bytes, LF/CR one, none on the
+// final line). A measuring scan that stopped at a separator stopped at
+// visible_end, so the first check finds it.
+static WLX_Text_Record_Tail wlx_text_record_tail(const WLX_Text_Build_Inputs *inputs,
+    size_t visible_end, bool skip_tail)
+{
+    const char *text = inputs->text ? inputs->text : "";
+    size_t length = inputs->length;
+    WLX_Text_Record_Tail t = { .separator_start = visible_end, .separator_end = visible_end };
+    size_t separator_after = 0;
+    if (wlx_text_newline_at(text, length, visible_end, &separator_after)) {
+        t.ended_by_newline = true;
+        t.separator_end = separator_after;
+        return t;
+    }
+    if (!skip_tail) return t;
+    size_t tail = visible_end;
+    bool have_tail = false;
+    size_t hint = inputs->known_line_next;
+    if (hint > visible_end && hint <= length) {
+        size_t sep_start = hint;
+        if (!wlx_text_separator_before(text, length, hint, &sep_start))
+            sep_start = hint;
+        if (sep_start >= visible_end) {
+            tail = sep_start;
+            have_tail = true;
+        }
+    }
+    if (!have_tail) {
+        while (tail < length && !wlx_text_newline_at(text, length, tail, &separator_after)) tail++;
+    }
+    if (tail < length && wlx_text_newline_at(text, length, tail, &separator_after)) {
+        t.ended_by_newline = true;
+        t.separator_start = tail;
+        t.separator_end = separator_after;
+    } else {
+        t.separator_start = length;
+        t.separator_end = length;
+        t.skip_to_eof = true;
+    }
+    return t;
+}
+
 // ----------------------------------------------------------------------------
 // The build kernel. One step produces one line record by greedy fitting
 // over cumulative unit advances drawn from one of three sources - the
@@ -12233,19 +12300,7 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
 
     if (trailing_empty_line) {
         if (source_offset > length) return step;
-        wlx_text_line_record_from_range(inputs->ctx, &step.line, text, length, (WLX_Text_Line_Record_Opt){
-            .source_start    = source_offset,
-            .visible_start   = source_offset,
-            .visible_end     = source_offset,
-            .separator_start = source_offset,
-            .separator_end   = source_offset,
-            .measured_w      = 0.0f,
-            .measured_h      = inputs->line_h,
-            .has_measurement = false,
-            .line_h          = inputs->line_h,
-            .style           = inputs->style,
-            .ended_by_newline = false,
-        });
+        wlx_text_empty_record(inputs, &step.line, source_offset, source_offset, false);
         step.next_offset = source_offset;
         step.append_trailing_empty_line = false;
         step.produced = true;
@@ -12257,27 +12312,13 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
     size_t separator_end = 0;
     if (wlx_text_newline_at(text, length, source_offset, &separator_end)) {
         if (source_offset > length || separator_end > length) return step;
-        wlx_text_line_record_from_range(inputs->ctx, &step.line, text, length, (WLX_Text_Line_Record_Opt){
-            .source_start    = source_offset,
-            .visible_start   = source_offset,
-            .visible_end     = source_offset,
-            .separator_start = source_offset,
-            .separator_end   = separator_end,
-            .measured_w      = 0.0f,
-            .measured_h      = inputs->line_h,
-            .has_measurement = false,
-            .line_h          = inputs->line_h,
-            .style           = inputs->style,
-            .ended_by_newline = true,
-        });
+        wlx_text_empty_record(inputs, &step.line, source_offset, separator_end, true);
         step.next_offset = separator_end;
         step.append_trailing_empty_line = (separator_end == length);
         step.produced = true;
         return step;
     }
 
-    size_t sep_end = source_offset;
-    bool ended_by_newline = false;
     bool truncate_continue = inputs->truncate_continue && !inputs->wrap;
 
     // Retained geometry replay: the editor's per-line store answers the
@@ -12312,74 +12353,30 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
     if (!have_line) return step;
     if (scan.units == 0 && visible_end > source_offset) return step;
 
-    // A measuring scan that stopped at a separator stopped at visible_end,
-    // so the check at visible_end below finds that separator too.
-    size_t separator_start = visible_end;
-    bool skip_tail_to_eof = false;
     // A hard line that exhausted its per-line budget freezes: its final
     // wrapped row skips the unmeasured tail like a truncated record.
     bool line_budget_spent = line_budget
         && cursor->line_unit_count + scan.units >= (size_t)WLX_EDITOR_MAX_LINE_UNITS;
-    if (!ended_by_newline) {
-        size_t separator_after = 0;
-        if (wlx_text_newline_at(text, length, visible_end, &separator_after)) {
-            ended_by_newline = true;
-            sep_end = separator_after;
-        } else if (truncate_continue || line_budget_spent) {
-            // Skip the invisible tail to the next hard line start without
-            // measuring; the record keeps the full source range so offset
-            // math over the tail stays well-defined. A caller-supplied
-            // next-line-start hint replaces the newline scan; the
-            // separator sits immediately before that start (CRLF two
-            // bytes, LF/CR one, none on the final line).
-            size_t tail = visible_end;
-            bool have_tail = false;
-            size_t hint = inputs->known_line_next;
-            if (hint > visible_end && hint <= length) {
-                size_t sep_start = hint;
-                if (!wlx_text_separator_before(text, length, hint, &sep_start))
-                    sep_start = hint;
-                if (sep_start >= visible_end) {
-                    tail = sep_start;
-                    have_tail = true;
-                }
-            }
-            if (!have_tail) {
-                while (tail < length && !wlx_text_newline_at(text, length, tail, &separator_after)) tail++;
-            }
-            if (tail < length && wlx_text_newline_at(text, length, tail, &separator_after)) {
-                ended_by_newline = true;
-                separator_start = tail;
-                sep_end = separator_after;
-            } else {
-                separator_start = length;
-                sep_end = length;
-                skip_tail_to_eof = true;
-            }
-        } else {
-            sep_end = visible_end;
-        }
-    }
+    WLX_Text_Record_Tail tail = wlx_text_record_tail(inputs, visible_end,
+        truncate_continue || line_budget_spent);
 
     cursor->text_unit_count += scan.units;
     if (line_budget) cursor->line_unit_count += scan.units;
 
-    wlx_text_line_record_from_range(inputs->ctx, &step.line, text, length, (WLX_Text_Line_Record_Opt){
-        .source_start    = source_offset,
-        .visible_start   = scan.visible_start,
-        .visible_end     = visible_end,
-        .separator_start = separator_start,
-        .separator_end   = sep_end,
-        .measured_w      = scan.measured_w,
-        .measured_h      = scan.measured_h,
-        .has_measurement = true,
-        .line_h          = inputs->line_h,
-        .style           = inputs->style,
-        .ended_by_newline = ended_by_newline,
+    wlx_text_line_record_from_range(&step.line, (WLX_Text_Line_Record_Opt){
+        .source_start     = source_offset,
+        .visible_start    = scan.visible_start,
+        .visible_end      = visible_end,
+        .separator_start  = tail.separator_start,
+        .separator_end    = tail.separator_end,
+        .measured_w       = scan.measured_w,
+        .measured_h       = scan.measured_h,
+        .line_h           = inputs->line_h,
+        .ended_by_newline = tail.ended_by_newline,
     });
 
-    step.next_offset = ended_by_newline ? sep_end : visible_end;
-    if (skip_tail_to_eof) {
+    step.next_offset = tail.ended_by_newline ? tail.separator_end : visible_end;
+    if (tail.skip_to_eof) {
         step.line.source_end = length;
         step.next_offset = length;
     }
@@ -12388,7 +12385,7 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
     // whitespace it keeps, before a cut or hanging in a display build,
     // stays out of advance_w. Every other row keeps advance_w equal to
     // measured_w.
-    if (inputs->wrap && scan.overflowed && !ended_by_newline
+    if (inputs->wrap && scan.overflowed && !tail.ended_by_newline
         && step.next_offset == visible_end && visible_end < length) {
         step.line.advance_w = scan.ink_w;
 #ifdef WLX_DEBUG
@@ -12401,8 +12398,8 @@ static WLX_Text_Build_Step wlx_text_build_step(const WLX_Text_Build_Inputs *inpu
             && "strict wrap: whitespace hangs past the width");
 #endif
     }
-    step.append_trailing_empty_line = ended_by_newline && step.next_offset == length;
-    step.stop_after_line = !inputs->wrap && !ended_by_newline && step.next_offset < length;
+    step.append_trailing_empty_line = tail.ended_by_newline && step.next_offset == length;
+    step.stop_after_line = !inputs->wrap && !tail.ended_by_newline && step.next_offset < length;
     step.produced = true;
     return step;
 }
