@@ -2926,6 +2926,30 @@ typedef enum {
 #define WLX_SLOT_DECOR_DEFAULTS \
     .slot_back_color = {0}, .slot_border_color = {0}, .slot_border_width = 0
 
+#define WLX_CONTAINER_DECOR_COPY(src) \
+    .back_color = (src).back_color, .border_color = (src).border_color, \
+    .border_width = (src).border_width, .roundness = (src).roundness, \
+    .corner_radius = (src).corner_radius, .rounded_segments = (src).rounded_segments, \
+    .rounded_corners = (src).rounded_corners, \
+    .gap = (src).gap, \
+    .border_color_top = (src).border_color_top, .border_color_right = (src).border_color_right, \
+    .border_color_bottom = (src).border_color_bottom, .border_color_left = (src).border_color_left, \
+    .border_width_top = (src).border_width_top, .border_width_right = (src).border_width_right, \
+    .border_width_bottom = (src).border_width_bottom, .border_width_left = (src).border_width_left, \
+    WLX_SHADOW_COPY(src), \
+    WLX_GLOW_COPY(src), \
+    WLX_GRADIENT_COPY(src), \
+    .interact = (src).interact, .interact_out = (src).interact_out, \
+    .hover_back_color = (src).hover_back_color, .hover_border_color = (src).hover_border_color, \
+    .hover_border_color_top = (src).hover_border_color_top, \
+    .hover_border_color_right = (src).hover_border_color_right, \
+    .hover_border_color_bottom = (src).hover_border_color_bottom, \
+    .hover_border_color_left = (src).hover_border_color_left
+
+#define WLX_SLOT_DECOR_COPY(src) \
+    .slot_back_color = (src).slot_back_color, .slot_border_color = (src).slot_border_color, \
+    .slot_border_width = (src).slot_border_width
+
 // Content padding: inset applied around a widget's content (text + image)
 // while the chrome (background, border) and hit rect remain at the full
 // widget rect. Field names are `content_padding*` so widgets that also
@@ -8045,75 +8069,24 @@ static void wlx_draw_layout_background(WLX_Context *ctx, WLX_Rect rect,
 typedef struct {
     int pos;
     size_t span;
-    WLX_Color back_color;
-    WLX_Color border_color;
-    float border_width;
-    float roundness;
-    float corner_radius;
-    int rounded_segments;
-    int rounded_corners;
     float padding;
     float padding_top;
     float padding_right;
     float padding_bottom;
     float padding_left;
-    float gap;
-    WLX_Color slot_back_color;
-    WLX_Color slot_border_color;
-    float slot_border_width;
-    WLX_Color border_color_top;
-    WLX_Color border_color_right;
-    WLX_Color border_color_bottom;
-    WLX_Color border_color_left;
-    float border_width_top;
-    float border_width_right;
-    float border_width_bottom;
-    float border_width_left;
-    WLX_SHADOW_FIELDS;
-    WLX_GLOW_FIELDS;
-    WLX_GRADIENT_FIELDS;
-    uint32_t         interact;
-    WLX_Interaction *interact_out;
-    WLX_Color hover_back_color;
-    WLX_Color hover_border_color;
-    WLX_Color hover_border_color_top;
-    WLX_Color hover_border_color_right;
-    WLX_Color hover_border_color_bottom;
-    WLX_Color hover_border_color_left;
+    WLX_CONTAINER_DECOR_FIELDS;
+    WLX_SLOT_DECOR_FIELDS;
     const char *id;
 } WLX_Layout_Common_Opt;
 
 #define WLX_LAYOUT_COMMON_OPT(opt) \
     (WLX_Layout_Common_Opt){ \
         .pos = (opt).pos, .span = (opt).span, \
-        .back_color = (opt).back_color, .border_color = (opt).border_color, \
-        .border_width = (opt).border_width, .roundness = (opt).roundness, \
-        .corner_radius = (opt).corner_radius, \
-        .rounded_segments = (opt).rounded_segments, \
-        .rounded_corners = (opt).rounded_corners, \
         .padding = (opt).padding, .padding_top = (opt).padding_top, \
         .padding_right = (opt).padding_right, .padding_bottom = (opt).padding_bottom, \
-        .padding_left = (opt).padding_left, .gap = (opt).gap, \
-        .slot_back_color = (opt).slot_back_color, \
-        .slot_border_color = (opt).slot_border_color, \
-        .slot_border_width = (opt).slot_border_width, \
-        .border_color_top = (opt).border_color_top, \
-        .border_color_right = (opt).border_color_right, \
-        .border_color_bottom = (opt).border_color_bottom, \
-        .border_color_left = (opt).border_color_left, \
-        .border_width_top = (opt).border_width_top, \
-        .border_width_right = (opt).border_width_right, \
-        .border_width_bottom = (opt).border_width_bottom, \
-        .border_width_left = (opt).border_width_left, \
-        WLX_BOX_STYLE_EFFECTS((opt)), \
-        WLX_BOX_STYLE_GRADIENT((opt)), \
-        .interact = (opt).interact, .interact_out = (opt).interact_out, \
-        .hover_back_color = (opt).hover_back_color, \
-        .hover_border_color = (opt).hover_border_color, \
-        .hover_border_color_top = (opt).hover_border_color_top, \
-        .hover_border_color_right = (opt).hover_border_color_right, \
-        .hover_border_color_bottom = (opt).hover_border_color_bottom, \
-        .hover_border_color_left = (opt).hover_border_color_left, \
+        .padding_left = (opt).padding_left, \
+        WLX_CONTAINER_DECOR_COPY(opt), \
+        WLX_SLOT_DECOR_COPY(opt), \
         .id = (opt).id, \
     }
 
@@ -18302,36 +18275,10 @@ WLXDEF void wlx_panel_begin_impl(WLX_Context *ctx, WLX_Panel_Opt opt,
         wlx_default_layout_opt(.sizes = sizes,
             .padding_top = rp.top, .padding_right = rp.right,
             .padding_bottom = rp.bottom, .padding_left = rp.left,
-            .gap = opt.gap, .id = opt.id,
+            .id = opt.id,
             .clip = opt.clip,
-            .back_color = opt.back_color,
-            .border_color = opt.border_color,
-            .border_width = opt.border_width,
-            .roundness = opt.roundness,
-            .corner_radius = opt.corner_radius,
-            .rounded_corners = opt.rounded_corners,
-            .rounded_segments = opt.rounded_segments,
-            .border_color_top = opt.border_color_top,
-            .border_color_right = opt.border_color_right,
-            .border_color_bottom = opt.border_color_bottom,
-            .border_color_left = opt.border_color_left,
-            .border_width_top = opt.border_width_top,
-            .border_width_right = opt.border_width_right,
-            .border_width_bottom = opt.border_width_bottom,
-            .border_width_left = opt.border_width_left,
-            .slot_back_color = opt.slot_back_color,
-            .slot_border_color = opt.slot_border_color,
-            .slot_border_width = opt.slot_border_width,
-            .interact = opt.interact,
-            .interact_out = opt.interact_out,
-            .hover_back_color = opt.hover_back_color,
-            .hover_border_color = opt.hover_border_color,
-            .hover_border_color_top = opt.hover_border_color_top,
-            .hover_border_color_right = opt.hover_border_color_right,
-            .hover_border_color_bottom = opt.hover_border_color_bottom,
-            .hover_border_color_left = opt.hover_border_color_left,
-            WLX_BOX_STYLE_EFFECTS(opt),
-            WLX_BOX_STYLE_GRADIENT(opt)),
+            WLX_CONTAINER_DECOR_COPY(opt),
+            WLX_SLOT_DECOR_COPY(opt)),
         file, line);
 
     // Emit heading label if title is provided
