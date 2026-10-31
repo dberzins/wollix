@@ -7060,6 +7060,70 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
 }
 
 static void wlx_state_frame_sweep(WLX_Context *ctx);
+static void wlx_text_entry_frame_begin(WLX_Context *ctx);
+
+// Run the frame's input handler between the input perf marks. No handler
+// means no input this frame, not a call through NULL.
+static void wlx_frame_read_input(WLX_Context *ctx, WLX_Input_Handler input_handler) {
+    WLX_PERF_HOOK(input_begin, ctx);
+    if (WLX_CONTRACT(ctx, input_handler != NULL, WLX_ERR_BAD_ARGUMENT,
+            "wlx_begin: input handler must not be NULL; the frame runs with no input")) {
+        input_handler(ctx);
+    } else {
+        memset(&ctx->input, 0, sizeof ctx->input);
+    }
+    WLX_PERF_HOOK(input_end, ctx);
+}
+
+// The interaction one-shots, cleared before arbitration: this frame's
+// widgets set them again.
+static void wlx_frame_reset_interaction(WLX_Context *ctx) {
+    ctx->interaction.hot_id = 0;
+    ctx->interaction.active_id_seen = false;
+    ctx->interaction.enter_consumed = false;
+    ctx->interaction.focus_id_seen = false;
+    ctx->interaction.focus_gained_id = 0;
+    ctx->interaction.tab_consumed = false;
+}
+
+// The frame's single content-scale sample. A NaN fails both comparisons
+// and is reported like any other unusable value; the frame then runs at
+// 1.0. A change from the previous frame's scale bumps the generation that
+// invalidates measured text.
+static void wlx_frame_sample_content_scale(WLX_Context *ctx) {
+    ctx->content_scale = 1.0f;
+    if (ctx->backend.get_content_scale != NULL) {
+        float scale = ctx->backend.get_content_scale(ctx->backend.user);
+        if (WLX_CONTRACT(ctx,
+                scale >= WLX_CONTENT_SCALE_MIN && scale <= WLX_CONTENT_SCALE_MAX,
+                WLX_ERR_BACKEND_ANSWER,
+                "wlx_begin: get_content_scale returned a value outside "
+                "[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]; the frame runs at 1.0")) {
+            ctx->content_scale = scale;
+        }
+    }
+    // 1.0 before the first frame (what the accessor reports for a zeroed
+    // context), so a first frame at 1.0 is not a change.
+    float prev = (ctx->prev_content_scale > 0.0f) ? ctx->prev_content_scale : 1.0f;
+    if (ctx->content_scale != prev) ctx->style_transform_generation++;
+    ctx->prev_content_scale = ctx->content_scale;
+}
+
+// The per-frame scalars, reset after arbitration. An auto-height scroll
+// panel the previous frame left open is not tracked into this one.
+static void wlx_frame_reset(WLX_Context *ctx, WLX_Rect r) {
+    ctx->current_range_idx = -1;
+    ctx->current_layer = 0;
+    ctx->scissor_stack_count = 0;
+    ctx->clip_base = (WLX_Clip_Base){0};
+    ctx->menu_stack_count = 0;
+    ctx->auto_scroll.panel_id = 0;
+    ctx->auto_scroll.total_height = 0;
+    ctx->last_widget_rect = (WLX_Rect){0};
+    ctx->immediate_mode = false;
+    ctx->rect = r;
+    if (ctx->theme == NULL) ctx->theme = &wlx_theme_dark;
+}
 
 WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler) {
     // The frame starts from an empty pool, before anything here can
@@ -7073,68 +7137,20 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
     wlx_arena_pool_reset(&ctx->arena);
     wlx_assert_backend_ready(ctx);
     WLX_PERF_HOOK(frame_begin, ctx);
-    WLX_PERF_HOOK(input_begin, ctx);
-    // No handler means no input this frame, not a call through NULL.
-    if (WLX_CONTRACT(ctx, input_handler != NULL, WLX_ERR_BAD_ARGUMENT,
-            "wlx_begin: input handler must not be NULL; the frame runs with no input")) {
-        input_handler(ctx);
-    } else {
-        memset(&ctx->input, 0, sizeof ctx->input);
-    }
-    WLX_PERF_HOOK(input_end, ctx);
+    wlx_frame_read_input(ctx, input_handler);
     // Before the frame index advances: an entry requested in the frame that
     // just ended is age 0, so WLX_STATE_MIN_AGE counts complete frames.
     wlx_state_frame_sweep(ctx);
     ctx->frame_index++;
-    ctx->interaction.hot_id = 0;
-    ctx->interaction.active_id_seen = false;
-    ctx->interaction.enter_consumed = false;
-    ctx->interaction.focus_id_seen = false;
-    ctx->interaction.focus_gained_id = 0;
-    ctx->interaction.tab_consumed = false;
-    // The composition anchor and owner are rebuilt by this frame's widgets.
-    memset(&ctx->text_input_area, 0, sizeof(ctx->text_input_area));
-    ctx->text_input_owner = 0;
-    ctx->composing_prev_id = ctx->composing_id;
-    ctx->composing_id = 0;
+    wlx_frame_reset_interaction(ctx);
+    wlx_text_entry_frame_begin(ctx);
     // The frame's single backend time sample; adapters may measure time
     // since their own previous call because the core calls exactly once.
     ctx->frame_dt = ctx->backend.get_frame_time != NULL
         ? ctx->backend.get_frame_time(ctx->backend.user) : 0.0f;
-    // The frame's single content-scale sample. A NaN fails both comparisons
-    // and is reported like any other unusable value.
-    ctx->content_scale = 1.0f;
-    if (ctx->backend.get_content_scale != NULL) {
-        float scale = ctx->backend.get_content_scale(ctx->backend.user);
-        if (WLX_CONTRACT(ctx,
-                scale >= WLX_CONTENT_SCALE_MIN && scale <= WLX_CONTENT_SCALE_MAX,
-                WLX_ERR_BACKEND_ANSWER,
-                "wlx_begin: get_content_scale returned a value outside "
-                "[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]; the frame runs at 1.0")) {
-            ctx->content_scale = scale;
-        }
-    }
-    {
-        // 1.0 before the first frame (what the accessor reports for a zeroed
-        // context), so a first frame at 1.0 is not a change.
-        float prev = (ctx->prev_content_scale > 0.0f) ? ctx->prev_content_scale : 1.0f;
-        if (ctx->content_scale != prev) ctx->style_transform_generation++;
-        ctx->prev_content_scale = ctx->content_scale;
-    }
+    wlx_frame_sample_content_scale(ctx);
     wlx_frame_arbitrate(ctx);
-    ctx->current_range_idx = -1;
-    ctx->current_layer = 0;
-    ctx->scissor_stack_count = 0;
-    ctx->clip_base = (WLX_Clip_Base){0};
-    ctx->menu_stack_count = 0;
-    // An auto-height scroll panel the previous frame left open is not
-    // tracked into this one.
-    ctx->auto_scroll.panel_id = 0;
-    ctx->auto_scroll.total_height = 0;
-    ctx->last_widget_rect = (WLX_Rect){0};
-    ctx->immediate_mode = false;
-    ctx->rect = r;
-    if (ctx->theme == NULL) ctx->theme = &wlx_theme_dark;
+    wlx_frame_reset(ctx, r);
     WLX_DBG(frame_begin, ctx);
     WLX_PERF_HOOK(begin_end, ctx);
 }
@@ -7181,6 +7197,35 @@ static inline void wlx_text_input_area_record(WLX_Context *ctx, WLX_Id id, WLX_R
     a.password = password;
     ctx->text_input_area = a;
     ctx->text_input_owner = id;
+}
+
+// The composition anchor and its owner are rebuilt by this frame's
+// widgets; last frame's composition owner rolls into composing_prev_id.
+static void wlx_text_entry_frame_begin(WLX_Context *ctx) {
+    memset(&ctx->text_input_area, 0, sizeof(ctx->text_input_area));
+    ctx->text_input_owner = 0;
+    ctx->composing_prev_id = ctx->composing_id;
+    ctx->composing_id = 0;
+}
+
+// Composition anchor: pushed to the backend only when it changed since
+// the last push (an inactive frame after an active one pushes once).
+// Focus moving straight from one text widget to another is a loss
+// first: the backend gets one inactive frame, which ends the leaving
+// widget's composition on the platform, and the new owner's anchor
+// follows on the next frame.
+static void wlx_text_entry_frame_flush(WLX_Context *ctx) {
+    if (ctx->text_input_area.active && ctx->text_input_applied.active
+            && ctx->text_input_owner != ctx->text_input_applied_owner) {
+        memset(&ctx->text_input_area, 0, sizeof(ctx->text_input_area));
+    }
+    if (!wlx_text_input_area_equal(&ctx->text_input_area, &ctx->text_input_applied)) {
+        ctx->text_input_applied = ctx->text_input_area;
+        ctx->text_input_applied_owner = ctx->text_input_area.active ? ctx->text_input_owner : 0;
+        if (ctx->backend.set_text_input_area != NULL) {
+            ctx->backend.set_text_input_area(&ctx->text_input_applied, ctx->backend.user);
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -7478,36 +7523,10 @@ static void wlx_focus_ring_draw(WLX_Context *ctx) {
     ctx->backend.draw_rect_lines(ring, thick, color, ctx->backend.user);
 }
 
-WLXDEF void wlx_end(WLX_Context *ctx) {
-    WLX_PERF_HOOK(end_begin, ctx);
-    if (ctx->interaction.active_id != 0 && !ctx->interaction.active_id_seen) {
-        ctx->interaction.active_id = 0;
-    }
-    if (ctx->interaction.focus_id != 0 && !ctx->interaction.focus_id_seen) {
-        ctx->interaction.focus_id = 0;
-    }
-
-    // Composition anchor: pushed to the backend only when it changed since
-    // the last push (an inactive frame after an active one pushes once).
-    // Focus moving straight from one text widget to another is a loss
-    // first: the backend gets one inactive frame, which ends the leaving
-    // widget's composition on the platform, and the new owner's anchor
-    // follows on the next frame.
-    if (ctx->text_input_area.active && ctx->text_input_applied.active
-            && ctx->text_input_owner != ctx->text_input_applied_owner) {
-        memset(&ctx->text_input_area, 0, sizeof(ctx->text_input_area));
-    }
-    if (!wlx_text_input_area_equal(&ctx->text_input_area, &ctx->text_input_applied)) {
-        ctx->text_input_applied = ctx->text_input_area;
-        ctx->text_input_applied_owner = ctx->text_input_area.active ? ctx->text_input_owner : 0;
-        if (ctx->backend.set_text_input_area != NULL) {
-            ctx->backend.set_text_input_area(&ctx->text_input_applied, ctx->backend.user);
-        }
-    }
-
-    // Every begin must have met its end by now; the report names the
-    // innermost open layout's begin site. The frame still finishes, and the
-    // next wlx_begin resets the pool.
+// Every begin must have met its end by now; the report names the
+// innermost open layout's begin site. The frame still finishes, and the
+// next wlx_begin resets the pool.
+static void wlx_frame_check_balance(WLX_Context *ctx) {
     if (WLX_CONTRACT(ctx, ctx->arena.layouts.count == 0, WLX_ERR_UNBALANCED_END,
             "wlx_end with a layout still open: a begin is missing its end")) {
         // An open scroll panel always has its wrapper on the layout stack.
@@ -7519,6 +7538,18 @@ WLXDEF void wlx_end(WLX_Context *ctx) {
         (void)WLX_CONTRACT(ctx, ctx->arena.id_stack.count == 0, WLX_ERR_UNBALANCED_END,
             "wlx_end with an id still pushed: a wlx_push_id is missing its wlx_pop_id");
     }
+}
+
+WLXDEF void wlx_end(WLX_Context *ctx) {
+    WLX_PERF_HOOK(end_begin, ctx);
+    if (ctx->interaction.active_id != 0 && !ctx->interaction.active_id_seen) {
+        ctx->interaction.active_id = 0;
+    }
+    if (ctx->interaction.focus_id != 0 && !ctx->interaction.focus_id_seen) {
+        ctx->interaction.focus_id = 0;
+    }
+    wlx_text_entry_frame_flush(ctx);
+    wlx_frame_check_balance(ctx);
 
     // Immediate mode issued its scissors directly: a clip a still-open
     // layout or scroll panel holds (already reported) is released here.
