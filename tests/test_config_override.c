@@ -14,6 +14,7 @@
 #define WLX_TEXT_UNDO_ENTRIES 64
 #define WLX_TEXT_UNDO_BYTES 4096
 #define WLX_CONTENT_SCALE_MAX 3.0f
+#define WLX_STATE_MIN_AGE 1
 
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
@@ -45,6 +46,9 @@
 #endif
 #if WLX_TEXT_UNDO_BYTES != 4096
 #error "WLX_TEXT_UNDO_BYTES override was clobbered by wollix.h"
+#endif
+#if WLX_STATE_MIN_AGE != 1
+#error "WLX_STATE_MIN_AGE override was clobbered by wollix.h"
 #endif
 
 static int approx(float a, float b) { return fabsf(a - b) < 0.01f; }
@@ -87,6 +91,35 @@ int main(void) {
         assert(co_errors == 1 && approx(wlx_content_scale(&ctx), 2.0f));
         wlx_context_destroy(&ctx);
     }
-    printf("test_config_override: OK (pre-include limit overrides honored)\n");
+
+    // WLX_STATE_MIN_AGE 1, the smallest legal age: under pressure on every
+    // frame, an entry requested every frame keeps its value through every
+    // sweep, and one skipped for a single frame is reclaimed.
+    {
+        WLX_Context ctx;
+        test_ctx_init(&ctx, 100, 50);
+        int lost = 0, skipped_reclaimed = 0;
+        for (int f = 0; f < 20; f++) {
+            ctx.states.trigger = 1;   // a sweep at every wlx_begin
+            test_frame_begin(&ctx, 0, 0, false, false);
+            for (WLX_Id k = 0; k < 2; k++) {
+                wlx_push_id(&ctx, k);
+                int *v = (int *)wlx_get_state_impl(&ctx, sizeof(int), "co/age.c", 1).data;
+                wlx_pop_id(&ctx);
+                if (f > 0 && *v != 1) lost++;
+                *v = 1;
+            }
+            if (f % 2 == 0) {
+                int *w = (int *)wlx_get_state_impl(&ctx, sizeof(int), "co/age.c", 2).data;
+                if (f > 0 && *w == 0) skipped_reclaimed++;
+                *w = 1;
+            }
+            test_frame_end(&ctx);
+        }
+        assert(lost == 0);
+        assert(skipped_reclaimed == 9);
+        wlx_context_destroy(&ctx);
+    }
+    printf("test_config_override: OK (pre-include limit overrides honored, MIN_AGE 1 keeps every-frame state)\n");
     return 0;
 }

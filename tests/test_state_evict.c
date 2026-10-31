@@ -4,7 +4,9 @@
 //   Nothing is reclaimed while the map is at or under its trigger, however
 //   old; above it, entries unrequested for the minimum age go and younger
 //   ones keep their values, with the trigger re-armed to twice the survivors
-//   (never below the threshold); wlx_state_prune mid-frame keeps every entry
+//   (never below the threshold); the minimum age counts complete frames of
+//   absence (requested every MIN_AGE frames survives, every MIN_AGE + 1 is
+//   reclaimed); wlx_state_prune mid-frame keeps every entry
 //   requested this frame and reports the count; reclaimed blocks are reused
 //   zeroed for the same size; backward-shift deletion agrees with a
 //   reference model over random sequences on a 64-slot table with crafted
@@ -108,6 +110,37 @@ TEST(evict_sweeps_stale_above_trigger) {
     ASSERT_EQ_INT(stale_zero, 10);
     size_t twice = (size_t)(LIVE - STALE) * 2;
     ASSERT_TRUE(ctx.states.trigger == (twice > threshold ? twice : threshold));
+    wlx_context_destroy(&ctx);
+}
+
+// The minimum age counts complete frames of absence. Under pressure on every
+// frame, an entry requested every WLX_STATE_MIN_AGE frames keeps its value
+// through every sweep, and one requested every WLX_STATE_MIN_AGE + 1 frames
+// is reclaimed before each of its requests. An anchor requested every frame
+// keeps the map above the forced trigger.
+TEST(evict_min_age_counts_complete_frames) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+    const int period = WLX_STATE_MIN_AGE;
+    int kept_lost = 0, longer_reclaimed = 0;
+    for (int f = 0; f < 3 * (period + 1) + 1; f++) {
+        ctx.states.trigger = 1;   // a sweep at every wlx_begin
+        test_frame_begin(&ctx, 0, 0, false, false);
+        *sev_state(&ctx, "sev/age.c", 1, 2) = 1;   // the anchor
+        if (f % period == 0) {
+            int *a = sev_state(&ctx, "sev/age.c", 1, 0);
+            if (f > 0 && *a != 1) kept_lost++;
+            *a = 1;
+        }
+        if (f % (period + 1) == 0) {
+            int *b = sev_state(&ctx, "sev/age.c", 1, 1);
+            if (f > 0 && *b == 0) longer_reclaimed++;
+            *b = 1;
+        }
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_INT(0, kept_lost);
+    ASSERT_EQ_INT(3, longer_reclaimed);
     wlx_context_destroy(&ctx);
 }
 
@@ -405,6 +438,7 @@ TEST(password_drop_retires_in_place) {
 SUITE(state_evict) {
     RUN_TEST(evict_never_at_or_below_trigger);
     RUN_TEST(evict_sweeps_stale_above_trigger);
+    RUN_TEST(evict_min_age_counts_complete_frames);
     RUN_TEST(prune_mid_frame_keeps_current);
 #if WLX_STATE_RECYCLE
     RUN_TEST(evict_recycles_blocks);

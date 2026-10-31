@@ -2408,6 +2408,12 @@ undo journal of a reclaimed widget go with it. This is the deterministic
 release point an application may use instead of, or as well as, the
 automatic sweep: after a route change, say. It may be called inside or
 between frames; the `data` pointers of surviving entries do not move.
+Between frames, `max_age` counts the frames since the one that just ended
+(1 keeps exactly that frame's entries). Inside a frame the current frame
+counts, so call it after the widgets whose state it must keep have run.
+The automatic sweep runs at `wlx_begin` before the frame counter
+advances, so `WLX_STATE_MIN_AGE` likewise counts complete frames of
+absence; it must be at least 1 (a smaller value does not compile).
 
 ### `wlx_push_id` / `wlx_pop_id`
 

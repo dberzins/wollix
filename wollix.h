@@ -1708,10 +1708,10 @@ typedef struct {
 } WLX_State_Map;
 
 // Persistent state reclamation. An entry a widget has not requested for
-// WLX_STATE_MIN_AGE frames is reclaimed at wlx_begin once the map holds more
-// than WLX_STATE_EVICT_THRESHOLD entries (0 disables the automatic sweep;
-// wlx_state_prune still works), never below that, and never an entry
-// requested in the current frame. Reclaimed data blocks are kept on a free
+// WLX_STATE_MIN_AGE complete frames (at least 1) is reclaimed at wlx_begin
+// once the map holds more than WLX_STATE_EVICT_THRESHOLD entries (0
+// disables the automatic sweep; wlx_state_prune still works), never below
+// that, and never an entry requested in the current frame. Reclaimed data blocks are kept on a free
 // list by requested size and reused zeroed, so churn at a stable live count
 // allocates nothing and bare-WASM builds, whose free is a no-op, reclaim
 // too. WLX_STATE_RECYCLE 0 frees them instead; it defaults to 0 under an
@@ -1721,6 +1721,9 @@ typedef struct {
 #endif
 #ifndef WLX_STATE_MIN_AGE
 #define WLX_STATE_MIN_AGE 300
+#endif
+#if WLX_STATE_MIN_AGE < 1
+#error "WLX_STATE_MIN_AGE must be at least 1: it counts complete frames of absence"
 #endif
 #ifndef WLX_STATE_RECYCLE
 #if defined(__SANITIZE_ADDRESS__)
@@ -2716,7 +2719,10 @@ WLXDEF WLX_State wlx_get_state_impl(WLX_Context *ctx, size_t state_size, const c
 // does the same with WLX_STATE_MIN_AGE once the map holds more than
 // WLX_STATE_EVICT_THRESHOLD entries; this call is the deterministic release
 // point an application may use instead (after a route change, say).
-// Reclaimed state comes back zeroed on its next request.
+// Between frames, `max_age` counts the frames since the one that just
+// ended (1 keeps exactly that frame's entries); inside a frame the current
+// frame counts, so call it after the widgets whose state it must keep have
+// run. Reclaimed state comes back zeroed on its next request.
 WLXDEF size_t wlx_state_prune(WLX_Context *ctx, uint32_t max_age);
 
 WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler);
@@ -7048,7 +7054,7 @@ static void wlx_frame_arbitrate(WLX_Context *ctx)
     }
 }
 
-static size_t wlx_state_reclaim(WLX_Context *ctx, uint32_t min_age);
+static void wlx_state_frame_sweep(WLX_Context *ctx);
 
 WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_handler) {
     wlx_assert_backend_ready(ctx);
@@ -7062,16 +7068,10 @@ WLXDEF void wlx_begin(WLX_Context *ctx, WLX_Rect r, WLX_Input_Handler input_hand
         memset(&ctx->input, 0, sizeof ctx->input);
     }
     WLX_PERF_HOOK(input_end, ctx);
+    // Before the frame index advances: an entry requested in the frame that
+    // just ended is age 0, so WLX_STATE_MIN_AGE counts complete frames.
+    wlx_state_frame_sweep(ctx);
     ctx->frame_index++;
-#if WLX_STATE_EVICT_THRESHOLD != 0
-    // Persistent state reclamation runs here, before any widget of the
-    // frame, and only under pressure: nothing is live to point into the map.
-    {
-        size_t trigger = ctx->states.trigger != 0
-            ? ctx->states.trigger : (size_t)WLX_STATE_EVICT_THRESHOLD;
-        if (ctx->states.count > trigger) wlx_state_reclaim(ctx, WLX_STATE_MIN_AGE);
-    }
-#endif
     ctx->interaction.hot_id = 0;
     ctx->interaction.active_id_seen = false;
     ctx->interaction.enter_consumed = false;
@@ -9680,6 +9680,20 @@ static size_t wlx_state_reclaim(WLX_Context *ctx, uint32_t min_age) {
 WLXDEF size_t wlx_state_prune(WLX_Context *ctx, uint32_t max_age) {
     if (max_age == 0) max_age = 1;
     return wlx_state_reclaim(ctx, max_age);
+}
+
+// The automatic sweep, at wlx_begin before any widget of the frame (nothing
+// is live to point into the map) and before the frame index advances, and
+// only under pressure: the map holds more than its trigger (the threshold,
+// or twice the survivors of the last sweep).
+static void wlx_state_frame_sweep(WLX_Context *ctx) {
+#if WLX_STATE_EVICT_THRESHOLD != 0
+    size_t trigger = ctx->states.trigger != 0
+        ? ctx->states.trigger : (size_t)WLX_STATE_EVICT_THRESHOLD;
+    if (ctx->states.count > trigger) wlx_state_reclaim(ctx, WLX_STATE_MIN_AGE);
+#else
+    (void)ctx;
+#endif
 }
 
 // ---------------------------------------------------------------------------
