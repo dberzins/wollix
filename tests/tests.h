@@ -140,7 +140,7 @@ static inline int _test_use_color(void) {
 #define ASSERT_EQ_F(a, b, eps) do {                                            \
     tests_assertions++;                                                        \
     float _a = (float)(a), _b = (float)(b);                                    \
-    if (fabsf(_a - _b) > (float)(eps)) {                                       \
+    if (!(fabsf(_a - _b) <= (float)(eps))) {  /* a NaN fails */                \
         _TEST_FAIL("ASSERT_EQ_F: %.4f != %.4f (eps=%.4f)",                    \
                    (double)_a, (double)_b, (double)(eps));                     \
     }                                                                          \
