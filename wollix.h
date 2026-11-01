@@ -756,7 +756,7 @@ typedef struct {
     void (*draw_text_slice)(const char *text, size_t len, float x, float y, WLX_Text_Style style, void *user);
     void (*measure_text_slice)(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h, void *user);
     // Optional batched advance measurement: fill out_advances[i] with the
-    // cumulative advance width in pixels of the prefix [0, unit_ends[i]) of
+    // cumulative advance width in units of the prefix [0, unit_ends[i]) of
     // one text run, for every i < unit_count, and return the number of
     // leading entries filled (a partial fill is valid; the core falls back
     // to per-unit prefix measures for the rest). NULL -> the core measures
@@ -1208,7 +1208,7 @@ typedef struct WLX_Layout {
     int         line;
     // Set by a slot fetch that reported an overrun and returned the collapsed
     // rect. The consumer (widget prologue or nested begin) skips its parent
-    // contribution and clears it.
+    // contribution; the next fetch clears it.
     bool slot_clamped;
     bool overflow;
     float accumulated_content_height;
@@ -1877,8 +1877,8 @@ typedef struct {
 typedef enum {
     WLX_TEXT_UNDO_CLS_NONE = 0,
     WLX_TEXT_UNDO_CLS_TYPING,       // text-input inserts (and the selection they replace)
-    WLX_TEXT_UNDO_CLS_BACKSPACE,    // codepoint backspace
-    WLX_TEXT_UNDO_CLS_DELETE,       // codepoint forward delete
+    WLX_TEXT_UNDO_CLS_BACKSPACE,    // Backspace over one text unit
+    WLX_TEXT_UNDO_CLS_DELETE,       // forward Delete of one text unit
     WLX_TEXT_UNDO_CLS_SELECTION,    // selection delete under Backspace/Delete
     WLX_TEXT_UNDO_CLS_WORD_DELETE,  // word-granularity Backspace/Delete
     WLX_TEXT_UNDO_CLS_NEWLINE,
@@ -1919,7 +1919,7 @@ typedef struct {
 
 typedef struct {
     WLX_Id id;              // widget id
-    uint32_t touch;         // cache clock at the last lookup (eviction aid)
+    uint32_t touch;         // cache clock at the last lookup; a diagnostic, nothing reads it (ADR_051)
     WLX_Text_Undo_Stack undo;
     WLX_Text_Undo_Stack redo;
     uint32_t next_group;    // last step id handed out
@@ -2797,10 +2797,10 @@ WLXDEF void wlx_perf_reset(WLX_Context *ctx);
 // ============================================================================
 
 // Shared placement fields used by layout and widget option structs:
-// - `pos`: target child slot index within the current parent layout. Use `-1`
-//   to consume the next slot sequentially.
+// - `pos`: target child slot index within the current parent layout.
+//   `WLX_UNSET` (any negative value) consumes the next slot sequentially.
 // - `span`: number of consecutive slots to occupy starting at `pos` (or the
-//   next sequential slot when `pos == -1`).
+//   next sequential slot when `pos` is unset).
 // - `overflow`: when true, allow the resolved widget rect to use explicit
 //   width/height directly from the slot origin instead of aligning within the
 //   slot bounds.
@@ -4066,8 +4066,8 @@ typedef struct {
     // return value). NULL = not reported.
     bool *out_focused;
 
-    // Password mode: renders one mask character per codepoint while the
-    // buffer keeps the plaintext. Forces single-line (wrap off) and
+    // Password mode: renders one mask character per text unit (grapheme
+    // cluster) while the buffer keeps the plaintext. Forces single-line (wrap off) and
     // suppresses copy/cut so the plaintext cannot leave the field.
     bool password;
 
@@ -4816,7 +4816,7 @@ const WLX_Theme wlx_theme_dark = {
     .min_rounded_segments = 16,
     .hover_brightness = 0.08f,
     .disabled_brightness = -0.35f,
-    .opacity          = -1,
+    .opacity          = WLX_UNSET,
     .disabled_opacity = WLX_DEFAULT_DISABLED_OPACITY,
     .input = {
         .border_focus = { 90, 140, 210, 255},
@@ -4873,7 +4873,7 @@ const WLX_Theme wlx_theme_light = {
     .min_rounded_segments = 16,
     .hover_brightness = -0.08f,
     .disabled_brightness = 0.30f,
-    .opacity          = -1,
+    .opacity          = WLX_UNSET,
     .disabled_opacity = WLX_DEFAULT_DISABLED_OPACITY,
     .input = {
         .border_focus = { 55,  80, 190, 255},
@@ -4932,7 +4932,7 @@ const WLX_Theme wlx_theme_glass = {
     .min_rounded_segments = 16,
     .hover_brightness = 0.05f,
     .disabled_brightness = -0.25f,
-    .opacity          = -1,
+    .opacity          = WLX_UNSET,
     .disabled_opacity = WLX_DEFAULT_DISABLED_OPACITY,
     .input = {
         .border_focus = { 90, 110, 200, 255},
@@ -5279,9 +5279,6 @@ static inline void wlx_cstr_tmp_end(WLX_CStr_Tmp *t) {
     if (t->heap) wlx_free(t->ptr);
 }
 
-// Private: measure a byte span (text, len).
-// Prefers measure_text_slice when available; falls back to the legacy
-// measure_text callback via a temporary null-terminated copy.
 // The style a text callback receives: the context's style transform
 // applied to the nominal style, at the backend boundary only.
 static inline WLX_Text_Style wlx_style_at_boundary(const WLX_Context *ctx, WLX_Text_Style style) {
@@ -5289,6 +5286,9 @@ static inline WLX_Text_Style wlx_style_at_boundary(const WLX_Context *ctx, WLX_T
         ? ctx->style_transform(style, ctx->style_transform_user) : style;
 }
 
+// Private: measure a byte span (text, len).
+// Prefers measure_text_slice when available; falls back to the legacy
+// measure_text callback via a temporary null-terminated copy.
 // NULL text is normalized to an empty string.
 static inline void wlx_span_measure_text(WLX_Context *ctx,
         const char *text, size_t len,
@@ -7803,7 +7803,8 @@ static void wlx_text_undo_stack_free(WLX_Text_Undo_Stack *s);
 static void wlx_state_map_destroy(WLX_State_Map *map);
 
 // Release an editor line index's buffers and zero the item in place: id 0
-// marks it free for the next widget, and items in the cache never move.
+// marks it free for the next widget. An item keeps its index in the cache
+// (the array itself moves when it grows).
 static void wlx_editor_index_release(WLX_Editor_Line_Index *idx) {
     wlx_free(idx->offsets);
     wlx_text_geom_store_free(&idx->geom);
@@ -12155,8 +12156,8 @@ static bool wlx_text_geom_ensure_wrap(const WLX_Text_Build_Inputs *inputs,
 // returns false and the caller's measuring scan takes over. overflowed
 // reports a row another row of the same line follows, and ink_w its ink
 // extent - the advance at its last non-whitespace unit, read back over
-// the trailing whitespace the scan kept before a cut (or hanging, in a
-// display build) - so the replayed record aligns exactly as the scanned
+// the trailing whitespace the scan kept before a cut (the store's entries
+// are built strict) - so the replayed record aligns exactly as the scanned
 // one; the line's last row keeps its measured extent.
 static bool wlx_text_geom_wrap_step(const WLX_Text_Build_Inputs *inputs,
     WLX_Text_Build_Cursor *cursor, size_t source_offset, WLX_Text_Scan *scan)
@@ -12792,8 +12793,8 @@ static bool wlx_calc_cursor_position_for_text(WLX_Context *ctx, WLX_Rect rect, c
 
 // Map a point to the nearest cursor offset in already-prepared lines: pick
 // the visual line whose vertical band contains py (clamped to the first/last
-// line), then walk codepoint boundaries measuring prefix advances and choose
-// the boundary nearest px (midpoint rule). Inverse of
+// line), then walk its unit boundaries (wlx_text_record_offset_at_x) and
+// choose the boundary nearest px (midpoint rule). Inverse of
 // wlx_text_resolve_cursor_from_lines, built on the same line records.
 static size_t wlx_text_offset_at_point_from_lines(WLX_Context *ctx, const char *text, size_t length,
     WLX_Text_Style style, const WLX_Text_Line_Record *lines, size_t line_count, float px, float py)
@@ -14260,13 +14261,6 @@ static inline bool wlx_inputbox_visual_line_bounds(WLX_Context *ctx, WLX_Rect re
     return true;
 }
 
-// Selection highlight over prepared line records: per line, intersect the
-// selection byte range with the line's visible range; the covered span is
-// the difference of two tab-aware prefix measures, so highlights line up
-// with the tab-expanded glyph positions (a zero tab_advance routes every
-// measure through the single-range path for tab-free widgets). Runs before
-// the text draw so the glyphs render on top; clipped to the band so wide
-// lines cannot spill over the field chrome.
 // Document line holding a byte offset: binary search over the hard line
 // starts. An offset inside a separator belongs to the line the separator
 // ends.
@@ -14323,8 +14317,14 @@ static bool wlx_text_range_extents(const WLX_Text_Measure_Args *m,
     return true;
 }
 
-// Draw the selection band over the given records (see
-// wlx_text_range_extents for the idx / geom hooks).
+// Selection highlight over prepared line records: per line, intersect the
+// selection byte range with the line's visible range; the covered span is
+// the difference of two tab-aware prefix measures, so highlights line up
+// with the tab-expanded glyph positions (a zero tab_advance routes every
+// measure through the single-range path for tab-free widgets). Runs before
+// the text draw so the glyphs render on top; clipped to the band so wide
+// lines cannot spill over the field chrome. See wlx_text_range_extents for
+// the idx / geom hooks.
 static void wlx_text_draw_selection(WLX_Rect band, const WLX_Text_Measure_Args *m,
     const WLX_Editor_Line_Index *idx, WLX_Text_Geom_Store *geom,
     const WLX_Text_Line_Record *lines, size_t count,
@@ -15551,7 +15551,7 @@ static bool wlx_text_edit_chords(WLX_Context *ctx, const WLX_Text_Edit *e, bool 
     }
 
     // Paste: replace the selection with the clipboard bytes. The insert
-    // primitive truncates to the buffer capacity on a UTF-8 boundary and
+    // primitive truncates to the buffer capacity on a unit boundary and
     // takes the borrowed backend string directly, so paste length is not
     // limited by the per-frame text_input ring.
     if (wlx_is_key_pressed(ctx, WLX_KEY_V) && !e->caps.read_only
@@ -16315,7 +16315,9 @@ static void wlx_inputbox_caret_resolve(WLX_Context *ctx, const WLX_Inputbox_Opt 
 // Draw pass over the frame's records: selection highlight between the
 // field background and the text, the text run, the caret (centered on
 // its line, clamped to the field interior with a breathing margin), and
-// the scrollbar thumb last so it overlays the band edge.
+// the scrollbar thumb last so it overlays the band edge. A focused,
+// editable field also records the composition anchor from the caret's
+// line, whatever the blink.
 static void wlx_inputbox_draw_content(WLX_Context *ctx, const WLX_Inputbox_Opt *opt,
     WLX_Inputbox_State *state, WLX_Interaction inter, const char *buffer,
     const WLX_Inputbox_Band *ib, const WLX_Inputbox_Lines *il, WLX_Text_Style ts,

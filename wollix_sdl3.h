@@ -1040,8 +1040,9 @@ static WLX_SDL3_Text_Cache_Entry g_wlx_sdl3_text_cache[WLX_SDL3_TEXT_CACHE_CAP] 
 static uint64_t g_wlx_sdl3_text_cache_cursor = 0;
 #endif
 
-// Resolve a stable TTF_Font* for (base_font, font_size, spacing) without
-// mutating the shared base font on the hot path. Returns NULL when the
+// Resolve a stable TTF_Font* for (base_font, font_size, spacing, scale) -
+// the size and spacing in units, scaled to device pixels by the content
+// scale - without mutating the shared base font on the hot path. Returns NULL when the
 // caller must fall back to wlx_sdl3_set_font_size on the shared base font
 // (TTF_CopyFont failure, TTF_SetFontSize/TTF_SetFontCharSpacing failure,
 // or invalid inputs).
