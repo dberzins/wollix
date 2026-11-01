@@ -778,8 +778,8 @@ static size_t wlx_editor_wrap_line_rows(const WLX_Text_Build_Inputs *inputs,
 // Move the wrap anchor by a signed number of visual rows, stopping at the
 // first and last document rows. Returns the rows left undone (negative:
 // hit the top, positive: hit the last row).
-static long wlx_editor_wrap_anchor_step(const WLX_Text_Build_Inputs *inputs,
-    const WLX_Editor_Line_Index *idx, size_t *first_line, size_t *first_row, long rows)
+static ptrdiff_t wlx_editor_wrap_anchor_step(const WLX_Text_Build_Inputs *inputs,
+    const WLX_Editor_Line_Index *idx, size_t *first_line, size_t *first_row, ptrdiff_t rows)
 {
     while (rows > 0) {
         size_t count = wlx_editor_wrap_line_rows(inputs, idx, *first_line);
@@ -924,8 +924,8 @@ static size_t wlx_editor_wrap_hit(const WLX_Text_Build_Inputs *inputs,
     const WLX_Editor_Line_Index *idx, size_t first_line, size_t first_row,
     float y_frac, WLX_Rect band, float line_h, float mx, float hit_y)
 {
-    long wrow = line_h > 0.0f
-        ? (long)((hit_y - band.y + y_frac * line_h) / line_h) : 0;
+    ptrdiff_t wrow = line_h > 0.0f
+        ? (ptrdiff_t)((hit_y - band.y + y_frac * line_h) / line_h) : 0;
     if (wrow < 0) wrow = 0;
     size_t hl = first_line, hr = first_row;
     wlx_editor_wrap_anchor_step(inputs, idx, &hl, &hr, wrow);
@@ -1050,9 +1050,9 @@ static bool wlx_editor_handle_motion_keys(const WLX_Editor_Frame *f,
     bool pgdn_hit = wlx_is_key_actuated(ctx, WLX_KEY_PAGE_DOWN);
     if ((up_hit != down_hit || pgup_hit != pgdn_hit) && idx->count > 0) {
         size_t line = wlx_editor_index_line_of(idx, state->caret.cursor_pos);
-        long step = 0;
+        ptrdiff_t step = 0;
         if (up_hit != down_hit) step += up_hit ? -1 : 1;
-        if (pgup_hit != pgdn_hit) step += pgup_hit ? -(long)page_lines : (long)page_lines;
+        if (pgup_hit != pgdn_hit) step += pgup_hit ? -(ptrdiff_t)page_lines : (ptrdiff_t)page_lines;
 
         if (wrap_inputs != NULL) {
             // Visual-row motion: the sticky column is row-relative, the
@@ -1068,17 +1068,17 @@ static bool wlx_editor_handle_motion_keys(const WLX_Editor_Frame *f,
                 state->caret.preferred_x_valid = true;
             }
 
-            long target_row = (long)row + step;
+            ptrdiff_t target_row = (ptrdiff_t)row + step;
             size_t cur_line = line;
             while (target_row < 0 && cur_line > 0) {
                 cur_line--;
-                target_row += (long)wlx_editor_wrap_line_rows(wrap_inputs, idx, cur_line);
+                target_row += (ptrdiff_t)wlx_editor_wrap_line_rows(wrap_inputs, idx, cur_line);
             }
-            long rows_in = (long)wlx_editor_wrap_line_rows(wrap_inputs, idx, cur_line);
+            ptrdiff_t rows_in = (ptrdiff_t)wlx_editor_wrap_line_rows(wrap_inputs, idx, cur_line);
             while (target_row >= rows_in && cur_line + 1 < idx->count) {
                 target_row -= rows_in;
                 cur_line++;
-                rows_in = (long)wlx_editor_wrap_line_rows(wrap_inputs, idx, cur_line);
+                rows_in = (ptrdiff_t)wlx_editor_wrap_line_rows(wrap_inputs, idx, cur_line);
             }
             if (target_row < 0) {
                 state->caret.cursor_pos = 0;
@@ -1107,9 +1107,9 @@ static bool wlx_editor_handle_motion_keys(const WLX_Editor_Frame *f,
                 state->caret.cursor_pos = len;
                 state->caret.preferred_x_valid = false;
             } else {
-                long target = (long)line + step;
+                ptrdiff_t target = (ptrdiff_t)line + step;
                 if (target < 0) target = 0;
-                if (target >= (long)idx->count) target = (long)idx->count - 1;
+                if (target >= (ptrdiff_t)idx->count) target = (ptrdiff_t)idx->count - 1;
                 float target_w = motion_w;
                 if (target_w < state->caret.preferred_x + line_h) target_w = state->caret.preferred_x + line_h;
                 state->caret.cursor_pos = wlx_editor_offset_at_x(ctx, doc, len, ts, line_h, tab_advance,
@@ -1493,8 +1493,8 @@ static void wlx_editor_scroll_resolve(const WLX_Editor_Frame *f, WLX_Editor_Scro
                     - ctx->input.wheel_delta * WLX_SCROLL_PANEL_DEFAULT_WHEEL_SCROLL_SPEED;
                 float steps = floorf(px / line_h);
                 state->y_frac = (px - steps * line_h) / line_h;
-                long left = wlx_editor_wrap_anchor_step(wrap_inputs, idx,
-                    &state->first_line, &state->first_row, (long)steps);
+                ptrdiff_t left = wlx_editor_wrap_anchor_step(wrap_inputs, idx,
+                    &state->first_line, &state->first_row, (ptrdiff_t)steps);
                 if (left < 0) state->y_frac = 0.0f;
                 *anchor_rows = wlx_editor_wrap_line_rows(wrap_inputs, idx,
                     state->first_line);
@@ -1964,7 +1964,7 @@ static void wlx_editor_caret_place(const WLX_Editor_Frame *f,
         idx->offsets[caret_line], cx_off, false);
     *out_x = band.x - state->scroll_x + prefix;
     *out_top = band.y
-        + ((float)((long)caret_line - (long)state->first_line) - state->y_frac) * line_h;
+        + ((float)((ptrdiff_t)caret_line - (ptrdiff_t)state->first_line) - state->y_frac) * line_h;
 }
 
 // Caret and scrollbars, drawn last from the final scroll offsets. A
@@ -2043,10 +2043,10 @@ static size_t wlx_editor_mouse_hit(void *user, float x, float y) {
         return wlx_editor_wrap_hit(f->wrap_inputs, f->idx, f->state->first_line,
             f->state->first_row, f->state->y_frac, band, f->line_h, x, y);
     }
-    long hit_line = f->line_h > 0.0f
-        ? (long)((u->scr->scroll_y + (y - band.y)) / f->line_h) : 0;
+    ptrdiff_t hit_line = f->line_h > 0.0f
+        ? (ptrdiff_t)((u->scr->scroll_y + (y - band.y)) / f->line_h) : 0;
     if (hit_line < 0) hit_line = 0;
-    if (hit_line >= (long)f->idx->count) hit_line = (long)f->idx->count - 1;
+    if (hit_line >= (ptrdiff_t)f->idx->count) hit_line = (ptrdiff_t)f->idx->count - 1;
     float content_x = x - (band.x - f->state->scroll_x);
     if (content_x < 0.0f) content_x = 0.0f;
     return wlx_editor_offset_at_x(f->ctx, f->doc, f->doc_len, f->ts, f->line_h,
@@ -2072,8 +2072,8 @@ static void wlx_editor_mouse_auto_scroll(void *user, float over_x, float over_y,
                 + over_y * WLX_TEXT_DRAG_SCROLL_GAIN * dt;
             float steps = floorf(px / f->line_h);
             state->y_frac = (px - steps * f->line_h) / f->line_h;
-            long left_over = wlx_editor_wrap_anchor_step(f->wrap_inputs, f->idx,
-                &state->first_line, &state->first_row, (long)steps);
+            ptrdiff_t left_over = wlx_editor_wrap_anchor_step(f->wrap_inputs, f->idx,
+                &state->first_line, &state->first_row, (ptrdiff_t)steps);
             if (left_over < 0) state->y_frac = 0.0f;
         }
     } else if (over_y != 0.0f && u->scr->max_scroll_y > 0.0f) {
