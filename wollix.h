@@ -6200,6 +6200,25 @@ static inline bool wlx_active_scissor_rect(const WLX_Context *ctx, WLX_Rect *out
     return wlx_enclosing_clip(ctx, WLX_CLIP_DRAW, out_rect);
 }
 
+// Begin a scissor on rect intersected with this layer's enclosing draw
+// clip, so a nested clip never widens the visible region.
+static inline void wlx_begin_scissor_clipped(WLX_Context *ctx, WLX_Rect rect) {
+    WLX_Rect enclosing;
+    if (wlx_active_scissor_rect(ctx, &enclosing)) rect = wlx_rect_intersect(rect, enclosing);
+    wlx_begin_scissor(ctx, rect);
+}
+
+// Re-arm this layer's enclosing draw clip (an explicit scissor scope, else
+// a parent panel, a .clip layout, or a popup's own rect; never a base-layer
+// clip from inside an overlay) after a scissor ends. Backends end clipping
+// by disabling the scissor test outright (raylib's EndScissorMode) rather
+// than popping to the previous region, so without this, content drawn
+// after a nested clip escapes the enclosing one.
+static inline void wlx_rearm_enclosing_scissor(WLX_Context *ctx) {
+    WLX_Rect enclosing;
+    if (wlx_active_scissor_rect(ctx, &enclosing)) wlx_begin_scissor(ctx, enclosing);
+}
+
 // Opt-in clip for the layout just pushed by a begin call: flag it and begin
 // a scissor on its content rect, intersected with the active clip so nested
 // clips never widen the visible region (e.g. inside a scroll panel). The
@@ -6209,14 +6228,9 @@ static inline bool wlx_active_scissor_rect(const WLX_Context *ctx, WLX_Rect *out
 // auto-counted begin.
 static inline void wlx_layout_clip_begin(WLX_Context *ctx) {
     WLX_Layout *top = wlx_layout_top(ctx);
-    WLX_Rect clip_rect = top->rect;
-    WLX_Rect active;
-    if (wlx_active_scissor_rect(ctx, &active)) {
-        clip_rect = wlx_rect_intersect(clip_rect, active);
-    }
+    wlx_begin_scissor_clipped(ctx, top->rect);
     top->clip_active = true;
     top->clip_rect = top->rect;   // the walkers intersect with it themselves
-    wlx_begin_scissor(ctx, clip_rect);
 }
 
 static inline WLX_Scissor_Scope wlx_scissor_scope_begin(WLX_Context *ctx, WLX_Rect rect) {
@@ -7505,167 +7519,108 @@ static inline void wlx_render_gradient_v(WLX_Context *ctx, WLX_Rect rect,
 
 // Replay one recorded command through the backend, translated by the
 // accumulated (dx, dy) offsets of its innermost range.
+// A recorded rect moved by the replay offset of its range.
+static inline WLX_Rect wlx_rect_offset(WLX_Rect r, float dx, float dy) {
+    return (WLX_Rect){ r.x + dx, r.y + dy, r.w, r.h };
+}
+
 static inline void wlx_replay_dispatch_cmd(WLX_Context *ctx, WLX_Cmd *c,
                                            float dx, float dy) {
+    WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
     switch (c->type) {
         case WLX_CMD_RECT:
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
-            ctx->backend.draw_rect(
-                (WLX_Rect){c->data.rect.rect.x + dx, c->data.rect.rect.y + dy,
-                           c->data.rect.rect.w, c->data.rect.rect.h},
+            ctx->backend.draw_rect(wlx_rect_offset(c->data.rect.rect, dx, dy),
                 c->data.rect.color, ctx->backend.user);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_RECT_LINES:
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
-            ctx->backend.draw_rect_lines(
-                (WLX_Rect){c->data.rect_lines.rect.x + dx, c->data.rect_lines.rect.y + dy,
-                           c->data.rect_lines.rect.w, c->data.rect_lines.rect.h},
+            ctx->backend.draw_rect_lines(wlx_rect_offset(c->data.rect_lines.rect, dx, dy),
                 c->data.rect_lines.thick, c->data.rect_lines.color, ctx->backend.user);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_RECT_ROUNDED:
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
-            ctx->backend.draw_rect_rounded(
-                (WLX_Rect){c->data.rect_rounded.rect.x + dx, c->data.rect_rounded.rect.y + dy,
-                           c->data.rect_rounded.rect.w, c->data.rect_rounded.rect.h},
+            ctx->backend.draw_rect_rounded(wlx_rect_offset(c->data.rect_rounded.rect, dx, dy),
                 c->data.rect_rounded.roundness, c->data.rect_rounded.segments,
                 c->data.rect_rounded.color, ctx->backend.user);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_RECT_ROUNDED_LINES:
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_rect_rounded_lines(
-                (WLX_Rect){c->data.rect_rounded_lines.rect.x + dx, c->data.rect_rounded_lines.rect.y + dy,
-                           c->data.rect_rounded_lines.rect.w, c->data.rect_rounded_lines.rect.h},
+                wlx_rect_offset(c->data.rect_rounded_lines.rect, dx, dy),
                 c->data.rect_rounded_lines.roundness, c->data.rect_rounded_lines.segments,
                 c->data.rect_rounded_lines.thick, c->data.rect_rounded_lines.color, ctx->backend.user);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_CIRCLE:
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_circle(
                 c->data.circle.cx + dx, c->data.circle.cy + dy,
                 c->data.circle.radius, c->data.circle.segments,
                 c->data.circle.color, ctx->backend.user);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_RING:
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_ring(
                 c->data.ring.cx + dx, c->data.ring.cy + dy,
                 c->data.ring.inner_r, c->data.ring.outer_r,
                 c->data.ring.segments, c->data.ring.color, ctx->backend.user);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_LINE:
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_line(
                 c->data.line.x1 + dx, c->data.line.y1 + dy,
                 c->data.line.x2 + dx, c->data.line.y2 + dy,
                 c->data.line.thick, c->data.line.color, ctx->backend.user);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
-        case WLX_CMD_TEXT: {
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
-            // The recorded style is nominal; the transform applies here, at
-            // the boundary, exactly as for the measure that placed it.
-            WLX_Text_Style style = wlx_style_at_boundary(ctx, c->data.text.style);
-            if (ctx->backend.draw_text_slice != NULL) {
-                ctx->backend.draw_text_slice(
-                    (const char *)&wlx_pool_scratch(ctx)[c->data.text.text_off],
-                    c->data.text.text_len,
-                    c->data.text.x + dx, c->data.text.y + dy,
-                    style, ctx->backend.user);
-            } else {
-                // Legacy draw_text expects NUL-terminated input; the recorded
-                // scratch span carries only `text_len` bytes so synthesise a
-                // NUL-terminated copy on demand.
-                WLX_CStr_Tmp tmp;
-                const char *cstr = wlx_cstr_tmp_begin(&tmp,
-                    (const char *)&wlx_pool_scratch(ctx)[c->data.text.text_off],
-                    c->data.text.text_len);
-                if (cstr == NULL) {
-                    WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
-                    break;
-                }
-                ctx->backend.draw_text(cstr,
-                    c->data.text.x + dx, c->data.text.y + dy,
-                    style, ctx->backend.user);
-                wlx_cstr_tmp_end(&tmp);
-            }
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
+        case WLX_CMD_TEXT:
+            // The recorded style is nominal; the immediate draw applies the
+            // transform at the boundary, exactly as for the measure that
+            // placed it, and owns the legacy NUL-terminated fallback.
+            wlx_draw_text_span_immediate(ctx,
+                (const char *)&wlx_pool_scratch(ctx)[c->data.text.text_off],
+                c->data.text.text_len, c->data.text.x + dx, c->data.text.y + dy,
+                c->data.text.style);
             break;
-        }
 
         case WLX_CMD_TEXTURE:
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.draw_texture(
                 c->data.texture.texture, c->data.texture.src,
-                (WLX_Rect){c->data.texture.dst.x + dx, c->data.texture.dst.y + dy,
-                           c->data.texture.dst.w, c->data.texture.dst.h},
+                wlx_rect_offset(c->data.texture.dst, dx, dy),
                 c->data.texture.tint, ctx->backend.user);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
         case WLX_CMD_SCISSOR_BEGIN:
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
-            ctx->backend.begin_scissor(
-                (WLX_Rect){c->data.scissor_begin.rect.x + dx, c->data.scissor_begin.rect.y + dy,
-                           c->data.scissor_begin.rect.w, c->data.scissor_begin.rect.h}, ctx->backend.user);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
+            ctx->backend.begin_scissor(wlx_rect_offset(c->data.scissor_begin.rect, dx, dy),
+                ctx->backend.user);
             break;
 
         case WLX_CMD_SCISSOR_END:
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
             ctx->backend.end_scissor(ctx->backend.user);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
 
-        case WLX_CMD_SHADOW: {
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
-            WLX_Rect sr = { c->data.shadow.rect.x + dx, c->data.shadow.rect.y + dy,
-                            c->data.shadow.rect.w, c->data.shadow.rect.h };
-            wlx_render_shadow(ctx, sr, c->data.shadow.color,
+        case WLX_CMD_SHADOW:
+            wlx_render_shadow(ctx, wlx_rect_offset(c->data.shadow.rect, dx, dy), c->data.shadow.color,
                 c->data.shadow.offset_x, c->data.shadow.offset_y,
                 c->data.shadow.blur, c->data.shadow.layers,
                 c->data.shadow.roundness, c->data.shadow.rounded_segs);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
-        }
 
-        case WLX_CMD_GLOW: {
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
-            WLX_Rect gr = { c->data.glow.rect.x + dx, c->data.glow.rect.y + dy,
-                            c->data.glow.rect.w, c->data.glow.rect.h };
-            wlx_render_glow(ctx, gr, c->data.glow.color,
+        case WLX_CMD_GLOW:
+            wlx_render_glow(ctx, wlx_rect_offset(c->data.glow.rect, dx, dy), c->data.glow.color,
                 c->data.glow.spread, c->data.glow.rings,
                 c->data.glow.roundness, c->data.glow.rounded_segs);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
             break;
-        }
 
-        case WLX_CMD_GRADIENT_V: {
-            WLX_PERF_HOOK(backend_callback_begin, ctx, c->type);
-            WLX_Rect gvr = { c->data.gradient_v.rect.x + dx, c->data.gradient_v.rect.y + dy,
-                             c->data.gradient_v.rect.w, c->data.gradient_v.rect.h };
-            wlx_render_gradient_v(ctx, gvr, c->data.gradient_v.top,
-                c->data.gradient_v.bottom, c->data.gradient_v.roundness,
-                c->data.gradient_v.rounded_segs);
-            WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
+        case WLX_CMD_GRADIENT_V:
+            wlx_render_gradient_v(ctx, wlx_rect_offset(c->data.gradient_v.rect, dx, dy),
+                c->data.gradient_v.top, c->data.gradient_v.bottom,
+                c->data.gradient_v.roundness, c->data.gradient_v.rounded_segs);
             break;
-        }
 
         case WLX_CMD_TYPE_COUNT:
             break;
     }
+    WLX_PERF_HOOK(backend_callback_end, ctx, c->type);
 }
 
 // Keyboard focus ring: one accent outline around the Tab-focused widget's
@@ -8628,12 +8583,7 @@ static void wlx_overlay_close(WLX_Context *ctx)
     wlx_layout_close(ctx);
     if (ctx->current_layer > 0) ctx->current_layer--;
 
-    if (had_clip && ctx->immediate_mode) {
-        WLX_Rect enclosing;
-        if (wlx_active_scissor_rect(ctx, &enclosing)) {
-            wlx_begin_scissor(ctx, enclosing);
-        }
-    }
+    if (had_clip && ctx->immediate_mode) wlx_rearm_enclosing_scissor(ctx);
 }
 
 // wlx_layout_begin_auto_impl - dynamic variant of wlx_layout_begin_impl.
@@ -8997,10 +8947,7 @@ static void wlx_layout_close(WLX_Context *ctx) {
     if (clip) {
         wlx_end_scissor(ctx);
         l->clip_active = false;  // exclude self from the enclosing-scissor query
-        WLX_Rect enclosing;
-        if (wlx_active_scissor_rect(ctx, &enclosing)) {
-            wlx_begin_scissor(ctx, enclosing);
-        }
+        wlx_rearm_enclosing_scissor(ctx);
     }
 
     wlx_layout_frame_end(ctx, l);
@@ -9354,7 +9301,7 @@ static inline bool wlx_interaction_mouse_over(WLX_Context *ctx, WLX_Rect rect) {
 // clipped to the layer's containers, and the container clip itself so the
 // ring drawn at frame end stays inside it.
 static inline void wlx_focus_rect_record(WLX_Context *ctx, WLX_Rect rect) {
-    WLX_Rect clip;
+    WLX_Rect clip = {0};
     bool clipped = wlx_enclosing_clip(ctx, WLX_CLIP_CONTAINERS, &clip);
     ctx->interaction.focus_rect = clipped ? wlx_rect_intersect(rect, clip) : rect;
     ctx->interaction.focus_clip = clip;
@@ -17245,33 +17192,14 @@ static inline void wlx_scrollbar_handle_drag(
     }
 }
 
-// Helper: end scissor mode and restore the parent scroll panel's scissor region if any.
-static inline void wlx_scroll_panel_restore_scissor(WLX_Context *ctx) {
-    wlx_end_scissor(ctx);
-    // Re-arm the enclosing draw clip of this layer (an explicit scissor
-    // scope, else a parent panel, a .clip layout, or a popup's own rect);
-    // never a base-layer clip from inside an overlay.
-    WLX_Rect enclosing;
-    if (wlx_active_scissor_rect(ctx, &enclosing)) {
-        wlx_begin_scissor(ctx, enclosing);
-    }
-}
-
 // Helper: set up scissor clipping, draw the scrollbar bar, and push the content layout.
 static inline void wlx_scroll_panel_begin_content_layout(
     WLX_Context *ctx, WLX_Scroll_Panel_State *state, const WLX_Scroll_Panel_Opt *opt,
     WLX_Rect wr, float content_height, bool sb_visible, WLX_Rect sb_rect,
     const char *file, int line)
 {
-    // Intersect the scissor rect with the enclosing draw clip of this layer
-    // (an explicit scissor scope, else parent panels, .clip layouts, or a
-    // popup's own rect) to contain nested content.
-    WLX_Rect scissor = wr;
-    WLX_Rect enclosing;
-    if (wlx_active_scissor_rect(ctx, &enclosing)) {
-        scissor = wlx_rect_intersect(scissor, enclosing);
-    }
-    wlx_begin_scissor(ctx, scissor);
+    // Contain nested content inside this layer's enclosing draw clip.
+    wlx_begin_scissor_clipped(ctx, wr);
 
     // Draw scrollbar bar (interaction was already handled before this call).
     if (sb_visible) {
@@ -17515,7 +17443,8 @@ static void wlx_scroll_panel_close(WLX_Context *ctx) {
     ctx->auto_scroll.panel_id = state_sp->saved_auto_scroll_panel_id;
     ctx->auto_scroll.total_height = state_sp->saved_auto_scroll_total_height;
 
-    wlx_scroll_panel_restore_scissor(ctx);
+    wlx_end_scissor(ctx);
+    wlx_rearm_enclosing_scissor(ctx);
 
     wlx_scroll_panel_frame_end(ctx, state_sp);
 }
