@@ -1143,7 +1143,7 @@ is described in [UNDO_MODEL.md](UNDO_MODEL.md).
 
 Input methods (Japanese, Chinese, Korean and any other composing
 keyboard) and dead keys work in the inputbox, the textarea and the
-editor on the SDL3 and web backends. The composition string the platform
+editor on the SDL3 and web backends (ADR_056). The composition string the platform
 is building lands in the field's buffer at the caret as a *tentative
 span*: ordinary bytes to everything that lays out and draws, underlined,
 with the caret inside it where the input method says and the selected

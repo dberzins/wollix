@@ -300,7 +300,7 @@ uses 27, 50 and 0.08).
 
 ### Coordinate space
 
-One Wollix unit is a **logical pixel**. Every `WLX_Rect`, every length in
+One Wollix unit is a **logical pixel** (ADR_053). Every `WLX_Rect`, every length in
 an option or theme field (padding, border width, radius, thickness,
 scrollbar width, tile size), every `font_size`, the root rect passed to
 `wlx_begin` and the mouse position in `WLX_Input_State` are in units. The
@@ -439,7 +439,7 @@ time queries. All required pointers must be non-NULL; use
 `wlx_backend_is_ready()` to verify the required set. Optional pointers may be
 left as `NULL`.
 
-**Contract v2 (v0.9).** Every callback takes a trailing `void *user`: the
+**Contract v2 (v0.9; ADR_045).** Every callback takes a trailing `void *user`: the
 table's own `user` member, passed by the core on every call and never
 read by it, so an adapter can reach per-instance state instead of
 file-scope globals. `contract_version` must be
@@ -1022,7 +1022,7 @@ Where the platform's input method should anchor itself: the caret line
 of the editable text widget that holds focus this frame, assembled by the
 core from the widget's caret geometry and pushed through the optional
 `WLX_Backend.set_text_input_area` callback from `wlx_end`, only when it
-changed. `active` is focus: it does not follow the caret's blink or
+changed (ADR_056). `active` is focus: it does not follow the caret's blink or
 whether the caret line is in view. With `active` false the other members
 are zero. `multiline` and
 `password` let a platform pick its keyboard and prediction behaviour
@@ -1114,7 +1114,7 @@ typedef uint64_t WLX_Id;
 ```
 
 The widget id type: the key of every interaction and persistent-state
-lookup, 64-bit on every target including wasm32. `0` is reserved for "no
+lookup, 64-bit on every target including wasm32 (ADR_050). `0` is reserved for "no
 widget". Ids derive from the call site and the ID stack (see the Identity
 Model below), so they are not stable across builds; print one with
 `PRIu64`. Passing a `size_t` where a `WLX_Id` is expected compiles
@@ -1132,7 +1132,7 @@ typedef struct {
 ```
 
 Handle returned by `wlx_get_state()`. The `data` pointer is zero-initialized on
-first access. Its lifetime:
+first access. Its lifetime (ADR_051):
 
 - `data` is valid through the frame that returned it.
 - The state survives across frames while its id is requested at least once
@@ -1502,7 +1502,7 @@ wlx_context_destroy(&ctx);             // frees internal buffers
 A caller-contract violation (more children than slots, a grid cell outside
 the grid, an end without a begin or of the wrong kind, a widget with no layout
 open, a count of zero, a required pointer that is NULL) is reported in
-**every build**, and
+**every build** (ADR_052), and
 the call then degrades the way its entry documents. Nothing here compiles
 out under `NDEBUG`. Library invariants stay plain `assert()`s; memory guards
 stay `WLX_HARD_ASSERT` (release-live and fatal, printing through
