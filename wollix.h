@@ -2724,7 +2724,11 @@ WLXDEF float wlx_get_opacity(const WLX_Context *ctx);
 WLXDEF WLX_Interaction wlx_get_interaction(WLX_Context *ctx, WLX_Rect rect, uint32_t flags, const char *file, int line);
 
 // Generic persistent state - returns a handle with the state's ID and a pointer
-// to zero-initialized persistent data. The data survives across frames.
+// to zero-initialized persistent data. The pointer is valid through this
+// frame; the data survives across frames while the id is requested at least
+// once every WLX_STATE_MIN_AGE frames, and past that may be reclaimed (see
+// "Persistent state reclamation" above) and come back zeroed. State must
+// therefore own no resources.
 // State IDs are mix(hash(file, line) ^ id_stack_hash) - the same formula as Widget IDs.
 // The id stack is modified automatically by container `.id` (Scope ID) and manually
 // by wlx_push_id()/wlx_pop_id() when the same source line is reached multiple times.

@@ -1157,19 +1157,11 @@ the include.
 
 ```c
 typedef struct {
-    size_t cursor_pos;
-    float  cursor_blink_time;
-    size_t selection_anchor;   // selection = [min(anchor,cursor), max(...))
-    bool   mouse_selecting;    // drag-selection in progress
-    float  last_click_time;    // multi-click detection clock
-    size_t last_click_pos;
-    int    click_count;        // 1 = caret, 2 = word, 3 = select all
-    float  preferred_x;        // sticky column for UP/DOWN caret motion
-    bool   preferred_x_valid;  // cleared by any horizontal caret change
-    float  scroll_y;           // multiline: content px hidden above the band
-    size_t prev_cursor_pos;    // caret-follow motion detection
-    bool   dragging_scrollbar; // thumb drag in progress (multiline overflow)
-    float  sb_drag_offset;     // pointer offset from thumb top at drag start
+    WLX_Text_Edit_State caret; // caret, selection, click and drag gestures,
+                               // composition span (internal; shared with
+                               // the editor's state)
+    float scroll_y;            // multiline: content px hidden above the band
+    bool  sb_was_visible;      // last frame's scrollbar visibility
 } WLX_Inputbox_State;
 ```
 
@@ -1187,6 +1179,7 @@ typedef struct {
     float   drag_offset;
     bool    hovered;
     float   wheel_scroll_speed;
+    bool    pushed_scope;   // a scope id was pushed at begin
     WLX_Id  saved_auto_scroll_panel_id;
     float   saved_auto_scroll_total_height;
 } WLX_Scroll_Panel_State;
@@ -1681,6 +1674,10 @@ drawing and layout calls. A layout still open here is a contract error,
 reported once with its begin site (see [Error Reporting](#error-reporting));
 the frame still finishes.
 
+Because deferred draw commands replay inside `wlx_end()`, keep it inside the
+backend's active frame scope. In Raylib that means calling `wlx_end(ctx)`
+before `EndDrawing()`.
+
 ### `wlx_content_scale`
 
 ```c
@@ -1693,10 +1690,6 @@ when the backend has no callback, or when its value was unusable. Read it
 to choose a scaled image asset or to size drawing the application does
 itself; the layout, the theme and every option field stay in units. See
 [Coordinate space](#coordinate-space).
-
-Because deferred draw commands replay inside `wlx_end()`, keep it inside the
-backend's active frame scope. In Raylib that means calling `wlx_end(ctx)`
-before `EndDrawing()`.
 
 ### `wlx_text_input_area`
 
@@ -2991,6 +2984,51 @@ button surface, [`WLX_Image_Scale`](#wlx_image_scale),
 
 ---
 
+## Widget — `wlx_image`
+
+```c
+#define wlx_image(ctx, texture, ...options)
+// void — no return value
+```
+
+Draws an application-supplied `WLX_Texture` inside the widget rect.
+Non-interactive: it takes no input and returns nothing. The texture must
+have `width > 0` and `height > 0`. An unloaded texture fails
+`WLX_IMAGE_ASSERT_TEXTURE_VALID` (an `assert` by default, overridable
+before the include); with the check compiled out, it draws nothing and
+the widget still takes its slot. Under a `WLX_SIZE_CONTENT` width the
+widget's intrinsic width is `src.w`, or the texture's width when
+`src.w <= 0`.
+
+**Option struct:** `WLX_Image_Opt`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
+| *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
+| `scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_STRETCH` | How the texture fits the widget rect; see [`WLX_Image_Scale`](#wlx_image_scale). |
+| `content_align` | `WLX_Align` | `WLX_CENTER` | Positions the image inside the widget rect under `FIT` and `NONE`, and anchors the crop under `FILL`; no effect under `STRETCH`. `align` is its pre-0.9 name (same storage, removed in the first minor release after 0.9). |
+| `tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`; alpha multiplied by the opacity stack. |
+| `src` | `WLX_Rect` | `{0}` | Source sub-rect. `w` or `h <= 0` means the full texture. |
+| `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
+
+The image has no border, background or content padding; `slot_align`
+places the widget rect in its slot and `content_align` places the image
+inside that rect.
+
+```c
+wlx_image(ctx, spritesheet,
+    .scale = WLX_IMAGE_SCALE_NONE,
+    .content_align = WLX_TOP_LEFT,
+    .src = (WLX_Rect){ 0, 0, 32, 32 });
+```
+
+See also: [`WLX_Image_Scale`](#wlx_image_scale), the image-capable
+[`wlx_label`](#widget--wlx_label) and [`wlx_button`](#widget--wlx_button),
+and the [`wlx_image` guide](WIDGETS.md#wlx_image).
+
+---
+
 ## Widget — `wlx_button`
 
 ```c
@@ -3149,8 +3187,8 @@ no caret, selection edge, delete or truncation ever lands inside one):
   replace a live selection.
 - **Clipboard** — command+C copy, command+X cut, command+V paste, command+A
   select all, where the command modifier is Cmd on Apple platforms and Ctrl
-  elsewhere (`wlx_mod_command_down`). Paste is not limited by the 32-byte
-  per-frame text ring and truncates to `buffer_size` on a cluster boundary
+  elsewhere (`wlx_mod_command_down`). Paste is not limited by the
+  per-frame `text_input` stream (`WLX_INPUT_TEXT_BYTES`) and truncates to `buffer_size` on a cluster boundary
   (a partial cluster never lands).
   On the bare-WASM backend the clipboard is a best-effort cached string:
   copy/cut update the browser clipboard asynchronously, and cross-app content
@@ -3205,8 +3243,8 @@ no caret, selection edge, delete or truncation ever lands inside one):
 
 `content_padding*` controls the outer gutter (label area, input rect
 position, vertical centering). The text cursor inside the editing box is
-additionally inset by the fixed constant `WLX_INPUTBOX_TEXT_INSET` (5 px)
-on the x-axis only; with the default `content_padding = 10` this equals the
+additionally inset by the fixed internal constant `WLX_TEXT_FIELD_INSET`
+(5 units) on the x-axis only; with the default `content_padding = 10` this equals the
 pre-migration value of `content_padding / 2`.
 
 Default `wrap = true`. Long buffers and existing newline bytes can therefore
@@ -4562,8 +4600,7 @@ including `wollix_sdl3.h`. The default is `4096` (raised from the
 gallery-sized `1024` to cover an editor viewport's working set; with the
 editor's retained line geometry the steady-state working set has since
 collapsed to viewport-line scale, so lowering it back is a candidate — see
-the follow-up outcomes in
-`docs/dev/ADR_036_EDITOR_MEASUREMENT_CONTRACT_RETENTION_AND_WINDOWED_ORIGIN.md`). Each live entry owns a
+the follow-up outcomes in ADR_036). Each live entry owns a
 `TTF_CreateText`-derived `TTF_Text *` keyed by `(variant, slice_len,
 fnv1a64(text bytes))` with stored `text_len` plus the bytes themselves for
 collision-rejecting hit verification. Setting the cap to `0` disables retention
@@ -4843,8 +4880,9 @@ Core frame snapshot published after each completed `wlx_end()`.
     the core makes the call), plus emitted-text and fitted-run counters.
 - `arena` stores per-arena count, capacity, high-water, grow-count, and byte
     usage snapshots.
-- `allocator` stores `wlx_malloc` / `wlx_calloc` / `wlx_realloc` / `wlx_free`
-    counters and byte totals.
+- `allocator` stores the allocator traffic: `alloc_calls`, `calloc_calls`,
+    `realloc_calls` and `free_calls`, plus the `alloc_bytes`, `calloc_bytes`
+    and `realloc_bytes` totals.
 - `state` stores the persistent storage held at frame end: state map
     `entries` and slot `capacity`, and the live `editor_indices` and
     `undo_journals` (a reclaimed widget's index or journal is retired in

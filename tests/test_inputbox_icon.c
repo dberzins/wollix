@@ -127,7 +127,7 @@ TEST(inputbox_icon_leading_anchors_left) {
                  .image_placement = WLX_IMAGE_PLACEMENT_LEFT);
     ibi_end(&ctx);
 
-    // input_rect.x = 10, leading inset = WLX_INPUTBOX_TEXT_INSET (5) ->
+    // input_rect.x = 10, leading inset = WLX_TEXT_FIELD_INSET (5) ->
     // icon dst.x = 15; vertically centered: y = 10 + (180 - 20)/2 = 90.
     ASSERT_EQ_INT(1, _ibi_tex_count);
     ASSERT_EQ_RECT(_ibi_tex_dst, ((WLX_Rect){15, 90, 20, 20}), 0.001f);

@@ -624,8 +624,8 @@ What the model asks of a backend:
   advances callback, the build measures growing prefixes of each line,
   one call per accepted text unit. Backends on that path are expected
   to make repeated measurement of recently seen runs cheap (the SDL3
-  and Raylib adapters keep text caches; see ADR_012/ADR_013 in
-  `docs/dev/`). With the callback, a line's geometry fills in a handful
+  and Raylib adapters keep text caches; see ADR_012 and ADR_013). With
+  the callback, a line's geometry fills in a handful
   of chunked calls instead — and the editor retains the result, so
   steady frames stop asking entirely
   ([EDITOR_MODEL.md §4](EDITOR_MODEL.md#4-retained-line-geometry)).

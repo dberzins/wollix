@@ -337,7 +337,7 @@ wlx_label_impl(ctx, "Title", o, __FILE__, __LINE__);
 **Inputbox-specific note:** `wlx_inputbox` uses `WLX_CONTENT_PADDING_FIELDS`
 for the outer gutter (label area, input rect position, and vertical centering).
 The text rect *inside* the editing box is additionally inset by the fixed
-constant `WLX_INPUTBOX_TEXT_INSET` (5 px) on the x-axis only. This value
+internal constant `WLX_TEXT_FIELD_INSET` (5 units) on the x-axis only. This value
 equals the pre-change default of `content_padding / 2` with `content_padding
 = 10`, preserving byte-identical default visuals.
 
@@ -1063,8 +1063,8 @@ wrapped rendering.
 
 `content_padding*` controls the outer gutter: it positions the label area,
 the input rect, and the vertical centering of content. The text cursor rect
-*inside* the editing box is additionally inset by the fixed constant
-`WLX_INPUTBOX_TEXT_INSET` (5 px) on the x-axis only. With the default
+*inside* the editing box is additionally inset by the fixed internal
+constant `WLX_TEXT_FIELD_INSET` (5 units) on the x-axis only. With the default
 `content_padding = 10` this preserves the pre-migration visual exactly
 (`10 / 2 = 5`). The text inset is intentionally fixed — callers that need
 asymmetric gutters should use `content_padding_left` / `content_padding_right`
@@ -1097,8 +1097,8 @@ modifier** below is Cmd on Apple platforms and Ctrl elsewhere
 | command + SHIFT + Z, command + Y | Redo the newest undone step; repeats while held |
 
 Typing, paste, BACKSPACE, and DELETE replace a live selection. Copying an
-empty selection is a no-op. Paste bypasses the 32-byte per-frame text ring, so
-arbitrarily long clipboard content lands in one frame, truncated to
+empty selection is a no-op. Paste bypasses the per-frame `text_input` stream
+(`WLX_INPUT_TEXT_BYTES`), so arbitrarily long clipboard content lands in one frame, truncated to
 `buffer_size` on a cluster boundary. The highlight renders in
 `selection_color` behind the text, per visual line.
 
@@ -2754,14 +2754,14 @@ wlx_image(ctx, my_texture,
 | `src` | `WLX_Rect` | `{0}` | Source sub-rect within the texture. `{0}` (or `src.w <= 0`) means the full texture. Use this for spritesheet cells. |
 | `id` | `const char *` | `NULL` | Optional widget ID for persistent state and scoping. |
 
-Shared placement, sizing (`slot_align`, `width`, `height`, etc.), and border
-fields also apply.
+Shared placement and sizing fields (`slot_align`, `width`, `height`, etc.)
+also apply. The image has no border, background or content padding.
 
 > **`slot_align` vs. `content_align`**: `slot_align` positions the *widget rect*
 > within its layout slot (e.g. center a 100px widget inside a 300px column).
 > `content_align` positions the *image content* within that widget rect (e.g.
-> pin a natural-size image to the top-left corner). They are independent, and
-> pair with `padding` (slot inset) and `content_padding` (content inset).
+> pin a natural-size image to the top-left corner). They are independent;
+> `padding` insets the slot before either applies.
 
 ### Common overrides
 

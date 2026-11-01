@@ -1023,9 +1023,22 @@ Persistent state IDs use the same `mix(hash(file, line) ^ id_stack_hash)` formul
 as interaction IDs, so they are stable across frames. Use `wlx_push_id` when
 the same state call is reached multiple times.
 
-Built-in paths that use persistent state: `WLX_SIZE_CONTENT` layout/grid/panel
-measurement, `wlx_inputbox` (cursor position), and `wlx_scroll_panel` (scroll
-offset, drag state).
+The block is valid through the frame that returned it. It survives while
+its id is requested at least once every `WLX_STATE_MIN_AGE` frames. Once the
+context holds more than `WLX_STATE_EVICT_THRESHOLD` entries, state left
+unrequested longer may be reclaimed, and it comes back zeroed on its next
+request. State must therefore not own resources such as heap pointers or
+handles. The full rule is at [`WLX_State`](API_REFERENCE.md#wlx_state).
+
+Built-in paths that use persistent state:
+- `WLX_SIZE_CONTENT` measurement in layouts, grids and panels;
+- `wlx_inputbox` (caret, selection and scroll);
+- `wlx_scroll_panel` (scroll offset and drag state);
+- `wlx_dropdown` (whether the list is open);
+- `wlx_tooltip` (how long the pointer has hovered);
+- `wlx_menu_begin`, `wlx_menu_button_begin` and `wlx_submenu_begin` (last
+  frame's item count, and whether the menu was open);
+- `wlx_editor` (caret, selection, scroll, and the wrapped-mode anchors).
 
 ### Explicit String IDs
 
@@ -1131,99 +1144,113 @@ in `WLX_Backend` to do drawing and frame-time queries. Backend adapters
 (`wollix_raylib.h`, `wollix_sdl3.h`, `wollix_wasm.h`) populate these pointers
 for specific graphics environments and provide input handlers separately.
 
-### WLX_Backend Function Pointers
+### The WLX_Backend table
 
-`WLX_Backend` currently exposes 22 function pointers: 11 required callbacks
-checked by `wlx_backend_is_ready()`, plus 11 optional ones, each with a
-documented fallback when left `NULL`. Optional callbacks are appended at the
-end of the struct so existing designated initializers keep compiling.
+The table holds a contract version, a `user` pointer and 24 callbacks.
+[`WLX_Backend`](API_REFERENCE.md#wlx_backend) in the API reference lists
+every signature and what each callback does. This section covers how the
+core uses the table.
 
-| Function | Signature | Required | Purpose |
-|----------|-----------|----------|---------|
-| `draw_rect` | `(WLX_Rect, WLX_Color)` | Yes | Fill a rectangle |
-| `draw_rect_lines` | `(WLX_Rect, float thick, WLX_Color)` | Yes | Stroke a rectangle outline |
-| `draw_rect_rounded` | `(WLX_Rect, float roundness, int segments, WLX_Color)` | Yes | Fill a rounded rectangle |
-| `draw_rect_rounded_lines` | `(WLX_Rect, float roundness, int segments, float thick, WLX_Color)` | Yes | Stroke a rounded rectangle outline |
-| `draw_circle` | `(float cx, float cy, float radius, int segments, WLX_Color)` | No | Native circle fill; `NULL` falls back to the rounded-rect tessellation path |
-| `draw_ring` | `(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color)` | No | Native ring draw; `NULL` falls back to the rounded-outline tessellation path |
-| `draw_line` | `(float x1, y1, x2, y2, float thick, WLX_Color)` | Yes | Draw a line segment |
-| `draw_text` | `(const char *text, float x, y, WLX_Text_Style)` | Yes | Render text at a position |
-| `measure_text` | `(const char *text, WLX_Text_Style, float *w, *h)` | Yes | Measure text bounding box |
-| `draw_texture` | `(WLX_Texture, WLX_Rect src, dst, WLX_Color tint)` | Yes | Draw a texture region |
-| `begin_scissor` | `(WLX_Rect)` | Yes | Begin a clip rectangle |
-| `end_scissor` | `(void)` | Yes | End clipping |
-| `get_frame_time` | `(void) -> float` | Yes | Return frame delta time in seconds (called once per frame by `wlx_begin`) |
-| `draw_text_slice` | `(const char *text, size_t len, float x, y, WLX_Text_Style)` | No | Render an explicit byte span; `NULL` falls back to `draw_text` |
-| `measure_text_slice` | `(const char *text, size_t len, WLX_Text_Style, float *w, *h)` | No | Measure an explicit byte span; `NULL` falls back to `measure_text` |
-| `measure_text_advances` | `(const char *text, size_t len, WLX_Text_Style, const size_t *unit_ends, size_t unit_count, float *out) -> size_t` | No | Batched prefix-advance measure for one run; `NULL` keeps the per-unit fallback |
-| `draw_shadow` | `(WLX_Rect, WLX_Color, float ox, oy, blur, int layers, float roundness, int segs)` | No | Native drop shadow; `NULL` falls back to layered offset rounded rects |
-| `draw_glow` | `(WLX_Rect, WLX_Color, float spread, int rings, float roundness, int segs)` | No | Native outer glow; `NULL` falls back to concentric rounded outlines |
-| `draw_gradient_v` | `(WLX_Rect, WLX_Color top, bottom, float roundness, int segs)` | No | Native vertical two-stop gradient; `NULL` falls back to stacked solid bands |
-| `clipboard_get` | `(void) -> const char *` | No | Borrowed NUL-terminated system clipboard text; `NULL` makes paste a safe no-op |
-| `clipboard_set` | `(const char *text, size_t len)` | No | Copy a byte span to the system clipboard; `NULL` makes copy/cut safe no-ops |
-| `set_cursor` | `(WLX_Cursor_Shape)` | No | Apply the mouse-cursor shape the core resolved for the pointer's topmost widget (arrow or I-beam); called only on change; `NULL` leaves the platform cursor untouched |
+- **Version and `user`.** `contract_version` must equal
+  `WLX_BACKEND_CONTRACT_VERSION`, which is 2 since v0.9. Every callback
+  takes a trailing `void *user`, which is the table's own `user` member.
+  The core passes it on every call and never reads it, so an adapter can
+  reach per-instance state without file-scope globals.
+- **Required callbacks.** A table is ready (`wlx_backend_is_ready`) when
+  nine callbacks are set: the four rectangle callbacks, `draw_line`,
+  `draw_texture`, `begin_scissor`, `end_scissor` and `get_frame_time`. It
+  also needs one form of each text direction: `draw_text_slice` or
+  `draw_text`, and `measure_text_slice` or `measure_text`. The slice
+  forms take a byte span and are the preferred contract. The
+  NUL-terminated forms are the compatibility floor, and the core reaches
+  them through a temporary copy.
+- **Optional callbacks.** Every other callback may be `NULL`, and each
+  has a fallback:
+  - `draw_circle` and `draw_ring` go through the rounded-rectangle
+    callbacks;
+  - `measure_text_advances` goes through per-unit prefix measures;
+  - the shadow, glow and gradient are drawn in layers in software;
+  - a missing clipboard makes copy and paste safe no-ops;
+  - the core simply does not call a missing cursor, scale or anchor
+    callback (below).
+- **What `wlx_begin` checks.** A missing required callback is reported
+  as `WLX_ERR_BACKEND` (see
+  [Error Reporting](API_REFERENCE.md#error-reporting)), and then the
+  program stops: there is no frame without a table. A table with any
+  other contract version stops the program in every build, release
+  included, before any callback runs. Calling a table of the wrong shape
+  through these signatures is memory-unsafe.
+- **A v0.8 table** migrates in one line with
+  [`wlx_backend_from_v1`](API_REFERENCE.md#wlx_backend_from_v1-deprecated-shim),
+  which wraps a table of the old shape (no `user`, no version). The shim
+  is deprecated and will be removed in the first minor release after 0.9.
 
-All 11 required function pointers must be set before calling `wlx_begin`. The
-library checks this with `wlx_backend_is_ready` and asserts on missing required
-pointers. `draw_circle` and `draw_ring` are optional; if they are `NULL`, the
-core routes circle and ring commands through `draw_rect_rounded` and
-`draw_rect_rounded_lines` using the requested segment count.
+Draw and measure must agree for the same text and style on each backend,
+and native whole-run text rendering must keep working. The public text
+model does not support embedded NUL bytes: text is cut at the first one
+before it reaches the backend.
 
-The required text callbacks use null-terminated strings and remain the backend
-compatibility floor. Slice callbacks are optional and are used for fitted-text
-ranges and command replay when available; otherwise the core creates a
-temporary null-terminated copy. Draw and measure must agree for the same text
-and style on each backend while preserving native whole-run text rendering.
-Embedded NUL bytes are not supported by the public text model and are
-truncated before dispatch.
+### Cursor, scale and composition anchor
 
-`set_cursor` is the one callback the core *pushes* to rather than draws
-through: `wlx_begin` resolves the shape from the previous frame's topmost
-interaction candidate under the pointer (the active widget's shape wins while
-a press is held), caches it on the context, and calls the backend only when
-the shape changes. Text-editing surfaces (inputbox, textarea, the editor's
-text region) request the I-beam; everything else is the arrow.
+Most callbacks draw or measure. Three carry a value instead:
+
+- **`set_cursor`** is pushed. `wlx_begin` resolves the cursor shape from
+  the previous frame's topmost interaction candidate under the pointer.
+  While a press is held, the active widget's shape wins. The shape is
+  cached on the context, and the backend is called only when it changes.
+  Text-editing surfaces (the inputbox, the textarea and the editor's text
+  region) ask for the I-beam. Everything else gets the arrow.
+- **`get_content_scale`** is read once per frame by `wlx_begin`. It
+  returns the device pixels per unit. The core uses it to snap slot
+  boundaries to the device grid ([Units and the device grid](#units-and-the-device-grid))
+  and to answer `wlx_content_scale`. Without the callback the scale is
+  1.0.
+- **`set_text_input_area`** is pushed by `wlx_end`. It carries the caret
+  line of the focused editable text widget, where the platform's input
+  method anchors its candidate window. It is called only when the line
+  changed, and once more, as inactive, when focus leaves.
 
 ### Writing a New Backend
 
-1. Implement all 11 required functions wrapping your graphics API.
-    Optionally implement `draw_circle`, `draw_ring`, `draw_text_slice`,
-    `measure_text_slice`, and `measure_text_advances` for native shape quality
-    and byte-span text handling; `clipboard_get/set` for copy/paste; and
-    `set_cursor` for I-beam feedback over text.
-2. Write an init function that populates `ctx->backend`.
-3. Write an input handler that reads platform input into `ctx->input`.
+1. Set `.contract_version = WLX_BACKEND_CONTRACT_VERSION` and give every
+    callback a trailing `void *user` parameter. Point `.user` at any
+    per-instance state your callbacks need, or leave it `NULL`.
+2. Implement the nine required callbacks and one form of each text
+    direction (the slice forms are preferred), wrapping your graphics API.
+    You can also implement `draw_circle`, `draw_ring` and
+    `measure_text_advances` for native shape quality and batched text
+    measurement, `clipboard_get` and `clipboard_set` for copy and paste,
+    `set_cursor` for I-beam feedback over text, `get_content_scale` for
+    high-density displays, and `set_text_input_area` for input-method
+    composition.
+3. Write an init function that populates `ctx->backend`.
+4. Write an input handler that reads platform input into `ctx->input`.
 
 See `wollix_raylib.h`, `wollix_sdl3.h`, or `wollix_wasm.h` for reference
 implementations.
 
 ### Input State
 
-The input handler callback writes to `ctx->input` (`WLX_Input_State`):
+The input handler fills `ctx->input`, a
+[`WLX_Input_State`](API_REFERENCE.md#wlx_input_state), once per frame. The
+API reference lists its fields: the pointer and its three buttons, both
+wheel axes, the key and modifier states, and two text channels. The text
+channels work differently. `text_input` is a stream: the handler appends
+each piece of text committed this frame, and the core drains it once.
+`preedit` is state: the whole composition string the platform's input
+method is showing, replaced on each update and empty when no composition
+is in flight. Both hold `WLX_INPUT_TEXT_BYTES` / `WLX_INPUT_PREEDIT_BYTES`
+(128) bytes and only whole UTF-8 sequences.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `mouse_x`, `mouse_y` | `int` | Pointer position |
-| `mouse_down` | `bool` | Left button currently held |
-| `mouse_clicked` | `bool` | Left button pressed this frame (one-shot) |
-| `mouse_held` | `bool` | Legacy twin of `mouse_down` (ADR_040): the adapters fill it, the core never reads it; kept permanently |
-| `wheel_delta` | `float` | Vertical wheel in unquantized detents (positive = up; 1.0 = one notch, fractions from trackpads) |
-| `keys_down[WLX_KEY_COUNT]` | `bool[]` | Current key states |
-| `keys_pressed[WLX_KEY_COUNT]` | `bool[]` | Key pressed this frame (one-shot) |
-| `text_input[32]` | `char[]` | Text typed this frame (for input boxes) |
-| `keys_repeated[WLX_KEY_COUNT]` | `bool[]` | OS auto-repeat tick this frame (in addition to `keys_pressed` on the first press) |
-| `modifiers` | `uint32_t` | Active `WLX_Key_Mod` bits |
-| `wheel_delta_x` | `float` | Horizontal wheel in detents; positive moves a horizontal offset back toward 0 |
-| `mouse_right_down`, `mouse_right_clicked` | `bool` | Right button held / pressed this frame |
-| `mouse_middle_down`, `mouse_middle_clicked` | `bool` | Middle button held / pressed this frame |
-
-Backends must not quantize, debounce, or clamp wheel values - the core owns
-scroll speed and consumption (innermost scrollable wins, per axis). A host
-that writes the struct by byte offset (the WASM host) relies on the fields
-being append-only; `wollix_wasm.h` static-asserts the layout so a mismatch
-fails the build. The Raylib and SDL3 adapters and the web host all populate
-every field; the web host delivers touch as a pointer and captures the
-pointer on press so a drag released outside the canvas still ends.
+Backends must not quantize, debounce, or clamp wheel values. The core owns
+scroll speed and consumption (for each axis, the innermost scrollable
+wins). A host that writes the struct by byte offset (the WASM host) relies
+on fields only ever being added at the end; `wollix_wasm.h` static-asserts
+the layout, so a mismatch fails the build. The SDL3 adapter and the web
+host populate every field. The Raylib adapter populates every field except
+the composition fields: Raylib reports no composition, so `preedit` stays
+empty. The web host delivers touch as a pointer, and captures the pointer
+on press, so a drag released outside the canvas still ends.
 
 ---
 
