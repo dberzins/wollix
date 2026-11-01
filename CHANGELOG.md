@@ -512,6 +512,18 @@ minor.
   redo".
 
 ### Fixed
+- **An auto layout's gap sits between its slots.** `wlx_layout_begin_auto`
+  and the auto grids put the gap in front of each slot after the first,
+  inside that slot, where every other layout puts it between adjacent
+  slots. A child that fills its slot therefore touched the one before it,
+  and every slot but the first was one gap taller; a child with a fixed
+  height was centred in that slot, so the first gap came out half as wide
+  as the rest; a FLEX or AUTO slot after a gap ran past the layout's edge
+  by the gap; and an auto grid whose cells were placed out of row order
+  lost the gap from its first row. Each slot now starts after the gap and
+  is its own size, so an auto layout with fixed slot sizes places its
+  children exactly where the fixed layout with the same slots does. The
+  content height and the scroll extent do not change (since v0.3.0).
 - **SDL3: sharp outlines and thick diagonal lines keep their
   thickness.** The SDL3 adapter drew every sharp outline (a widget border
   at `roundness = 0`) one pixel wide whatever its `border_width`, while a

@@ -797,6 +797,31 @@ TEST(grid_gap_slot_rect) {
     wlx_context_destroy(&ctx);
 }
 
+// Rows of an auto grid with a gap are the same whatever order the cells
+// are placed in: placing (2,0) first grows all three rows, and the rows
+// placed into afterwards keep their full height and the gap between them.
+TEST(auto_grid_gap_any_placement_order) {
+    static const int cells[3][2] = { { 2, 0 }, { 0, 1 }, { 1, 0 } };
+    WLX_Context ctx;
+    WLX_Rect r[3];
+    test_ctx_init(&ctx, 200, 400);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin_auto(&ctx, 2, 30, .gap = 4);
+    for (int i = 0; i < 3; i++) {
+        wlx_grid_cell(&ctx, cells[i][0], cells[i][1]);
+        wlx_layout_begin(&ctx, 1, WLX_VERT);
+        r[i] = wlx_get_parent_rect(&ctx);
+        wlx_layout_end(&ctx);
+    }
+    wlx_grid_end(&ctx);
+    test_frame_end(&ctx);
+    for (int i = 0; i < 3; i++) {
+        ASSERT_EQ_F(r[i].y, 34.0f * (float)cells[i][0], 0.0f);
+        ASSERT_EQ_F(r[i].h, 30.0f, 0.0f);
+    }
+    wlx_context_destroy(&ctx);
+}
+
 // ============================================================================
 // Suite
 // ============================================================================
@@ -927,5 +952,6 @@ SUITE(grid) {
     RUN_TEST(grid_gap_basic);
     RUN_TEST(grid_gap_auto);
     RUN_TEST(grid_gap_slot_rect);
+    RUN_TEST(auto_grid_gap_any_placement_order);
     RUN_TEST(grid_begin_on_offsets_growth_frame);
 }

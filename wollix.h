@@ -6798,12 +6798,15 @@ static WLX_Rect wlx_grid_slot_rect(WLX_Context *ctx, WLX_Layout *l, size_t span)
         wlx_sub_arena_extend_to(&ctx->arena.dyn_offsets,
             l->grid.row_offsets_base + new_total + 1);
 
+        // row_off[r] is where row r starts, as in a fixed grid: a row after
+        // the first moves the boundary in front of it past the gap, so the
+        // trailing-gap rule of wlx_calc_grid_slot_rect holds for every row.
         float *row_off = wlx_grid_row_offsets(ctx, l);
         for (size_t r = l->grid.rows; r < new_total; r++) {
             float effective = (l->grid.next_row_size > 0.0f)
                 ? l->grid.next_row_size : l->grid.row_size;
-            float gap_add = (r > 0) ? l->gap : 0.0f;
-            row_off[r + 1] = row_off[r] + effective + gap_add;
+            if (r > 0) row_off[r] += l->gap;
+            row_off[r + 1] = row_off[r] + effective;
             l->grid.next_row_size = 0.0f;
         }
         l->grid.rows = new_total;
@@ -6838,9 +6841,11 @@ static WLX_Rect wlx_grid_slot_rect(WLX_Context *ctx, WLX_Layout *l, size_t span)
 
 // Append span slots to an auto linear layout: the next size (from
 // wlx_layout_auto_slot, else the fixed slot size; a missing size is
-// reported and takes 1 px), snapped offsets past the last slot. A position
-// is reported and dropped (the slot is taken in sequence); returns the
-// position to use.
+// reported and takes 1 px), snapped offsets past the last slot. As in a
+// fixed layout, offsets[i] is where slot i starts: a slot after the first
+// moves the boundary in front of it past the gap, so the trailing-gap rule
+// of wlx_calc_layout_slot_rect holds. A position is reported and dropped
+// (the slot is taken in sequence); returns the position to use.
 static int wlx_layout_grow_dynamic(WLX_Context *ctx, WLX_Layout *l, int pos, size_t span) {
     if (!WLX_CONTRACT(ctx, pos < 0, WLX_ERR_BAD_ARGUMENT,
             "positional slot access on a dynamic layout: the slot is taken in sequence"))
@@ -6855,10 +6860,11 @@ static int wlx_layout_grow_dynamic(WLX_Context *ctx, WLX_Layout *l, int pos, siz
     wlx_sub_arena_extend_to(&ctx->arena.dyn_offsets,
         l->linear.slot_size_offsets_base + l->count + span + 1);
     float *offsets = wlx_layout_offsets(ctx, l);
+    float scale = wlx_content_scale_of(ctx);
     for (size_t s = 0; s < span; s++) {
-        float gap_add = (l->count + s > 0) ? l->gap : 0.0f;
-        offsets[l->count + 1 + s] = wlx_snap_unit(offsets[l->count + s] + effective + gap_add,
-                                                  wlx_content_scale_of(ctx));
+        size_t i = l->count + s;
+        if (i > 0) offsets[i] = wlx_snap_unit(offsets[i] + l->gap, scale);
+        offsets[i + 1] = wlx_snap_unit(offsets[i] + effective, scale);
     }
     l->count += span;
     return pos;
@@ -9053,8 +9059,10 @@ WLXDEF void wlx_layout_auto_slot(WLX_Context *ctx, WLX_Slot_Size size) {
         "wlx_layout_auto_slot is only valid inside a wlx_layout_begin_auto block", NULL, 0);
     if (l == NULL) return;
 
+    // Where the next slot starts: after the last slot and the gap in front
+    // of the new one.
     float total = wlx_layout_main_extent(l);
-    float used  = (l->count > 0) ? wlx_layout_offsets(ctx, l)[l->count] : 0.0f;
+    float used  = (l->count > 0) ? wlx_layout_offsets(ctx, l)[l->count] + l->gap : 0.0f;
     float px;
 
     switch (size.kind) {
