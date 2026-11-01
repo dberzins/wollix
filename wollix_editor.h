@@ -172,6 +172,10 @@ typedef struct {
     bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Editor_Opt;
 
+// Columns per tab stop when .tab_columns is left at 0 or below: the
+// defaults macro's value and the resolver's fallback.
+#define WLX_EDITOR_DEFAULT_TAB_COLUMNS 4
+
 #define wlx_default_editor_opt(...) \
     (WLX_Editor_Opt) { .from_defaults = true, \
         /* Placement */ \
@@ -196,7 +200,7 @@ typedef struct {
         .read_only = false, \
         .show_scrollbar = true, \
         .line_numbers = false, \
-        .tab_columns = 4, \
+        .tab_columns = WLX_EDITOR_DEFAULT_TAB_COLUMNS, \
         .revision = 0, \
         __VA_ARGS__ \
     }
@@ -2103,7 +2107,7 @@ static bool wlx_editor_caret_input(const WLX_Editor_Frame *f, WLX_Editor_Scroll 
     WLX_Rect band = eb->band;
     // While a composition string is in the buffer the keys and the pointer
     // belong to the input method.
-    if (inter.focused && !inter.disabled && idx != NULL && idx->count > 0
+    if (inter.focused && idx != NULL && idx->count > 0
         && !wlx_text_edit_composing(&state->caret)) {
         if (inter.just_focused) {
             state->caret.cursor_blink_time = 0.0f;
@@ -2303,9 +2307,9 @@ static void wlx_resolve_opt_editor(const WLX_Context *ctx, WLX_Editor_Opt *opt) 
     if (wlx_color_is_zero(opt->selection_color))    opt->selection_color    = theme->input.selection;
     if (wlx_color_is_zero(opt->selection_color)) {
         opt->selection_color = theme->accent;
-        opt->selection_color.a = 90;
+        opt->selection_color.a = WLX_TEXT_SELECTION_FALLBACK_ALPHA;
     }
-    if (opt->tab_columns <= 0) opt->tab_columns = 4;
+    if (opt->tab_columns <= 0) opt->tab_columns = WLX_EDITOR_DEFAULT_TAB_COLUMNS;
 
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
     wlx_resolve_border(theme, &opt->border_color, &opt->border_width, &opt->roundness, &opt->rounded_segments);

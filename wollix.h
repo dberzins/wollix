@@ -493,9 +493,13 @@ typedef struct {
 
 #define WLX_UNUSED(value) (void)(value)
 
+// Capacity of one formatted diagnostic line (the fatal print and the
+// default error handler). Internal, not a knob.
+#define WLX_DIAG_LINE_CAP 320
+
 // Formats "file:line: kind: msg" and emits it through WLX_ERROR_PRINT.
 static inline void wlx_fatal_print(const char *file, int line, const char *kind, const char *msg) {
-    char buf[320];
+    char buf[WLX_DIAG_LINE_CAP];
     snprintf(buf, sizeof buf, "%s:%d: %s: %s", file, line, kind, msg);
     WLX_ERROR_PRINT(buf);
 }
@@ -4422,6 +4426,11 @@ typedef struct {
     bool from_defaults;  // true when built from the defaults (see SENTINEL.md)
 } WLX_Scroll_Panel_Opt;
 
+// Wheel-scroll units per delta unit: the scroll panel's default
+// .wheel_scroll_speed, and the speed the multiline inputbox and the editor
+// use, so all three feel identical under the same wheel.
+#define WLX_SCROLL_PANEL_DEFAULT_WHEEL_SCROLL_SPEED 20.0f
+
 #define wlx_default_scroll_panel_opt(...) \
     (WLX_Scroll_Panel_Opt) { .from_defaults = true, \
         /* Placement */ \
@@ -4434,7 +4443,7 @@ typedef struct {
         .scrollbar_color = {0}, \
         .scrollbar_hover_brightness = WLX_UNSET, \
         .scrollbar_width = WLX_UNSET, \
-        .wheel_scroll_speed = 20.0f, \
+        .wheel_scroll_speed = WLX_SCROLL_PANEL_DEFAULT_WHEEL_SCROLL_SPEED, \
         .show_scrollbar = true, \
         /* Border */ \
         WLX_BORDER_DEFAULTS, \
@@ -4566,8 +4575,8 @@ typedef struct {
     const char *title;
 
     // Title styling (resolved to defaults if 0/{0})
-    int       title_font_size;       // default: 18
-    float     title_height;          // default: 32
+    int       title_font_size;       // default: WLX_PANEL_DEFAULT_TITLE_FONT_SIZE (18)
+    float     title_height;          // default: WLX_PANEL_DEFAULT_TITLE_HEIGHT (32)
     WLX_Align title_align;           // default: WLX_CENTER
     WLX_Color title_back_color;      // default: {0} (theme surface)
 
@@ -4585,7 +4594,7 @@ typedef struct {
 
     // Layout options
     WLX_CONTENT_PADDING_FIELDS;      // inner padding around panel body (default: 2)
-    int   capacity;                  // max child count (default: 32)
+    int   capacity;                  // max child count (default: WLX_PANEL_DEFAULT_CAPACITY, 32)
 
     // Scope ID: when non-NULL, scopes all descendants for the panel body.
     const char *id;
@@ -5995,7 +6004,7 @@ static bool wlx_error_site_first_seen(WLX_Context *ctx, const WLX_Error *e) {
 // then stops at the site, as assert() did; a build with NDEBUG returns and
 // the call degrades.
 static void wlx_error_default_handler(const WLX_Error *e, void *user) {
-    char buf[320];
+    char buf[WLX_DIAG_LINE_CAP];
     int n;
     WLX_UNUSED(user);
     if (e->file != NULL) {
@@ -12956,10 +12965,6 @@ static const float WLX_CHECKBOX_CHECK_THICKNESS_RATIO = 0.12f;
 static const float WLX_CHECKBOX_CHECK_GLOW_RATIO = 0.2f;
 static const float WLX_CHECKBOX_CHECK_GLOW_ALPHA = 0.25f;
 
-// Wheel-scroll pixels per delta unit, shared by scroll panels and the
-// multiline inputbox so both feel identical under the same wheel.
-static const float WLX_SCROLL_PANEL_DEFAULT_WHEEL_SCROLL_SPEED = 20.0f;
-
 // Shortest thumb a scrollbar draws. A proportional thumb over a long
 // document (30k lines in a 20-row band) is a fraction of a pixel: the
 // length floors here (or at the track, when the track is shorter) and
@@ -13065,6 +13070,10 @@ static const float WLX_TEXT_DRAG_SCROLL_MAX_OVERSHOOT = 60.0f;
 static const float WLX_TEXT_CARET_WIDTH = 2.0f;
 static const float WLX_TEXT_CARET_PADDING = 2.0f;
 static const float WLX_TEXT_CARET_BLINK_PERIOD = 1.0f;
+// Alpha of the selection highlight's fallback (the theme accent) when a
+// theme leaves the selection colour unset; shared by the inputbox and the
+// editor.
+static const uint8_t WLX_TEXT_SELECTION_FALLBACK_ALPHA = 90;
 static const float WLX_TEXT_CARET_VISIBLE_FRACTION = 0.5f;
 
 // True when the pointer belongs to the caller's layer: its topmost
@@ -14189,7 +14198,7 @@ static void wlx_resolve_opt_inputbox(const WLX_Context *ctx, WLX_Inputbox_Opt *o
     // translucent accent so the highlight is never invisible.
     if (wlx_color_is_zero(opt->selection_color)) {
         opt->selection_color = theme->accent;
-        opt->selection_color.a = 90;
+        opt->selection_color.a = WLX_TEXT_SELECTION_FALLBACK_ALPHA;
     }
 
     wlx_resolve_typography(theme, &opt->font, &opt->font_size, &opt->min_height);
@@ -16494,7 +16503,7 @@ WLXDEF bool wlx_inputbox_impl(WLX_Context *ctx, const char *label, char *buffer,
     }
 
     // Draw text content
-    if (opt.font_size > 0 && buffer != NULL) {
+    if (opt.font_size > 0) {
         float border_inset = field.border_inset;
 
         char mask_buf[WLX_INPUTBOX_MASK_MAX];
@@ -18305,13 +18314,19 @@ WLXDEF void wlx_split_end_impl(WLX_Context *ctx) {
 // Panel compound widget
 // ============================================================================
 
+// The panel's defaults for a title font size, title height or capacity
+// left at 0.
+static const int   WLX_PANEL_DEFAULT_TITLE_FONT_SIZE = 18;
+static const float WLX_PANEL_DEFAULT_TITLE_HEIGHT = 32.0f;
+static const int   WLX_PANEL_DEFAULT_CAPACITY = 32;
+
 WLXDEF void wlx_panel_begin_impl(WLX_Context *ctx, WLX_Panel_Opt opt,
                                   const char *file, int line) {
     WLX_DBG_OPT_DEFAULTS(ctx, opt, "wlx_panel_begin", "wlx_panel_opt_defaults", file, line);
     // Resolve sentinel defaults
-    if (opt.title_font_size <= 0) opt.title_font_size = 18;
-    if (opt.title_height <= 0)    opt.title_height = 32;
-    if (opt.capacity <= 0)        opt.capacity = 32;
+    if (opt.title_font_size <= 0) opt.title_font_size = WLX_PANEL_DEFAULT_TITLE_FONT_SIZE;
+    if (opt.title_height <= 0)    opt.title_height = WLX_PANEL_DEFAULT_TITLE_HEIGHT;
+    if (opt.capacity <= 0)        opt.capacity = WLX_PANEL_DEFAULT_CAPACITY;
     // Theme-inherited chrome, matching widget resolution: unset width,
     // roundness and segments take the theme values, zero color takes
     // theme->border. An explicit 0 width stays borderless, an explicit 0
