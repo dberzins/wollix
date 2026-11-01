@@ -1141,6 +1141,7 @@ static inline TTF_Font *wlx_sdl3_get_font_variant(TTF_Font *base_font, int font_
     return variant;
 #else
     WLX_UNUSED(spacing);
+    WLX_UNUSED(scale);
     WLX_SDL3_PERF_INC(font_variant_fallback_resolutions);
     return NULL;
 #endif
@@ -1998,6 +1999,7 @@ static inline void wlx_context_init_sdl3(WLX_Context *ctx, SDL_Window *window, S
     assert(ctx != NULL);
     assert(window != NULL);
     assert(renderer != NULL);
+    WLX_UNUSED(window);   // read by the assert only; the window comes from the renderer
 
     // Removed first so a second init does not install it twice; added
     // every time because SDL_Quit drops it.
