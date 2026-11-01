@@ -312,9 +312,12 @@ device pixel.
 The core learns the scale through the optional
 `WLX_Backend.get_content_scale` callback (NULL means 1.0), samples it once
 per frame in `wlx_begin`, and uses it for exactly two things: slot
-boundaries snap to the device-pixel grid instead of the unit grid (at 1.0
-the two are the same and the result is bit-identical), and
+boundaries snap to the device-pixel grid instead of the unit grid,
+measured from each layout's origin (at 1.0 the two grids are the same and
+the result is bit-identical), and
 [`wlx_content_scale`](#wlx_content_scale) reports it to the application.
+Origins (padding, alignment, the scroll offset) are not snapped, so at 1.5
+a padding of 5 units puts the boundaries inside it on half device pixels.
 Nothing else in the core reads it: no unit constant is multiplied, and
 text sizes stay in units. Where the number comes from:
 

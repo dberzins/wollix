@@ -845,14 +845,18 @@ minor.
   visual-run layer keeps the same per-run primitive and carries a
   direction as an additive `WLX_Text_Style` field, so the frozen backend
   contract does not change for it.
-- **Slot boundaries snap to the device-pixel grid.** The layout's
-  integer snap of slot boundaries now snaps to multiples of one device
-  pixel in units (`floorf(v * scale + 0.5f) / scale`). At content scale
-  1.0 the arithmetic is exact and every boundary the layout snapped before
-  is bit-identical; at 1.5 or 2.0 boundaries land on the device grid
-  instead of the unit grid, so adjacent fills do not seam. Auto-grid rows,
-  whose growth never snapped, snap too: a fractional row size or gap at
-  1.0 now lands on whole units, as in every other layout.
+- **Slot boundaries snap to the device-pixel grid, relative to their
+  layout's origin.** The layout's integer snap of slot boundaries now
+  snaps to multiples of one device pixel in units
+  (`floorf(v * scale + 0.5f) / scale`), measured from the layout's origin.
+  At content scale 1.0 the arithmetic is exact and every boundary the
+  layout snapped before is bit-identical; at 1.5 or 2.0 boundaries land on
+  the device grid instead of the unit grid, so adjacent fills do not seam.
+  Auto-grid rows, whose growth never snapped, snap too: a fractional row
+  size or gap at 1.0 now lands on whole units, as in every other layout.
+  Origins (padding, alignment, the scroll offset) are not snapped, so at
+  1.5 a padding of 5 units puts the boundaries inside it on half device
+  pixels.
 - **`WLX_HARD_ASSERT` and `WLX_UNREACHABLE` print through `WLX_ERROR_PRINT`.**
   Their text reaches the bare-WASM browser console (the shim maps the macro
   to `puts`; its `fprintf` is a no-op), where they aborted without a word

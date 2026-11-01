@@ -111,11 +111,15 @@ context is not thread-safe — use one per thread if needed.
 Every size and position in the layout is in **units**, logical pixels that
 the backend maps to device pixels by its content scale (1.0 unless the
 window is high-density; see the API reference's "Coordinate space"). Slot
-boundaries snap to the device-pixel grid, so adjacent fills never leave a
-seam: at 1.0 that is the unit grid, exactly as before; at 2.0 boundaries
-may land on half units; at 1.5 on thirds. The unit values a layout hands
-to widgets are what the application sees; the scale itself is readable
-through `wlx_content_scale`.
+boundaries snap to the device-pixel grid, measured from their layout's
+origin, so adjacent fills never leave a seam: at 1.0 that is the unit
+grid, exactly as before; at 2.0 boundaries may land on half units; at 1.5
+on thirds. Origins are not snapped: padding, alignment and the scroll
+offset move a layout's origin, and its boundaries move with it, so at 1.5
+a padding of 5 units (7.5 device pixels) puts every boundary inside it on
+a half device pixel. The unit values a layout hands to widgets are what
+the application sees; the scale itself is readable through
+`wlx_content_scale`.
 
 ## 3. Layout Stack
 

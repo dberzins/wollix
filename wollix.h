@@ -634,7 +634,9 @@ static inline size_t wlx_utf8_append_whole(char *dst, size_t cap, size_t len,
 // size, thickness, radius, the root rect passed to wlx_begin and the mouse
 // position are in units. The backend maps units to device pixels by its
 // content scale (WLX_Backend.get_content_scale, 1.0 when absent); at 1.0 a
-// unit is a device pixel. Slot boundaries snap to the device-pixel grid.
+// unit is a device pixel. Slot boundaries snap to the device-pixel grid,
+// measured from their layout's origin; origins (padding, alignment, the
+// scroll offset) are not snapped.
 typedef struct {
     float x;
     float y;
