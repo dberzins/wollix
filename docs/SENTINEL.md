@@ -49,7 +49,8 @@ Used for every numeric field where zero is a meaningful explicit value.
 The macro installs `WLX_UNSET` (`-1`, which converts to `int` and `float`
 fields alike); the resolver replaces it with the field's documented
 fallback and passes every value `>= 0` through unchanged. Writing
-`WLX_UNSET` explicitly means the same as omitting the field.
+`WLX_UNSET` explicitly means the same as omitting the field. A NaN is not
+`>= 0`, so it reads as unset too and takes the fallback.
 
 | Field | Resolves to | Zero means |
 |---|---|---|
@@ -175,7 +176,7 @@ are not unset markers and never appear in a default macro.
 
 | Situation | Helper |
 |---|---|
-| Rule U field with a non-negative domain (`border_width`, `roundness`, `opacity`, `content_padding`, `scrollbar_width`, ...) | `wlx_is_negative_unset(x)` (`x < 0`) |
+| Rule U field with a non-negative domain (`border_width`, `roundness`, `opacity`, `content_padding`, `scrollbar_width`, ...) | `wlx_is_negative_unset(x)` (`!(x >= 0)`: negative or NaN) |
 | Rule U field with a signed domain (the four brightness fields) | `wlx_is_float_unset(x)` (`x <= -1.0f`) |
 | Rule Z color | `wlx_color_is_zero(c)`, `wlx_color_or(a, b)` |
 | Content padding with a widget default | `WLX_RESOLVE_CONTENT_PADDING_EX(ctx, opt, widget_default)`; leaf widgets use `WLX_RESOLVE_CONTENT_PADDING(ctx, opt)` |

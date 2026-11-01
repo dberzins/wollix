@@ -833,6 +833,13 @@ minor.
   v0.6.0).
 
 ### Changed
+- **A NaN in a Rule U field reads as unset.** Half the library's reads of
+  a non-negative Rule U field (`width`, `height`, `border_width`,
+  `roundness`, `opacity`, the paddings, ...) tested `>= 0` and half
+  tested `< 0`, so a NaN took the default at some fields and passed
+  through into the geometry at others. Every read now goes through
+  `wlx_is_negative_unset`, which is `!(x >= 0)`: a NaN takes the field's
+  default everywhere. Every other value reads as before.
 - **A widget keystroke patches the editor's line index from its edit span.**
   The index of hard line starts is no longer rescanned over the whole
   document after every widget edit: entries before the edit keep, the

@@ -94,6 +94,30 @@ TEST(sentinel_unset_inherits) {
 
 // Brightness shifts are the one signed-domain Rule U family: -1 is the
 // sentinel, any value above it (negative included) is explicit.
+// A NaN on a Rule U float field reads as unset (D115). The border width
+// and roundness take the theme's (they passed the NaN through before),
+// and a widget width takes the slot's (it already did: a `>= 0` read).
+TEST(rule_u_nan_reads_as_unset) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Theme theme = sentinel_theme();
+    ctx.theme = &theme;
+
+    WLX_Label_Opt o = wlx_default_label_opt(.border_width = NAN, .roundness = NAN);
+    wlx_resolve_opt_label(&ctx, &o);
+    ASSERT_EQ_F(o.border_width, 3.0f, 0.0001f);
+    ASSERT_EQ_F(o.roundness, 0.5f, 0.0001f);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0);
+    wlx_button(&ctx, "b", .width = NAN, .height = 20);
+    WLX_Rect r = wlx_last_rect(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_F(r.w, 400.0f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
 TEST(sentinel_brightness_domain) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
@@ -941,6 +965,7 @@ TEST(sentinel_group_defaults) {
 }
 
 SUITE(sentinel) {
+    RUN_TEST(rule_u_nan_reads_as_unset);
     RUN_TEST(sentinel_explicit_zero_is_zero);
     RUN_TEST(sentinel_unset_inherits);
     RUN_TEST(sentinel_brightness_domain);
