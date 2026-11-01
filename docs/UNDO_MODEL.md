@@ -126,9 +126,11 @@ guarantees:
   composition span (section 10); any other unfocused frame never does.
   Idle frames of a focused field pay one scan of the cache (a handful of
   pointer compares) and nothing else.
-- A journal is created on the first focused frame, but its arrays are
-  allocated on the first *mutation*; a field that is focused and never
-  edited costs one 200-byte cache item.
+- A journal is created on the first focused frame, but its arrays wait
+  for use: the entry array comes with the first recorded edit, the byte
+  arena with the first removed byte, and the redo stack's arrays with the
+  first undo. A field that is focused and never edited costs one 200-byte
+  cache item.
 - The staleness guard (section 9) runs at lookup, before any chord could
   replay stale history.
 
@@ -140,13 +142,14 @@ every entry point without branching at the call sites:
 | `WLX_TEXT_UNDO_ENTRIES` defined as `0` | NULL (the whole implementation compiles to inline no-ops) |
 | `.password` field | NULL; any journal the id already had is released, so plaintext never lingers |
 | Allocation failure while creating the cache item | NULL for this frame |
-| Unfocused widget | the handler does not run, so no lookup |
+| Unfocused widget | no lookup, except on the frame it adopts a held composition span |
 
 A journal lives exactly as long as its widget's state entry: when the
 state map reclaims the entry (the lifetime rules under `wlx_get_state` in
 API_REFERENCE.md, or `wlx_state_prune`), the journal's stacks are freed
 and its cache item zeroed in place, id 0 marking it free for the next
-widget; a password switch retires it the same way. Items never move. The
+widget; a password switch retires it the same way. An item keeps its
+index in the cache, though the array itself moves when it grows. The
 rest is freed by a typed sweep in `wlx_context_destroy`, next to the
 line-index sweep. Each item also carries a `touch` stamp (the cache clock
 at its last lookup), kept as a diagnostic: liveness comes from the state
@@ -317,7 +320,7 @@ wlx_text_edit_delete_selection(buffer, length, cursor, anchor, span, undo)
 
 wlx_text_edit_insert(buffer, buffer_cap, length, cursor, anchor, text, len, span, undo)
     WLX_HARD_ASSERT(*cursor <= *length)        <- the primitive's own bound, release-live
-    ins = len clipped to the capacity and backed off to a UTF-8 boundary; nothing to do if 0
+    ins = len clipped to the capacity and backed off to a text-unit boundary; nothing to do if 0
     record(undo, *cursor, NULL, 0, ins, *cursor, *anchor)
     memmove: open the gap; memcpy the bytes
     span_add(span, *cursor, *cursor, *cursor + ins)
@@ -378,8 +381,10 @@ id. Steps are formed by *transactions*: one invocation of
 clamps the caret pair and closed before it returns.
 
 ```
-wlx_text_edit_handle_keys(ctx, e)         <- e: the WLX_Text_Edit the widget builds (caret
-                                             state, buffer, caps, span, undo, id, revision)
+wlx_text_edit_handle_keys(ctx, e)         <- e: the WLX_Text_Edit target; the widget fills
+                                             caret state, buffer, caps, span (the inputbox
+                                             none) and revision, wlx_text_edit_phase sets
+                                             id and undo
     clamp caret pair to *length
     txn_begin(undo, caret, anchor)        <- snapshot the before-state, class = NONE
     compose (section 10)                  <- a frame that begins with or applies a span
@@ -743,14 +748,17 @@ The editor needs nothing else because the replay produces the frame's
 
 ```
 wlx_editor_impl frame
+    pre-edit index probe
     focused: journal lookup -> handler (records or replays) -> edit_span, changed
+    unfocused with a held composition span: journal lookup -> adopt (records the commit)
     line index guard:
         edit_only = changed && span.edited && the guard snapshot matches && lengths agree
         stale     = first sight || changed || length or revision moved || probe failed
-        rebuild:
-            edit_only -> wlx_text_geom_edit_shift(span)   <- undo/redo take this path
+        sync:
+            edit_only -> index patched from the span (rescanned if the patch refuses),
+                         wlx_text_geom_edit_shift(span)   <- undo/redo take this path
                          bottom anchor shifted by the span's delta
-            else      -> geometry cleared, bottom anchor dropped,
+            else      -> index rescanned, geometry cleared, bottom anchor dropped,
                          wlx_text_undo_clear_if_present(id)   <- probe-detected rewrites
     caret-follow: the restored caret is a keyboard caret change, so the view follows it
 ```
@@ -812,23 +820,28 @@ flag consumed at the next widget call can become a thin wrapper later.
 
 ## 12. Internal API Reference
 
-All static, all in `wollix.h`, all under `#if WLX_TEXT_UNDO_ENTRIES != 0`
-with inline no-op twins otherwise (except the free and the destroy sweep,
-which are unconditional). "Handler" below means `wlx_text_edit_handle_keys`.
+All static, all in `wollix.h`. When `WLX_TEXT_UNDO_ENTRIES` is `0`, nine
+of them (`find`, `clear_if_present`, `get`, `record`, `note_caret_after`,
+`txn_begin`, `txn_end`, `set_class`, `apply`) become inline no-op twins;
+`drop`, `clear`, `stack_reset`, `target`, `coalesce_target` and
+`make_room` do not exist; and `stack_free` and `journal_release` stay in
+every build, for the destroy and retire sweeps. "Handler" below means
+`wlx_text_edit_handle_keys`.
 
 | Function | Role | Called from |
 |---|---|---|
 | `wlx_text_undo_get(ctx, id, length, revision, password)` | find or create a widget's journal; run the staleness guard; release the journal of a password field | `wlx_text_edit_phase`, the one edit phase of every text widget |
-| `wlx_text_undo_find(ctx, id)` | lookup without creation | `get`, `clear_if_present`, tests |
+| `wlx_text_undo_find(ctx, id)` | lookup without creation | `get`, `clear_if_present`, `drop`, tests |
 | `wlx_text_undo_drop(ctx, id)` | free and remove a journal | `get` for password fields |
-| `wlx_text_undo_clear(j, length)` | reset both stacks, re-arm the guard, forget replay state | the guard, `apply` on infeasible steps, `clear_if_present` |
+| `wlx_text_undo_clear(j, length)` | reset both stacks, re-arm the guard, forget replay state | the guard, `apply` on an infeasible step or a replay that did not complete, `clear_if_present` |
 | `wlx_text_undo_clear_if_present(ctx, id, length)` | clear when a journal exists | the editor's non-edit rebuild branch |
-| `wlx_text_undo_stack_free(s)` | free one stack's arrays | `drop`, the destroy sweep |
+| `wlx_text_undo_journal_release(j)` | free both stacks and zero the cache item in place | `drop`, the destroy sweep in `wlx_context_destroy`, the state-reclaim retire sweep (`wlx_state_caches_retire`) |
+| `wlx_text_undo_stack_free(s)` | free one stack's arrays | `journal_release` |
 | `wlx_text_undo_stack_reset(s)` | empty a stack, keep its arrays | `clear`, redo clearing, allocation failure |
 | `wlx_text_undo_target(j)` | the stack a record lands on (undo, or the opposite stack while replaying) | `record` |
 | `wlx_text_undo_txn_begin(j, caret, anchor)` | open a transaction: before-state snapshot, class NONE | handler entry, the composition stage after it drops a span, `wlx_text_edit_adopt_preedit`, `record`'s implicit path |
 | `wlx_text_undo_txn_end(j, length)` | close it: `expected_len`, spend `alloc_failed` | `wlx_text_edit_finish` (the handler's one exit), `wlx_text_edit_adopt_preedit` |
-| `wlx_text_undo_set_class(j, cls)` | declare the handler path about to mutate | `wlx_text_edit_replace` (every journaled path of the handler), `wlx_text_edit_adopt_preedit` |
+| `wlx_text_undo_set_class(j, cls)` | declare the handler path about to mutate | `wlx_text_edit_replace` (every journaled path of the handler, and the adopt, which commits through it under `COMPOSE`) |
 | `wlx_text_undo_coalesce_target(j, start, removed_len, inserted_len)` | the newest undo entry to extend, or NULL (section 6) | `record` |
 | `wlx_text_undo_make_room(s, need_bytes, current_group, need_entry)` | eviction and growth (section 8) | `record` |
 | `wlx_text_undo_record(j, start, removed, removed_len, inserted_len, caret, anchor)` | record one primitive mutation before its memmove (section 4) | both primitives |
@@ -850,13 +863,13 @@ target and calls `wlx_text_edit_phase`.
 
 | Frame | Journal cost |
 |---|---|
-| unfocused widget, any frame | none: no lookup |
+| unfocused widget | none: no lookup, except on the frame it adopts a held composition span (one scan, as for a focused idle frame) |
 | focused, idle | one linear scan of the cache (a few items), no allocation |
 | focused, insert (typing, Enter, Tab, paste) | O(1): one entry, or an in-place length bump when coalescing |
 | focused, delete | O(removed bytes) copy, bounded by the delete itself; a Backspace run pays an extra memmove of the run (at most 4 KB) |
 | undo / redo | the same class as the edit it reverses: the primitives' own memmoves plus O(entries in the step) |
 | eviction event | at most the cap's entries and bytes moved; once per new step while full |
-| first mutation of a widget | the array allocations (16 entries, 256 bytes), then geometric growth |
+| first mutation of a widget | the entry array (16 entries); the byte arena (256 bytes) with the first removed byte and the redo arrays with the first undo; then geometric growth |
 
 Idle frames therefore allocate nothing and do no O(document) work, which
 the two zero-allocation tests (`perf_steady_state_zero_allocations`,
@@ -868,8 +881,8 @@ keep pinned.
 
 ## 14. Tests
 
-`tests/test_text_undo.c` (in the single-TU runner, after the editor
-suites so it can reuse the view fixtures):
+`tests/test_text_undo.c` (in the single-TU runner, after
+`test_editor_view.c`, whose view fixtures it reuses):
 
 - **Recording.** One entry per primitive with exact ranges, removed bytes
   in the arena, caret pairs; UTF-8 back-off; no journal without focus or
@@ -925,13 +938,9 @@ past the length dies with `SIGABRT`, not `SIGSEGV`).
   development notes.
 - **Composition is journaled by rule, not by limit** (section 10): the
   tentative span records nothing, the commit is one `COMPOSE` step.
-- **Whole-journal eviction** belongs to the planned widget-state prune;
-  the `touch` stamp is ready for it.
+- **Whole-journal eviction** follows the widget's state entry (section
+  2): when the state map reclaims the entry, the journal goes with it.
+  The `touch` stamp is a diagnostic only.
 - **Storage.** The journal hooks the two primitives, which are exactly the
   seam a gap buffer or piece table would re-implement; it adds no
   O(document) work of its own and takes no position on storage.
-- **Not a journal limit, but adjacent:** a single-line inputbox pins a
-  caret beyond its visible text run back to the run's end between frames,
-  so an undo that restores a caret far past the field width will see it
-  re-pinned on the next frame. The bytes are exact regardless; the
-  textarea and the editor scroll to the restored caret.

@@ -1035,7 +1035,7 @@ Built-in paths that use persistent state:
 - `wlx_inputbox` (caret, selection and scroll);
 - `wlx_scroll_panel` (scroll offset and drag state);
 - `wlx_dropdown` (whether the list is open);
-- `wlx_tooltip` (how long the pointer has hovered);
+- `wlx_tooltip_for` (how long the pointer has hovered);
 - `wlx_menu_begin`, `wlx_menu_button_begin` and `wlx_submenu_begin` (last
   frame's item count, and whether the menu was open);
 - `wlx_editor` (caret, selection, scroll, and the wrapped-mode anchors).

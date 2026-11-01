@@ -91,15 +91,6 @@ Per open editor id, the context owns a lazily grown array of the byte
 offsets of every hard line start (offset 0 plus one entry after each
 separator). The index makes document geometry pure arithmetic:
 
-The index lives exactly as long as its widget's state entry. When the
-state map reclaims the entry (the lifetime rules under `wlx_get_state` in
-API_REFERENCE.md: unrequested for `WLX_STATE_MIN_AGE` frames while the
-context holds more than `WLX_STATE_EVICT_THRESHOLD` entries, or
-`wlx_state_prune`), the offsets and the retained geometry store are freed
-and the cache item is zeroed in place for the next editor; items never
-move. An editor that returns after that rebuilds its index from the
-document as on its first frame.
-
 - `content_h = line_count * line_h` — the vertical scrollbar is exact
   from counting alone, with zero measuring (wrapped mode ends its range
   at the bottom anchor instead — Section 7).
@@ -126,6 +117,16 @@ the history with the geometry, and an undo or redo is an ordinary edit to
 the index, its span shifting the retained geometry exactly like a
 keystroke. The journal itself is documented in
 [UNDO_MODEL.md](UNDO_MODEL.md).
+
+The index lives exactly as long as its widget's state entry. When the
+state map reclaims the entry (the lifetime rules under `wlx_get_state` in
+API_REFERENCE.md: unrequested for `WLX_STATE_MIN_AGE` frames while the
+context holds more than `WLX_STATE_EVICT_THRESHOLD` entries, or
+`wlx_state_prune`), the offsets and the retained geometry store are freed
+and the cache item is zeroed in place for the next editor. An item keeps
+its index in the cache, though the array itself moves when it grows. An
+editor that returns after that rebuilds its index from the document as on
+its first frame.
 
 ---
 
@@ -157,8 +158,9 @@ path as its miss fallback, so an evicted or dropped entry costs
 traffic, never geometry.
 
 Entries are valid for one measurement environment — font, size,
-spacing, tab advance, band width, line height, wrap flag — snapshotted
-each frame; any change clears the store (tens of entries, cheap to
+spacing, tab advance, band width, line height, wrap flag, and the
+context's text environment generation, which a style transform or a
+content-scale change bumps — snapshotted each frame; any change clears the store (tens of entries, cheap to
 rebuild, wrong geometry is not). Invalidation otherwise rides the
 existing document-identity machinery:
 
@@ -190,7 +192,7 @@ flowchart TD
     measure --> entry["retained entry: advances, fit results, row table"]
     entry --> lookup
     edit["widget edit with a known span"] --> shift["edit_shift: drop touched entries, shift keys past the edit"]
-    env["measurement environment change - font, size, band, wrap"] --> clear["whole store cleared"]
+    env["measurement environment change - font, size, band, wrap, transform or scale"] --> clear["whole store cleared"]
     ext["external mutation guard or .revision bump"] --> clear
     cap["store at capacity"] --> evict["LRU evict"]
     bad["replay cannot answer mid-frame"] --> drop["entry dropped"]

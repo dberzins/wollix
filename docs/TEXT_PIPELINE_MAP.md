@@ -17,8 +17,19 @@ survive edits better than line numbers.
 
 ## 1. Region Map: wollix.h
 
-The text machinery sits in one implementation span, reading in six
-regions (file order):
+The text machinery sits mostly under the "text layout and rendering
+helpers" banner, in six regions. The table groups names by role, not by
+file position, and a few names live elsewhere:
+- the budgets and types sit inside the units region, between its
+  validating tier and its text-unit block, and `wlx_measure_text_range`
+  sits in that text-unit block;
+- `wlx_text_record_x_at` and `wlx_text_record_offset_at_x` sit in the
+  geometry store's pure store tier, as the two helpers that measure there;
+- the range, draw and line-lookup names of the last row
+  (`wlx_text_range_extents`, `wlx_text_draw_selection`,
+  `wlx_text_draw_underline`, `wlx_text_draw_record_spans`,
+  `wlx_editor_index_line_of`, `wlx_editor_line_next`) sit after the
+  widget-rendering banner, beside their widget callers.
 
 | Region | Key names | Role |
 |---|---|---|
@@ -27,11 +38,11 @@ regions (file order):
 | Measurement primitives | `WLX_Text_Measure_Args` (the measurement environment, passed by const pointer), `wlx_measure_text_range`, `wlx_text_measure_prefix_tabs` / `_known`, `wlx_text_pen_has_tab` (the canonical first-tab precheck), `WLX_Text_Tab_Seg` / `wlx_text_tab_seg_next` (the shared tab-segment iterator for measure and segmented draw), `wlx_text_fit_step`, `wlx_text_wrap_ws_at` + `WLX_Text_Wrap_Break` + `wlx_text_wrap_fit_step` (the wrapped rows' word-boundary rule over the row's break state, adding the `CUT` verdict; overflowing whitespace hangs in display builds and cuts or rejects in editable builds, `wrap_strict_ws`), `wlx_text_measure_advances_batch`, `wlx_text_unit_fetch` (the one measuring fetch entry: batch or per-unit arm) | Tab-aware prefix measurement, the shared fit decision and its wrap-mode layer, the batched cumulative-advance fill over the optional backend callback |
 | Retained editor line geometry | `wlx_text_geom_*` family in four bannered tiers — pure store (`clear`, `env_check`, `edit_shift`, `find`, `find_containing`, `acquire`, `push_unit`, `drop`, `store_free`, the `origin_abs`/`advance_at`/`first_tab_*` reads; never touches ctx), measurement driver over the unit fetch (`extend`, `ensure_width`, `ensure_offset`, `ensure_wrap`), origin policy (`snap_origin`, `set_origin`, `window_linear`, `ensure_caret`, `avg_advance`; the sole view reader), and consumer queries (`x_at` carrying the anchored/passive policy and the far-gap bound, `offset_at_x`, `covering`, `rows_of`) plus replay (`replay_linear`, `wrap_step`) | The editor's per-hard-line cache of cumulative unit advances (plus row tables under wrap) — the "shaped-line cache"; consumers read the queries, never entry fields |
 | The build kernel | `wlx_text_build_step` (the sequencer), `wlx_text_scan_measure` (the measuring producer), `wlx_text_record_tail` (separator and tail skip), `wlx_text_empty_record`, `wlx_text_build_lines_from`, `wlx_text_build_lines` | The resumable greedy fitter: one step = one line record, fitting cumulative advances from one of three sources (below) |
-| Alignment, emission, and from-lines consumers | `wlx_text_align_lines`, `wlx_text_emit_lines`, `wlx_text_record_x_at` (the one record-x rule: stored unit end, else tab-aware prefix) and `wlx_text_record_offset_at_x` (the measuring midpoint walk), `wlx_text_resolve_cursor_from_lines`, `wlx_text_offset_at_point_from_lines`, `wlx_text_word_bounds`, `wlx_text_range_extents`, `wlx_text_draw_selection`, `wlx_text_draw_record_spans` (the record piece drawer: tab boundaries plus the span-colour callback's edges, pieces from the stored advances of the caller's covering entry), the entry surface: `WLX_Text_Prepare_Opt` (options struct, zero-init = defaults), `wlx_text_prepare_lines_slice` (the one prepare core), `WLX_Text_Prepared` / `wlx_text_prepare` (stack aggregate for prepare-then-consume sites), `wlx_draw_text_fitted_slice` + the NUL adapter `wlx_draw_text_fitted`, `wlx_text_line_scratch`; `wlx_editor_line_next` sits here beside `wlx_editor_index_line_of` | Every geometry answer (caret, hit test, selection, word bounds) and every draw, all reading the same record arrays |
+| Alignment, emission, and from-lines consumers | `wlx_text_align_lines`, `wlx_text_emit_lines`, `wlx_text_record_x_at` (the one record-x rule: stored unit end, else tab-aware prefix) and `wlx_text_record_offset_at_x` (the measuring midpoint walk), `wlx_text_resolve_cursor_from_lines`, `wlx_text_offset_at_point_from_lines`, `wlx_text_word_bounds`, `wlx_text_range_extents`, `wlx_text_draw_selection`, `wlx_text_draw_underline` (the composition underline, over the same extents as the selection band), `wlx_text_draw_record_spans` (the record piece drawer: tab boundaries plus the span-colour callback's edges, pieces from the stored advances of the caller's covering entry), the entry surface: `WLX_Text_Prepare_Opt` (options struct, zero-init = defaults), `wlx_text_prepare_lines_slice` (the one prepare core), `WLX_Text_Prepared` / `wlx_text_prepare` (stack aggregate for prepare-then-consume sites), `wlx_draw_text_fitted_slice` + the NUL adapter `wlx_draw_text_fitted`, `wlx_text_line_scratch`; `wlx_editor_line_next` beside `wlx_editor_index_line_of` | Every geometry answer (caret, hit test, selection, word bounds) and every draw, all reading the same record arrays |
 
 `wollix_editor.h` consumes all six through the companion-header
 contract; its own regions are the line index, the wrap row family,
-the frame-path helpers, and `wlx_editor_impl` (Section 3).
+the frame-path helpers, and `wlx_editor_impl` (Section 2).
 
 The regions and the geometry store's tiers, as a dependency sketch:
 
@@ -208,12 +219,14 @@ individual sites are authoritative — this list is the overview.
 Phases 1-12 below are the staged prologue with explicit dataflow
 (each stage feeds the next; the frame cannot exist earlier). After
 stage 12 the fixed inputs are gathered into a read-mostly
-`WLX_Editor_Frame`, and the downstream phases (13-20) take
-`(frame, scroll)` — the mutable scroll transition travels beside the
-frame as `WLX_Editor_Scroll` so writer sets stay visible in
-signatures. The pointer-driver callbacks close over both via
+`WLX_Editor_Frame`, and the downstream phases (13-20) take the frame.
+Those that read or write the scroll transition (scroll limits, scroll
+resolve, caret input, linear caret-follow, the wrapped window build,
+carets and bars) also take `WLX_Editor_Scroll`, which travels beside the
+frame so writer sets stay visible in signatures. The pointer-driver callbacks close over both via
 `WLX_Editor_Mouse_User`. Three shared derivations:
-`wlx_editor_pseudo_scroll_y` (the one wrapped pseudo-scroll formula),
+`wlx_editor_pseudo_scroll` (the one wrapped pseudo-scroll formula;
+`wlx_editor_pseudo_scroll_y` applies it to the state's anchor),
 `wlx_editor_anchor_set_scroll_y` (its inverse, the one scroll-to-anchor
 decompose), and `WLX_Editor_Row_Iter` (the one streaming row walk over
 a hard line, used by row counting, caret-row lookup, and row
@@ -234,12 +247,18 @@ hit-testing).
 7. Label/chrome; input rect (`wlx_text_field_frame`).
 8. Metrics: reference space measure gives `line_h` and the tab
    advance.
-9. Line index guard and rebuild (`wlx_editor_index_sync`, decided
-   from step 6's report alone and pinned row by row by
-   `editor_index_sync_decision_table`); retained-geometry `edit_shift`
-   (the edit-only path) or `clear` (every other rebuild cause); the
-   cached wrapped bottom anchor shifts with an edit ending before its
-   line and drops otherwise.
+9. Line index sync (`wlx_editor_index_sync`), decided from step 6's
+   report (which carries the pre-edit probe), the persistent guard and a
+   probe of the edited document, and pinned row by row by
+   `editor_index_sync_decision_table`. An idle frame leaves the
+   index alone. On an edit-only frame, where this frame's widget edit is
+   the one change, the index is patched from the edit span
+   (`wlx_editor_index_patch`), with a full rescan only if the patch
+   refuses, and the retained geometry shifts (`edit_shift`). Every other
+   cause (first sight, an external length or revision change, a failed
+   probe) rescans, clears the retained geometry and drops the journal
+   (`wlx_text_undo_clear_if_present`). The cached wrapped bottom anchor
+   shifts with an edit ending before its line and drops otherwise.
 10. Band resolve (`wlx_editor_resolve_band`): gutter, scrollbar
     strips, pre-strip window band height.
 11. Retained-geometry environment check and store sizing
@@ -271,7 +290,11 @@ hit-testing).
     entry it found; the span-colour callback (`.span_color`) is asked
     there and nowhere else — after every geometry consumer above — and
     its answers are never retained.
-20. Carets and scrollbars (`wlx_editor_draw_carets_and_bars`).
+20. Carets and scrollbars (`wlx_editor_draw_carets_and_bars`): on
+    every focused frame the caret is placed and the composition anchor
+    recorded from that placement (`wlx_text_edit_anchor`), whether or not
+    the caret is drawn; the caret draws on blink-on frames inside the
+    band; then the scrollbars.
 21. Epilogue: widget frame end.
 
 The anchor is the only authoritative scroll state: `scroll_y` is a
@@ -304,7 +327,7 @@ Summary only — the site-local comments carry the full rationale.
 | Value | Written by (phase) | Read by |
 |---|---|---|
 | `scroll_y` (derived view of the anchor; pseudo-pixels under wrap) | Derived in scroll limits (13); wheel/thumb (14); mouse auto-scroll (15); linear caret-follow (16); wrapped window build's bottom clamp (18) — every writer decomposes into the anchor at its site | Caret input (15), caret-follow (16), window builds (18), carets and bars (20) |
-| Anchor `(first_line, first_row, y_frac)` (persistent, THE authoritative scroll state) | Wrap-toggle remap (3); anchor clamp (12); limits clamp normalization (13); gesture-site decomposes (14-16); wrapped caret-follow (16); wrapped build bottom clamp (18) | Scroll limits (13), wrap hit/auto-scroll (15), window builds (18), gutter (19) |
+| Anchor `(first_line, first_row, y_frac)` (persistent, THE authoritative scroll state) | Wrap-toggle remap (3); anchor clamp (12); limits clamp normalization (13); gesture-site decomposes (14-16); wrapped caret-follow (16); wrapped build bottom clamp (18) | Scroll limits (13), wrap hit/auto-scroll (15), wrapped caret-follow (16), window builds (18), gutter (19), linear caret placement (20) |
 | `h_reach_open` (persistent, cross-frame) | Both window builds (18); rebuilt-document release (17) | Next frame: band resolve (10, bar visibility), scroll limits (13, open reach limit) |
 | `max_line_w` (persistent, monotone per document generation) | Grown by the linear window build (18); zeroed by the rebuilt-document release (17) | Band resolve (10), scroll limits (13), carets and bars (20, thumb range) |
 | Wrapped bottom anchor cache (persistent, end-relative) | Filled on a miss by scroll limits (13) or the wrapped build's bottom clamp (18); shifted or dropped by the index rebuild (9); dropped by the environment check (11) | Scroll limits (13, thumb range end), wrapped build bottom clamp (18) |

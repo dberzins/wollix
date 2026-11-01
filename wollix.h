@@ -11106,10 +11106,12 @@ static size_t wlx_text_unit_fetch(const WLX_Text_Measure_Args *args,
 
 // ----------------------------------------------------------------------------
 // The pure store tier: entry lifecycle, lookups, and field reads.
-// Nothing in this tier touches the context or the backend - measurement
-// lives in the driver tier below it, view and caret anchoring in the
-// origin policy after that, and the entry-level consumer queries close
-// the section.
+// Nothing in this tier touches the context or the backend, except the two
+// record helpers placed here: wlx_text_record_x_at measures through m when
+// no stored unit end answers, and wlx_text_record_offset_at_x is the
+// measuring walk. Measurement otherwise lives in the driver tier below it,
+// view and caret anchoring in the origin policy after that, and the
+// entry-level consumer queries close the section.
 // ----------------------------------------------------------------------------
 
 // The entry stores its first-tab fact line-relative and uint32-packed;
@@ -14660,8 +14662,8 @@ static WLX_Text_Undo_Journal *wlx_text_undo_find(WLX_Context *ctx, WLX_Id id) {
 
 // Release a widget's journal outright: a field shown as password keeps no
 // history, including anything recorded before the mode switched. The item
-// is retired in place (id 0 marks it free for the next widget); items in
-// this cache never move.
+// is retired in place (id 0 marks it free for the next widget); it keeps
+// its index in the cache, though the array itself moves when it grows.
 static void wlx_text_undo_drop(WLX_Context *ctx, WLX_Id id) {
     WLX_Text_Undo_Journal *j = wlx_text_undo_find(ctx, id);
     if (j != NULL) wlx_text_undo_journal_release(j);
