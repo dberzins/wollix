@@ -550,6 +550,31 @@ TEST(ime_identity_editor_wrapped) { ime_identity_editor_body(true); }
 // The tentative span
 // ============================================================================
 
+// The caret blink clock is bounded (D114): past 1024 s of focus one frame
+// reduces it to its phase (fmodf by the period), so a long-focused field
+// keeps blinking. It used to grow without bound until, past 2^19 s, a
+// 60 fps frame's increment rounded away and the blink stopped.
+static void text_caret_blink_clock_bounded_case(Ime_Widget w) {
+    WLX_Context ctx;
+    ime_ctx_init(&ctx);
+    ime_widget = w;
+    char buf[64] = "";
+    size_t len = 0;
+    ime_focus(&ctx, buf, sizeof(buf), &len);
+    WLX_Text_Edit_State *c = ime_caret(&ctx);
+    c->cursor_blink_time = 1000000.25f;
+    ime_idle(&ctx, buf, sizeof(buf), &len);
+    // At 1e6 the frame's 1/60 s rounds away (the float step there is
+    // 1/16 s), so the phase is 0.25 both before and after the reduction.
+    ASSERT_TRUE(c->cursor_blink_time < 1.0f);
+    ASSERT_EQ_F(c->cursor_blink_time, 0.25f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(text_caret_blink_clock_bounded) {
+    IME_FOR_SHAPES(ime_shapes, text_caret_blink_clock_bounded_case);
+}
+
 // A composition string lands in the buffer at the caret as ordinary bytes:
 // drawn, underlined, the caret inside it; the journal records nothing and
 // its length guard follows the true length.
@@ -2254,6 +2279,7 @@ TEST(word_double_click_never_splits_a_unit) {
 }
 
 SUITE(ime) {
+    RUN_TEST(text_caret_blink_clock_bounded);
     RUN_TEST(ime_identity_inputbox);
     RUN_TEST(ime_identity_textarea);
     RUN_TEST(ime_identity_editor_linear);

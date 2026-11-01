@@ -556,13 +556,8 @@ static float wlx_editor_caret_x(WLX_Context *ctx, const char *doc, size_t len, W
         }
     }
     size_t end = line_start;
-    size_t units = 0;
-    while (end < caret && units < (size_t)WLX_EDITOR_MAX_LINE_UNITS) {
-        size_t next = wlx_text_unit_next(doc, len, end);
-        if (next > caret) next = caret;
-        end = next;
-        units++;
-    }
+    (void)wlx_text_units_between(doc, len, line_start, caret,
+        (size_t)WLX_EDITOR_MAX_LINE_UNITS, &end);
     WLX_Text_Measure_Args m = { ctx, doc, len, ts, tab_advance, 0.0f };
     float w = 0.0f, h = 0.0f;
     if (!wlx_text_measure_prefix_tabs(&m, line_start, end, &w, &h)) w = 0.0f;
@@ -885,8 +880,8 @@ static float wlx_editor_wrap_caret_x(const WLX_Text_Build_Inputs *inputs,
         && line_next <= inputs->length) {
         e = wlx_text_geom_find_containing(inputs->geom, rec->visible_start, line_next);
     }
-    WLX_Text_Measure_Args m = { inputs->ctx, inputs->text, inputs->length,
-        inputs->style, inputs->tab_advance, 0.0f };
+    WLX_Text_Measure_Args m = wlx_text_measure_args(inputs);
+    m.line_h = 0.0f;
     float w = 0.0f;
     if (!wlx_text_record_x_at(&m, e, rec->visible_start, cx_end, &w)) w = 0.0f;
     return w;
@@ -1228,8 +1223,7 @@ static WLX_Editor_Band wlx_editor_resolve_band(WLX_Context *ctx, const WLX_Edito
             if (band.w < 0.0f) band.w = 0.0f;
         }
     }
-    WLX_Rect sb_track = { input_rect.x + border_inset, band.y,
-                          input_rect.w - border_inset * 2.0f, band.h };
+    WLX_Rect sb_track = wlx_text_field_sb_track(input_rect, border_inset, band.y, band.h);
     WLX_Rect hb_track = { band.x, band.y + band.h, band.w, sb_w };
     gutter_rect.h = band.h;
 
@@ -1987,9 +1981,7 @@ static void wlx_editor_draw_carets_and_bars(const WLX_Editor_Frame *f,
     float content_h = f->content_h;
     float scroll_y = scr->scroll_y;
     WLX_Rect band = eb->band;
-    if (focused) {
-        state->caret.cursor_blink_time += wlx_get_frame_time(ctx);
-    }
+    if (focused) wlx_text_edit_tick_blink(ctx, &state->caret);
     if (focused && idx != NULL && idx->count > 0 && line_h > 0.0f) {
         float caret_px = 0.0f, caret_py = 0.0f;
         wlx_editor_caret_place(f, lines, win_count, &caret_px, &caret_py);
@@ -2412,7 +2404,7 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
             ? (float)opt.tab_columns * ref_w
             : (float)opt.tab_columns * (float)opt.font_size * 0.5f;
 
-        float border_inset = opt.border_width > 0 ? opt.border_width + 1.0f : 0.0f;
+        float border_inset = field.border_inset;
 
         // Line index guard: patch, rescan or nothing (wlx_editor_index_sync).
         WLX_Text_Geom_Store *geom = idx != NULL ? &idx->geom : NULL;
@@ -2497,17 +2489,17 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
         // caret outside the window, and the next caret change snaps back.
         if (inter.focused && idx != NULL && idx->count > 0 && wrap_geom
             && !state->caret.dragging_scrollbar
-            && (caret_moved || changed || state->caret.cursor_pos != state->caret.prev_cursor_pos)) {
+            && (caret_moved || wlx_text_edit_caret_moved(&state->caret, changed))) {
             // The drag gate keeps an active thumb drag authoritative
             // over a same-frame caret change (typing mid-drag), the
             // ordering the deleted end-of-frame write-back used to
             // enforce by overwriting this follow's anchor.
             wlx_editor_caret_follow_wrapped(&f);
         } else if (inter.focused && idx != NULL && idx->count > 0 && !opt.wrap
-            && (caret_moved || changed || state->caret.cursor_pos != state->caret.prev_cursor_pos)) {
+            && (caret_moved || wlx_text_edit_caret_moved(&state->caret, changed))) {
             wlx_editor_caret_follow_linear(&f, &scr);
         }
-        if (inter.focused) state->caret.prev_cursor_pos = state->caret.cursor_pos;
+        wlx_text_edit_caret_latch(&state->caret, inter.focused);
         if (caret_moved || changed) state->caret.cursor_blink_time = 0.0f;
 
         // The document changed this frame: release the sticky width reach
