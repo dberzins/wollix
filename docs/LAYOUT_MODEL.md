@@ -281,7 +281,7 @@ wlx_layout_begin(ctx, 4, WLX_HORZ, .sizes = sizes);
 | `WLX_SLOT_PX(px)` | `WLX_SIZE_PIXELS` | Fixed size in units |
 | `WLX_SLOT_PCT(pct)` | `WLX_SIZE_PERCENT` | Percentage of parent size |
 | `WLX_SLOT_FLEX(w)` | `WLX_SIZE_FLEX` | Weighted share of remaining space |
-| `WLX_SLOT_FILL` | `WLX_SIZE_FILL` | Fill entire viewport (scroll panel or layout rect) |
+| `WLX_SLOT_FILL` | `WLX_SIZE_FILL` | Fill entire viewport (the layer's innermost scroll panel, else the window, or an overlay's body) |
 | `WLX_SLOT_FILL_PCT(pct)` | `WLX_SIZE_FILL` | Fill percentage of viewport |
 | `WLX_SLOT_CONTENT` | `WLX_SIZE_CONTENT` | Measured from child content (frame-delayed): main-axis extent in linear layouts (heights in VERT, intrinsic/explicit widths in HORZ), row heights in grids |
 
@@ -896,7 +896,10 @@ a nested scroll panel's scissor) all walk the current layer's context
 (explicit scissor scopes affect drawing only), so a popup declared inside a
 scroll panel is never cut, culled or gated by the panel it floats over, and
 a widget cropped by a `.clip` layout cannot be hovered or pressed through
-the cropped part.
+the cropped part. The viewport is per layer as well: inside an overlay,
+`WLX_SLOT_FILL` resolves against the innermost scroll panel opened in the
+overlay, else the overlay's body, and the scroll-panel getters report only
+the overlay's own panels.
 
 ### Ownership Arbitration
 

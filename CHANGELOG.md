@@ -524,6 +524,21 @@ minor.
   is its own size, so an auto layout with fixed slot sizes places its
   children exactly where the fixed layout with the same slots does. The
   content height and the scroll extent do not change (since v0.3.0).
+- **FILL and the scroll-panel getters inside an overlay answer for the
+  overlay.** A layout nested in an overlay resolved `WLX_SLOT_FILL`
+  against the window, or against the base-layer scroll panel when the
+  overlay was declared inside one, so one overlay sized its FILL slots
+  by where it was declared: in a 200-unit overlay a FILL slot was 300
+  units tall at the root of a 300-unit window and 120 inside a 120-unit
+  panel. FILL now resolves against the innermost scroll panel of the
+  overlay's own layer, else the overlay's body, as the overlay's own
+  slots already did. `wlx_get_scroll_panel_viewport` and
+  `wlx_get_scroll_panel_offset` answer for the current layer too: inside
+  an overlay with no panel of its own they return `{0}` and `0` rather
+  than the panel underneath, and `wlx_list_clipper_begin` there reports
+  `WLX_ERR_BAD_ARGUMENT` and builds the rows that fit its parent, as
+  outside any panel, rather than clipping against a panel that scrolls
+  another layer (since v0.8.0).
 - **SDL3: sharp outlines and thick diagonal lines keep their
   thickness.** The SDL3 adapter drew every sharp outline (a widget border
   at `roundness = 0`) one pixel wide whatever its `border_width`, while a

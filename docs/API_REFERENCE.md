@@ -2680,9 +2680,11 @@ wlx_layout_begin(ctx, 1, WLX_VERT,
 WLX_Rect wlx_get_scroll_panel_viewport(WLX_Context *ctx);
 ```
 
-Return the viewport rect of the innermost scroll panel. Returns `{0}` if no
-scroll panel is active. Useful for sizing children to the visible area rather
-than the (potentially larger) scrollable content area.
+Return the viewport rect of the innermost scroll panel of the current layer.
+Returns `{0}` if no scroll panel is active there: inside an overlay, a panel
+of the base layer the overlay floats over does not count. Useful for sizing
+children to the visible area rather than the (potentially larger) scrollable
+content area.
 
 ### `wlx_get_scroll_panel_offset`
 
@@ -2691,7 +2693,8 @@ float wlx_get_scroll_panel_offset(WLX_Context *ctx);
 ```
 
 Return the current vertical scroll offset (units) of the innermost scroll
-panel, or `0` when none is active. Pairs with `wlx_get_scroll_panel_viewport`
+panel of the current layer, or `0` when none is active there. Pairs with
+`wlx_get_scroll_panel_viewport`
 to compute which rows of a long list are on screen; the list clipper uses both
 internally.
 

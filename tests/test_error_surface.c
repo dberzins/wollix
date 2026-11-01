@@ -1108,6 +1108,35 @@ TEST(list_clipper_outside_scroll_panel_reports) {
     wlx_context_destroy(&ctx);
 }
 
+// Inside an overlay, a scroll panel of the base layer is not the clipper's
+// viewport (D111): the clipper reports as outside any panel and builds the
+// rows that fit its parent (100 px of 20 px rows: 0 to 5), instead of
+// clipping against the base panel (300 px: 0 to 15).
+TEST(list_clipper_in_overlay_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0);
+    wlx_scroll_panel_begin(&ctx, 2000, .padding = 0);
+    wlx_overlay_begin(&ctx, 1, ((WLX_Rect){ 0, 0, 200, 100 }));
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0);
+    int line = __LINE__ + 1;
+    WLX_List_Clipper clip = wlx_list_clipper_begin(&ctx, 1000, 20.0f);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_EQ_INT(line, es_last.line);
+    ASSERT_EQ_INT(0, clip.first);
+    ASSERT_EQ_INT(5, clip.last);
+    wlx_list_clipper_end(&ctx, &clip);
+    wlx_layout_end(&ctx);
+    wlx_overlay_end(&ctx);
+    wlx_scroll_panel_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
 // wlx_grid_cell on an auto grid may name rows not grown yet: the slot fetch
 // grows them (v0.8.0's release behaviour). Columns stay fixed, and so does
 // the WLX_MAX_SLOT_COUNT bound.
@@ -1306,6 +1335,7 @@ SUITE(error_surface) {
     RUN_TEST(slot_style_entries_report_the_call_site);
     RUN_TEST(layout_entry_contracts_pinned);
     RUN_TEST(list_clipper_outside_scroll_panel_reports);
+    RUN_TEST(list_clipper_in_overlay_reports);
     RUN_TEST(auto_grid_cell_grows_rows);
     RUN_TEST(null_call_site_reports_and_runs);
 #ifdef WLX_DEBUG

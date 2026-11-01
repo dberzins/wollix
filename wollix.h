@@ -6145,6 +6145,28 @@ typedef struct {
 // and never against the base panels it floats over.
 typedef enum { WLX_CLIP_DRAW, WLX_CLIP_CONTAINERS } WLX_Clip_Query;
 
+// The innermost scroll panel of the current layer, or NULL. An overlay
+// starts a fresh layer (clip_base), so a base-layer panel it floats over is
+// not its viewport.
+static inline WLX_Scroll_Panel_State *wlx_layer_scroll_panel(const WLX_Context *ctx) {
+    if (ctx->arena.scroll_panels.count > ctx->clip_base.panels_from)
+        return wlx_pool_scroll_panels(ctx)[ctx->arena.scroll_panels.count - 1];
+    return NULL;
+}
+
+// The viewport FILL resolves against: the layer's innermost scroll panel,
+// else the layer's root - the overlay's body inside an overlay, the
+// context rect in the base layer.
+static inline WLX_Rect wlx_layer_viewport(const WLX_Context *ctx) {
+    const WLX_Scroll_Panel_State *sp = wlx_layer_scroll_panel(ctx);
+    if (sp != NULL) return sp->panel_rect;
+    size_t root = ctx->clip_base.layouts_from;
+    if (root < ctx->arena.layouts.count
+            && wlx_pool_layouts(ctx)[root].owner == WLX_OWNER_OVERLAY)
+        return wlx_pool_layouts(ctx)[root].rect;
+    return ctx->rect;
+}
+
 static inline bool wlx_enclosing_clip(const WLX_Context *ctx, WLX_Clip_Query query, WLX_Rect *out_rect) {
     bool active = false;
     WLX_Rect clip = {0};
@@ -8273,15 +8295,8 @@ static inline WLX_Layout_Frame wlx_layout_frame_begin(
     WLX_Resolved_Padding p = wlx_resolve_padding(
         co.padding, co.padding_top, co.padding_right, co.padding_bottom, co.padding_left);
     r = wlx_rect_inset_sides(r, p.top, p.right, p.bottom, p.left);
-    float viewport_horz, viewport_vert;
-    if (ctx->arena.scroll_panels.count > 0) {
-        WLX_Rect vp = wlx_pool_scroll_panels(ctx)[ctx->arena.scroll_panels.count - 1]->panel_rect;
-        viewport_horz = vp.w;
-        viewport_vert = vp.h;
-    } else {
-        viewport_horz = ctx->rect.w;
-        viewport_vert = ctx->rect.h;
-    }
+    WLX_Rect vp = wlx_layer_viewport(ctx);
+    float viewport_horz = vp.w, viewport_vert = vp.h;
     return (WLX_Layout_Frame){
         .rect            = r,
         .padding         = p,
@@ -9001,18 +9016,14 @@ WLXDEF WLX_Rect wlx_get_parent_rect(WLX_Context *ctx) {
 
 WLXDEF WLX_Rect wlx_get_scroll_panel_viewport(WLX_Context *ctx) {
     assert(ctx != NULL);
-    if (ctx->arena.scroll_panels.count > 0) {
-        return wlx_pool_scroll_panels(ctx)[ctx->arena.scroll_panels.count - 1]->panel_rect;
-    }
-    return (WLX_Rect){0};
+    const WLX_Scroll_Panel_State *sp = wlx_layer_scroll_panel(ctx);
+    return sp != NULL ? sp->panel_rect : (WLX_Rect){0};
 }
 
 WLXDEF float wlx_get_scroll_panel_offset(WLX_Context *ctx) {
     assert(ctx != NULL);
-    if (ctx->arena.scroll_panels.count > 0) {
-        return wlx_pool_scroll_panels(ctx)[ctx->arena.scroll_panels.count - 1]->scroll_offset;
-    }
-    return 0.0f;
+    const WLX_Scroll_Panel_State *sp = wlx_layer_scroll_panel(ctx);
+    return sp != NULL ? sp->scroll_offset : 0.0f;
 }
 
 // Rect of the most recent widget placed this frame (any widget on the
@@ -18187,7 +18198,7 @@ WLXDEF WLX_List_Clipper wlx_list_clipper_begin_impl(WLX_Context *ctx, int item_c
     // built (not every row, which could be a cost cliff, and not none).
     WLX_Rect vp;
     float off;
-    if (WLX_CONTRACT_AT(ctx, ctx->arena.scroll_panels.count > 0, WLX_ERR_BAD_ARGUMENT,
+    if (WLX_CONTRACT_AT(ctx, wlx_layer_scroll_panel(ctx) != NULL, WLX_ERR_BAD_ARGUMENT,
             "wlx_list_clipper_begin outside a scroll panel; the rows that fit the parent are built",
             file, line)) {
         vp = wlx_get_scroll_panel_viewport(ctx);
