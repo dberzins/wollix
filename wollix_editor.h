@@ -348,8 +348,8 @@ static WLX_Editor_Line_Index *wlx_editor_index_get(WLX_Context *ctx, WLX_Id id) 
 // patch).
 static bool wlx_editor_index_reserve(WLX_Editor_Line_Index *idx, size_t need) {
     if (need <= idx->cap) return true;
-    size_t new_cap = idx->cap == 0 ? 64 : idx->cap;
-    while (new_cap < need) new_cap *= 2;
+    size_t new_cap = wlx_grow_cap(idx->cap, 64, need, "size_t overflow in wlx_editor_index_reserve");
+    WLX_HARD_ASSERT(new_cap <= SIZE_MAX / sizeof(size_t), "editor index size overflow");
     size_t *grown = (size_t *)wlx_realloc(idx->offsets, new_cap * sizeof(size_t));
     if (grown == NULL) return false;
     idx->offsets = grown;

@@ -233,7 +233,7 @@ $(SINGLE_PASS_BIN): $(TEST_DIR)/test_single_pass.c wollix.h
 
 # Release-build guard coverage: WLX_HARD_ASSERT must fire with NDEBUG defined,
 # while plain assert() compiles out. Built as its own translation unit.
-$(HARD_ASSERT_BIN): $(TEST_DIR)/test_hard_assert.c $(TEST_DIR)/tests.h $(TEST_DIR)/test_mock_backend.h wollix.h
+$(HARD_ASSERT_BIN): $(TEST_DIR)/test_hard_assert.c $(TEST_DIR)/tests.h $(TEST_DIR)/test_mock_backend.h wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) -DNDEBUG -I. -o $@ $(TEST_DIR)/test_hard_assert.c -lm
 
 # The documented limit macros must honor a pre-include user definition. Built

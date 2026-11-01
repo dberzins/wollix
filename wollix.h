@@ -572,18 +572,25 @@ static inline void wlx_free_impl(void* ptr, const char *file, int line, const ch
     free(ptr);
 }
 
+// Geometric capacity growth: double from cap (from seed when cap is 0)
+// until need fits. A need past SIZE_MAX / 2 is fatal, never a wrapped,
+// undersized capacity; overflow_msg names the grower.
+static inline size_t wlx_grow_cap(size_t cap, size_t seed, size_t need, const char *overflow_msg) {
+    size_t new_cap = cap == 0 ? seed : cap;
+    while (new_cap < need) {
+        WLX_HARD_ASSERT(new_cap <= SIZE_MAX / 2, overflow_msg);
+        new_cap *= 2;
+    }
+    return new_cap;
+}
+
 // Grow-and-reuse byte buffer (process- or context-lifetime): ensure room
 // for `needed` bytes, geometric growth from 1024, old buffer kept intact on
 // allocation failure (the only case that returns false). Shared by the
 // backend clipboard transports and any other lazily grown flat buffer.
 static inline bool wlx_buf_reserve(char **buf, size_t *cap, size_t needed) {
     if (needed <= *cap) return true;
-    size_t new_cap = *cap == 0 ? 1024 : *cap;
-    while (new_cap < needed) {
-        WLX_HARD_ASSERT(new_cap <= SIZE_MAX / 2,
-            "size_t overflow in wlx_buf_reserve");
-        new_cap *= 2;
-    }
+    size_t new_cap = wlx_grow_cap(*cap, 1024, needed, "size_t overflow in wlx_buf_reserve");
     char *new_buf = (char *)wlx_realloc(*buf, new_cap);
     if (new_buf == NULL) return false;
     *buf = new_buf;
@@ -1311,12 +1318,8 @@ static inline void wlx_sub_arena_reserve(WLX_Sub_Arena *sa, size_t needed) {
 
     if (needed <= sa->capacity) return;
 
-    new_capacity = sa->capacity == 0 ? WLX_DA_INIT_CAP : sa->capacity;
-    while (needed > new_capacity) {
-        WLX_HARD_ASSERT(new_capacity <= SIZE_MAX / 2,
-            "size_t overflow in sub-arena reserve");
-        new_capacity *= 2;
-    }
+    new_capacity = wlx_grow_cap(sa->capacity, WLX_DA_INIT_CAP, needed,
+        "size_t overflow in sub-arena reserve");
 
     WLX_HARD_ASSERT(new_capacity <= SIZE_MAX / sa->item_size,
         "size_t overflow in sub-arena bytes");
@@ -5931,19 +5934,22 @@ static inline WLX_Id wlx_id_mix(WLX_Id x) {
     return x;
 }
 
-// Call-site hash: FNV-1a 64 over the path (the step of wlx_hash_fnv1a64,
-// walked to the NUL), mixed, then the line added. The mix comes before the
+// FNV-1a 64: the offset basis and the step for one byte, shared by the
+// call-site walk below (to the NUL, in one pass) and wlx_hash_fnv1a64.
+#define WLX_FNV1A64_BASIS 0xcbf29ce484222325ull
+static inline uint64_t wlx_fnv1a64_step(uint64_t h, unsigned char byte) {
+    return (h ^ byte) * 0x100000001b3ull;
+}
+
+// Call-site hash: FNV-1a 64 over the path (walked to the NUL), mixed, then
+// the line added. The mix comes before the
 // line: a fold that stays linear in both lets two paths that differ in one
 // character meet a fixed number of lines apart (a .c and its .h, 165 lines
 // under djb2). FNV-1a rather than djb2 for the walk: djb2 maps paths of
 // equal length such as "ab" and "bA" to one value, and then every line.
 static WLX_Id wlx_hash_id(const char *file, int line) {
-    WLX_Id hash = 0xcbf29ce484222325ull;
-    while (*file) {
-        hash ^= (unsigned char)(*file);
-        hash *= 0x100000001b3ull;
-        file++;
-    }
+    WLX_Id hash = WLX_FNV1A64_BASIS;
+    for (; *file; file++) hash = wlx_fnv1a64_step(hash, (unsigned char)*file);
     return wlx_id_mix(hash) + (WLX_Id)line;
 }
 
@@ -6029,11 +6035,8 @@ static void wlx_error_report(WLX_Context *ctx, WLX_Error_Code code, const char *
 // FNV-1a 64-bit over [bytes, bytes + len): the byte-content hash the backend
 // measurement caches key their text with.
 static inline uint64_t wlx_hash_fnv1a64(const char *bytes, size_t len) {
-    uint64_t h = 0xcbf29ce484222325ULL;
-    for (size_t i = 0; i < len; ++i) {
-        h ^= (uint64_t)(unsigned char)bytes[i];
-        h *= 0x100000001b3ULL;
-    }
+    uint64_t h = WLX_FNV1A64_BASIS;
+    for (size_t i = 0; i < len; ++i) h = wlx_fnv1a64_step(h, (unsigned char)bytes[i]);
     return h;
 }
 
@@ -6314,6 +6317,75 @@ static inline float wlx_snap_unit(float v, float scale) {
     return floorf(v * scale + 0.5f) / scale;
 }
 
+// AUTO and FLEX slots share the remainder by weight: AUTO weighs 1, FLEX
+// its value. The other kinds take a fixed size and no share.
+static inline bool wlx_slot_is_weighted(const WLX_Slot_Size *s) {
+    return s->kind == WLX_SIZE_AUTO || s->kind == WLX_SIZE_FLEX;
+}
+
+static inline float wlx_slot_weight(const WLX_Slot_Size *s) {
+    return (s->kind == WLX_SIZE_FLEX) ? s->value : 1.0f;
+}
+
+#ifndef WLX_SLOT_SINGLE_PASS_CLAMP
+// Pass 3 of the offsets math: iterative freeze-and-redistribute. Weighted
+// slots that a min / max clamped are frozen at the clamp, and the space
+// they freed or took is shared again among the rest, until no slot
+// freezes (at most count rounds); then the offsets are rebuilt from the
+// sizes, so offsets[count] == adjusted_total + the gaps. raw holds each
+// slot's clamped size from pass 2, frozen the flags (all false on entry).
+// Takes no context: the caller owns both buffers.
+static void wlx_offsets_redistribute(float *offsets, size_t count, float adjusted_total,
+                                     const WLX_Slot_Size *sizes, float gap, float scale,
+                                     float *raw, bool *frozen)
+{
+    for (size_t iter = 0; iter < count; iter++) {
+        bool changed = false;
+
+        // Total unfrozen weight and frozen usage; fixed, percent, fill and
+        // content sizes count as frozen.
+        float unfrozen_weight = 0.0f;
+        float frozen_total = 0.0f;
+        for (size_t i = 0; i < count; i++) {
+            if (frozen[i] || !wlx_slot_is_weighted(&sizes[i])) frozen_total += raw[i];
+            else unfrozen_weight += wlx_slot_weight(&sizes[i]);
+        }
+
+        float unfrozen_remaining = adjusted_total - frozen_total;
+        if (unfrozen_remaining < 0.0f) unfrozen_remaining = 0.0f;
+
+        // Redistribute among unfrozen weighted slots
+        for (size_t i = 0; i < count; i++) {
+            if (frozen[i] || !wlx_slot_is_weighted(&sizes[i])) continue;
+
+            float new_size = (unfrozen_weight > 0.0f)
+                ? unfrozen_remaining * (wlx_slot_weight(&sizes[i]) / unfrozen_weight) : 0.0f;
+
+            // Clamp and freeze if needed
+            float clamped = wlx_slot_clamp(&sizes[i], new_size);
+            if (clamped != new_size) {
+                frozen[i] = true;
+                raw[i] = clamped;
+                changed = true;
+            } else {
+                raw[i] = new_size;
+            }
+        }
+
+        if (!changed) break;
+    }
+
+    // Rebuild offsets from raw sizes with gap - snap to the device-pixel grid.
+    float offset = 0.0f;
+    for (size_t i = 0; i < count; i++) {
+        offsets[i] = wlx_snap_unit(offset, scale);
+        offset += raw[i];
+        if (i < count - 1) offset += gap;
+    }
+    offsets[count] = wlx_snap_unit(offset, scale);
+}
+#endif
+
 // Core offset math - fills offsets[0..count] given a total extent and
 // optional per-slot sizes.  Used by both 1D layouts (single axis) and
 // grid layouts (row axis + column axis).
@@ -6356,11 +6428,8 @@ static inline void wlx_compute_offsets_ctx(WLX_Context *ctx,
     float used = 0.0f;
     float total_weight = 0.0f;
     for (size_t i = 0; i < count; i++) {
-        switch (sizes[i].kind) {
-            case WLX_SIZE_AUTO: total_weight += 1.0f; break;
-            case WLX_SIZE_FLEX: total_weight += sizes[i].value; break;
-            default:            used += wlx_slot_fixed_size(&sizes[i], adjusted_total, viewport); break;
-        }
+        if (wlx_slot_is_weighted(&sizes[i])) total_weight += wlx_slot_weight(&sizes[i]);
+        else used += wlx_slot_fixed_size(&sizes[i], adjusted_total, viewport);
     }
     float remaining = (adjusted_total - used > 0.0f) ? (adjusted_total - used) : 0.0f;
 
@@ -6405,18 +6474,11 @@ static inline void wlx_compute_offsets_ctx(WLX_Context *ctx,
     for (size_t i = 0; i < count; i++) {
         offsets[i] = offset;
         float slot_size;
-        switch (sizes[i].kind) {
-            case WLX_SIZE_AUTO:
-                slot_size = (total_weight > 0.0f)
-                    ? remaining * (1.0f / total_weight) : 0.0f;
-                break;
-            case WLX_SIZE_FLEX:
-                slot_size = (total_weight > 0.0f)
-                    ? remaining * (sizes[i].value / total_weight) : 0.0f;
-                break;
-            default:
-                slot_size = wlx_slot_fixed_size(&sizes[i], adjusted_total, viewport);
-                break;
+        if (wlx_slot_is_weighted(&sizes[i])) {
+            slot_size = (total_weight > 0.0f)
+                ? remaining * (wlx_slot_weight(&sizes[i]) / total_weight) : 0.0f;
+        } else {
+            slot_size = wlx_slot_fixed_size(&sizes[i], adjusted_total, viewport);
         }
         slot_size = wlx_slot_clamp(&sizes[i], slot_size);
 #ifndef WLX_SLOT_SINGLE_PASS_CLAMP
@@ -6438,64 +6500,7 @@ static inline void wlx_compute_offsets_ctx(WLX_Context *ctx,
     // surplus/deficit from clamped slots to unfrozen neighbors. Define
     // WLX_SLOT_SINGLE_PASS_CLAMP to skip this and keep the single-pass clamp.
     if (has_constraints) {
-        // Iterate until no new slots freeze (converges in <= count iterations)
-        for (size_t iter = 0; iter < count; iter++) {
-            bool changed = false;
-
-            // Compute total unfrozen weight and frozen usage
-            float unfrozen_weight = 0.0f;
-            float frozen_total = 0.0f;
-            for (size_t i = 0; i < count; i++) {
-                if (frozen[i]) {
-                    frozen_total += raw[i];
-                } else {
-                    switch (sizes[i].kind) {
-                        case WLX_SIZE_AUTO:    unfrozen_weight += 1.0f; break;
-                        case WLX_SIZE_FLEX:    unfrozen_weight += sizes[i].value; break;
-                        case WLX_SIZE_PIXELS:  frozen_total += raw[i]; break; // fixed sizes act like frozen
-                        case WLX_SIZE_PERCENT: frozen_total += raw[i]; break;
-                        case WLX_SIZE_FILL:    frozen_total += raw[i]; break; // viewport-fill acts like frozen
-                        case WLX_SIZE_CONTENT: frozen_total += raw[i]; break; // pre-resolved, acts like frozen
-                        default: break;
-                    }
-                }
-            }
-
-            float unfrozen_remaining = adjusted_total - frozen_total;
-            if (unfrozen_remaining < 0.0f) unfrozen_remaining = 0.0f;
-
-            // Redistribute among unfrozen flex/auto slots
-            for (size_t i = 0; i < count; i++) {
-                if (frozen[i]) continue;
-                if (sizes[i].kind != WLX_SIZE_AUTO && sizes[i].kind != WLX_SIZE_FLEX) continue;
-
-                float w = (sizes[i].kind == WLX_SIZE_FLEX) ? sizes[i].value : 1.0f;
-                float new_size = (unfrozen_weight > 0.0f)
-                    ? unfrozen_remaining * (w / unfrozen_weight) : 0.0f;
-
-                // Clamp and freeze if needed
-                float clamped = wlx_slot_clamp(&sizes[i], new_size);
-                if (clamped != new_size) {
-                    frozen[i] = true;
-                    raw[i] = clamped;
-                    changed = true;
-                } else {
-                    raw[i] = new_size;
-                }
-            }
-
-            if (!changed) break;
-        }
-
-        // Rebuild offsets from raw sizes with gap - snap to the device-pixel grid.
-        offset = 0.0f;
-        for (size_t i = 0; i < count; i++) {
-            offsets[i] = wlx_snap_unit(offset, scale);
-            offset += raw[i];
-            if (i < count - 1) offset += gap;
-        }
-        offsets[count] = wlx_snap_unit(offset, scale);
-
+        wlx_offsets_redistribute(offsets, count, adjusted_total, sizes, gap, scale, raw, frozen);
         if (heap_scratch) wlx_free(raw);
     }
 #endif // !WLX_SLOT_SINGLE_PASS_CLAMP
@@ -9210,8 +9215,10 @@ static inline WLX_Id wlx_combine_id_hash(WLX_Id base, WLX_Id stack) {
 }
 
 WLXDEF void wlx_push_id(WLX_Context *ctx, WLX_Id id) {
+    // Read the top first: the push grows the stack before it evaluates
+    // the value.
     WLX_Id top = wlx_id_stack_hash(ctx);
-    wlx_pool_push(&ctx->arena.id_stack, WLX_Id, wlx_id_mix(top ^ id));
+    wlx_pool_push(&ctx->arena.id_stack, WLX_Id, wlx_combine_id_hash(id, top));
 }
 
 WLXDEF void wlx_pop_id(WLX_Context *ctx) {
@@ -12030,6 +12037,8 @@ static bool wlx_text_geom_ensure_wrap(const WLX_Text_Build_Inputs *inputs,
         }
         if (e->rows == e->row_cap) {
             size_t new_cap = e->row_cap == 0 ? 8 : e->row_cap * 2;
+            WLX_HARD_ASSERT(new_cap <= SIZE_MAX / sizeof(uint32_t),
+                "geom entry size overflow");
             uint32_t *grown = (uint32_t *)wlx_realloc(e->row_units, new_cap * sizeof(uint32_t));
             if (grown == NULL) return false;
             e->row_units = grown;
@@ -14691,12 +14700,8 @@ static bool wlx_text_undo_make_room(WLX_Text_Undo_Stack *s, size_t need_bytes,
     }
     size_t need = s->arena_used + need_bytes;
     if (need > s->arena_cap) {
-        size_t new_cap = s->arena_cap == 0 ? 256 : s->arena_cap;
-        while (new_cap < need) {
-            WLX_HARD_ASSERT(new_cap <= SIZE_MAX / 2,
-                "size_t overflow in wlx_text_undo_make_room");
-            new_cap *= 2;
-        }
+        size_t new_cap = wlx_grow_cap(s->arena_cap, 256, need,
+            "size_t overflow in wlx_text_undo_make_room");
         if (new_cap > (size_t)WLX_TEXT_UNDO_BYTES) {
             new_cap = need > (size_t)WLX_TEXT_UNDO_BYTES ? need : (size_t)WLX_TEXT_UNDO_BYTES;
         }
@@ -17409,15 +17414,8 @@ static void wlx_scroll_panel_close(WLX_Context *ctx) {
     // deltas are clamped to the stale (previous-frame) content_height, then
     // the content_height changes, and next frame's clamp snaps the offset
     // to a different value - producing visible flicker.
-    if (state_sp->auto_height) {
-        WLX_State_Map_Slot *slot = wlx_state_map_lookup(&ctx->states, ctx->auto_scroll.panel_id);
-        if (slot != NULL) {
-            WLX_Scroll_Panel_State *state = (WLX_Scroll_Panel_State *)slot->data;
-            float measured = ctx->auto_scroll.total_height;
-            if (measured > 0) {
-                state->content_height = measured;
-            }
-        }
+    if (state_sp->auto_height && ctx->auto_scroll.total_height > 0) {
+        state_sp->content_height = ctx->auto_scroll.total_height;
     }
 
     // Handle wheel scrolling with the up-to-date content_height.

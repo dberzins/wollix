@@ -10,7 +10,8 @@
 //   - wlx_menu_end / wlx_menu_item / wlx_submenu_begin abort on an empty
 //     menu stack instead of indexing menu_stack[-1]
 //   - the sub-arena size_t-overflow guards abort instead of wrapping to an
-//     undersized reserve (out-of-bounds writes)
+//     undersized reserve (out-of-bounds writes), and so does the editor's
+//     line-index growth
 //   - the two text edit primitives abort on an offset past the document
 //     length instead of wrapping a memmove size
 //   - with no handler installed, a contract error's default handler prints
@@ -33,6 +34,7 @@ static void test_sink_capture(const char *msg);
 
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
+#include "wollix_editor.h"
 
 #include "tests.h"
 #include "test_mock_backend.h"
@@ -191,6 +193,20 @@ TEST(hard_assert_fires_on_menu_end_without_begin) {
 
 TEST(hard_assert_fires_on_sub_arena_reserve_overflow) {
     ASSERT_TRUE(run_in_child(trigger_sub_arena_reserve_overflow) == CHILD_ABORTED);
+}
+
+// The editor's line index doubles through wlx_grow_cap: a need past
+// SIZE_MAX / 2 aborts. Before the guard the doubling wrapped the capacity
+// to 0 and spun, so the child arms an alarm to fail rather than hang.
+static void trigger_editor_index_reserve_overflow(void) {
+    alarm(5);
+    WLX_Editor_Line_Index idx;
+    memset(&idx, 0, sizeof(idx));
+    (void)wlx_editor_index_reserve(&idx, SIZE_MAX);
+}
+
+TEST(hard_assert_fires_on_editor_index_reserve_overflow) {
+    ASSERT_TRUE(run_in_child(trigger_editor_index_reserve_overflow) == CHILD_ABORTED);
 }
 
 TEST(hard_assert_fires_on_sub_arena_alloc_count_overflow) {
@@ -479,6 +495,7 @@ SUITE(hard_assert) {
     RUN_TEST(hard_assert_fires_on_menu_end_without_begin);
     RUN_TEST(hard_assert_fires_on_sub_arena_reserve_overflow);
     RUN_TEST(hard_assert_fires_on_sub_arena_alloc_count_overflow);
+    RUN_TEST(hard_assert_fires_on_editor_index_reserve_overflow);
     RUN_TEST(hard_assert_fires_on_insert_past_length);
     RUN_TEST(hard_assert_fires_on_delete_past_length);
     RUN_TEST(hard_assert_fires_on_backend_contract_mismatch);
