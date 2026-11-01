@@ -848,9 +848,11 @@ minor.
 - **Slot boundaries snap to the device-pixel grid.** The layout's
   integer snap of slot boundaries now snaps to multiples of one device
   pixel in units (`floorf(v * scale + 0.5f) / scale`). At content scale
-  1.0 the arithmetic is exact and every boundary is bit-identical to
-  before; at 1.5 or 2.0 boundaries land on the device grid instead of the
-  unit grid, so adjacent fills do not seam.
+  1.0 the arithmetic is exact and every boundary the layout snapped before
+  is bit-identical; at 1.5 or 2.0 boundaries land on the device grid
+  instead of the unit grid, so adjacent fills do not seam. Auto-grid rows,
+  whose growth never snapped, snap too: a fractional row size or gap at
+  1.0 now lands on whole units, as in every other layout.
 - **`WLX_HARD_ASSERT` and `WLX_UNREACHABLE` print through `WLX_ERROR_PRINT`.**
   Their text reaches the bare-WASM browser console (the shim maps the macro
   to `puts`; its `fprintf` is a no-op), where they aborted without a word

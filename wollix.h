@@ -6801,12 +6801,15 @@ static WLX_Rect wlx_grid_slot_rect(WLX_Context *ctx, WLX_Layout *l, size_t span)
         // row_off[r] is where row r starts, as in a fixed grid: a row after
         // the first moves the boundary in front of it past the gap, so the
         // trailing-gap rule of wlx_calc_grid_slot_rect holds for every row.
+        // Each boundary snaps to the device grid as it is written, as in
+        // the auto linear growth.
         float *row_off = wlx_grid_row_offsets(ctx, l);
+        float scale = wlx_content_scale_of(ctx);
         for (size_t r = l->grid.rows; r < new_total; r++) {
             float effective = (l->grid.next_row_size > 0.0f)
                 ? l->grid.next_row_size : l->grid.row_size;
-            if (r > 0) row_off[r] += l->gap;
-            row_off[r + 1] = row_off[r] + effective;
+            if (r > 0) row_off[r] = wlx_snap_unit(row_off[r] + l->gap, scale);
+            row_off[r + 1] = wlx_snap_unit(row_off[r] + effective, scale);
             l->grid.next_row_size = 0.0f;
         }
         l->grid.rows = new_total;

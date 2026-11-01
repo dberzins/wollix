@@ -124,6 +124,57 @@ TEST(content_scale_snaps_to_device_grid_1_5x) {
     wlx_context_destroy(&ctx);
 }
 
+// Where each of three children ends, in units: an auto VERT layout
+// (grid = false) or a one-column auto grid (grid = true), slot or row size
+// `size`, no gap, at content scale `scale`.
+static void cs_auto_ends(bool grid, float scale, float size, float out_end[3]) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 200, 400);
+    ctx.backend.get_content_scale = cs_get_scale;
+    cs_scale_value = scale;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    if (grid) wlx_grid_begin_auto(&ctx, 1, size);
+    else      wlx_layout_begin_auto(&ctx, WLX_VERT, size);
+    for (int i = 0; i < 3; i++) {
+        wlx_push_id(&ctx, (size_t)i);
+        wlx_layout_begin(&ctx, 1, WLX_VERT);
+        WLX_Rect r = wlx_get_parent_rect(&ctx);
+        out_end[i] = r.y + r.h;
+        wlx_layout_end(&ctx);
+        wlx_pop_id(&ctx);
+    }
+    if (grid) wlx_grid_end(&ctx);
+    else      wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+    cs_scale_value = 1.0f;
+}
+
+// Auto-grid rows snap to the device grid as every other slot boundary
+// does: at 1.5x a 31-unit row (46.5 device px) ends on whole pixels, where
+// the auto VERT layout's slots end.
+TEST(content_scale_auto_grid_rows_snap) {
+    float grid[3], vert[3];
+    cs_auto_ends(true, 1.5f, 31.0f, grid);
+    cs_auto_ends(false, 1.5f, 31.0f, vert);
+    ASSERT_EQ_F(grid[0] * 1.5f, 47.0f, 1e-3f);
+    ASSERT_EQ_F(grid[1] * 1.5f, 94.0f, 1e-3f);
+    ASSERT_EQ_F(grid[2] * 1.5f, 141.0f, 1e-3f);
+    for (int i = 0; i < 3; i++) ASSERT_EQ_F(grid[i], vert[i], 0.0f);
+}
+
+// At 1.0 the device grid is the unit grid: a fractional row size lands on
+// whole units, as in an auto VERT layout.
+TEST(content_scale_auto_grid_fractional_rows_at_one) {
+    float grid[3], vert[3];
+    cs_auto_ends(true, 1.0f, 10.4f, grid);
+    cs_auto_ends(false, 1.0f, 10.4f, vert);
+    ASSERT_EQ_F(grid[0], 10.0f, 0.0f);
+    ASSERT_EQ_F(grid[1], 20.0f, 0.0f);
+    ASSERT_EQ_F(grid[2], 30.0f, 0.0f);
+    for (int i = 0; i < 3; i++) ASSERT_EQ_F(grid[i], vert[i], 0.0f);
+}
+
 // The standalone offsets entry has no context and snaps on the unit grid.
 TEST(content_scale_standalone_offsets_snap_on_unit_grid) {
     float off[4];
@@ -179,6 +230,8 @@ SUITE(content_scale) {
     RUN_TEST(content_scale_is_sampled_once_per_frame);
     RUN_TEST(content_scale_snaps_to_device_grid_2x);
     RUN_TEST(content_scale_snaps_to_device_grid_1_5x);
+    RUN_TEST(content_scale_auto_grid_rows_snap);
+    RUN_TEST(content_scale_auto_grid_fractional_rows_at_one);
     RUN_TEST(content_scale_standalone_offsets_snap_on_unit_grid);
     RUN_TEST(content_scale_bad_value_reports_and_runs_at_one);
     RUN_TEST(content_scale_change_bumps_generation);
