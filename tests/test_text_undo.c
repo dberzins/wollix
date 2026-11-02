@@ -1277,6 +1277,72 @@ TEST(undo_editor_revision_bump_drops_history) {
     wlx_context_destroy(&ctx);
 }
 
+// One frame types text and presses Delete (or Ctrl+Delete) near the
+// document start, so the delete removes more bytes past the typed text
+// than the typed text's end offset. The frame's span must still account
+// for the edit: the index patches, and the history (an earlier step at the
+// document end) survives; undo and redo cross the frame.
+static void tue_text_then_delete_case(const char *doc, int rights, const char *text,
+                                      uint32_t mods, const char *want) {
+    WLX_Context ctx;
+    tue_ctx_init(&ctx);
+    tue_reset_fixture();
+    char buf[128], orig[128], with_step[128];
+    size_t len = strlen(doc);
+    memcpy(buf, doc, len);
+    memcpy(orig, doc, len);
+    size_t orig_len = len;
+
+    tue_focus(&ctx, buf, sizeof(buf), &len);
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, WLX_MOD_CTRL);
+    tue_type(&ctx, buf, sizeof(buf), &len, "!");
+    memcpy(with_step, buf, len);
+    size_t step_len = len;
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, WLX_MOD_CTRL);
+    for (int i = 0; i < rights; i++) tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_RIGHT, 0);
+
+    WLX_Editor_Line_Index *idx = ev_index(&ctx);
+    WLX_Text_Undo_Journal *j = tue_journal(&ctx);
+    ASSERT_TRUE(idx != NULL && j != NULL);
+    ASSERT_EQ_INT(1, (long)j->undo.count);
+    uint32_t rebuilds = idx->rebuilds, patches = idx->patches;
+    tue_keys2_text(&ctx, buf, sizeof(buf), &len, WLX_KEY_DELETE, WLX_KEY_NONE, mods, text);
+    size_t want_len = strlen(want);
+    ASSERT_EQ_INT((long)want_len + 1, (long)len);
+    ASSERT_TRUE(memcmp(buf, want, want_len) == 0 && buf[want_len] == '!');
+    ASSERT_EQ_INT((long)rebuilds, (long)idx->rebuilds);
+    ASSERT_TRUE(idx->patches > patches);
+    ASSERT_EQ_INT(3, (long)j->undo.count);   // the earlier entry and the frame's two
+    ASSERT_TRUE(tue_index_consistent(&ctx, buf, len));
+
+    // The frame is one step: one undo returns the document with the
+    // earlier step, one more the original. Redo returns to the frame's
+    // result, and no replay rebuilds the index.
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_Z, tu_undo_mod());
+    ASSERT_EQ_INT((long)step_len, (long)len);
+    ASSERT_TRUE(memcmp(buf, with_step, len) == 0);
+    ASSERT_TRUE(tue_index_consistent(&ctx, buf, len));
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_Z, tu_undo_mod());
+    ASSERT_EQ_INT((long)orig_len, (long)len);
+    ASSERT_TRUE(memcmp(buf, orig, len) == 0);
+    for (int i = 0; i < 2; i++) tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_Z, tu_redo_mod());
+    ASSERT_EQ_INT((long)want_len + 1, (long)len);
+    ASSERT_TRUE(memcmp(buf, want, want_len) == 0 && buf[want_len] == '!');
+    ASSERT_TRUE(tue_index_consistent(&ctx, buf, len));
+    ASSERT_EQ_INT((long)rebuilds, (long)idx->rebuilds);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(undo_editor_text_then_delete_frame_keeps_history) {
+    // A word: "x" lands at 0, Ctrl+Delete removes "hello" after it.
+    tue_text_then_delete_case("hello world\nline two", 0, "x", WLX_MOD_CTRL,
+        "x world\nline two");
+    // Clusters: "e acute" (3 bytes) lands after "ab", Delete removes the
+    // 8-byte flag after it (the running span ends at 5, the delete at 13).
+    tue_text_then_delete_case("ab" GR_FLAG GR_FAMILY "z", 2, GR_EACUTE, 0,
+        "ab" GR_EACUTE GR_FAMILY "z");
+}
+
 TEST(undo_editor_oversize_delete_is_undoable) {
     WLX_Context ctx;
     tue_ctx_init(&ctx);
@@ -1666,6 +1732,7 @@ SUITE(text_undo) {
     RUN_TEST(undo_editor_wrapped_bottom_anchor_survives_replay_before_it);
     RUN_TEST(undo_editor_caret_follow_brings_restored_caret_into_view);
     RUN_TEST(undo_editor_revision_bump_drops_history);
+    RUN_TEST(undo_editor_text_then_delete_frame_keeps_history);
     RUN_TEST(undo_editor_oversize_delete_is_undoable);
     RUN_TEST(undo_editor_typing_run_splits_at_the_step_bound);
     RUN_TEST(undo_property_editor_sequences_round_trip);

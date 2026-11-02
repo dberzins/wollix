@@ -741,6 +741,95 @@ TEST(editor_index_patch_equals_rebuild) {
 }
 
 // ============================================================================
+// Frame span merge: wlx_text_edit_span_add folds a frame's edits (each in
+// the coordinates of the buffer as the previous one left it) into one
+// replacement, pre-frame [start, old_end) became current [start, new_end),
+// that the index sync patches with. Named cases, then a property: over
+// random edit sequences, the bytes before start and past the span's ends
+// are unchanged and the lengths agree.
+// ============================================================================
+
+typedef struct {
+    const char *name;
+    size_t edits[3][3];         // up to three (start, old_end, new_end) edits
+    size_t count;
+    size_t start, old_end, new_end;
+} Sm_Row;
+
+static const Sm_Row sm_rows[] = {
+    { "one edit is the span",                          {{2, 4, 3}}, 1, 2, 4, 3 },
+    { "edit inside the running span",                  {{2, 2, 5}, {3, 4, 3}}, 2, 2, 2, 4 },
+    { "edit before the running span",                  {{10, 12, 10}, {3, 3, 5}}, 2, 3, 12, 12 },
+    { "edit overlapping the span's start",             {{5, 8, 10}, {3, 7, 3}}, 2, 3, 8, 6 },
+    { "forward delete past the running end",           {{0, 0, 1}, {1, 6, 1}}, 2, 0, 5, 1 },
+    { "forward delete past the end, mid-document",     {{2, 2, 4}, {4, 14, 4}}, 2, 2, 12, 4 },
+    { "delete after the span, across a gap",           {{0, 0, 1}, {5, 7, 5}}, 2, 0, 6, 5 },
+    { "insert, delete past it, insert again",          {{0, 0, 1}, {1, 6, 1}, {1, 1, 3}}, 3, 0, 5, 3 },
+};
+
+static uint64_t sm_rng_state = 0;
+static uint64_t sm_rng(void) {
+    sm_rng_state ^= sm_rng_state << 13;
+    sm_rng_state ^= sm_rng_state >> 7;
+    sm_rng_state ^= sm_rng_state << 17;
+    return sm_rng_state;
+}
+
+TEST(text_edit_span_merge_cases) {
+    bool all_ok = true;
+    for (size_t i = 0; i < sizeof sm_rows / sizeof sm_rows[0]; i++) {
+        const Sm_Row *r = &sm_rows[i];
+        WLX_Text_Edit_Span sp;
+        memset(&sp, 0, sizeof(sp));
+        for (size_t e = 0; e < r->count; e++)
+            wlx_text_edit_span_add(&sp, r->edits[e][0], r->edits[e][1], r->edits[e][2]);
+        bool ok = sp.edited && sp.start == r->start && sp.old_end == r->old_end
+            && sp.new_end == r->new_end;
+        if (!ok) {
+            fprintf(stderr, "    (row: %s: got %zu %zu %zu, want %zu %zu %zu)\n", r->name,
+                sp.start, sp.old_end, sp.new_end, r->start, r->old_end, r->new_end);
+        }
+        all_ok = all_ok && ok;
+    }
+    ASSERT_TRUE(all_ok);
+}
+
+TEST(text_edit_span_merge_property) {
+    char pre[64], cur[64];
+    bool ok = true;
+    sm_rng_state = 0x2545F4914F6CDD1DULL;
+    for (size_t it = 0; ok && it < 100000; it++) {
+        size_t pre_len = sm_rng() % 24;
+        for (size_t i = 0; i < pre_len; i++) pre[i] = (char)('a' + sm_rng() % 26);
+        memcpy(cur, pre, pre_len);
+        size_t len = pre_len;
+        WLX_Text_Edit_Span sp;
+        memset(&sp, 0, sizeof(sp));
+        size_t edits = 1 + sm_rng() % 4;
+        for (size_t e = 0; e < edits; e++) {
+            // An insert, a delete or a replacement, at most 4 bytes in.
+            size_t start = sm_rng() % (len + 1);
+            size_t old_end = start + sm_rng() % (len - start + 1);
+            size_t rep_len = sm_rng() % 5;   // at most 23 + 4 * 4 bytes in all
+            memmove(cur + start + rep_len, cur + old_end, len - old_end);
+            for (size_t i = 0; i < rep_len; i++) cur[start + i] = (char)('A' + sm_rng() % 26);
+            len = len - (old_end - start) + rep_len;
+            wlx_text_edit_span_add(&sp, start, old_end, start + rep_len);
+        }
+        ok = sp.edited && sp.start <= sp.old_end && sp.old_end <= pre_len
+            && sp.start <= sp.new_end && sp.new_end <= len
+            && pre_len - (sp.old_end - sp.start) + (sp.new_end - sp.start) == len
+            && memcmp(pre, cur, sp.start) == 0
+            && memcmp(pre + sp.old_end, cur + sp.new_end, pre_len - sp.old_end) == 0;
+        if (!ok) {
+            fprintf(stderr, "    (sequence %zu: pre %zu bytes, now %zu; span %zu %zu %zu)\n",
+                it, pre_len, len, sp.start, sp.old_end, sp.new_end);
+        }
+    }
+    ASSERT_TRUE(ok);
+}
+
+// ============================================================================
 // Index sync decision table: wlx_editor_index_sync called directly, one
 // row per cause. Each row stages the guard (the index last saw "ab\ncd\nef",
 // length 8, revision 0), two retained-geometry entries (line 0 at [0,3)
@@ -887,6 +976,8 @@ SUITE(editor_edit) {
     RUN_TEST(edit_revision_guard_interplay_with_edits);
     RUN_TEST(edit_same_frame_in_place_mutation_rebuilds_not_patches);
     RUN_TEST(editor_index_patch_equals_rebuild);
+    RUN_TEST(text_edit_span_merge_cases);
+    RUN_TEST(text_edit_span_merge_property);
     RUN_TEST(editor_index_sync_decision_table);
     RUN_TEST(edit_tab_prefix_measure_hits_next_stop);
     RUN_TEST(edit_tab_key_inserts_and_segments_draw_at_stops);

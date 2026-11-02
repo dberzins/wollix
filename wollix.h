@@ -15021,7 +15021,10 @@ static void wlx_text_edit_span_add(WLX_Text_Edit_Span *span, size_t start,
     // The running span maps pre-frame [S, OE) to current [S, NE); the new
     // edit is expressed in current coordinates. Bytes it touches beyond NE
     // map back through the running delta; the merged current end tracks
-    // the new edit's shift of everything at or past it.
+    // the new edit's shift of everything at or past it. The shifted end
+    // is negative when the edit deletes more bytes past NE than NE's
+    // offset (typed text, then Delete near the document start), so the
+    // max compares signed; the result is never below new_end.
     ptrdiff_t run_delta = (ptrdiff_t)span->new_end - (ptrdiff_t)span->old_end;
     ptrdiff_t edit_delta = (ptrdiff_t)new_end - (ptrdiff_t)old_end;
     if (start < span->start) span->start = start;
@@ -15029,8 +15032,8 @@ static void wlx_text_edit_span_add(WLX_Text_Edit_Span *span, size_t start,
         size_t mapped = (size_t)((ptrdiff_t)old_end - run_delta);
         if (mapped > span->old_end) span->old_end = mapped;
     }
-    size_t shifted = (size_t)((ptrdiff_t)span->new_end + edit_delta);
-    span->new_end = new_end > shifted ? new_end : shifted;
+    ptrdiff_t shifted = (ptrdiff_t)span->new_end + edit_delta;
+    span->new_end = (ptrdiff_t)new_end > shifted ? new_end : (size_t)shifted;
 }
 
 // Remove the byte range [min(*cursor, *anchor), max(*cursor, *anchor)) from

@@ -517,11 +517,12 @@ minor.
   the wheel; compositions that commit or cancel) over the inputbox, the
   password field, the textarea and the editor, wrapped and not, in 48-byte
   and larger buffers. Every frame checks the length, valid UTF-8, the caret
-  pair on unit boundaries and the editor's line index; each round ends by
-  undoing to the history's base and redoing to its tip. Fixed seeds gate
-  `make test` and `make test-asan`, a self-check proves every op class is
-  reached in every mode, and one time-seeded round per mode prints its
-  seed if it fails.
+  pair on unit boundaries and the editor's line index, which must be
+  patched by every edit and never rebuilt; each round ends by undoing to
+  the history's base and redoing to its tip. Fixed seeds gate `make test`
+  and `make test-asan`, a self-check proves every op class is reached in
+  every mode, and one time-seeded round per mode prints its seed if it
+  fails; printed seeds join a regression table that runs them as printed.
 - **`make docs-check`.** `tools/docs_check.py` compiles every C and C++
   example in README.md and docs/ against the headers (an unknown field, an
   undeclared `wlx_` name or a missing header fails), compiles and links the
@@ -538,6 +539,16 @@ minor.
   SDL3 targets with `NDEBUG`, `-O2` and `-Werror`.
 
 ### Fixed
+- **The editor keeps its undo history across typed text and Delete in one
+  frame.** A frame that typed text and then pressed Delete or Ctrl+Delete
+  near the start of the document, the delete removing more bytes than the
+  offset where the typed text ended, merged its edits into a byte span
+  with an end far past the document. The editor read that as a change
+  made outside the widget: it rescanned the whole document for its line
+  index, dropped its retained line geometry and cleared the undo history.
+  An undo or redo of a step holding such a pair took the same path. The
+  span is now right, and the frame patches the index like any other edit.
+  In v0.8.0 and earlier, which had no undo, the cost was the rescan alone.
 - **Option tables show the stored default.** The panel's `title_font_size`,
   `title_height` and `capacity`, and the `content_padding` of the panel,
   the split, the inputbox and the editor, were documented as the value the

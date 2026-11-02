@@ -16,7 +16,9 @@
 // editor with the first one's mistakes). Every frame: the length is within
 // capacity, and the inputbox's buffer keeps its NUL; the document is valid
 // UTF-8 (every input is); the caret pair is inside the document and on
-// text-unit boundaries; the editor's line index equals a fresh scan.
+// text-unit boundaries; the editor's line index equals a fresh scan, and
+// after the first frame it is patched, never rebuilt (every change is the
+// widget's own edit, so a rebuild means a frame's edit span missed one).
 // Between ops no composition is held. At the end of a round, undo runs to
 // the history's base and redo to its tip, bytes pinned at both: the base
 // is the document whenever the undo stack was last empty, the tip the
@@ -24,13 +26,14 @@
 //
 // Fixed seeds gate, with a coverage self-check that every op class (and a
 // second key, text beside a key, and the small buffer) is drawn in every
-// mode across the table, so the generator cannot narrow silently. One
-// time-seeded round per mode follows; it only adds coverage and prints its
-// seed when it fails, so the seed can join the table (the test_fuzz.c
-// pattern).
+// mode across the table, so the generator cannot narrow silently. A
+// regression table follows: seeds a failing round printed, run as printed.
+// Then one time-seeded round per mode; it only adds coverage and prints
+// its seed when it fails, so the seed can join the regression table (the
+// test_fuzz.c pattern).
 //
 // Included from test_main.c (single TU build) after test_ime.c; uses
-// tue_index_consistent (test_text_undo.c).
+// tue_index_consistent (test_text_undo.c) and ev_index (test_editor_view.c).
 
 // ============================================================================
 // Modes, op classes, the generator
@@ -234,6 +237,13 @@ static int      ft_cur_op = -1;
 static FT_Class ft_cur_class = FT_OP_TYPE;
 static bool     ft_cur_small = false;
 
+// The editor's index rebuild count once the first frame has built the
+// index (UINT32_MAX before). Every later change in a round is the widget's
+// own edit, which patches the index, so the count holds; a rebuild means a
+// frame's edit span did not account for its edits, and the undo history
+// went with the index.
+static uint32_t ft_rebuilds = UINT32_MAX;
+
 // The per-frame oracle.
 #define FT_CHECK_FRAME(ctx, buf, cap, len) do {                                    \
     if (ft_is_inputbox(ft_mode)) ASSERT_TRUE(strlen(buf) < (cap));                 \
@@ -245,6 +255,8 @@ static bool     ft_cur_small = false;
     ASSERT_TRUE(wlx_text_unit_boundary((buf), (len), ft_c_->cursor_pos));          \
     ASSERT_TRUE(wlx_text_unit_boundary((buf), (len), ft_c_->selection_anchor));    \
     if (!ft_is_inputbox(ft_mode)) ASSERT_TRUE(tue_index_consistent((ctx), (buf), (len))); \
+    if (!ft_is_inputbox(ft_mode) && ft_rebuilds != UINT32_MAX)                     \
+        ASSERT_EQ_INT((long)ft_rebuilds, (long)ev_index(ctx)->rebuilds);           \
 } while (0)
 
 // A frame, then the oracle, then the effects it reached.
@@ -267,6 +279,7 @@ static void ft_round(FT_Mode mode, uint32_t seed, int ops, uint32_t *drawn) {
     uint32_t s = seed;
     ft_mode = mode;
     ft_cur_op = -1;
+    ft_rebuilds = UINT32_MAX;
     bool small = ft_next(&s) % 2 == 0;
     ft_cur_small = small;
     if (small) *drawn |= 1u << FT_COV_SMALL_BUFFER;
@@ -296,6 +309,7 @@ static void ft_round(FT_Mode mode, uint32_t seed, int ops, uint32_t *drawn) {
     memset(&f, 0, sizeof(f));
     f.mx = px; f.my = py; f.down = true; f.clicked = true;
     FT_FRAME(f);                                   // focus
+    if (!ft_is_inputbox(mode) && ev_index(&ctx) != NULL) ft_rebuilds = ev_index(&ctx)->rebuilds;
     memset(&f, 0, sizeof(f));
     f.mx = px; f.my = py;
     FT_FRAME(f);                                   // release
@@ -489,21 +503,33 @@ static const uint32_t ft_fixed_seeds[] = {
     0x7e570111u, 0x7e570222u, 0x7e570333u, 0x7e570555u,
 };
 #define FT_FIXED_SEED_COUNT (sizeof(ft_fixed_seeds) / sizeof(ft_fixed_seeds[0]))
-#define FT_OPS_PER_ROUND 120
+
+// Seeds a time-seeded round printed when it failed, run as printed (not
+// mixed with the mode) in every mode.
+//   0x7d478ff0  editor: a frame's edits, a forward delete past the
+//               running end among them, merged into an edit span with a
+//               wrapped end; the index rebuilt and the undo history was
+//               dropped. Printed by CI at 120 ops; at 300 it still
+//               reaches the defect, in the round trip's redo.
+static const uint32_t ft_regression_seeds[] = {
+    0x7d478ff0u,
+};
+#define FT_REGRESSION_SEED_COUNT (sizeof(ft_regression_seeds) / sizeof(ft_regression_seeds[0]))
+#define FT_OPS_PER_ROUND 300
 
 static uint32_t ft_mode_seed(uint32_t seed, FT_Mode mode) {
     return seed ^ ((uint32_t)mode * 0x9E3779B9u);
 }
 
 // One round, named on failure.
-static bool ft_round_named(FT_Mode mode, uint32_t seed, uint32_t *drawn, bool timed) {
+static bool ft_round_named(FT_Mode mode, uint32_t seed, uint32_t *drawn, const char *kind) {
     int failed_before = _test_current_failed;
     _test_current_failed = 0;
     ft_round(mode, seed, FT_OPS_PER_ROUND, drawn);
     bool failed = _test_current_failed != 0;
     if (failed) {
-        fprintf(stderr, "    (%s round: mode %s, seed 0x%08x, op %d (%s)%s)\n",
-                timed ? "time-seeded" : "fixed", ft_mode_names[mode], (unsigned)seed, ft_cur_op,
+        fprintf(stderr, "    (%s round: mode %s, seed 0x%08x, %d ops, op %d (%s)%s)\n",
+                kind, ft_mode_names[mode], (unsigned)seed, FT_OPS_PER_ROUND, ft_cur_op,
                 ft_cur_op >= 0 && ft_cur_op < FT_OPS_PER_ROUND ? ft_class_names[ft_cur_class]
                                                                  : "setup or round trip",
                 ft_cur_small ? ", 48-byte buffer" : "");
@@ -515,7 +541,7 @@ static bool ft_round_named(FT_Mode mode, uint32_t seed, uint32_t *drawn, bool ti
 static void ft_fuzz_mode(FT_Mode mode) {
     uint32_t drawn = 0;
     for (size_t i = 0; i < FT_FIXED_SEED_COUNT; i++) {
-        if (!ft_round_named(mode, ft_mode_seed(ft_fixed_seeds[i], mode), &drawn, false)) return;
+        if (!ft_round_named(mode, ft_mode_seed(ft_fixed_seeds[i], mode), &drawn, "fixed")) return;
     }
     // The coverage self-check: every class drawn in this mode across the
     // fixed table.
@@ -526,8 +552,11 @@ static void ft_fuzz_mode(FT_Mode mode) {
                 ft_mode_names[mode], ft_class_names[c]);
         ASSERT_TRUE(drawn & (1u << c));
     }
+    for (size_t i = 0; i < FT_REGRESSION_SEED_COUNT; i++) {
+        if (!ft_round_named(mode, ft_regression_seeds[i], &drawn, "regression")) return;
+    }
     uint32_t timed = (uint32_t)time(NULL) ^ ((uint32_t)mode * 0x85EBCA6Bu);
-    (void)ft_round_named(mode, timed, &drawn, true);
+    (void)ft_round_named(mode, timed, &drawn, "time-seeded");
 }
 
 TEST(fuzz_text_inputbox)          { ft_fuzz_mode(FT_INPUTBOX); }
