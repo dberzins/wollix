@@ -1294,11 +1294,11 @@ static void tue_text_then_delete_case(const char *doc, int rights, const char *t
     size_t orig_len = len;
 
     tue_focus(&ctx, buf, sizeof(buf), &len);
-    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, WLX_MOD_CTRL);
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, test_command_mod());
     tue_type(&ctx, buf, sizeof(buf), &len, "!");
     memcpy(with_step, buf, len);
     size_t step_len = len;
-    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, WLX_MOD_CTRL);
+    tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, test_command_mod());
     for (int i = 0; i < rights; i++) tue_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_RIGHT, 0);
 
     WLX_Editor_Line_Index *idx = ev_index(&ctx);
