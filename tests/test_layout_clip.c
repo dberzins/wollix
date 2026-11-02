@@ -240,7 +240,7 @@ TEST(layout_clip_drag_not_acquired_outside) {
     (void)_lc_probe(&ctx, 50, 80, false, drag, false);              // warm
     WLX_Interaction s = _lc_probe(&ctx, 50, 80, true, drag, false); // press outside the clip
     ASSERT_FALSE(s.active);
-    ASSERT_EQ_INT((int)ctx.interaction.active_id, 0);
+    ASSERT_EQ_ID(ctx.interaction.active_id, 0);
     wlx_context_destroy(&ctx);
 
     test_ctx_init(&ctx, 400, 300);

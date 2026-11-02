@@ -4,7 +4,8 @@
 // test_runner) with the documented limit macros predefined to non-default values
 // before including wollix.h. The header must honor a prior definition
 // instead of clobbering it back to the default, and the library must stay
-// functional under the overridden limits.
+// functional under the overridden limits. It also defines WLX_SHORT_NAMES
+// and expands every short alias once (short_names_frame).
 
 #define WLX_MAX_SLOT_COUNT 512
 #define WLX_CONTENT_SLOTS_MAX 8
@@ -15,6 +16,7 @@
 #define WLX_TEXT_UNDO_BYTES 4096
 #define WLX_CONTENT_SCALE_MAX 3.0f
 #define WLX_STATE_MIN_AGE 1
+#define WLX_SHORT_NAMES
 
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
@@ -56,6 +58,98 @@ static int   co_errors = 0;
 static float co_scale  = 1.0f;
 static void  co_capture(const WLX_Error *e, void *user) { (void)e; (void)user; co_errors++; }
 static float co_get_scale(void *user) { (void)user; return co_scale; }
+
+// Every WLX_SHORT_NAMES alias, each expanded once in one frame, most in the
+// README's form without options. An alias is a macro, so a stale one fails
+// only where it is expanded. `make docs-check` holds the calls between the
+// markers and the header's alias list to one set.
+static int short_names_frame(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 1400);
+    co_errors = 0;
+    wlx_set_error_handler(&ctx, co_capture, NULL);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    static char field[32] = "in", area[64] = "area";
+    static const char *opts[] = { "a", "b" };
+    bool on = true, menu_open = true, sub_open = true, button_open = false;
+    float value = 0.5f;
+    int active = 0, selected = 0;
+    WLX_Texture tex = { 1, 8, 8 };
+    // short-names:begin
+    layout_begin(&ctx, 26, WLX_VERT);
+    label(&ctx, "label");
+    (void)button(&ctx, "button");
+    (void)checkbox(&ctx, "check", &on);
+    (void)inputbox(&ctx, "in", field, sizeof(field));
+    (void)textarea(&ctx, "area", area, sizeof(area));
+    (void)slider(&ctx, "slider", &value);
+    separator(&ctx);
+    progress(&ctx, value);
+    (void)toggle(&ctx, "toggle", &on);
+    (void)radio(&ctx, "radio", &active, 0);
+    (void)dropdown(&ctx, "drop", &selected, opts, 2);
+    widget(&ctx);
+    image(&ctx, tex);
+    (void)tooltip_for(&ctx, last_rect(&ctx), "tip");
+    slot_style(&ctx, .back_color = WLX_RGBA(1, 2, 3, 255));
+    layout_begin_s(&ctx, WLX_HORZ, WLX_SIZES(WLX_SLOT_FLEX(1), WLX_SLOT_FLEX(1)), .padding = 0);
+        label(&ctx, "s1");
+        label(&ctx, "s2");
+    layout_end(&ctx);
+    layout_begin_auto(&ctx, WLX_VERT, 0);
+        layout_auto_slot(&ctx, WLX_SLOT_PX(10));
+        label(&ctx, "a1");
+        layout_auto_slot_px(&ctx, 10);
+        label(&ctx, "a2");
+    layout_end(&ctx);
+    grid_begin(&ctx, 2, 2);
+        grid_cell(&ctx, 1, 1);
+        label(&ctx, "g11");
+        grid_cell_style(&ctx, .back_color = WLX_RGBA(4, 5, 6, 255));
+        label(&ctx, "g00");
+    grid_end(&ctx);
+    grid_begin_auto(&ctx, 2, 10);
+        label(&ctx, "ga1");
+        label(&ctx, "ga2");
+    grid_end(&ctx);
+    grid_begin_auto_tile(&ctx, 100, 10);
+        label(&ctx, "gt1");
+    grid_end(&ctx);
+    scroll_panel_begin(&ctx, 100);
+        label(&ctx, "scrolled");
+    scroll_panel_end(&ctx);
+    split_begin(&ctx);
+        label(&ctx, "left");
+    split_next(&ctx);
+        label(&ctx, "right");
+    split_end(&ctx);
+    panel_begin(&ctx, .title = "panel");
+        label(&ctx, "in panel");
+    panel_end(&ctx);
+    push_id(&ctx, 7);
+    push_opacity(&ctx, 0.5f);
+        label(&ctx, "faded");
+    pop_opacity(&ctx);
+    pop_id(&ctx);
+    if (menu_button_begin(&ctx, "file", &button_open)) menu_end(&ctx);
+    overlay_begin(&ctx, 1, wlx_rect(600, 1200, 100, 40));
+        label(&ctx, "over");
+    overlay_end(&ctx);
+    if (menu_begin(&ctx, &menu_open, 600, 1000)) {
+        (void)menu_item(&ctx, "more", .keep_open = true);
+        if (submenu_begin(&ctx, &sub_open)) {
+            (void)menu_item(&ctx, "leaf");
+            menu_end(&ctx);
+        }
+        menu_end(&ctx);
+    }
+    layout_end(&ctx);
+    // short-names:end
+    test_frame_end(&ctx);
+    int errors = co_errors;
+    wlx_context_destroy(&ctx);
+    return errors;
+}
 
 int main(void) {
     // Smoke: the offset solver works under the overridden limits, on the
@@ -120,6 +214,9 @@ int main(void) {
         assert(skipped_reclaimed == 9);
         wlx_context_destroy(&ctx);
     }
-    printf("test_config_override: OK (pre-include limit overrides honored, MIN_AGE 1 keeps every-frame state)\n");
+    assert(short_names_frame() == 0);
+
+    printf("test_config_override: OK (pre-include limit overrides honored, MIN_AGE 1 keeps every-frame state, "
+           "every short name expands)\n");
     return 0;
 }

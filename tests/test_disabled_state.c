@@ -71,7 +71,7 @@ TEST(disabled_interaction_button_no_click) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
     ASSERT_FALSE(clicked_press);
-    ASSERT_EQ_INT((int)ctx.interaction.active_id, 0);
+    ASSERT_EQ_ID(ctx.interaction.active_id, 0);
 
     // Frame 2: release inside same widget
     test_frame_begin(&ctx, 200, 150, false, false);
@@ -105,7 +105,7 @@ TEST(disabled_interaction_inputbox_no_focus) {
     test_frame_end(&ctx);
 
     // No widget became active.
-    ASSERT_EQ_INT((int)ctx.interaction.active_id, 0);
+    ASSERT_EQ_ID(ctx.interaction.active_id, 0);
 
     // Send a follow-up frame with text input. Because focus was never
     // claimed, the inputbox's keys path must not run and the buffer is
@@ -153,7 +153,7 @@ TEST(disabled_interaction_slider_no_drag) {
     test_frame_end(&ctx);
     ASSERT_EQ_F(value, 0.25f, 0.0001f);
 
-    ASSERT_EQ_INT((int)ctx.interaction.active_id, 0);
+    ASSERT_EQ_ID(ctx.interaction.active_id, 0);
 
     wlx_context_destroy(&ctx);
 }
@@ -187,8 +187,8 @@ TEST(disabled_does_not_claim_hot_id) {
     ASSERT_FALSE(s.active);
     ASSERT_FALSE(s.just_focused);
     ASSERT_FALSE(s.just_unfocused);
-    ASSERT_EQ_INT((int)ctx.interaction.hot_id, 0);
-    ASSERT_EQ_INT((int)ctx.interaction.active_id, 0);
+    ASSERT_EQ_ID(ctx.interaction.hot_id, 0);
+    ASSERT_EQ_ID(ctx.interaction.active_id, 0);
 
     wlx_context_destroy(&ctx);
 }
@@ -344,7 +344,7 @@ TEST(disabled_back_compat) {
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
     ASSERT_FALSE(clicked_press);
-    ASSERT_NEQ_INT((int)ctx.interaction.active_id, 0);
+    ASSERT_NEQ_ID(ctx.interaction.active_id, 0);
 
     // Frame 2: release while still hovering -> clicked fires.
     test_frame_begin(&ctx, 200, 150, false, false);

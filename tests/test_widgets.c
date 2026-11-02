@@ -166,7 +166,7 @@ TEST(slider_enabled_press_drag_release_updates_value) {
     // Release: the drag ends and the value stays put.
     ASSERT_FALSE(_wgt_slider_frame(&ctx, &v, 350, false, false, 0.0f, 1.0f));
     ASSERT_EQ_F(v, held, 1e-6f);
-    ASSERT_EQ_INT((int)ctx.interaction.active_id, 0);
+    ASSERT_EQ_ID(ctx.interaction.active_id, 0);
 
     // Moving with the button up is inert.
     ASSERT_FALSE(_wgt_slider_frame(&ctx, &v, 100, false, false, 0.0f, 1.0f));

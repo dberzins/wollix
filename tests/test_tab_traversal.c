@@ -85,23 +85,23 @@ TEST(tab_walks_declaration_order_and_wraps) {
     test_ctx_init(&ctx, 400, 300);
 
     TT_Result r = tt_idle(&ctx);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
 
     r = tt_tab(&ctx);                          // none -> first stop: b1
-    ASSERT_EQ_INT((long)r.b1.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b1.id, wlx_focused_id(&ctx));
 
     r = tt_tab(&ctx);                          // b1 -> field (label, slider skipped later)
-    ASSERT_EQ_INT((long)r.field.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.field.id, wlx_focused_id(&ctx));
     ASSERT_TRUE(r.field.focused);              // FOCUS-class target is now typing-focused
     ASSERT_TRUE(r.field.just_focused);
 
     r = tt_tab(&ctx);                          // field -> b2 (label + slider skipped)
-    ASSERT_EQ_INT((long)r.b2.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b2.id, wlx_focused_id(&ctx));
     ASSERT_FALSE(r.field.focused);             // field released
     ASSERT_TRUE(r.field.just_unfocused);
 
     r = tt_tab(&ctx);                          // b2 -> wrap to b1
-    ASSERT_EQ_INT((long)r.b1.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b1.id, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -111,13 +111,13 @@ TEST(shift_tab_walks_backward_and_wraps) {
 
     tt_idle(&ctx);
     TT_Result r = tt_shift_tab(&ctx);          // none -> last stop: b2
-    ASSERT_EQ_INT((long)r.b2.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b2.id, wlx_focused_id(&ctx));
     r = tt_shift_tab(&ctx);                    // b2 -> field
-    ASSERT_EQ_INT((long)r.field.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.field.id, wlx_focused_id(&ctx));
     r = tt_shift_tab(&ctx);                    // field -> b1
-    ASSERT_EQ_INT((long)r.b1.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b1.id, wlx_focused_id(&ctx));
     r = tt_shift_tab(&ctx);                    // b1 -> wrap to b2
-    ASSERT_EQ_INT((long)r.b2.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b2.id, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -127,12 +127,12 @@ TEST(tab_skips_disabled_widget) {
 
     tt_frame(&ctx, 300, 300, false, false, WLX_KEY_NONE, 0, true);
     TT_Result r = tt_frame(&ctx, 300, 300, false, false, WLX_KEY_TAB, 0, true);
-    ASSERT_EQ_INT((long)r.b1.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b1.id, wlx_focused_id(&ctx));
     r = tt_frame(&ctx, 300, 300, false, false, WLX_KEY_TAB, 0, true);
-    ASSERT_EQ_INT((long)r.field.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.field.id, wlx_focused_id(&ctx));
     r = tt_frame(&ctx, 300, 300, false, false, WLX_KEY_TAB, 0, true);
     // b2 is disabled (no candidate): the ring wraps straight back to b1.
-    ASSERT_EQ_INT((long)r.b1.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b1.id, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -148,7 +148,7 @@ TEST(held_tab_repeats_walk_the_ring) {
     WLX_Interaction b1 = wlx_get_interaction(&ctx, tt_b1_rect,
         WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD, "tt_b1", 1);
     test_frame_end(&ctx);
-    ASSERT_EQ_INT((long)b1.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(b1.id, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -163,11 +163,11 @@ TEST(tab_continues_from_mouse_focused_field) {
     tt_idle(&ctx);
     TT_Result r = tt_frame(&ctx, 50, 80, true, true, WLX_KEY_NONE, 0, false);  // click field
     ASSERT_TRUE(r.field.focused);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));   // pointer focus is not the ring
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));   // pointer focus is not the ring
     tt_frame(&ctx, 50, 80, false, false, WLX_KEY_NONE, 0, false);
 
     r = tt_tab(&ctx);                                // from the field -> b2
-    ASSERT_EQ_INT((long)r.b2.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b2.id, wlx_focused_id(&ctx));
     ASSERT_FALSE(r.field.focused);
     ASSERT_TRUE(r.field.just_unfocused);
     wlx_context_destroy(&ctx);
@@ -206,7 +206,7 @@ TEST(enter_that_blurs_field_does_not_activate_next_stop) {
     ASSERT_TRUE(r.field.just_unfocused);
     ASSERT_FALSE(r.b1.clicked);
     ASSERT_FALSE(r.b2.clicked);
-    ASSERT_EQ_INT((long)r.field.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.field.id, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -221,7 +221,7 @@ TEST(escape_clears_ring_when_nothing_active) {
     tt_idle(&ctx);
     tt_tab(&ctx);                                    // b1 (not active: click-class)
     tt_frame(&ctx, 300, 300, false, false, WLX_KEY_ESCAPE, 0, false);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -232,7 +232,7 @@ TEST(pointer_press_clears_ring) {
     tt_idle(&ctx);
     tt_tab(&ctx);                                    // b1
     tt_frame(&ctx, 300, 300, true, true, WLX_KEY_NONE, 0, false);  // press on nothing
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -242,14 +242,14 @@ TEST(focused_widget_disappearing_is_collected) {
 
     tt_idle(&ctx);
     TT_Result r = tt_tab(&ctx);                      // b1
-    ASSERT_EQ_INT((long)r.b1.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b1.id, wlx_focused_id(&ctx));
 
     // A frame that declares only the field: b1 was not seen, focus drops.
     test_frame_begin(&ctx, 300, 300, false, false);
     (void)wlx_get_interaction(&ctx, tt_field_rect,
         WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS, "tt_field", 1);
     test_frame_end(&ctx);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -279,9 +279,9 @@ TEST(overlay_open_ring_cycles_top_layer_only) {
         wlx_layout_end(&ctx);
         test_frame_end(&ctx);
         base_id = base.id; over_a = a.id; over_b = b.id;
-        if (frame == 1) ASSERT_EQ_INT((long)over_a, (long)wlx_focused_id(&ctx));
-        if (frame == 2) ASSERT_EQ_INT((long)over_b, (long)wlx_focused_id(&ctx));
-        if (frame == 3) ASSERT_EQ_INT((long)over_a, (long)wlx_focused_id(&ctx)); // wraps within the overlay
+        if (frame == 1) ASSERT_EQ_ID(over_a, wlx_focused_id(&ctx));
+        if (frame == 2) ASSERT_EQ_ID(over_b, wlx_focused_id(&ctx));
+        if (frame == 3) ASSERT_EQ_ID(over_a, wlx_focused_id(&ctx)); // wraps within the overlay
     }
     ASSERT_TRUE(base_id != wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
@@ -343,7 +343,7 @@ TEST(focused_editor_keeps_tab_as_insert) {
     ASSERT_TRUE(focused);
     ASSERT_EQ_INT(3, (long)len);
     ASSERT_TRUE(memcmp(buf, "ab\t", 3) == 0);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
 
     // Escape blurs the editor; the next Tab traverses (to the button) and
     // does not insert.
@@ -352,7 +352,7 @@ TEST(focused_editor_keeps_tab_as_insert) {
     focused = tt_editor_frame(&ctx, buf, sizeof(buf), &len, 200, 150, false, false, WLX_KEY_TAB, &btn);
     ASSERT_FALSE(focused);
     ASSERT_EQ_INT(3, (long)len);
-    ASSERT_EQ_INT((long)btn.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(btn.id, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -366,7 +366,7 @@ TEST(tab_into_editor_does_not_insert) {
     tt_editor_frame(&ctx, buf, sizeof(buf), &len, 300, 290, false, false, WLX_KEY_NONE, NULL);
     WLX_Interaction btn;
     tt_editor_frame(&ctx, buf, sizeof(buf), &len, 300, 290, false, false, WLX_KEY_TAB, &btn);   // -> button
-    ASSERT_EQ_INT((long)btn.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(btn.id, wlx_focused_id(&ctx));
     bool focused = tt_editor_frame(&ctx, buf, sizeof(buf), &len, 300, 290, false, false, WLX_KEY_TAB, NULL); // -> editor
     ASSERT_TRUE(focused);
     ASSERT_EQ_INT(2, (long)len);                    // the entering Tab did not insert
@@ -713,19 +713,19 @@ TEST(tab_skips_fully_clipped_stop) {
     test_ctx_init(&ctx, 400, 300);
     tc_frame(&ctx, WLX_KEY_NONE, 0, tc_hidden_field);                    // warm
     TC_Result r = tc_frame(&ctx, WLX_KEY_TAB, 0, tc_hidden_field);       // none -> b1
-    ASSERT_EQ_INT((long)r.b1.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b1.id, wlx_focused_id(&ctx));
     r = tc_frame(&ctx, WLX_KEY_TAB, 0, tc_hidden_field);                 // b1 -> b2, hidden field skipped
-    ASSERT_EQ_INT((long)r.b2.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b2.id, wlx_focused_id(&ctx));
     ASSERT_FALSE(r.field.focused);
     r = tc_frame(&ctx, WLX_KEY_TAB, WLX_MOD_SHIFT, tc_hidden_field);     // b2 -> b1, skipped backward too
-    ASSERT_EQ_INT((long)r.b1.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.b1.id, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 
     test_ctx_init(&ctx, 400, 300);                                       // control: partly visible field
     tc_frame(&ctx, WLX_KEY_NONE, 0, tc_visible_field);
     r = tc_frame(&ctx, WLX_KEY_TAB, 0, tc_visible_field);                // none -> b1
     r = tc_frame(&ctx, WLX_KEY_TAB, 0, tc_visible_field);                // b1 -> field
-    ASSERT_EQ_INT((long)r.field.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.field.id, wlx_focused_id(&ctx));
     ASSERT_TRUE(r.field.focused);
     wlx_context_destroy(&ctx);
 }
@@ -742,7 +742,7 @@ TEST(focus_ring_clamped_to_clip) {
     tc_frame(&ctx, WLX_KEY_TAB, 0, tc_visible_field);                    // b1
     _tt_line_count = 0;
     TC_Result r = tc_frame(&ctx, WLX_KEY_TAB, 0, tc_visible_field);      // field
-    ASSERT_EQ_INT((long)r.field.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(r.field.id, wlx_focused_id(&ctx));
 
     WLX_Rect visible = wlx_rect_intersect(tc_visible_field, tc_clip_rect);
     WLX_Rect expect  = wlx_rect_intersect(_tt_ring_of(visible), tc_clip_rect);
@@ -799,7 +799,7 @@ TEST(press_with_shift_tab_keeps_the_pressed_field) {
     r = tt_pair_frame(&ctx, 50, 20, false, WLX_KEY_NONE, 0);
     ASSERT_TRUE(r.f1.focused);
     ASSERT_FALSE(r.f1.just_unfocused);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
 
     tt_pair_frame(&ctx, 50, 80, true, WLX_KEY_NONE, 0);
     r = tt_pair_frame(&ctx, 50, 80, false, WLX_KEY_NONE, 0);
@@ -833,7 +833,7 @@ TEST(press_on_the_focused_field_with_tab_keeps_it_without_edges) {
     ASSERT_FALSE(r.f2.just_focused);
     r = tt_pair_frame(&ctx, 50, 20, false, WLX_KEY_NONE, 0);
     ASSERT_TRUE(r.f1.focused);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -845,10 +845,10 @@ TEST(press_on_nothing_with_tab_leaves_no_ring) {
 
     tt_idle(&ctx);
     TT_Result r = tt_frame(&ctx, 300, 300, true, true, WLX_KEY_TAB, 0, false);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
     ASSERT_FALSE(r.field.focused);
     tt_idle(&ctx);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -861,10 +861,10 @@ TEST(press_on_a_field_with_shift_tab_leaves_no_ring_elsewhere) {
     tt_idle(&ctx);
     TT_Result r = tt_frame(&ctx, 50, 80, true, true, WLX_KEY_TAB, WLX_MOD_SHIFT, false);
     ASSERT_TRUE(r.field.focused);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
     r = tt_idle(&ctx);
     ASSERT_TRUE(r.field.focused);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -882,11 +882,11 @@ TEST(press_on_an_unfocused_editor_with_tab_consumes_it) {
         WLX_KEY_TAB, NULL);
     ASSERT_TRUE(focused);
     ASSERT_EQ_INT(2, (long)len);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
     focused = tt_editor_frame(&ctx, buf, sizeof(buf), &len, 200, 150, false, false,
         WLX_KEY_NONE, NULL);
     ASSERT_TRUE(focused);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 
@@ -910,7 +910,7 @@ TEST(press_on_the_focused_editor_with_tab_inserts_it) {
     ASSERT_TRUE(focused);
     ASSERT_EQ_INT(3, (long)len);
     ASSERT_TRUE(memchr(buf, '\t', len) != NULL);
-    ASSERT_EQ_INT(0, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(0, wlx_focused_id(&ctx));
     wlx_context_destroy(&ctx);
 }
 

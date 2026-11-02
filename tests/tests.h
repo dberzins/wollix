@@ -22,6 +22,8 @@
 #ifndef TESTS_H_
 #define TESTS_H_
 
+#include <inttypes.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -133,6 +135,25 @@ static inline int _test_use_color(void) {
     long _a = (long)(a), _b = (long)(b);                                       \
     if (_a == _b) {                                                            \
         _TEST_FAIL("ASSERT_NEQ_INT: both are %ld", _a);                       \
+    }                                                                          \
+} while(0)
+
+// WLX_Id equality, compared and printed as the 64-bit values ids are: an
+// (int) or (long) cast would let two ids that differ only above bit 31
+// compare equal (long is 32 bits on Windows).
+#define ASSERT_EQ_ID(a, b) do {                                                \
+    tests_assertions++;                                                        \
+    uint64_t _ia = (uint64_t)(a), _ib = (uint64_t)(b);                         \
+    if (_ia != _ib) {                                                          \
+        _TEST_FAIL("ASSERT_EQ_ID: %" PRIu64 " != %" PRIu64, _ia, _ib);       \
+    }                                                                          \
+} while(0)
+
+#define ASSERT_NEQ_ID(a, b) do {                                               \
+    tests_assertions++;                                                        \
+    uint64_t _ia = (uint64_t)(a), _ib = (uint64_t)(b);                         \
+    if (_ia == _ib) {                                                          \
+        _TEST_FAIL("ASSERT_NEQ_ID: both are %" PRIu64, _ia);                  \
     }                                                                          \
 } while(0)
 

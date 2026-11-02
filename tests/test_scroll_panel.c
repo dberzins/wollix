@@ -488,7 +488,7 @@ TEST(scroll_unended_auto_height_is_not_tracked_next_frame) {
 
     sp_warns = 0;
     test_frame_begin(&ctx, 200, 150, false, false);
-    ASSERT_EQ_INT(0, (int)ctx.auto_scroll.panel_id);
+    ASSERT_EQ_ID(0, ctx.auto_scroll.panel_id);
     wlx_layout_begin(&ctx, 2, WLX_VERT,
         .sizes = (WLX_Slot_Size[]){ WLX_SLOT_FLEX(1), WLX_SLOT_FLEX(1) });
     wlx_layout_end(&ctx);

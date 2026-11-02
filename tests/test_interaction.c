@@ -616,7 +616,7 @@ TEST(keyboard_focused_not_hot) {
     test_frame_begin_ex(&ctx, 0, 0, false, false, false, 0.0f, NULL, tab, NULL);
     WLX_Interaction f = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_CLICK | WLX_INTERACT_KEYBOARD);
     test_frame_end(&ctx);
-    ASSERT_EQ_INT((long)f.id, (long)wlx_focused_id(&ctx));
+    ASSERT_EQ_ID(f.id, wlx_focused_id(&ctx));
 
     bool space[WLX_KEY_COUNT] = {0};
     space[WLX_KEY_SPACE] = true;
@@ -649,7 +649,7 @@ TEST(id_push_pop_unique) {
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     wlx_pop_id(&ctx);
 
-    ASSERT_NEQ_INT((int)s1.id, (int)s2.id);
+    ASSERT_NEQ_ID(s1.id, s2.id);
     test_frame_end(&ctx);
     wlx_context_destroy(&ctx);
 }
@@ -673,7 +673,7 @@ TEST(id_same_stack_same_id_across_frames) {
     wlx_pop_id(&ctx);
     test_frame_end(&ctx);
 
-    ASSERT_EQ_INT((int)s1.id, (int)s2.id);
+    ASSERT_EQ_ID(s1.id, s2.id);
     wlx_context_destroy(&ctx);
 }
 
@@ -686,7 +686,7 @@ TEST(id_different_without_stack) {
     test_frame_begin(&ctx, 150, 120, false, false);
     WLX_Interaction sA = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     WLX_Interaction sB = interact_widget_B(&ctx, r, WLX_INTERACT_HOVER);
-    ASSERT_NEQ_INT((int)sA.id, (int)sB.id);
+    ASSERT_NEQ_ID(sA.id, sB.id);
     test_frame_end(&ctx);
     wlx_context_destroy(&ctx);
 }
@@ -701,7 +701,7 @@ TEST(id_same_site_same_id_without_push) {
     test_frame_begin(&ctx, 0, 0, false, false);
     WLX_Interaction s1 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
-    ASSERT_EQ_INT((int)s1.id, (int)s2.id);
+    ASSERT_EQ_ID(s1.id, s2.id);
     test_frame_end(&ctx);
     wlx_context_destroy(&ctx);
 }
@@ -720,7 +720,7 @@ TEST(id_same_site_different_push_id) {
     wlx_push_id(&ctx, 1);
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     wlx_pop_id(&ctx);
-    ASSERT_NEQ_INT((int)s1.id, (int)s2.id);
+    ASSERT_NEQ_ID(s1.id, s2.id);
     test_frame_end(&ctx);
     wlx_context_destroy(&ctx);
 }
@@ -745,7 +745,7 @@ TEST(string_id_different_strings_different_ids) {
     WLX_Interaction s2 = interact_widget_A(&ctx, r, WLX_INTERACT_HOVER);
     wlx_pop_id(&ctx);
 
-    ASSERT_NEQ_INT((int)s1.id, (int)s2.id);
+    ASSERT_NEQ_ID(s1.id, s2.id);
     test_frame_end(&ctx);
     wlx_context_destroy(&ctx);
 }
@@ -768,7 +768,7 @@ TEST(string_id_stable_across_frames) {
     wlx_pop_id(&ctx);
     test_frame_end(&ctx);
 
-    ASSERT_EQ_INT((int)s1.id, (int)s2.id);
+    ASSERT_EQ_ID(s1.id, s2.id);
     wlx_context_destroy(&ctx);
 }
 

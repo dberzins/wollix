@@ -150,7 +150,7 @@ TEST(container_interact_zero_is_noop) {
     test_frame_end(&ctx);
 
     // No interaction queried: hot_id untouched, base chrome, hover twin ignored.
-    ASSERT_EQ_INT((int)ctx.interaction.hot_id, 0);
+    ASSERT_EQ_ID(ctx.interaction.hot_id, 0);
     ASSERT_TRUE(tic_has_fill(TIC_BASE, 0, 0, 200, 50, 0.5f));
     ASSERT_EQ_INT(tic_count(TIC_RECT, TIC_HOVER), 0);
     wlx_context_destroy(&ctx);
@@ -226,7 +226,7 @@ TEST(container_click_fires_on_release) {
     ASSERT_TRUE(it.clicked);
 
     // Id is stable across frames (same call site + scope).
-    ASSERT_EQ_INT((int)id_press, (int)it.id);
+    ASSERT_EQ_ID(id_press, it.id);
     wlx_context_destroy(&ctx);
 }
 

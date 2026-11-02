@@ -250,7 +250,7 @@ $(OFFSET_STACK_OVERRIDE_BIN): $(TEST_DIR)/test_offset_stack_override.c $(TEST_DI
 # The undo journal compiles out at WLX_TEXT_UNDO_ENTRIES 0: the text widgets
 # build and edit without history and the undo chords are inert. Built as its
 # own translation unit with the override in the test source itself.
-$(UNDO_DISABLED_BIN): $(TEST_DIR)/test_undo_disabled.c $(TEST_DIR)/test_mock_backend.h wollix.h
+$(UNDO_DISABLED_BIN): $(TEST_DIR)/test_undo_disabled.c $(TEST_DIR)/test_mock_backend.h wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_undo_disabled.c -lm
 
 # Every option default macro sets each designator once, and every option
