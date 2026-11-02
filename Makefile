@@ -266,7 +266,7 @@ $(DEFAULTS_ONCE_BIN): $(TEST_DIR)/test_defaults_once.c $(TEST_DIR)/test_defaults
 # The documented C++ path: a C++11 caller TU over the public halves of the
 # headers and the mock backend, linked against the implementation compiled
 # as C11 in its own TU (the defaults-once implementation TU, reused as is).
-$(CPP_PATH_BIN): $(TEST_DIR)/test_cpp_path.cpp $(TEST_DIR)/test_defaults_once_impl.c $(TEST_DIR)/test_mock_backend.h wollix.h wollix_editor.h
+$(CPP_PATH_BIN): $(TEST_DIR)/test_cpp_path.cpp $(TEST_DIR)/test_defaults_once_impl.c $(TEST_DIR)/test_mock_backend.h $(TEST_DIR)/option_structs.h wollix.h wollix_editor.h
 	$(CXX) $(CXX_GATE_FLAGS) -I. -I$(TEST_DIR) -c -o $(TEST_DIR)/test_cpp_path.o $(TEST_DIR)/test_cpp_path.cpp
 	$(CC) $(BASE_CFLAGS) -I. -c -o $(TEST_DIR)/test_cpp_path_impl.o $(TEST_DIR)/test_defaults_once_impl.c
 	$(CXX) -o $@ $(TEST_DIR)/test_cpp_path.o $(TEST_DIR)/test_cpp_path_impl.o -lm
