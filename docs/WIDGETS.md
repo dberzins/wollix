@@ -19,6 +19,11 @@ All leaf-widget option structs share placement and sizing fields. Many also
 reuse the typography, text-color, and border groups below, so those defaults
 are documented once here.
 
+In every option table the Default column shows the value the option struct
+holds. When the widget resolves that value as it runs, the value it takes
+follows in parentheses: `WLX_UNSET` (10) is a field left unset that the
+widget treats as 10.
+
 ### Placement fields (`WLX_LAYOUT_SLOT_FIELDS`)
 
 | Field | Type | Default | Description |
@@ -348,7 +353,8 @@ this shared shape so theme integration and per-side overrides work uniformly.
 
 ### Identity field
 
-All leaf-widget opt structs include an optional identity field:
+All leaf-widget option structs include an optional identity field, as
+`WLX_Widget_Opt` does:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -538,6 +544,8 @@ Mode is selected purely by the inputs — there is no separate
 
 ### Widget-specific options
 
+In `WLX_Label_Opt`:
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `show_background` | `bool` | `false` | Draw a filled background rectangle behind the content. When `true`, hover brightens the fill using the theme's `hover_brightness`. |
@@ -713,6 +721,8 @@ Mode is selected purely by the inputs — there is no separate `wlx_image_button
 function or option struct.
 
 ### Widget-specific options
+
+In `WLX_Button_Opt`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -890,6 +900,8 @@ if (wlx_checkbox(ctx, "Dark mode", &dark_mode)) {
 
 ### Widget-specific options
 
+In `WLX_Checkbox_Opt`:
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `full_slot_hit` | `bool` | `true` | Use the full slot rect for hover/click interaction |
@@ -1030,9 +1042,11 @@ if (wlx_inputbox(ctx, "Name:", name, sizeof(name), .height = 40)) {
 
 ### Widget-specific options
 
+In `WLX_Inputbox_Opt`:
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `content_padding` | `float` | `10` | Outer gutter inset. See [Content padding](#content-padding-wlx_content_padding_fields). Default `10` applies to all sides. |
+| `content_padding` | `float` | `WLX_UNSET` (10) | Outer gutter inset. See [Content padding](#content-padding-wlx_content_padding_fields). Unset applies 10 to all sides. |
 | `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
 | `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
 | `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
@@ -1429,9 +1443,11 @@ if (wlx_editor(ctx, NULL, doc, doc_cap, &doc_len, .revision = doc_rev,
 
 ### Widget-specific options
 
+In `WLX_Editor_Opt`:
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `content_padding` (+ per-side) | `float` | `10` | Outer inset, as on `wlx_inputbox`. |
+| `content_padding` (+ per-side) | `float` | `WLX_UNSET` (10) | Outer inset, as on `wlx_inputbox`. |
 | `border_color` / `border_focus_color` / `cursor_color` / `selection_color` | `WLX_Color` | `{0}` | Chrome colors with the same theme fallbacks as `wlx_inputbox`. |
 | `span_color` / `span_color_user` | `WLX_Text_Span_Color_Fn` / `void *` | `NULL` | Per-span colour callback (syntax highlighting), asked at draw time for the visible records only and never retained; a zero colour is `front_color`. See "Per-span colour" below. |
 | `out_focused` | `bool *` | `NULL` | Receives this frame's focus state. |
@@ -1641,6 +1657,8 @@ Slider shares `WLX_TEXT_TYPOGRAPHY_FIELDS` (`font`, `font_size`, `content_align`
 color field (`label_color`) instead of the shared `WLX_TEXT_COLOR_FIELDS` (`front_color` / `back_color`).
 It also omits `wrap` — all slider text is single-line.
 
+In `WLX_Slider_Opt`:
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `font` | `WLX_Font` | `WLX_FONT_DEFAULT` | Font for label and value text |
@@ -1717,6 +1735,8 @@ wlx_separator(ctx, .height = 1);
 
 ### Widget-specific options
 
+In `WLX_Separator_Opt`:
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `back_color` | `WLX_Color` | `{0}` | Divider color. `{0}` = theme `border` (renamed from `color` in v0.6; the alias was removed in v0.7) |
@@ -1768,6 +1788,8 @@ wlx_progress(ctx, download_progress,
 ```
 
 ### Widget-specific options
+
+In `WLX_Progress_Opt`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -1862,6 +1884,8 @@ if (wlx_toggle(ctx, "Autosave", &autosave, .height = 34)) {
 
 ### Widget-specific options
 
+In `WLX_Toggle_Opt`:
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `track_color` | `WLX_Color` | `{0}` | Off-state track color. `{0}` = theme `toggle.track`, then `slider.track` |
@@ -1934,6 +1958,8 @@ wlx_radio(ctx, "Glass", &theme_choice, 2);
 ```
 
 ### Widget-specific options
+
+In `WLX_Radio_Opt`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -2009,6 +2035,8 @@ wlx_scroll_panel_end(ctx);
 ```
 
 ### Widget-specific options
+
+In `WLX_Scroll_Panel_Opt`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -2177,7 +2205,7 @@ wlx_split_end(ctx);
 | `first_size` | `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | Width of the first (left) pane |
 | `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width of the second (right) pane |
 | `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Outer wrapper slot size |
-| `content_padding` | `float` | `4` | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |
+| `content_padding` | `float` | `WLX_UNSET` (4) | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |
 | `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
 | `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
 | `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
@@ -2284,8 +2312,8 @@ wlx_panel_end(ctx);
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `title` | `const char *` | `NULL` | Heading text. `NULL` = no heading |
-| `title_font_size` | `int` | `18` | Heading font size |
-| `title_height` | `float` | `32` | Heading slot height in units |
+| `title_font_size` | `int` | `0` (18) | Heading font size; `<= 0` takes 18 |
+| `title_height` | `float` | `0` (32) | Heading slot height in units; `<= 0` takes 32 |
 | `title_align` | `WLX_Align` | `WLX_CENTER` | Heading text alignment |
 | `title_back_color` | `WLX_Color` | `{0}` | Heading background color |
 | `back_color` | `WLX_Color` | `{0}` | Panel body background color. `{0}` = transparent |
@@ -2295,13 +2323,13 @@ wlx_panel_end(ctx);
 | `rounded_segments` | `int` | `WLX_UNSET` | Corner tessellation. unset or `0` = theme `rounded_segments` |
 | `corner_radius` | `float` | `0` | Absolute corner radius in **units**. `> 0` overrides `roundness`; `0` = unset. See [Absolute corner radius](#absolute-corner-radius-corner_radius) |
 | `clip` | `bool` | `false` | Clip body content to panel bounds |
-| `content_padding` | `float` | `2` | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |
+| `content_padding` | `float` | `WLX_UNSET` (2) | Uniform inner inset. See [Content padding](#content-padding-wlx_content_padding_fields). |
 | `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
 | `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
 | `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
 | `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. `< 0` falls back to `content_padding`. |
 | `gap` | `float` | `0` | Gap between child widgets |
-| `capacity` | `int` | `32` | Max child widgets (excl. title). Clamped to `WLX_CONTENT_SLOTS_MAX` (32). |
+| `capacity` | `int` | `0` (32) | Max child widgets (excl. title); `<= 0` takes 32. Clamped to `WLX_CONTENT_SLOTS_MAX` (32). |
 | `id` | `const char *` | `NULL` | Scope ID applied to the full panel body |
 
 ### Common overrides
@@ -2402,6 +2430,8 @@ wlx_overlay_end(ctx);
 
 ### Widget-specific options
 
+In `WLX_Overlay_Opt`:
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `id` | `const char *` | `NULL` | Scope id for the overlay body |
@@ -2445,6 +2475,8 @@ if (wlx_dropdown(ctx, "size", &size, sizes, 4))
 ```
 
 ### Widget-specific options
+
+In `WLX_Dropdown_Opt`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -2494,6 +2526,8 @@ wlx_tooltip_for(ctx, wlx_last_rect(ctx), "Write the file to disk");
 follows its anchor with no manual geometry (see API_REFERENCE.md).
 
 ### Widget-specific options
+
+In `WLX_Tooltip_Opt`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -2558,7 +2592,7 @@ if (wlx_menu_begin(ctx, &open, 200, 80)) {
 
 ### Widget-specific options
 
-`wlx_menu_begin`:
+`wlx_menu_begin`, in `WLX_Menu_Opt`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -2571,7 +2605,7 @@ if (wlx_menu_begin(ctx, &open, 200, 80)) {
 | `hover_brightness` / `hover_back_color` | | unset / `{0}` | Item hover treatment |
 | `id` | `const char *` | `NULL` | Scope id (needed for loop-generated menus) |
 
-`wlx_menu_item`:
+`wlx_menu_item`, in `WLX_Menu_Item_Opt`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -2625,7 +2659,7 @@ if (wlx_menu_button_begin(ctx, "File", &open)) {
 The face takes the shared placement, sizing, state, typography (no wrap),
 color, border, content-padding, and hover fields — `.width` sizes the
 **face** like any widget, and in a `CONTENT`-sized column the face width
-follows its label. The list adds:
+follows its label. The list adds, in `WLX_Menu_Button_Opt`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -2692,6 +2726,8 @@ void wlx_widget(WLX_Context *ctx, ...options);
 
 ### Widget-specific options
 
+In `WLX_Widget_Opt`:
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `back_color` | `WLX_Color` | `{0}` | Fill color of the rectangle (renamed from `color` in v0.6; the alias was removed in v0.7) |
@@ -2745,6 +2781,8 @@ wlx_image(ctx, my_texture,
 | `WLX_IMAGE_SCALE_NONE` | Draws the image at its natural source size. Clips to the widget rect if the image is larger. |
 
 ### Widget-specific options
+
+In `WLX_Image_Opt`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

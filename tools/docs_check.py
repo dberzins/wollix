@@ -2,7 +2,7 @@
 """docs_check.py - the documentation gate (`make docs-check`).
 
 Run from the repository root with Python 3 and nothing beyond the standard
-library. Six checks, each reporting a count; the exit status is non-zero
+library. Seven checks, each reporting a count; the exit status is non-zero
 when any check finds a problem.
 
   blocks      Every fenced `c` and `cpp` block of README.md and docs/*.md
@@ -35,6 +35,17 @@ when any check finds a problem.
               rows of tests/option_structs.h are one set; so are the
               WLX_SHORT_NAMES aliases and the calls between the
               short-names markers of tests/test_config_override.c.
+  options     Every option table (a table of README.md or docs/*.md whose
+              first column is Field or Option and which has a Default
+              column) resolves to its structs by its intro (the paragraph
+              directly above it), else by its heading: the one WLX_*_Opt
+              named there, or the WLX_*_FIELDS groups named there, checked
+              against every struct that embeds them. A table that resolves
+              to none, or whose intro names two structs, fails. Each Default cell that is
+              one code span is compiled and run against the struct's
+              wlx_<x>_opt_defaults(): the column shows the value the struct
+              holds, and a value resolved at use follows in parentheses,
+              "`WLX_UNSET` (10)". Any other cell is prose: skipped, counted.
 
 Environment:
   DOCS_CC, DOCS_CXX   compilers (default gcc, g++)
@@ -430,10 +441,195 @@ def check_registries():
 
 
 # ============================================================================
+# options
+# ============================================================================
+
+def option_registry():
+    """Stem, type and embedded groups of every option struct, the groups
+    nested in each group, and the struct types by name."""
+    text = read("tests/option_structs.h")
+    structs = {}
+    for m in re.finditer(r"\bX\((\w+),\s*(WLX_\w+_Opt),", text):
+        depth, k = 1, m.end()
+        while k < len(text) and depth:
+            depth += {"(": 1, ")": -1}.get(text[k], 0)
+            k += 1
+        groups = re.findall(r"G\((\w+)\)", text[m.end():k])
+        structs[m.group(2)] = (m.group(1), set("WLX_%s_FIELDS" % g for g in groups))
+    nested = {}
+    src = "".join(read(h) for h in HEADERS)
+    for m in re.finditer(r"#define (WLX_\w+_FIELDS)[ \t]*\\\n((?:.*\\\n)*.*)", src):
+        nested[m.group(1)] = set(re.findall(r"\b(WLX_\w+_FIELDS)\b", m.group(2)))
+    return structs, nested
+
+
+def embeds(groups, nested, group):
+    seen, todo = set(), list(groups)
+    while todo:
+        g = todo.pop()
+        if g in seen:
+            continue
+        seen.add(g)
+        todo.extend(nested.get(g, ()))
+    return group in seen
+
+
+CELL_MECH = re.compile(r"^`([^`]+)`(\s*\(.*\))?$")
+SIDES = ("top", "right", "bottom", "left")
+
+
+def row_fields(cell):
+    """The field names a Field cell lists: `a`; `a` / `b`; `a_top/right/bottom/left`;
+    `a_top` / `_right` / ...; `a` (+ per-side), which checks `a` alone. None for a
+    cell that is not a field list (an italic group row)."""
+    cell = re.sub(r"\s*\(\+ per-side\)$", "", cell)
+    parts = [p.strip() for p in re.split(r"\s+/\s+", cell)]
+    names = []
+    for part in parts:
+        m = re.match(r"^`(\w+)`$", part)
+        if m and m.group(1).startswith("_") and names:
+            stem = re.sub(r"_(top|right|bottom|left)$", "", names[0])
+            names.append(stem + m.group(1))
+        elif m:
+            names.append(m.group(1))
+        else:
+            m = re.match(r"^`(\w+)_top/right/bottom/left`$", part)
+            if not m:
+                return None
+            names += ["%s_%s" % (m.group(1), side) for side in SIDES]
+    return names
+
+
+def row_defaults(cell, n):
+    """The Default cell split to match n fields: one value for all, or one
+    per field; None where a value is prose."""
+    parts = [p.strip() for p in re.split(r"\s+/\s+", cell)] if n > 1 else [cell.strip()]
+    if len(parts) == 1:
+        parts = parts * n
+    if len(parts) != n:
+        return [None] * n
+    out = []
+    for part in parts:
+        m = CELL_MECH.match(part)
+        out.append(m.group(1) if m else None)
+    return out
+
+
+def option_tables():
+    """(doc, header line, heading, intro, [(row line, field, default cell)])"""
+    out = []
+    for doc in DOC_FILES:
+        lines = read(doc).split("\n")
+        i, fence, heading = 0, False, ""
+        while i < len(lines):
+            line = lines[i]
+            if line.startswith("```"):
+                fence = not fence
+            if fence or line.startswith("```"):
+                i += 1
+                continue
+            if line.startswith("#"):
+                heading = line
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if line.startswith("|") and cells and cells[0] in ("Field", "Option") and "Default" in cells:
+                di = cells.index("Default")
+                k = i - 1
+                while k >= 0 and not lines[k].strip():
+                    k -= 1
+                para = []
+                while (k >= 0 and lines[k].strip() and not lines[k].startswith(("#", "|", "```"))):
+                    para.append(lines[k])
+                    k -= 1
+                intro = " ".join(reversed(para))
+                rows, j = [], i + 2
+                while j < len(lines) and lines[j].startswith("|"):
+                    rc = [c.strip() for c in lines[j].strip().strip("|").split("|")]
+                    names = row_fields(rc[0]) if rc else None
+                    if names and len(rc) > di:
+                        for name, value in zip(names, row_defaults(rc[di], len(names))):
+                            rows.append((j + 1, name, value))
+                    j += 1
+                out.append((doc, i + 1, heading, intro, rows))
+                i = j
+                continue
+            i += 1
+    return out
+
+
+def check_options():
+    structs, nested = option_registry()
+    tables = option_tables()
+    checks, prose, resolved = [], 0, 0
+    for doc, line, heading, intro, rows in tables:
+        in_intro = sorted(set(re.findall(r"`(WLX_\w+_Opt)`", intro)))
+        i_groups = sorted(set(re.findall(r"`(WLX_\w+_FIELDS)`", intro)))
+        h_groups = sorted(set(re.findall(r"`(WLX_\w+_FIELDS)`", heading)))
+        h_structs = sorted(set(re.findall(r"`(WLX_\w+_Opt)`", heading)))
+        if len(in_intro) == 1:
+            targets = [in_intro[0]]
+        elif len(in_intro) > 1:
+            report("options", "%s:%d: the table's intro names %s; it must name one struct"
+                   % (doc, line, ", ".join(in_intro)))
+            continue
+        elif i_groups or h_groups:
+            h_groups = i_groups or h_groups
+            targets = sorted(t for t, (_, g) in structs.items()
+                             if any(embeds(g, nested, grp) for grp in h_groups))
+        elif len(h_structs) == 1:
+            targets = h_structs
+        else:
+            report("options", "%s:%d: the table names no option struct or field group "
+                   "(name one in the paragraph above it)" % (doc, line))
+            continue
+        unknown = [t for t in targets if t not in structs]
+        if unknown or not targets:
+            report("options", "%s:%d: %s is not in tests/option_structs.h"
+                   % (doc, line, ", ".join(unknown) or ", ".join(h_groups)))
+            continue
+        resolved += 1
+        for rline, field, value in rows:
+            if value is None:
+                prose += 1
+                continue
+            for t in targets:
+                checks.append((doc, rline, t, structs[t][0], field, value))
+    src = ["#include <stdio.h>", "#include <string.h>", "#define WOLLIX_IMPLEMENTATION",
+           '#include "wollix.h"', '#include "wollix_editor.h"', "int main(void) {", "    int bad = 0;"]
+    for doc, rline, typ, stem, field, expr in checks:
+        src.append('#line %d "%s"' % (rline, doc))
+        src.append("    { %s d = wlx_%s_opt_defaults(); __typeof__(d.%s) w = %s; "
+                   "if (memcmp(&d.%s, &w, sizeof w) != 0) { printf(\"%s:%d: %s.%s holds another "
+                   "value than %s\\n\"); bad++; } }"
+                   % (typ, stem, field, expr, field, doc, rline, typ, field,
+                      expr.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")))
+    src.append("    return bad != 0;\n}")
+    d = tempfile.mkdtemp(prefix="wlx_docs_options_")
+    c, exe = os.path.join(d, "options.c"), os.path.join(d, "options")
+    open(c, "w").write("\n".join(src) + "\n")
+    r = subprocess.run([CC, "-std=gnu11", "-w", "-I" + ROOT, "-o", exe, c, "-lm"],
+                       capture_output=True, text=True, env=COMPILER_ENV)
+    if r.returncode != 0:
+        for diag in r.stderr.split("\n"):
+            if " error: " in diag:
+                report("options", diag + " (a Default cell that is not a value of its field)")
+    else:
+        run = subprocess.run([exe], capture_output=True, text=True)
+        for out in run.stdout.split("\n"):
+            if out:
+                report("options", out)
+    for name in os.listdir(d):
+        os.unlink(os.path.join(d, name))
+    os.rmdir(d)
+    print("options: %d tables (%d resolved), %d defaults checked, %d prose, %d problems"
+          % (len(tables), resolved, len(checks), prose, len(failures.get("options", []))))
+
+
+# ============================================================================
 
 def main():
     checks = [("blocks", check_blocks), ("pair", check_pair), ("anchors", check_anchors),
-              ("names", check_names), ("records", check_records), ("registries", check_registries)]
+              ("names", check_names), ("records", check_records), ("registries", check_registries),
+              ("options", check_options)]
     only = sys.argv[1:]
     for name, fn in checks:
         if only and name not in only:

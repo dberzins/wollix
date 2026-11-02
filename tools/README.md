@@ -28,6 +28,10 @@ and fails when any check finds a problem:
 - **registries**: the default-option macros, the defaults functions and
   `tests/option_structs.h` list the same option structs, and every
   `WLX_SHORT_NAMES` alias is expanded in `tests/test_config_override.c`.
+- **options**: every option table names its struct in the paragraph above
+  it (or its field group in its heading), and every Default cell that is a
+  code span equals what the struct's `wlx_<x>_opt_defaults()` holds, a
+  value resolved at use following in parentheses: `WLX_UNSET` (10).
 
 `DOCS_INCLUDES` sets the backend include directories (default: Raylib,
 SDL3 and SDL3_ttf under `~/opt`); `python3 tools/docs_check.py names`

@@ -19,6 +19,11 @@ layout library.
 > - [CORE_PATTERNS_GUIDE.md](CORE_PATTERNS_GUIDE.md)
 > - [PERFORMANCE_DIAGNOSTICS.md](PERFORMANCE_DIAGNOSTICS.md)
 
+> **Option tables:** the Default column shows the value the option struct
+> holds. When the call resolves that value as it runs, the value it takes
+> follows in parentheses: `WLX_UNSET` (10) is a field left unset that the
+> call treats as 10. See [SENTINEL.md](SENTINEL.md) for the sentinels.
+
 ---
 
 ## Table of Contents
@@ -3097,8 +3102,6 @@ label surface, [`WLX_Image_Scale`](#wlx_image_scale),
 | `text` | `const char *` | Label text |
 | `checked` | `bool *` | Pointer to state — toggled on click |
 
-**Option struct:** `WLX_Checkbox_Opt`
-
 Supports native and texture-backed rendering. Texture mode activates only
 when **both** `tex_checked` and `tex_unchecked` are drawable; otherwise both
 states fall back to native rendering. The texture path follows the same
@@ -3108,6 +3111,8 @@ an unset source rect uses the full texture, an unset tint resolves to
 brightness does not modulate texture tint. `check_color` only affects native
 rendering. Use `wlx_checkbox(..., .tex_checked = ..., .tex_unchecked = ...)`
 instead of the removed `wlx_checkbox_tex` compatibility macro.
+
+**Option struct:** `WLX_Checkbox_Opt`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -3215,7 +3220,7 @@ no caret, selection edge, delete or truncation ever lands inside one):
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | *shared fields* | | | placement, sizing, typography (default `wrap = true`), colors |
-| `content_padding` | `float` | `10` | Outer gutter inset applied to all sides. See `WLX_CONTENT_PADDING_FIELDS`. |
+| `content_padding` | `float` | `WLX_UNSET` (10) | Outer gutter inset applied to all sides. See `WLX_CONTENT_PADDING_FIELDS`. |
 | `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
 | `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
 | `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
@@ -3343,7 +3348,7 @@ mode toggles.
 |-------|------|---------|-------------|
 | *shared fields* | | | placement, sizing, typography (text is top-left; `content_align` places the label), colors |
 | `wrap` | `bool` | `false` | Wrapped mode: band-wide rows per hard line, row-based motion, approximate vertical thumb, no horizontal scroll |
-| `content_padding` (+ per-side) | `float` | `10` | Outer inset; same model as `wlx_inputbox` |
+| `content_padding` (+ per-side) | `float` | `WLX_UNSET` (10) | Outer inset; same model as `wlx_inputbox` |
 | `border_color` / `border_width` / `roundness` / `rounded_segments` | | theme | Chrome, as on `wlx_inputbox` |
 | `border_focus_color` | `WLX_Color` | `{0}` | Focused border. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Caret. `{0}` = theme `input.cursor` |
@@ -3650,7 +3655,7 @@ the user creates their own inner layout inside each pane.
 | `first_size` | `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | Width/size of the first (left) pane |
 | `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width/size of the second (right) pane |
 | `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Outer wrapper slot size (e.g. `WLX_SLOT_FILL_MIN(400)`) |
-| `content_padding` | `float` | `4` | Uniform inner inset for the split container. See `WLX_CONTENT_PADDING_FIELDS`. |
+| `content_padding` | `float` | `WLX_UNSET` (4) | Uniform inner inset for the split container. See `WLX_CONTENT_PADDING_FIELDS`. |
 | `content_padding_top` | `float` | `WLX_UNSET` | Top padding override. Negative = inherit `content_padding` |
 | `content_padding_right` | `float` | `WLX_UNSET` | Right padding override. Negative = inherit `content_padding` |
 | `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom padding override. Negative = inherit `content_padding` |
@@ -3699,8 +3704,8 @@ impact. Adding or removing child widgets requires no slot-count updates.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `title` | `const char *` | `NULL` | Heading text. `NULL` = no heading (full capacity available for children) |
-| `title_font_size` | `int` | `18` | Heading font size |
-| `title_height` | `float` | `32` | Heading slot height in units |
+| `title_font_size` | `int` | `0` (18) | Heading font size; `<= 0` takes 18 |
+| `title_height` | `float` | `0` (32) | Heading slot height in units; `<= 0` takes 32 |
 | `title_align` | `WLX_Align` | `WLX_CENTER` | Heading text alignment |
 | `title_back_color` | `WLX_Color` | `{0}` | Heading background color. `{0}` = theme surface |
 | `back_color` | `WLX_Color` | `{0}` | Panel background color drawn behind the full panel area. `{0}` = transparent (surrounding container surface shows through) |
@@ -3715,12 +3720,12 @@ impact. Adding or removing child widgets requires no slot-count updates.
 | *shadow / glow / gradient* | | off | Full container decor: `shadow_*`, `glow_*`, `gradient_top` / `gradient_bottom` fields, forwarded to the body layout. See [Shared Option Field Macros](#shared-option-field-macros) |
 | `slot_back_color` / `slot_border_color` / `slot_border_width` | | `{0}` / `0` | Per-slot decor applied to every body slot |
 | `clip` | `bool` | `false` | Clip panel content to the post-padding inner rect. Use when children might overflow the panel bounds |
-| `content_padding` | `float` | `2` | Uniform inner inset for the panel layout. See `WLX_CONTENT_PADDING_FIELDS`. |
+| `content_padding` | `float` | `WLX_UNSET` (2) | Uniform inner inset for the panel layout. See `WLX_CONTENT_PADDING_FIELDS`. |
 | `content_padding_top` | `float` | `WLX_UNSET` | Top padding override. Negative = inherit `content_padding` |
 | `content_padding_right` | `float` | `WLX_UNSET` | Right padding override. Negative = inherit `content_padding` |
 | `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom padding override. Negative = inherit `content_padding` |
 | `content_padding_left` | `float` | `WLX_UNSET` | Left padding override. Negative = inherit `content_padding` |
-| `capacity` | `int` | `32` | Maximum number of child widgets (excluding title). Clamped to `WLX_CONTENT_SLOTS_MAX` (32) |
+| `capacity` | `int` | `0` (32) | Maximum number of child widgets (excluding title); `<= 0` takes 32. Clamped to `WLX_CONTENT_SLOTS_MAX` (32) |
 | `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full panel body. `NULL` = no scoping |
 
 **Internal structure:**
@@ -3967,7 +3972,8 @@ for that element. Resolution is central and at draw time: inside `wlx_draw_box`
 the px value is converted to the fraction the backends already consume,
 `clamp(2 * corner_radius / min(w,h), 0, 1)`, so the recorded command still
 carries a fraction and no backend changes. Two differently sized elements with
-the same `corner_radius` therefore render the same pixel corner.
+the same `corner_radius` therefore render the same pixel corner. The field is
+part of `WLX_BORDER_FIELDS`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -3985,8 +3991,8 @@ fill follows the radius; per-side borders stay sharp spans.
 
 Every bordered widget (and every container — see
 [Per-side container decor](#per-side-container-decor)) also carries eight
-optional per-side fields that override the uniform `border_color` /
-`border_width` on individual edges:
+optional per-side fields, part of `WLX_BORDER_FIELDS`, that override the
+uniform `border_color` / `border_width` on individual edges:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

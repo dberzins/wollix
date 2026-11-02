@@ -301,8 +301,8 @@ perf-test: $(PERF_TEST_BIN)
 # The documentation gate (tools/docs_check.py): every C and C++ example in
 # README.md and docs/ compiles against the headers, README's C/C++ pair
 # links, anchors resolve, every wlx_/WLX_ name the docs use exists, no
-# tracked file cites an unpublished record, and the option and short-name
-# registries agree. Needs gcc, g++, Raylib (the pair links against it) and
+# tracked file cites an unpublished record, the option and short-name
+# registries agree, and every option table's defaults match its struct. Needs gcc, g++, Raylib (the pair links against it) and
 # the SDL3 and SDL3_ttf headers; DOCS_INCLUDES lists the backend include
 # directories.
 DOCS_INCLUDES ?= $(HOME)/opt/raylib/include $(HOME)/opt/sdl3/include $(HOME)/opt/sdl3_ttf/include
@@ -371,6 +371,6 @@ help:
 	@echo "  test-asan    - Run the test runner under ASan + UBSan with leak detection on"
 	@echo "  test-sdl3    - Run the SDL3 adapter test headless (needs SDL3 and SDL3_ttf)"
 	@echo "  check-sdl3-ndebug - Compile the SDL3 targets as a release build (NDEBUG, -O2, -Werror)"
-	@echo "  docs-check   - Check the docs: examples compile, README pair links, anchors, names, registries"
+	@echo "  docs-check   - Check the docs: examples, README pair, anchors, names, registries, option defaults"
 	@echo "  test-demos   - Build all Raylib demos and verify exit codes"
 	@echo "  help         - Show this help message"

@@ -510,8 +510,41 @@ minor.
   primitives as a keystroke, so its retained geometry, wrapped bottom
   anchor and caret-follow carry over unchanged. See WIDGETS.md "Undo and
   redo".
+- **Multi-key text fuzz.** `tests/test_fuzz_text.c` runs random op
+  sequences (typed text from ASCII to combining-mark clusters, ZWJ emoji
+  and regional-indicator pairs; deletion, motion and selection keys with
+  their modifiers; the clipboard, undo and redo chords; presses, drags,
+  the wheel; compositions that commit or cancel) over the inputbox, the
+  password field, the textarea and the editor, wrapped and not, in 48-byte
+  and larger buffers. Every frame checks the length, valid UTF-8, the caret
+  pair on unit boundaries and the editor's line index; each round ends by
+  undoing to the history's base and redoing to its tip. Fixed seeds gate
+  `make test` and `make test-asan`, a self-check proves every op class is
+  reached in every mode, and one time-seeded round per mode prints its
+  seed if it fails.
+- **`make docs-check`.** `tools/docs_check.py` compiles every C and C++
+  example in README.md and docs/ against the headers (an unknown field, an
+  undeclared `wlx_` name or a missing header fails), compiles and links the
+  README's C/C++ pair, resolves every anchor, checks that every `wlx_` /
+  `WLX_` name the docs use exists, keeps the option-struct and short-name
+  registries in step, and checks every option table's defaults against its
+  struct's defaults function. CI runs it in the Raylib job.
+- **SDL3: an SDL_ttf 3.3 leg and a release build.** CI's SDL3 job runs
+  against SDL_ttf 3.2.2 and against 3.3.0 (pinned by commit until it is
+  tagged), the version with the font variants, the text cache and the
+  advances callback; `make test-sdl3` now links SDL_ttf and pins that text
+  path, the composition state, the composition string's whole-codepoint
+  cap and scissor edges at scale 1.5. `make check-sdl3-ndebug` compiles the
+  SDL3 targets with `NDEBUG`, `-O2` and `-Werror`.
 
 ### Fixed
+- **Option tables show the stored default.** The panel's `title_font_size`,
+  `title_height` and `capacity`, and the `content_padding` of the panel,
+  the split, the inputbox and the editor, were documented as the value the
+  widget resolves while the struct holds `0` or `WLX_UNSET`: code that read
+  `wlx_panel_opt_defaults().title_height` found 0, not 32. Every option
+  table now shows what the struct holds, the resolved value following in
+  parentheses (`WLX_UNSET` (10)), and names its struct.
 - **An auto layout's gap sits between its slots.** `wlx_layout_begin_auto`
   and the auto grids put the gap in front of each slot after the first,
   inside that slot, where every other layout puts it between adjacent

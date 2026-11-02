@@ -238,7 +238,7 @@ still available and equivalent to `wlx_layout_auto_slot(ctx, WLX_SLOT_PX(px))`.
 ### Slot Placement Options
 
 Most layout and widget macros that consume a slot accept optional named
-arguments:
+arguments, the `WLX_LAYOUT_SLOT_FIELDS` group:
 
 | Field     | Default | Description |
 |-----------|---------|-------------|
@@ -566,7 +566,8 @@ Widget option structs share these field groups, depending on widget type:
 |-------|---------|-------------|
 | `disabled` | `false` | Disable click/focus/drag activation while preserving hover arbitration |
 
-**Typography** (text widgets; `wrap` is a separate opt-in field):
+**Typography** (text widgets, from `WLX_TEXT_TYPOGRAPHY_FIELDS`; `wrap` is a
+separate opt-in field):
 
 | Field | Default | Description |
 |-------|---------|-------------|
