@@ -281,7 +281,7 @@ test-sdl3: $(TEST_SDL3_BIN)
 	./$(TEST_SDL3_BIN)
 
 $(TEST_SDL3_BIN): $(TEST_DIR)/test_adapter_sdl3.c $(TEST_DIR)/tests.h wollix.h wollix_sdl3.h
-	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -I$(TEST_DIR) -o $@ $< $(SDL3_LDFLAGS) -lSDL3 -lm
+	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -I$(TEST_DIR) -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
 
 perf-test: $(PERF_TEST_BIN)
 	./$(PERF_TEST_BIN)
