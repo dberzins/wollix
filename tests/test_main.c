@@ -274,6 +274,10 @@ static int test_span_assert_hits = 0;
 // tentative span, its journal exclusion, the commit, the adopt-on-blur
 // and the text-input-area contract. Self-contained fixture.
 #include "test_ime.c"
+// Multi-key op-sequence fuzz over the inputbox (plain and password), the
+// textarea and the editor (wrap off and on): fixed seeds gate, with a
+// coverage self-check; one time-seeded round per mode adds coverage.
+#include "test_fuzz_text.c"
 #include "test_opt_defaults_marker.c"
 // Contract errors: the handler, the record, the layout begin site, and the
 // clamps each entry documents for release builds.
@@ -358,6 +362,7 @@ int main(void) {
     RUN_SUITE(editor_windowed_origin);
     RUN_SUITE(editor_span_color);
     RUN_SUITE(ime);
+    RUN_SUITE(fuzz_text);
     RUN_SUITE(frame_time);
     RUN_SUITE(focus_release);
     RUN_SUITE(cursor_shape);
