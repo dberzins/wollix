@@ -78,7 +78,7 @@ DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
 WASM_SITE_TARGETS = $(WASM_SITE_DIR)/dashboard.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js $(WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 GALLERY_WASM_SITE_TARGETS = $(GALLERY_WASM_SITE_DIR)/gallery.wasm $(GALLERY_WASM_SITE_DIR)/index.html $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 
-.PHONY: all clean debug release help test test-single-pass test-sdl3 perf-test test-asan test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
+.PHONY: all clean debug release help test test-single-pass test-sdl3 check-sdl3-ndebug perf-test test-asan test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
 
 # The dashboard is the primary showcase, so the default build includes it. It
 # keeps its own -DWLX_PERF recipe ($(DASHBOARD_BIN)) rather than joining the
@@ -283,6 +283,18 @@ test-sdl3: $(TEST_SDL3_BIN)
 $(TEST_SDL3_BIN): $(TEST_DIR)/test_adapter_sdl3.c $(TEST_DIR)/tests.h wollix.h wollix_sdl3.h
 	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -I$(TEST_DIR) -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
 
+# The SDL3 translation units compiled once as a release build makes them:
+# NDEBUG (the adapters' asserts compiled out), -O2 (some warnings need the
+# optimiser's flow analysis), warnings as errors. Compile only. Both SDL_ttf
+# legs of CI run it, so the font-variant path is checked on and off.
+SDL3_NDEBUG_FLAGS = $(filter-out -ggdb,$(BASE_CFLAGS)) -DNDEBUG -O2 -Werror
+
+check-sdl3-ndebug:
+	$(CC) $(SDL3_NDEBUG_FLAGS) $(SDL3_INCLUDES) -c -o /dev/null $(DEMO_DIR)/sdl3_demo.c
+	$(CC) $(SDL3_NDEBUG_FLAGS) $(SDL3_INCLUDES) -DWLX_GALLERY_SDL3 -c -o /dev/null $(DEMO_DIR)/gallery.c
+	$(CC) $(SDL3_NDEBUG_FLAGS) $(SDL3_INCLUDES) -DWLX_PERF -DWLX_DASHBOARD_SDL3 -c -o /dev/null $(DASHBOARD_DIR)/dashboard.c
+	$(CC) $(SDL3_NDEBUG_FLAGS) $(SDL3_INCLUDES) -I$(TEST_DIR) -c -o /dev/null $(TEST_DIR)/test_adapter_sdl3.c
+
 perf-test: $(PERF_TEST_BIN)
 	./$(PERF_TEST_BIN)
 
@@ -345,5 +357,7 @@ help:
 	@echo "  test         - Build and run the unit test suite"
 	@echo "  perf-test    - Build and run tests with WLX_PERF enabled"
 	@echo "  test-asan    - Run the test runner under ASan + UBSan with leak detection on"
+	@echo "  test-sdl3    - Run the SDL3 adapter test headless (needs SDL3 and SDL3_ttf)"
+	@echo "  check-sdl3-ndebug - Compile the SDL3 targets as a release build (NDEBUG, -O2, -Werror)"
 	@echo "  test-demos   - Build all Raylib demos and verify exit codes"
 	@echo "  help         - Show this help message"

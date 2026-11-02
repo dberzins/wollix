@@ -77,8 +77,22 @@ jobs:
       - name: Build dashboard (raylib + perf)
         run: make dashboard dashboard_perf
 
+  # Two SDL_ttf legs. 3.2.2, the latest release, has no font variants and
+  # keeps the adapter's fallback text path. 3.3.0 adds the font variants,
+  # the retained text cache and the advances callback; it has no release
+  # tag yet, so main is pinned by SHA until one exists. Each leg builds the
+  # targets, runs the headless adapter test and the NDEBUG build.
   build-sdl3:
+    name: build-sdl3 (SDL_ttf ${{ matrix.ttf_name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ttf_name: "3.2.2"
+            ttf_ref: release-3.2.2
+          - ttf_name: "3.3.0, main 5aeb009"
+            ttf_ref: 5aeb0091923d09d9be6b7b49612697308d8238d1
     steps:
       - uses: actions/checkout@v5
 
@@ -114,13 +128,16 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/opt/sdl3_ttf
-          key: sdl3-ttf-release-3.2.2-linux-x64
+          key: sdl3-ttf-${{ matrix.ttf_ref }}-linux-x64
 
       - name: Build & install SDL3_ttf
         if: steps.cache-sdl3-ttf.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 --branch release-3.2.2 \
-            https://github.com/libsdl-org/SDL_ttf.git /tmp/SDL_ttf
+          # A fetch, not a branch clone, so the ref may be a tag or a SHA.
+          git init -q /tmp/SDL_ttf
+          git -C /tmp/SDL_ttf fetch --depth 1 \
+            https://github.com/libsdl-org/SDL_ttf.git ${{ matrix.ttf_ref }}
+          git -C /tmp/SDL_ttf checkout -q FETCH_HEAD
           cmake -S /tmp/SDL_ttf -B /tmp/SDL_ttf/build \
             -DCMAKE_INSTALL_PREFIX=$HOME/opt/sdl3_ttf \
             -DCMAKE_BUILD_TYPE=Release \
@@ -136,6 +153,9 @@ jobs:
 
       - name: Run the SDL3 adapter test (headless)
         run: make test-sdl3
+
+      - name: Build the SDL3 targets as a release build (NDEBUG, -O2, -Werror)
+        run: make check-sdl3-ndebug
 
   build-wasm:
     runs-on: ubuntu-latest
