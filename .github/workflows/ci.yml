@@ -77,6 +77,20 @@ jobs:
       - name: Build dashboard (raylib + perf)
         run: make dashboard dashboard_perf
 
+      # The doc examples include the SDL3 adapter; its headers are enough
+      # (no SDL build), at the refs the build-sdl3 job pins.
+      - name: Fetch the SDL3 and SDL3_ttf headers
+        run: |
+          git clone -q --depth 1 --branch release-3.2.8 \
+            https://github.com/libsdl-org/SDL.git /tmp/SDL-headers
+          git clone -q --depth 1 --branch release-3.2.2 \
+            https://github.com/libsdl-org/SDL_ttf.git /tmp/SDL_ttf-headers
+
+      - name: Check the docs
+        run: >-
+          make docs-check DOCS_INCLUDES="$HOME/opt/raylib/include
+          /tmp/SDL-headers/include /tmp/SDL_ttf-headers/include"
+
   # Two SDL_ttf legs. 3.2.2, the latest release, has no font variants and
   # keeps the adapter's fallback text path. 3.3.0 adds the font variants,
   # the retained text cache and the advances callback; it has no release

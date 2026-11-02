@@ -78,7 +78,7 @@ DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
 WASM_SITE_TARGETS = $(WASM_SITE_DIR)/dashboard.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js $(WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 GALLERY_WASM_SITE_TARGETS = $(GALLERY_WASM_SITE_DIR)/gallery.wasm $(GALLERY_WASM_SITE_DIR)/index.html $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 
-.PHONY: all clean debug release help test test-single-pass test-sdl3 check-sdl3-ndebug perf-test test-asan test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
+.PHONY: all clean debug release help test test-single-pass test-sdl3 check-sdl3-ndebug docs-check perf-test test-asan test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
 
 # The dashboard is the primary showcase, so the default build includes it. It
 # keeps its own -DWLX_PERF recipe ($(DASHBOARD_BIN)) rather than joining the
@@ -298,6 +298,18 @@ check-sdl3-ndebug:
 perf-test: $(PERF_TEST_BIN)
 	./$(PERF_TEST_BIN)
 
+# The documentation gate (tools/docs_check.py): every C and C++ example in
+# README.md and docs/ compiles against the headers, README's C/C++ pair
+# links, anchors resolve, every wlx_/WLX_ name the docs use exists, no
+# tracked file cites an unpublished record, and the option and short-name
+# registries agree. Needs gcc, g++, Raylib (the pair links against it) and
+# the SDL3 and SDL3_ttf headers; DOCS_INCLUDES lists the backend include
+# directories.
+DOCS_INCLUDES ?= $(HOME)/opt/raylib/include $(HOME)/opt/sdl3/include $(HOME)/opt/sdl3_ttf/include
+
+docs-check:
+	DOCS_INCLUDES="$(DOCS_INCLUDES)" DOCS_LINK="$(LIBS)" python3 tools/docs_check.py
+
 $(PERF_TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h wollix_wasm.h
 	$(CC) $(BASE_CFLAGS) -DWLX_PERF -I. -o $@ $(TEST_DIR)/test_main.c -lm
 
@@ -359,5 +371,6 @@ help:
 	@echo "  test-asan    - Run the test runner under ASan + UBSan with leak detection on"
 	@echo "  test-sdl3    - Run the SDL3 adapter test headless (needs SDL3 and SDL3_ttf)"
 	@echo "  check-sdl3-ndebug - Compile the SDL3 targets as a release build (NDEBUG, -O2, -Werror)"
+	@echo "  docs-check   - Check the docs: examples compile, README pair links, anchors, names, registries"
 	@echo "  test-demos   - Build all Raylib demos and verify exit codes"
 	@echo "  help         - Show this help message"

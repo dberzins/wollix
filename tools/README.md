@@ -1,8 +1,37 @@
 # tools/
 
-Manual regeneration tooling for gallery and dashboard assets. Nothing
-here runs on the default build, test, or demo paths. Contributors only
-invoke these scripts when the underlying asset source changes.
+The documentation gate, and manual regeneration tooling for gallery and
+dashboard assets. Nothing here runs on the default build, test, or demo
+paths: `make docs-check` runs the first, and contributors invoke the
+asset scripts only when the underlying asset source changes.
+
+## docs_check.py - the documentation gate
+
+`make docs-check` runs it from the repository root (Python 3, standard
+library only); CI runs it in the Raylib job. It reports a count per check
+and fails when any check finds a problem:
+
+- **blocks**: every fenced `c` and `cpp` block of `README.md` and
+  `docs/*.md` compiles with `-fsyntax-only` (gcc and g++) after a prelude
+  of the headers. Examples use the reader's own variables, so only an
+  unknown field or member, an undeclared `wlx_` / `WLX_` name, or a fatal
+  error (a header not found) fails a block.
+- **pair**: the README's "Using from C++" pair compiles and links.
+- **anchors**: every `[text](#anchor)` and `[text](FILE.md#anchor)` names
+  a heading or an anchor.
+- **names**: every `wlx_` / `WLX_` name in the docs exists in a header,
+  the web host or a build file, or is listed in the script's
+  `ALLOWED_NAMES` with its reason.
+- **records**: no tracked file cites a decision record number, a path
+  under the unpublished development records, or a plan decision id; a
+  public file states its rule or links a public doc.
+- **registries**: the default-option macros, the defaults functions and
+  `tests/option_structs.h` list the same option structs, and every
+  `WLX_SHORT_NAMES` alias is expanded in `tests/test_config_override.c`.
+
+`DOCS_INCLUDES` sets the backend include directories (default: Raylib,
+SDL3 and SDL3_ttf under `~/opt`); `python3 tools/docs_check.py names`
+runs one check.
 
 ## gen_icon_atlas.sh - icon atlas regenerator
 
