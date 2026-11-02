@@ -207,13 +207,15 @@ static size_t _bc_doc_len;
 #define BC_ROOT_H 340
 
 // Ten fixed rows of the root. Every widget sits at one call site, so its
-// id is the same on every frame.
+// id is the same on every frame. The size arrays are automatic: the slot
+// macros are compound literals in C, which MSVC refuses in a static
+// initializer.
 static void bc_widgets(WLX_Context *ctx) {
-    static const WLX_Slot_Size rows[] = {
+    const WLX_Slot_Size rows[] = {
         WLX_SLOT_PX(30), WLX_SLOT_PX(30), WLX_SLOT_PX(40), WLX_SLOT_PX(30), WLX_SLOT_PX(30),
         WLX_SLOT_PX(30), WLX_SLOT_PX(40), WLX_SLOT_PX(30), WLX_SLOT_PX(30), WLX_SLOT_PX(40),
     };
-    static const WLX_Slot_Size disc_row[] = { WLX_SLOT_PX(40), WLX_SLOT_PX(40), WLX_SLOT_FLEX(1) };
+    const WLX_Slot_Size disc_row[] = { WLX_SLOT_PX(40), WLX_SLOT_PX(40), WLX_SLOT_FLEX(1) };
     static const WLX_Texture tex = { 7, 16, 16 };
     WLX_Color fill = WLX_RGBA(40, 50, 60, 255), edge = WLX_RGBA(200, 210, 220, 255);
 
