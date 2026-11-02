@@ -1075,7 +1075,7 @@ typedef struct {
     int mouse_y;
     bool mouse_down;
     bool mouse_clicked; // true for one frame when clicked
-    bool mouse_held;    // legacy: equal to mouse_down (ADR_040); the core reads mouse_down
+    bool mouse_held;    // legacy: equal to mouse_down; the core reads mouse_down
     float wheel_delta;  // vertical wheel detents this frame (positive = up; 1.0 = one
                         // notch, fractional allowed from precision devices - backends
                         // must not quantize or debounce)
@@ -1441,8 +1441,7 @@ static inline void wlx_sub_arena_destroy(WLX_Sub_Arena *sa) {
 // Frame-arena pool: owns every per-frame buffer on WLX_Context. The pool
 // groups sub-arenas by allocator strategy (contiguous vs general). When
 // either group is configured with a NULL allocator, the underlying sub-arenas
-// fall back to the compile-time wlx_realloc / wlx_free macros. See
-// docs/dev/state/MEMORY_MANAGEMENT_D1_A3_ANALYSIS.md for the rationale.
+// fall back to the compile-time wlx_realloc / wlx_free macros.
 
 // Forward declarations for sub-arena element types defined later.
 typedef struct WLX_Layout WLX_Layout;
@@ -1923,7 +1922,7 @@ typedef struct {
 
 typedef struct {
     WLX_Id id;              // widget id
-    uint32_t touch;         // cache clock at the last lookup; a diagnostic, nothing reads it (ADR_051)
+    uint32_t touch;         // cache clock at the last lookup; a diagnostic, nothing reads it
     WLX_Text_Undo_Stack undo;
     WLX_Text_Undo_Stack redo;
     uint32_t next_group;    // last step id handed out
@@ -9444,7 +9443,7 @@ static inline void wlx_interaction_handle_drag(WLX_Context *ctx, WLX_Id id, bool
 
     if (ctx->interaction.active_id == id) {
         // Hold on mouse_down, the field every host fills; mouse_held is its
-        // legacy twin (ADR_040) and a host that fills only mouse_down must
+        // legacy twin, and a host that fills only mouse_down must
         // not lose the drag on the next frame.
         if (ctx->input.mouse_down) {
             result->active = true;
@@ -9880,10 +9879,11 @@ WLXDEF void wlx_widget_impl(WLX_Context *ctx, WLX_Widget_Opt opt, const char *fi
     WLX_Widget_Frame frame = wlx_widget_frame_begin(ctx, opt.id, WLX_WIDGET_LAYOUT(opt), file, line);
     WLX_Rect wr = frame.rect;
 
-    // wlx_widget intentionally does not carry .disabled (see ADR_018
-    // coverage matrix); the _for form with disabled=false keeps the
-    // call shape consistent with the disabled-aware widgets and makes
-    // a future opt-in a one-line change.
+    // wlx_widget intentionally does not carry .disabled (the coverage
+    // table under "Disabled state" in WIDGETS.md); the _for form with
+    // disabled=false keeps the call shape consistent with the
+    // disabled-aware widgets and makes a future opt-in a one-line
+    // change.
     WLX_Interaction inter = wlx_get_interaction_for(
         ctx,
         wr,
@@ -11014,7 +11014,7 @@ static size_t wlx_text_measure_advances_batch(const WLX_Text_Measure_Args *args,
     // the shaped pass it draws with; a decreasing chunk (a font shaped right
     // to left, or a lost splice) is a contract violation the clamp degrades.
     // Under WLX_DEBUG the first violation is reported before the clamp,
-    // never instead of it (ADR_055); the default sink reports it once per
+    // never instead of it; the default sink reports it once per
     // site. Until the first violation the run is non-decreasing, so the
     // clamped previous advance is the backend's own. Negative tracking is
     // exempt from the report: an additive backend's prefix width
@@ -13535,10 +13535,11 @@ WLXDEF void wlx_label_impl(WLX_Context *ctx, const char *text, WLX_Label_Opt opt
 
     WLX_Rect content_rect = WLX_RESOLVE_CONTENT_RECT(ctx, opt, wr);
 
-    // wlx_label intentionally does not carry .disabled (see ADR_018
-    // coverage matrix); the _for form with disabled=false keeps the
-    // call shape consistent with the disabled-aware widgets and makes
-    // a future opt-in a one-line change.
+    // wlx_label intentionally does not carry .disabled (the coverage
+    // table under "Disabled state" in WIDGETS.md); the _for form with
+    // disabled=false keeps the call shape consistent with the
+    // disabled-aware widgets and makes a future opt-in a one-line
+    // change.
     WLX_Interaction inter = wlx_get_interaction_for(
         ctx,
         wr,

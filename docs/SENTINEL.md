@@ -17,7 +17,7 @@ wlx_button(ctx, "OK", .font_size = 24);
 
 The challenge is that `0` is a valid explicit value for many fields ("no
 border", "sharp corners", "no hover effect"). Two rules decide, per field,
-what omission means and what `0` means (ADR_044). A designator follows the
+what omission means and what `0` means. A designator follows the
 same rule in every option struct that declares it.
 
 ---

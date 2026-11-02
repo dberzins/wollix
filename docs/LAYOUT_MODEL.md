@@ -108,7 +108,7 @@ context is not thread-safe — use one per thread if needed.
 
 ### Units and the device grid
 
-Every size and position in the layout is in **units** (ADR_053), logical
+Every size and position in the layout is in **units**, logical
 pixels that the backend maps to device pixels by its content scale (1.0 unless the
 window is high-density; see the API reference's "Coordinate space"). Slot
 boundaries snap to the device-pixel grid, measured from their layout's
@@ -657,7 +657,7 @@ if (it.clicked) navigate();
   is a constant width with a transparent base color toggled to an accent twin.
 - **Supported flags.** `HOVER`, `CLICK`, `KEYBOARD`. `FOCUS`/`DRAG` are not
   supported on containers.
-- **Interactive children win the press.** Ownership is topmost-wins (ADR_039):
+- **Interactive children win the press.** Ownership is topmost-wins:
   the innermost candidate under the pointer - the latest query at that point,
   so a nested `wlx_button` beats the container that wraps it - owns a press,
   and the container reports `clicked` only when the press lands on its own
@@ -985,8 +985,8 @@ Every widget gets a unique ID derived from:
 1. **Call-site** — `__FILE__` and `__LINE__` of the macro expansion.
 2. **ID stack** — values pushed via `wlx_push_id()`.
 
-Both interaction IDs and persistent state IDs use the same formula
-(ADR_050): `mix(hash(file, line) ^ id_stack_hash)`, a full-avalanche mix of
+Both interaction IDs and persistent state IDs use the same formula:
+`mix(hash(file, line) ^ id_stack_hash)`, a full-avalanche mix of
 the call site and the ID stack. This means two calls to `wlx_button()` on
 different source lines automatically get different IDs with no user effort.
 
@@ -1028,7 +1028,7 @@ its id is requested at least once every `WLX_STATE_MIN_AGE` frames. Once the
 context holds more than `WLX_STATE_EVICT_THRESHOLD` entries, state left
 unrequested longer may be reclaimed, and it comes back zeroed on its next
 request. State must therefore not own resources such as heap pointers or
-handles. The full rule (ADR_051) is at
+handles. The full rule is at
 [`WLX_State`](API_REFERENCE.md#wlx_state).
 
 Built-in paths that use persistent state:
@@ -1152,7 +1152,7 @@ The table holds a contract version, a `user` pointer and 24 callbacks.
 every signature and what each callback does. This section covers how the
 core uses the table.
 
-- **Version and `user`** (ADR_045). `contract_version` must equal
+- **Version and `user`.** `contract_version` must equal
   `WLX_BACKEND_CONTRACT_VERSION`, which is 2 since v0.9. Every callback
   takes a trailing `void *user`, which is the table's own `user` member.
   The core passes it on every call and never reads it, so an adapter can

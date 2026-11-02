@@ -906,7 +906,7 @@ minor.
   (`tests/test_word_wrap.c`; the equivalence, parity and re-entrancy suites
   run spaced prose in wrap mode; caret-visibility pins in
   `tests/test_input_multiline.c` and `tests/test_editor_wrap.c`); the
-  editor perf gate holds unamended. (ADR_047)
+  editor perf gate holds unamended.
 - **Text units are grapheme clusters.** Caret motion (LEFT/RIGHT, the
   UP/DOWN landing column, clicks and drags), BACKSPACE and DELETE, hit
   tests, wrapping, the password mask and the editor's retained geometry
@@ -932,7 +932,7 @@ minor.
   keep their codepoint meaning. (`tests/test_grapheme.c`; cluster cases
   in the editing, caret, inputbox, multiline, password, undo, geometry,
   parity, re-entrancy, word-wrap and windowed-origin suites; the editor
-  perf gate reads back identical measure traffic.) (ADR_048)
+  perf gate reads back identical measure traffic.)
 - SENTINEL.md is rewritten around the two unset rules, the literal
   defaults, the request tokens and the container exception; the
   `wollix.h` option-field comment block states the same rules in short.
@@ -1155,7 +1155,7 @@ as well as vertically.
 - **Drags hold on `mouse_down`.** `WLX_INTERACT_DRAG` acquired on
   `mouse_down` but kept the drag alive only while `mouse_held` was set, so a
   host that fills `mouse_down` alone (the documented contract; `mouse_held`
-  is its legacy twin per ADR_040) lost every drag on the frame after the
+  is its legacy twin) lost every drag on the frame after the
   press. The core now reads `mouse_down` for both; `mouse_held` stays in the
   struct as the documented legacy-equal field.
 - **`wlx_last_rect` after a `wlx_menu_button_begin` block is the face.**
@@ -1439,15 +1439,14 @@ as well as vertically.
   menu-button face == button face". No behavior change.
 - Docs aligned with the landed contracts: LAYOUT_MODEL.md / API_REFERENCE.md
   describe interactive containers under topmost-wins (a child button wins
-  the press; ADR_029 carries a superseded-by note), the Raylib input section
+  the press), the Raylib input section
   no longer claims wheel debouncing, README and the header preamble list the
   popup family / input v2 / focus traversal / cursor callback, the preamble
   LIMITS block lists every overridable cap, WIDGETS.md tables gain the
-  dropdown and menu-button intrinsic-width rows and `id` fields,
+  dropdown and menu-button intrinsic-width rows and `id` fields, and
   API_REFERENCE gains a "Backend - WASM" section and documents the three
-  `WLX_*_CLIPBOARD_MAX` caps, and ADR_038-042 carry their implemented
-  status. `demos/gallery_wasm.c` (orphan: the WASM gallery builds from
-  `gallery.c`) is removed.
+  `WLX_*_CLIPBOARD_MAX` caps. `demos/gallery_wasm.c` (orphan: the WASM
+  gallery builds from `gallery.c`) is removed.
 - SDL3 adapter: `wlx_sdl3_measure_text`'s debug-font `len == 0` path ends
   its `WLX_PERF` timer before returning (the started sample was dropped).
 - `wlx_menu_item`, `wlx_menu_end` and `wlx_submenu_begin` guard an empty
@@ -1766,8 +1765,8 @@ existing designated initializers compile unchanged; migrate before 0.7.
   geometry, so existing call sites are unaffected. The dashboard top-bar search
   now uses this to put the magnifier glyph inside the box (via a new
   `dashboard_icon_inputbox` demo helper).
-- **Dashboard showcase ("Mechanical Glass") -- the canonical cross-backend demo
-  (ADR_026):** `demos/dashboard/` is a single-translation-unit, demo-local
+- **Dashboard showcase ("Mechanical Glass") -- the canonical cross-backend
+  demo:** `demos/dashboard/` is a single-translation-unit, demo-local
   dashboard that builds and runs on raylib, SDL3, and bare WASM. A shared top bar
   and sidebar route between distinct, persistent views -- Overview, Tokens,
   Components, Layouts, Theme Lab -- through a dashboard-local section dispatch
@@ -1782,9 +1781,7 @@ existing designated initializers compile unchanged; migrate before 0.7.
   component-state matrix). The core (`wollix.h`) and backend headers are
   unchanged; the only host addition is an additive `window.open` shim in
   `web/wollix_wasm.js`. `make dashboard` / `dashboard_sdl3` / `dashboard_perf`
-  build the desktop binaries. See
-  `docs/dev/ADR_026_DASHBOARD_REPLACES_GALLERY.md` and
-  `docs/DASHBOARD_DESIGN_SYSTEM.md`.
+  build the desktop binaries. See `docs/DESIGN_SYSTEM.md`.
 - **API hygiene, additive (V05 R9a):**
   - `WLX_SCROLL_AUTO_HEIGHT` names the `-1` auto-height sentinel for
     `wlx_scroll_panel_begin`; all in-tree call sites converted.
@@ -1834,7 +1831,7 @@ existing designated initializers compile unchanged; migrate before 0.7.
   (containers, grids, panels, scroll panels, and the chrome of `widget` /
   `label` / `button` / `inputbox`); widget primitives that draw their own
   rounded shapes (`checkbox`, `slider`, `progress`, `scrollbar`, `radio`) accept
-  but ignore it. See `docs/dev/ADR_025_ABSOLUTE_CORNER_RADIUS.md`.
+  but ignore it.
 - **First-class vertical gradient fill:** a two-stop vertical gradient is now a
   decoration field on every bordered widget and container. New
   `WLX_GRADIENT_FIELDS` (`gradient_top`, `gradient_bottom`) embed in
@@ -1851,7 +1848,7 @@ existing designated initializers compile unchanged; migrate before 0.7.
   `max(1, rect.h / 4)` solid bands interpolating the stops. Widget-path stops
   carry the effective opacity (container stops pass through like `back_color`);
   `WLX_PERF` counts one command per element. New `wlx_color_lerp` helper; v1 is
-  vertical two-stop only (ADR_023). Covered by `tests/test_gradient.c`. See
+  vertical two-stop only. Covered by `tests/test_gradient.c`. See
   `docs/WIDGETS.md` § Gradient fill fields.
 - **Opt-in layout clipping:** `WLX_Layout_Opt` gains `.clip` (default `false`).
   When set, `wlx_layout_begin` clips its children to the post-padding content
@@ -1971,13 +1968,12 @@ existing designated initializers compile unchanged; migrate before 0.7.
   scanline overlay, and a frosted backdrop-blur stand-in (darkened/desaturated translucent
   fill) - plus pure color helpers (lerp, desaturate, blur tint, glow falloff). Wired into the
   demo as module shadows, a page gradient backdrop, an active segmented-bar glow, and a
-  dedicated "Visual effects" section. New `tests/test_dashboard_effects.c` suite. A per-effect
-  fidelity assessment is recorded under `docs/dev/dashboard/`; true backdrop blur is deferred
-  to an ADR-gated core change. `wollix.h` and backends remain unchanged.
+  dedicated "Visual effects" section. New `tests/test_dashboard_effects.c` suite. True
+  backdrop blur needs a core change and is deferred. `wollix.h` and backends remain unchanged.
 
 ### Changed
-- **The published web demo and canonical showcase are now the dashboard
-  (ADR_026).** `make wasm-site` now packages the bare-WASM **dashboard** into
+- **The published web demo and canonical showcase are now the
+  dashboard.** `make wasm-site` now packages the bare-WASM **dashboard** into
   `dist/wasm-demo/` (the GitHub Pages artifact), so the demo URL is unchanged but
   serves the dashboard. The gallery keeps building and coexists: `make gallery`,
   `make gallery_sdl3`, and the new `make gallery-wasm-site` (into
@@ -2113,12 +2109,11 @@ existing designated initializers compile unchanged; migrate before 0.7.
 - **Disabled-state Phase 1:** `.disabled` option on `wlx_button`, `wlx_checkbox`, `wlx_inputbox`,
   `wlx_slider`, `wlx_toggle`, and `wlx_radio`; `theme->disabled_brightness` and
   `theme->disabled_opacity` knobs; `WLX_DEFAULT_DISABLED_OPACITY` constant (`0.55f`) shared
-  across built-in presets. Coverage rule documented in ADR_018 and `docs/WIDGETS.md`.
+  across built-in presets. Coverage rule documented in `docs/WIDGETS.md`.
 - **WASM texture support:** `wlx_wasm_texture_create` / `wlx_wasm_texture_destroy` C helpers;
   JS host owns a per-texture `OffscreenCanvas` registry copied at upload time. Full RGB tint
   is supported via a source-space variant cache: primary path uses `ctx.filter feColorMatrix`;
   fallback uses Canvas 2D `multiply` compositing. Alpha applies per-draw via `ctx.globalAlpha`.
-  See ADR_017 for the full contract.
 - **Gallery Lucide icon atlas (32 icons, four tiers):** `demos/assets/wlx_icons.h` is now a
   576x120 white-alpha atlas at 16/24/32/48 px. `gallery_icon_src_for()` picks the sharpest tier
   at the call-site size. Source SVGs and manifest under `demos/assets/icons/`.

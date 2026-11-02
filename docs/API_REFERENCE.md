@@ -300,7 +300,7 @@ uses 27, 50 and 0.08).
 
 ### Coordinate space
 
-One Wollix unit is a **logical pixel** (ADR_053). Every `WLX_Rect`, every length in
+One Wollix unit is a **logical pixel**. Every `WLX_Rect`, every length in
 an option or theme field (padding, border width, radius, thickness,
 scrollbar width, tile size), every `font_size`, the root rect passed to
 `wlx_begin` and the mouse position in `WLX_Input_State` are in units. The
@@ -439,7 +439,7 @@ time queries. All required pointers must be non-NULL; use
 `wlx_backend_is_ready()` to verify the required set. Optional pointers may be
 left as `NULL`.
 
-**Contract v2 (v0.9; ADR_045).** Every callback takes a trailing `void *user`: the
+**Contract v2 (v0.9).** Every callback takes a trailing `void *user`: the
 table's own `user` member, passed by the core on every call and never
 read by it, so an adapter can reach per-instance state instead of
 file-scope globals. `contract_version` must be
@@ -550,8 +550,8 @@ variation selectors and regional-indicator pairs join; malformed bytes
 are one-byte units), so a backend never re-implements it — it walks its
 own glyph or cluster geometry and reports the advance at (or snapped to
 the nearest cluster edge after) each requested byte end, **in logical
-byte order, laid out left to right**. Text geometry is logical-order
-(ADR_055): every consumer maps a byte offset to a non-decreasing x and
+byte order, laid out left to right**. Text geometry is logical-order:
+every consumer maps a byte offset to a non-decreasing x and
 back, so a backend fills advances in that order from the same shaped pass
 it draws with. Reported advances must be non-decreasing; the core clamps
 any other order (every unit edge inside the chunk collapses onto the
@@ -1022,7 +1022,7 @@ Where the platform's input method should anchor itself: the caret line
 of the editable text widget that holds focus this frame, assembled by the
 core from the widget's caret geometry and pushed through the optional
 `WLX_Backend.set_text_input_area` callback from `wlx_end`, only when it
-changed (ADR_056). `active` is focus: it does not follow the caret's blink or
+changed. `active` is focus: it does not follow the caret's blink or
 whether the caret line is in view. With `active` false the other members
 are zero. `multiline` and
 `password` let a platform pick its keyboard and prediction behaviour
@@ -1114,7 +1114,7 @@ typedef uint64_t WLX_Id;
 ```
 
 The widget id type: the key of every interaction and persistent-state
-lookup, 64-bit on every target including wasm32 (ADR_050). `0` is reserved for "no
+lookup, 64-bit on every target including wasm32. `0` is reserved for "no
 widget". Ids derive from the call site and the ID stack (see the Identity
 Model below), so they are not stable across builds; print one with
 `PRIu64`. Passing a `size_t` where a `WLX_Id` is expected compiles
@@ -1132,7 +1132,7 @@ typedef struct {
 ```
 
 Handle returned by `wlx_get_state()`. The `data` pointer is zero-initialized on
-first access. Its lifetime (ADR_051):
+first access. Its lifetime:
 
 - `data` is valid through the frame that returned it.
 - The state survives across frames while its id is requested at least once
@@ -1502,7 +1502,7 @@ wlx_context_destroy(&ctx);             // frees internal buffers
 A caller-contract violation (more children than slots, a grid cell outside
 the grid, an end without a begin or of the wrong kind, a widget with no layout
 open, a count of zero, a required pointer that is NULL) is reported in
-**every build** (ADR_052), and
+**every build**, and
 the call then degrades the way its entry documents. Nothing here compiles
 out under `NDEBUG`. Library invariants stay plain `assert()`s; memory guards
 stay `WLX_HARD_ASSERT` (release-live and fatal, printing through
@@ -1884,7 +1884,7 @@ Rules:
 - **Supported flags.** `HOVER`, `CLICK`, and `KEYBOARD`. `FOCUS` and `DRAG` are
   not supported on containers.
 - **Interactive children win the press.** Press and hover ownership is
-  topmost-wins (ADR_039): the innermost candidate under the pointer - the
+  topmost-wins: the innermost candidate under the pointer - the
   latest query at that point - owns them, so a `wlx_button` inside a `CLICK`
   container fires its own click and the container reports `clicked` only for
   presses on its own non-interactive area (labels, images, separators,
@@ -3284,8 +3284,8 @@ explicit length in/out — non-wrapping by default, with an opt-in wrapped
 mode (`.wrap`) that breaks hard lines into band-wide rows (`size_t *length` is authoritative in both
 directions; the buffer need not be NUL-terminated, though the widget
 maintains a trailing NUL opportunistically when `*length < buffer_cap`).
-The contiguous caller-owned buffer is the permanent document contract
-(ADR_054): the library never owns, copies or re-materialises the document,
+The contiguous caller-owned buffer is the permanent document contract:
+the library never owns, copies or re-materialises the document,
 and a library-managed document, if one is ever added, is a separate entry
 point rather than a change to this signature.
 Only the visible window of lines is measured, built, and drawn, so frame
@@ -4566,7 +4566,7 @@ SDL_ttf shapes text (through HarfBuzz when it is linked) in the font's
 default, left-to-right direction. Do not call `TTF_SetFontDirection` with
 `TTF_DIRECTION_RTL`, `TTF_DIRECTION_TTB` or `TTF_DIRECTION_BTT` on a font
 handed to Wollix: the core's text geometry is logical-order and left to
-right (ADR_055), a right-to-left direction makes `measure_text_advances`
+right, a right-to-left direction makes `measure_text_advances`
 report visual-order cluster edges, and the core clamps such a run: every
 unit edge inside it collapses onto the first reported value, so the run
 keeps one width and every caret offset inside it lands on the same x
@@ -4599,8 +4599,8 @@ Set the fixed capacity of the SDL3 backend's retained `TTF_Text` cache before
 including `wollix_sdl3.h`. The default is `4096` (raised from the
 gallery-sized `1024` to cover an editor viewport's working set; with the
 editor's retained line geometry the steady-state working set has since
-collapsed to viewport-line scale, so lowering it back is a candidate — see
-the follow-up outcomes in ADR_036). Each live entry owns a
+collapsed to viewport-line scale, so lowering it back is a candidate).
+Each live entry owns a
 `TTF_CreateText`-derived `TTF_Text *` keyed by `(variant, slice_len,
 fnv1a64(text bytes))` with stored `text_len` plus the bytes themselves for
 collision-rejecting hit verification. Setting the cap to `0` disables retention
@@ -4817,7 +4817,9 @@ static inline void        wlx_wasm_texture_destroy(WLX_Texture tex);
 ```
 
 Host-owned RGBA8 textures (the pixels are copied during the call; the handle
-is opaque and nonzero). See ADR_014 / ADR_017 for the tint contract.
+is opaque and nonzero). `draw_texture` multiplies each RGB channel of the
+texture by the tint's (a white tint draws it unchanged) and applies the
+tint's alpha on every draw.
 
 ### `WLX_WASM_CLIPBOARD_MAX`, `WLX_RAYLIB_CLIPBOARD_MAX`, `WLX_SDL3_CLIPBOARD_MAX`
 

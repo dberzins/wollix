@@ -624,7 +624,8 @@ What the model asks of a backend:
   advances callback, the build measures growing prefixes of each line,
   one call per accepted text unit. Backends on that path are expected
   to make repeated measurement of recently seen runs cheap (the SDL3
-  and Raylib adapters keep text caches; see ADR_012 and ADR_013). With
+  and Raylib adapters keep text caches; see `WLX_SDL3_TEXT_CACHE_CAP`
+  and `WLX_RAYLIB_TEXT_CACHE_CAP` in API_REFERENCE.md). With
   the callback, a line's geometry fills in a handful
   of chunked calls instead — and the editor retains the result, so
   steady frames stop asking entirely
@@ -703,7 +704,7 @@ Guaranteed by the model (and locked by tests):
   cluster of Section 3, so caret motion, deletes, hit tests, wrapping,
   the measure origin, the chunk splice and the password mask all rest on
   cluster boundaries, and the forward and backward steppers are exact
-  inverses (ADR_048; `tests/test_grapheme.c` and the cluster cases of the
+  inverses (`tests/test_grapheme.c` and the cluster cases of the
   editing, geometry, undo and parity suites).
 
 Not attempted (deliberately, until evidence demands more):
@@ -715,8 +716,8 @@ Not attempted (deliberately, until evidence demands more):
   base followed by an emoji joins where UAX #29 would break. The full
   `Grapheme_Extend` table and the remaining rules are additions behind
   the one predicate when evidence asks for them.
-- **Complex-script shaping and bidi.** Decided, not merely unattempted
-  (ADR_055): text geometry is logical-order and left to right. Runs are
+- **Complex-script shaping and bidi.** Decided, not merely unattempted:
+  text geometry is logical-order and left to right. Runs are
   passed to the backend as-is; every consumer maps a byte offset to a
   non-decreasing x and back. Both fetch arms deliver a non-decreasing
   array: the batched advances fill clamps a backend answer in any other
@@ -740,10 +741,9 @@ Not attempted (deliberately, until evidence demands more):
 - **Per-span styling.** A build has one `WLX_Text_Style`; there is no
   rich-text run model.
 
-These boundaries come from ADR_008 (first-pass scope), ADR_034 and
-ADR_054 (editor scope and the document storage contract), ADR_047
-(word-wrap scope) and ADR_055 (logical-order geometry); richer typography
-is future ADR territory.
+These boundaries are design decisions: the first-pass scope, the editor
+scope and the document storage contract, the word-wrap scope and the
+logical-order geometry. Richer typography would take a new decision.
 
 ---
 

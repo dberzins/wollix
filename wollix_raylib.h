@@ -682,7 +682,7 @@ static inline size_t wlx_raylib_measure_text_advances(const char *text, size_t l
 // lookup helper compares against the current generation. No table-wide scan
 // needed; the next store into a stale slot displaces it transparently.
 // Auto-called from wlx_context_init_raylib. Callers must invoke this before
-// UnloadFont() on any Raylib Font passed to the backend (ADR 013).
+// UnloadFont() on any Raylib Font passed to the backend.
 static inline void wlx_raylib_text_cache_clear(void) {
 #if WLX_RAYLIB_TEXT_CACHE_CAP > 0
     g_wlx_raylib_text_cache_generation++;

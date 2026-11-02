@@ -401,10 +401,10 @@ deserves extra review care.
 10. **Byte offsets exact everywhere.** All approximations are
     confined to x-space (the far-jump origin estimate, the scrollbar
     ranges); a caret or edit offset is never approximate. Locked
-    across the editor suites; an ADR guardrail.
+    across the editor suites.
 11. **The per-unit fallback is permanent.** `measure_text_advances`
     is optional; the prefix-measure path serves every backend and is
-    never deleted. An ADR guardrail.
+    never deleted.
 12. **Miss falls back to measuring, everywhere.** Every retained-
     geometry consumer keeps the from-scratch path; a dropped or
     evicted entry costs traffic, never geometry. A caret x or

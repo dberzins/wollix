@@ -290,7 +290,7 @@ TEST(focus_transfer) {
 }
 
 // ============================================================================
-// FOCUS contract extensions (ADR_032): Escape-blur, FOCUS_HOLD_ENTER,
+// FOCUS contract extensions: Escape-blur, FOCUS_HOLD_ENTER,
 // same-frame Enter consumption, hover gate while focused
 // ============================================================================
 
@@ -304,7 +304,7 @@ TEST(focus_escape_unfocus) {
     interact_widget_A(&ctx, r, WLX_INTERACT_HOVER | WLX_INTERACT_FOCUS);
     test_frame_end(&ctx);
 
-    // Frame 2: press Escape -> unfocused (ADR_032 Decision 3)
+    // Frame 2: press Escape -> unfocused
     bool keys_pressed[WLX_KEY_COUNT] = {0};
     keys_pressed[WLX_KEY_ESCAPE] = true;
     test_frame_begin_ex(&ctx, 150, 120, false, false, false, 0.0f,
@@ -328,7 +328,7 @@ TEST(focus_hold_enter_keeps_focus) {
     interact_widget_A(&ctx, r, flags);
     test_frame_end(&ctx);
 
-    // Frame 2: press Enter -> stays focused (ADR_032 Decision 2)
+    // Frame 2: press Enter -> stays focused
     bool keys_pressed[WLX_KEY_COUNT] = {0};
     keys_pressed[WLX_KEY_ENTER] = true;
     test_frame_begin_ex(&ctx, 150, 120, false, false, false, 0.0f,
@@ -352,7 +352,7 @@ TEST(focus_hold_enter_escape_blurs) {
     interact_widget_A(&ctx, r, flags);
     test_frame_end(&ctx);
 
-    // Frame 2: Escape blurs even with HOLD_ENTER (ADR_032 Decision 3)
+    // Frame 2: Escape blurs even with HOLD_ENTER
     bool keys_pressed[WLX_KEY_COUNT] = {0};
     keys_pressed[WLX_KEY_ESCAPE] = true;
     test_frame_begin_ex(&ctx, 150, 120, false, false, false, 0.0f,
@@ -385,7 +385,7 @@ TEST(focus_hold_enter_click_away_blurs) {
 }
 
 TEST(enter_blur_no_same_frame_activation) {
-    // ADR_032 guardrail 5: the Enter press that blurs a focused field must not
+    // The Enter press that blurs a focused field must not
     // keyboard-activate another hot widget in the same frame, regardless of
     // declaration order. B is processed before the field, C after; B and C
     // overlap under the mouse so either could become hot.
@@ -484,8 +484,8 @@ TEST(drag_while_held) {
     wlx_context_destroy(&ctx);
 }
 
-// A host that fills only mouse_down (mouse_held is its legacy twin per
-// ADR_040) must keep the drag alive across frames.
+// A host that fills only mouse_down (mouse_held is its legacy twin) must
+// keep the drag alive across frames.
 TEST(drag_holds_on_mouse_down_without_mouse_held) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 800, 600);
@@ -951,7 +951,7 @@ SUITE(interaction) {
     RUN_TEST(focus_enter_unfocus);
     RUN_TEST(focus_transfer);
 
-    // Focus contract extensions (ADR_032)
+    // Focus contract extensions
     RUN_TEST(focus_escape_unfocus);
     RUN_TEST(focus_hold_enter_keeps_focus);
     RUN_TEST(focus_hold_enter_escape_blurs);

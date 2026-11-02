@@ -1109,7 +1109,7 @@ TEST(list_clipper_outside_scroll_panel_reports) {
 }
 
 // Inside an overlay, a scroll panel of the base layer is not the clipper's
-// viewport (D111): the clipper reports as outside any panel and builds the
+// viewport: the clipper reports as outside any panel and builds the
 // rows that fit its parent (100 px of 20 px rows: 0 to 5), instead of
 // clipping against the base panel (300 px: 0 to 15).
 TEST(list_clipper_in_overlay_reports) {

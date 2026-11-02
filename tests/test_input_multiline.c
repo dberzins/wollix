@@ -1,4 +1,4 @@
-// test_input_multiline.c - inputbox multiline mode (ADR_032): Enter inserts a
+// test_input_multiline.c - inputbox multiline mode: Enter inserts a
 // newline and keeps focus (incl. OS auto-repeat), selection replacement,
 // single-line Enter-blur retention, read_only rejection with focus held,
 // password exclusion in resolve, Escape blur, and full-buffer truncation.
@@ -143,7 +143,7 @@ TEST(singleline_enter_blurs_no_insert) {
     bool focused = ml_frame_mouse(&ctx, buf, sizeof(buf), false, false, 380, true, true);
     ASSERT_TRUE(focused);
 
-    // Default mode keeps the pre-ADR_032 contract: Enter blurs, no newline.
+    // Default mode keeps the single-line contract: Enter blurs, no newline.
     focused = ml_frame_key(&ctx, buf, sizeof(buf), false, false, WLX_KEY_ENTER, 0);
     ASSERT_FALSE(focused);
     ASSERT_EQ_STR(buf, "ab");
@@ -185,7 +185,7 @@ TEST(password_forces_multiline_off) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
 
-    // Resolve-level exclusion (ADR_032 Decision 4).
+    // Resolve-level exclusion: password turns multiline off.
     ctx.theme = &wlx_theme_dark;
     WLX_Inputbox_Opt opt = wlx_default_inputbox_opt(.password = true, .multiline = true);
     wlx_resolve_opt_inputbox(&ctx, &opt);
@@ -350,7 +350,7 @@ TEST(multiline_up_first_down_last_clamp) {
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
-    // UP on the first line clamps to the line start (ADR_032 Decision 6).
+    // UP on the first line clamps to the line start.
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_UP, 0);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
     ASSERT_EQ_STR(buf, "XAB\nCD");

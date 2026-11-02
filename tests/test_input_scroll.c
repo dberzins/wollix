@@ -1,4 +1,4 @@
-// test_input_scroll.c - inputbox multiline internal scroll (ADR_033):
+// test_input_scroll.c - inputbox multiline internal scroll:
 // caret-follow keeps the caret line inside the band on caret moves and
 // edits (Ctrl+HOME/END, UP/DOWN, Enter at the bottom, paste), the wheel
 // scrolls a hovered overflowing field and consumes the delta (and only

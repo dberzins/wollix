@@ -190,7 +190,7 @@ typedef struct {
 // Dark mode tokens (Stitch "Mechanical Glass Dark")
 // ============================================================================
 //
-// Transcribed from docs/dev/dashboard/dark/DESIGN.md. The Material surface and
+// Transcribed from the Stitch design export. The Material surface and
 // on-color roles come straight from the export frontmatter (background #0f1419
 // over a #0a0f14 void); the bright electric blue (#00d1ff) is the brand accent,
 // and the deep dark ink (#0a0f14) is the on-accent text per the narrative. Status
@@ -270,7 +270,7 @@ static const Dashboard_Tokens dashboard_tokens_dark = {
 // Light mode tokens (Stitch "Mechanical Glass Light")
 // ============================================================================
 //
-// Transcribed from docs/dev/dashboard/light/DESIGN.md. The Material surface and
+// Transcribed from the Stitch design export. The Material surface and
 // on-color roles come straight from the export frontmatter; the accent system
 // follows the narrative: the bright electric blue (#00d1ff, primary-container)
 // is the brand accent for fills, washes, and indicators, while the deep primary

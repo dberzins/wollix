@@ -94,13 +94,6 @@ generation_command: bash tools/gen_icon_atlas.sh
 generation_currentcolor_preprocess: per-icon working-copy substitution currentColor -> white; committed SVGs under demos/assets/icons/lucide-svg/ are never modified in place
 normal_build_dependency: none
 
-decision_records:
-  - docs/dev/designe/ICONS_DESIGNE_ANALYSIS.md
-  - docs/dev/ADR_016_GALLERY_ICON_ATLAS_FORMAT.md
-  - docs/dev/designe/ATLASS_TOOLCHAIN_ANALYSIS.md
-  - docs/dev/designe/ICONS_DESIGNE_PLAN.md
-  - docs/dev/designe/ICONS_DESIGNE_PHASE1_DECISIONS.md
-
 notes:
   - Normal builds should consume only the generated atlas header.
   - The upstream Lucide scratch tree (upstream_scratch_dir) is gitignored and may be deleted after regeneration; it is recoverable from upstream_archive_url.

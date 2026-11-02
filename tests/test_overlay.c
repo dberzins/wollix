@@ -658,7 +658,7 @@ TEST(overlay_rects_outside_own_clip_are_culled) {
 }
 
 // A FILL slot in a layout nested in an overlay resolves against the
-// overlay's body (D111): 200 units here, wherever the overlay is
+// overlay's body: 200 units here, wherever the overlay is
 // declared. It used to take the window (300) at the root and the base
 // scroll panel's viewport (120) inside one.
 static float _ov_fill_child_h(WLX_Context *ctx, bool in_panel) {
@@ -688,7 +688,7 @@ TEST(overlay_fill_resolves_against_overlay) {
     wlx_context_destroy(&ctx);
 }
 
-// The scroll-panel getters answer for the current layer (D111): inside an
+// The scroll-panel getters answer for the current layer: inside an
 // overlay over a base panel they report no panel, inside a panel of the
 // overlay they report that panel, and the base panel again once the
 // overlay closes.

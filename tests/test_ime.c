@@ -550,7 +550,7 @@ TEST(ime_identity_editor_wrapped) { ime_identity_editor_body(true); }
 // The tentative span
 // ============================================================================
 
-// The caret blink clock is bounded (D114): past 1024 s of focus one frame
+// The caret blink clock is bounded: past 1024 s of focus one frame
 // reduces it to its phase (fmodf by the period), so a long-focused field
 // keeps blinking. It used to grow without bound until, past 2^19 s, a
 // 60 fps frame's increment rounded away and the blink stopped.

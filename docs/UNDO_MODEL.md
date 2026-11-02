@@ -8,7 +8,7 @@
 > form, how undo and redo replay, and where the bounds and guards sit.
 
 How every text widget in Wollix (inputbox, textarea, editor) gets undo
-and redo from one mechanism (ADR_043): a per-widget journal that the two shared edit
+and redo from one mechanism: a per-widget journal that the two shared edit
 primitives record into, and that the undo chords replay through those same
 primitives. Read it before touching the key handler, the edit primitives,
 the editor's line-index guard, or anything that keeps per-widget history.
@@ -144,7 +144,7 @@ every entry point without branching at the call sites:
 | Allocation failure while creating the cache item | NULL for this frame |
 | Unfocused widget | no lookup, except on the frame it adopts a held composition span |
 
-A journal lives exactly as long as its widget's state entry (ADR_051): when the
+A journal lives exactly as long as its widget's state entry: when the
 state map reclaims the entry (the lifetime rules under `wlx_get_state` in
 API_REFERENCE.md, or `wlx_state_prune`), the journal's stacks are freed
 and its cache item zeroed in place, id 0 marking it free for the next

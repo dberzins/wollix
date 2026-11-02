@@ -94,7 +94,7 @@ TEST(sentinel_unset_inherits) {
 
 // Brightness shifts are the one signed-domain Rule U family: -1 is the
 // sentinel, any value above it (negative included) is explicit.
-// A NaN on a Rule U float field reads as unset (D115). The border width
+// A NaN on a Rule U float field reads as unset. The border width
 // and roundness take the theme's (they passed the NaN through before),
 // and a widget width takes the slot's (it already did: a `>= 0` read).
 TEST(rule_u_nan_reads_as_unset) {

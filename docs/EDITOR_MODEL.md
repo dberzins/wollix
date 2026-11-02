@@ -52,7 +52,7 @@ The document is a caller-owned flat buffer with an explicit length
 passed in and out; the widget never derives length from the bytes. NUL
 termination is maintained opportunistically for interop but is never
 the length source. Edits are memmove-based, and the library never
-copies or owns the document (ADR_054).
+copies or owns the document.
 
 The target envelope is a 10 MB / 1,000,000-line document — including a
 single 300 KB hard line, editable end-to-end — with per-frame cost
@@ -118,7 +118,7 @@ the index, its span shifting the retained geometry exactly like a
 keystroke. The journal itself is documented in
 [UNDO_MODEL.md](UNDO_MODEL.md).
 
-The index lives exactly as long as its widget's state entry (ADR_051). When the
+The index lives exactly as long as its widget's state entry. When the
 state map reclaims the entry (the lifetime rules under `wlx_get_state` in
 API_REFERENCE.md: unrequested for `WLX_STATE_MIN_AGE` frames while the
 context holds more than `WLX_STATE_EVICT_THRESHOLD` entries, or
