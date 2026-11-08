@@ -14,7 +14,8 @@ static WLX_Color _wgt_draw_rect_last_color;
 static WLX_Rect  _wgt_rect_log[WGT_REC_MAX];
 static WLX_Color _wgt_rect_color_log[WGT_REC_MAX];
 
-static void wgt_rec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void wgt_rec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     if (_wgt_draw_rect_count < WGT_REC_MAX) {
         _wgt_rect_log[_wgt_draw_rect_count] = r;
         _wgt_rect_color_log[_wgt_draw_rect_count] = c;
@@ -28,7 +29,8 @@ static int _wgt_draw_rect_rounded_count;
 static float _wgt_draw_rect_rounded_last_rn;
 static WLX_Color _wgt_draw_rect_rounded_last_color;
 
-static void wgt_rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c) {
+static void wgt_rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)segments;
     _wgt_draw_rect_rounded_count++;
     _wgt_draw_rect_rounded_last_rn = roundness;
@@ -37,7 +39,8 @@ static void wgt_rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments,
 
 static int _wgt_draw_rect_rounded_lines_count;
 
-static void wgt_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
+static void wgt_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)roundness; (void)segments; (void)thick; (void)c;
     _wgt_draw_rect_rounded_lines_count++;
 }
@@ -45,7 +48,8 @@ static void wgt_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int seg
 static int _wgt_draw_circle_count;
 static float _wgt_draw_circle_last_radius;
 
-static void wgt_rec_draw_circle(float cx, float cy, float radius, int segments, WLX_Color c) {
+static void wgt_rec_draw_circle(float cx, float cy, float radius, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)cx; (void)cy; (void)segments; (void)c;
     _wgt_draw_circle_count++;
     _wgt_draw_circle_last_radius = radius;
@@ -53,7 +57,8 @@ static void wgt_rec_draw_circle(float cx, float cy, float radius, int segments, 
 
 static int _wgt_draw_ring_count;
 
-static void wgt_rec_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c) {
+static void wgt_rec_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)cx; (void)cy; (void)inner_r; (void)outer_r; (void)segments; (void)c;
     _wgt_draw_ring_count++;
 }
@@ -119,6 +124,74 @@ TEST(slider_explicit_zero_roundness_stays_sharp) {
 
     ASSERT_EQ_INT(_wgt_draw_circle_count, 0);
     ASSERT_EQ_F(_wgt_draw_rect_rounded_last_rn, 0.0f, 0.001f);
+    wlx_context_destroy(&ctx);
+}
+
+// The enabled slider's value mapping on the mock backend: a press anywhere
+// on the track jumps to that position, holding drags, release ends the
+// drag, and the return value reports the frames where the value moved. One
+// call site keeps the widget id stable across frames; label NULL, no value
+// readout and the theme's symmetric padding put the track centre at 0.5.
+static bool _wgt_slider_frame(WLX_Context *ctx, float *v, int mx,
+                              bool down, bool clicked, float lo, float hi) {
+    test_frame_begin(ctx, mx, 150, down, clicked);
+    wlx_layout_begin(ctx, 1, WLX_VERT);
+    bool changed = wlx_slider(ctx, NULL, v, .height = 40, .show_value = false,
+                              .min_value = lo, .max_value = hi);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+    return changed;
+}
+
+TEST(slider_enabled_press_drag_release_updates_value) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.theme = &wlx_theme_dark;
+    float v = 0.25f;
+
+    // Warm frame with the button up: nothing moves.
+    ASSERT_FALSE(_wgt_slider_frame(&ctx, &v, 200, false, false, 0.0f, 1.0f));
+    ASSERT_EQ_F(v, 0.25f, 1e-4f);
+
+    // Press at the track centre: jump to 0.5 and acquire the drag.
+    ASSERT_TRUE(_wgt_slider_frame(&ctx, &v, 200, true, true, 0.0f, 1.0f));
+    ASSERT_EQ_F(v, 0.5f, 1e-4f);
+    ASSERT_TRUE(ctx.interaction.active_id != 0);
+
+    // Hold and drag right: the value follows the pointer.
+    ASSERT_TRUE(_wgt_slider_frame(&ctx, &v, 350, true, false, 0.0f, 1.0f));
+    ASSERT_TRUE(v > 0.5f);
+    float held = v;
+
+    // Release: the drag ends and the value stays put.
+    ASSERT_FALSE(_wgt_slider_frame(&ctx, &v, 350, false, false, 0.0f, 1.0f));
+    ASSERT_EQ_F(v, held, 1e-6f);
+    ASSERT_EQ_ID(ctx.interaction.active_id, 0);
+
+    // Moving with the button up is inert.
+    ASSERT_FALSE(_wgt_slider_frame(&ctx, &v, 100, false, false, 0.0f, 1.0f));
+    ASSERT_EQ_F(v, held, 1e-6f);
+
+    // A fresh press elsewhere jumps again.
+    ASSERT_TRUE(_wgt_slider_frame(&ctx, &v, 100, true, true, 0.0f, 1.0f));
+    ASSERT_TRUE(v < 0.5f);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(slider_custom_range_centre_press_and_initial_clamp) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.theme = &wlx_theme_dark;
+    float v = 50.0f;   // above max_value
+
+    // The first frame clamps an out-of-range value into [min, max]. The
+    // clamp is not reported as a change, so only the value is asserted.
+    (void)_wgt_slider_frame(&ctx, &v, 200, false, false, -10.0f, 10.0f);
+    ASSERT_EQ_F(v, 10.0f, 1e-4f);
+
+    // The track centre maps to the middle of the range.
+    ASSERT_TRUE(_wgt_slider_frame(&ctx, &v, 200, true, true, -10.0f, 10.0f));
+    ASSERT_EQ_F(v, 0.0f, 1e-3f);
     wlx_context_destroy(&ctx);
 }
 
@@ -666,14 +739,14 @@ TEST(toggle_align_left_positions_at_slot_left) {
     ctx.theme = &wlx_theme_dark;
     ctx.rect = wlx_rect(0, 0, 400, 300);
 
-    WLX_Toggle_Opt opt = wlx_default_toggle_opt(.align = WLX_LEFT);
+    WLX_Toggle_Opt opt = wlx_default_toggle_opt(.content_align = WLX_LEFT);
     WLX_Context tmp = ctx;
     WLX_Toggle_Opt resolved = opt;
     wlx_resolve_opt_toggle(&tmp, &resolved);
 
     // With WLX_LEFT, content starts at left of the slot.
     // Verify resolve doesn't clobber the align field.
-    ASSERT_EQ_INT(resolved.align, WLX_LEFT);
+    ASSERT_EQ_INT(resolved.content_align, WLX_LEFT);
 }
 
 TEST(toggle_align_center_differs_from_left) {
@@ -695,7 +768,7 @@ TEST(toggle_align_center_differs_from_left) {
     // WLX_CENTER frame - must not crash and must complete normally
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_toggle(&ctx, "Hi", &val, .align = WLX_CENTER);
+    wlx_toggle(&ctx, "Hi", &val, .content_align = WLX_CENTER);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -711,7 +784,7 @@ TEST(toggle_align_right_does_not_crash) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_toggle(&ctx, "Right", &val, .align = WLX_RIGHT);
+    wlx_toggle(&ctx, "Right", &val, .content_align = WLX_RIGHT);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -727,7 +800,7 @@ TEST(toggle_no_label_align_center_does_not_crash) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_toggle(&ctx, NULL, &val, .align = WLX_CENTER);
+    wlx_toggle(&ctx, NULL, &val, .content_align = WLX_CENTER);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -747,7 +820,7 @@ TEST(radio_align_left_does_not_crash) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_radio(&ctx, "A", &active, 0, .align = WLX_LEFT);
+    wlx_radio(&ctx, "A", &active, 0, .content_align = WLX_LEFT);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -763,7 +836,7 @@ TEST(radio_align_center_does_not_crash) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_radio(&ctx, "B", &active, 0, .align = WLX_CENTER);
+    wlx_radio(&ctx, "B", &active, 0, .content_align = WLX_CENTER);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -779,7 +852,7 @@ TEST(radio_align_right_does_not_crash) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_radio(&ctx, "C", &active, 0, .align = WLX_RIGHT);
+    wlx_radio(&ctx, "C", &active, 0, .content_align = WLX_RIGHT);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -795,7 +868,7 @@ TEST(radio_no_label_align_center_does_not_crash) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
-    wlx_radio(&ctx, NULL, &active, 0, .align = WLX_CENTER);
+    wlx_radio(&ctx, NULL, &active, 0, .content_align = WLX_CENTER);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
 
@@ -849,7 +922,7 @@ TEST(widget_opacity_applied_to_fill) {
 // Phase 4a fallback-precedence tests
 // ============================================================================
 
-// toggle: hover_brightness resolves from theme when opt value is the float-unset sentinel
+// toggle: hover_brightness resolves from theme when opt value is the unset sentinel
 TEST(toggle_hover_brightness_resolves_from_theme) {
     WLX_Theme theme = wlx_theme_dark;
     theme.hover_brightness = 0.6f;
@@ -860,13 +933,13 @@ TEST(toggle_hover_brightness_resolves_from_theme) {
     ctx.theme = &theme;
 
     // Default opt has hover_brightness at sentinel; should resolve to theme value
-    ASSERT_TRUE(opt.hover_brightness <= WLX_FLOAT_UNSET);
+    ASSERT_TRUE(wlx_is_float_unset(opt.hover_brightness));
     wlx_resolve_opt_toggle(&ctx, &opt);
-    ASSERT_TRUE(opt.hover_brightness > WLX_FLOAT_UNSET);
+    ASSERT_TRUE(!wlx_is_float_unset(opt.hover_brightness));
     ASSERT_EQ_INT((int)(opt.hover_brightness * 100), 60);
 }
 
-// radio: hover_brightness resolves from theme when opt value is the float-unset sentinel
+// radio: hover_brightness resolves from theme when opt value is the unset sentinel
 TEST(radio_hover_brightness_resolves_from_theme) {
     WLX_Theme theme = wlx_theme_dark;
     theme.hover_brightness = 0.7f;
@@ -876,9 +949,9 @@ TEST(radio_hover_brightness_resolves_from_theme) {
     ctx.backend = mock_backend();
     ctx.theme = &theme;
 
-    ASSERT_TRUE(opt.hover_brightness <= WLX_FLOAT_UNSET);
+    ASSERT_TRUE(wlx_is_float_unset(opt.hover_brightness));
     wlx_resolve_opt_radio(&ctx, &opt);
-    ASSERT_TRUE(opt.hover_brightness > WLX_FLOAT_UNSET);
+    ASSERT_TRUE(!wlx_is_float_unset(opt.hover_brightness));
     ASSERT_EQ_INT((int)(opt.hover_brightness * 100), 70);
 }
 
@@ -934,6 +1007,8 @@ TEST(checkbox_border_color_widget_specific_first) {
 SUITE(widgets) {
     RUN_TEST(slider_default_thumb_is_compact);
     RUN_TEST(slider_explicit_zero_roundness_stays_sharp);
+    RUN_TEST(slider_enabled_press_drag_release_updates_value);
+    RUN_TEST(slider_custom_range_centre_press_and_initial_clamp);
     RUN_TEST(progress_clamps_value);
     RUN_TEST(progress_zero_draws_no_fill);
     RUN_TEST(progress_full_draws_fill);

@@ -190,7 +190,7 @@ typedef struct {
 // Dark mode tokens (Stitch "Mechanical Glass Dark")
 // ============================================================================
 //
-// Transcribed from docs/dev/dashboard/dark/DESIGN.md. The Material surface and
+// Transcribed from the Stitch design export. The Material surface and
 // on-color roles come straight from the export frontmatter (background #0f1419
 // over a #0a0f14 void); the bright electric blue (#00d1ff) is the brand accent,
 // and the deep dark ink (#0a0f14) is the on-accent text per the narrative. Status
@@ -201,44 +201,44 @@ typedef struct {
 static const Dashboard_Tokens dashboard_tokens_dark = {
     .mode = DASHBOARD_MODE_DARK,
     .color = {
-        .background       = WLX_RGBA( 15,  20,  25, 255),  // background #0f1419
-        .surface          = WLX_RGBA( 27,  32,  37, 255),  // surface-container #1b2025
-        .surface_variant  = WLX_RGBA( 48,  53,  59, 255),  // surface-variant #30353b
-        .field            = WLX_RGBA(  5,   7,  10, 255),  // inset field, darker than the void
-        .field_border     = WLX_RGBA( 26,  36,  47, 255),  // #1a242f input border
-        .outline          = WLX_RGBA(133, 147, 153, 255),  // outline #859399
-        .outline_variant  = WLX_RGBA( 60,  73,  78, 255),  // outline-variant #3c494e
-        .accent           = WLX_RGBA(  0, 209, 255, 255),  // primary-container (electric blue)
-        .accent_strong    = WLX_RGBA( 76, 214, 255, 255),  // surface-tint #4cd6ff (hover/glow)
-        .tertiary         = WLX_RGBA(235, 129,   4, 255),  // #eb8104 industrial orange
-        .on_surface       = WLX_RGBA(222, 227, 234, 255),  // on-surface #dee3ea
-        .on_surface_muted = WLX_RGBA(187, 201, 207, 255),  // on-surface-variant #bbc9cf
-        .on_accent        = WLX_RGBA( 10,  15,  20, 255),  // dark ink #0a0f14 on the accent fill
+        .background       = { 15,  20,  25, 255},  // background #0f1419
+        .surface          = { 27,  32,  37, 255},  // surface-container #1b2025
+        .surface_variant  = { 48,  53,  59, 255},  // surface-variant #30353b
+        .field            = {  5,   7,  10, 255},  // inset field, darker than the void
+        .field_border     = { 26,  36,  47, 255},  // #1a242f input border
+        .outline          = {133, 147, 153, 255},  // outline #859399
+        .outline_variant  = { 60,  73,  78, 255},  // outline-variant #3c494e
+        .accent           = {  0, 209, 255, 255},  // primary-container (electric blue)
+        .accent_strong    = { 76, 214, 255, 255},  // surface-tint #4cd6ff (hover/glow)
+        .tertiary         = {235, 129,   4, 255},  // #eb8104 industrial orange
+        .on_surface       = {222, 227, 234, 255},  // on-surface #dee3ea
+        .on_surface_muted = {187, 201, 207, 255},  // on-surface-variant #bbc9cf
+        .on_accent        = { 10,  15,  20, 255},  // dark ink #0a0f14 on the accent fill
     },
     .ramp = {
-        .lowest  = WLX_RGBA( 10,  15,  20, 255),  // surface-container-lowest #0a0f14
-        .low     = WLX_RGBA( 23,  28,  33, 255),  // surface-container-low #171c21
-        .base    = WLX_RGBA( 27,  32,  37, 255),  // surface-container #1b2025
-        .high    = WLX_RGBA( 37,  42,  48, 255),  // surface-container-high #252a30
-        .highest = WLX_RGBA( 48,  53,  59, 255),  // surface-container-highest #30353b
+        .lowest  = { 10,  15,  20, 255},  // surface-container-lowest #0a0f14
+        .low     = { 23,  28,  33, 255},  // surface-container-low #171c21
+        .base    = { 27,  32,  37, 255},  // surface-container #1b2025
+        .high    = { 37,  42,  48, 255},  // surface-container-high #252a30
+        .highest = { 48,  53,  59, 255},  // surface-container-highest #30353b
     },
     .status = {
-        .success = WLX_RGBA(  0, 179, 110, 255),  // #00b36e clinical mint
-        .warning = WLX_RGBA(235, 129,   4, 255),  // #eb8104 industrial orange
-        .error   = WLX_RGBA(207,  44,  44, 255),  // #cf2c2c signal red
-        .info    = WLX_RGBA(  0, 209, 255, 255),  // primary accent (electric blue)
+        .success = {  0, 179, 110, 255},  // #00b36e clinical mint
+        .warning = {235, 129,   4, 255},  // #eb8104 industrial orange
+        .error   = {207,  44,  44, 255},  // #cf2c2c signal red
+        .info    = {  0, 209, 255, 255},  // primary accent (electric blue)
     },
     .table = {
-        .header_bg = WLX_RGBA( 37,  42,  48, 255),  // surface-container-high
-        .row_bg    = WLX_RGBA( 27,  32,  37, 255),  // surface-container
-        .zebra_bg  = WLX_RGBA( 23,  28,  33, 255),  // surface-container-low
-        .grid_line = WLX_RGBA(255, 255, 255,  38),  // 1px row/column rules at 15% white
+        .header_bg = { 37,  42,  48, 255},  // surface-container-high
+        .row_bg    = { 27,  32,  37, 255},  // surface-container
+        .zebra_bg  = { 23,  28,  33, 255},  // surface-container-low
+        .grid_line = {255, 255, 255,  38},  // 1px row/column rules at 15% white
     },
     .glass = {
-        .edge_light = WLX_RGBA(255, 255, 255,  38),  // top/left light leak (0.15)
-        .edge_dark  = WLX_RGBA(  0,   0,   0,  51),   // bottom/right falls to dark
-        .fill       = WLX_RGBA( 26,  36,  47, 179),   // #1a242f dark glass at ~70%
-        .glow       = WLX_RGBA(  0, 209, 255,  13),    // electric-blue focus glow (very low)
+        .edge_light = {255, 255, 255,  38},  // top/left light leak (0.15)
+        .edge_dark  = {  0,   0,   0,  51},   // bottom/right falls to dark
+        .fill       = { 26,  36,  47, 179},   // #1a242f dark glass at ~70%
+        .glow       = {  0, 209, 255,  13},    // electric-blue focus glow (very low)
     },
     .type = {
         .display     = { DASHBOARD_FAMILY_SANS, 48, DASHBOARD_WEIGHT_BOLD,     56, -1 },
@@ -270,7 +270,7 @@ static const Dashboard_Tokens dashboard_tokens_dark = {
 // Light mode tokens (Stitch "Mechanical Glass Light")
 // ============================================================================
 //
-// Transcribed from docs/dev/dashboard/light/DESIGN.md. The Material surface and
+// Transcribed from the Stitch design export. The Material surface and
 // on-color roles come straight from the export frontmatter; the accent system
 // follows the narrative: the bright electric blue (#00d1ff, primary-container)
 // is the brand accent for fills, washes, and indicators, while the deep primary
@@ -282,44 +282,44 @@ static const Dashboard_Tokens dashboard_tokens_dark = {
 static const Dashboard_Tokens dashboard_tokens_light = {
     .mode = DASHBOARD_MODE_LIGHT,
     .color = {
-        .background       = WLX_RGBA(247, 249, 255, 255),  // background / surface
-        .surface          = WLX_RGBA(234, 238, 246, 255),  // surface-container
-        .surface_variant  = WLX_RGBA(222, 227, 234, 255),  // surface-variant
-        .field            = WLX_RGBA(255, 255, 255, 255),  // surface-container-lowest
-        .field_border     = WLX_RGBA(187, 201, 207, 255),  // outline-variant
-        .outline          = WLX_RGBA(108, 121, 127, 255),  // outline
-        .outline_variant  = WLX_RGBA(187, 201, 207, 255),  // outline-variant
-        .accent           = WLX_RGBA(  0, 209, 255, 255),  // primary-container (electric blue)
-        .accent_strong    = WLX_RGBA(  0, 103, 127, 255),  // primary (deep, legible on light)
-        .tertiary         = WLX_RGBA(235, 129,   4, 255),  // #eb8104 industrial orange
-        .on_surface       = WLX_RGBA( 23,  28,  33, 255),  // on-surface
-        .on_surface_muted = WLX_RGBA( 60,  73,  78, 255),  // on-surface-variant
-        .on_accent        = WLX_RGBA(  0,  31,  40, 255),  // dark ink on the accent fill
+        .background       = {247, 249, 255, 255},  // background / surface
+        .surface          = {234, 238, 246, 255},  // surface-container
+        .surface_variant  = {222, 227, 234, 255},  // surface-variant
+        .field            = {255, 255, 255, 255},  // surface-container-lowest
+        .field_border     = {187, 201, 207, 255},  // outline-variant
+        .outline          = {108, 121, 127, 255},  // outline
+        .outline_variant  = {187, 201, 207, 255},  // outline-variant
+        .accent           = {  0, 209, 255, 255},  // primary-container (electric blue)
+        .accent_strong    = {  0, 103, 127, 255},  // primary (deep, legible on light)
+        .tertiary         = {235, 129,   4, 255},  // #eb8104 industrial orange
+        .on_surface       = { 23,  28,  33, 255},  // on-surface
+        .on_surface_muted = { 60,  73,  78, 255},  // on-surface-variant
+        .on_accent        = {  0,  31,  40, 255},  // dark ink on the accent fill
     },
     .ramp = {
-        .lowest  = WLX_RGBA(255, 255, 255, 255),  // surface-container-lowest
-        .low     = WLX_RGBA(240, 244, 251, 255),  // surface-container-low
-        .base    = WLX_RGBA(234, 238, 246, 255),  // surface-container
-        .high    = WLX_RGBA(228, 232, 240, 255),  // surface-container-high
-        .highest = WLX_RGBA(222, 227, 234, 255),  // surface-container-highest
+        .lowest  = {255, 255, 255, 255},  // surface-container-lowest
+        .low     = {240, 244, 251, 255},  // surface-container-low
+        .base    = {234, 238, 246, 255},  // surface-container
+        .high    = {228, 232, 240, 255},  // surface-container-high
+        .highest = {222, 227, 234, 255},  // surface-container-highest
     },
     .status = {
-        .success = WLX_RGBA(  0, 179, 110, 255),  // #00b36e clinical mint
-        .warning = WLX_RGBA(235, 129,   4, 255),  // #eb8104 industrial orange
-        .error   = WLX_RGBA(211,  47,  47, 255),  // #d32f2f signal red
-        .info    = WLX_RGBA(  0, 103, 127, 255),  // primary (deep)
+        .success = {  0, 179, 110, 255},  // #00b36e clinical mint
+        .warning = {235, 129,   4, 255},  // #eb8104 industrial orange
+        .error   = {211,  47,  47, 255},  // #d32f2f signal red
+        .info    = {  0, 103, 127, 255},  // primary (deep)
     },
     .table = {
-        .header_bg = WLX_RGBA(228, 232, 240, 255),  // surface-container-high
-        .row_bg    = WLX_RGBA(255, 255, 255, 255),  // surface-container-lowest
-        .zebra_bg  = WLX_RGBA(240, 244, 251, 255),  // surface-container-low
-        .grid_line = WLX_RGBA(  0,   0,   0,  26),   // 1px row/column rules at 10% black
+        .header_bg = {228, 232, 240, 255},  // surface-container-high
+        .row_bg    = {255, 255, 255, 255},  // surface-container-lowest
+        .zebra_bg  = {240, 244, 251, 255},  // surface-container-low
+        .grid_line = {  0,   0,   0,  26},   // 1px row/column rules at 10% black
     },
     .glass = {
-        .edge_light = WLX_RGBA(255, 255, 255, 204),  // top/left edge catches light (0.8)
-        .edge_dark  = WLX_RGBA(  0,   0,   0,  13),   // bottom/right edge falls to dark (0.05)
-        .fill       = WLX_RGBA(255, 255, 255, 166),   // semi-transparent white glass
-        .glow       = WLX_RGBA(  0, 209, 255,  38),   // electric-blue accent glow
+        .edge_light = {255, 255, 255, 204},  // top/left edge catches light (0.8)
+        .edge_dark  = {  0,   0,   0,  13},   // bottom/right edge falls to dark (0.05)
+        .fill       = {255, 255, 255, 166},   // semi-transparent white glass
+        .glow       = {  0, 209, 255,  38},   // electric-blue accent glow
     },
     .type = {
         .display     = { DASHBOARD_FAMILY_SANS, 48, DASHBOARD_WEIGHT_BOLD,     56, -1 },
@@ -476,7 +476,6 @@ static inline WLX_Theme dashboard_wlx_theme(Dashboard_Mode mode,
             .track        = t->ramp.low,
             .track_active = t->color.accent,
             .thumb        = t->color.on_surface,
-            .track_height = 0,
         },
         .radio = {
             .ring         = t->color.outline_variant,

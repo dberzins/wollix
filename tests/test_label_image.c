@@ -27,7 +27,8 @@ static int       _li_text_count;
 static int       _li_rect_count;
 static WLX_Color _li_last_rect_color;
 
-static void li_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+static void li_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    (void)user;
     (void)tex;
     if (_li_tex_count < LI_MAX_DRAWS) {
         _li_tex_srcs[_li_tex_count]  = src;
@@ -40,12 +41,14 @@ static void li_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX
     _li_tex_tint = tint;
 }
 
-static void li_rec_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void li_rec_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)text; (void)x; (void)y; (void)style;
     _li_text_count++;
 }
 
-static void li_rec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void li_rec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)r;
     _li_rect_count++;
     _li_last_rect_color = c;
@@ -232,7 +235,7 @@ TEST(label_image_image_only_emits_one_texture_no_text) {
     WLX_Context ctx;
     li_begin(&ctx);
     wlx_label(&ctx, "", .texture = li_make_texture(50, 50),
-              .align = WLX_CENTER);
+              .content_align = WLX_CENTER);
     li_end(&ctx);
 
     ASSERT_EQ_INT(_li_tex_count, 1);
@@ -255,7 +258,7 @@ TEST(label_image_image_only_explicit_size_anchors_via_align) {
     li_begin(&ctx);
     wlx_label(&ctx, "", .texture = li_make_texture(50, 50),
               .texture_scale = WLX_IMAGE_SCALE_STRETCH,
-              .image_size = 50, .align = WLX_CENTER);
+              .image_size = 50, .content_align = WLX_CENTER);
     li_end(&ctx);
 
     ASSERT_EQ_RECT(_li_tex_dst, ((WLX_Rect){75, 75, 50, 50}), 0.001f);
@@ -287,7 +290,7 @@ static void li_capture_label_rects(WLX_Image_Scale scale, int tex_w, int tex_h,
     WLX_Context ctx;
     li_begin(&ctx);
     wlx_label(&ctx, "", .texture = li_make_texture(tex_w, tex_h),
-              .texture_scale = scale, .align = WLX_CENTER);
+              .texture_scale = scale, .content_align = WLX_CENTER);
     li_end(&ctx);
     *out_src = _li_tex_src;
     *out_dst = _li_tex_dst;
@@ -301,7 +304,7 @@ static void li_capture_image_rects(WLX_Image_Scale scale, int tex_w, int tex_h,
     test_frame_begin(&ctx, -1, -1, false, false);
     wlx_layout_begin(&ctx, 1, WLX_VERT);
     wlx_image(&ctx, li_make_texture(tex_w, tex_h),
-              .scale = scale, .align = WLX_CENTER);
+              .scale = scale, .content_align = WLX_CENTER);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
     *out_src = _li_tex_src;

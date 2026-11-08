@@ -13,7 +13,7 @@
 #define WINDOW_HEIGHT 700
 
 int main(void) {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Grid Layout Demo");
     SetTargetFPS(60);
 
@@ -26,12 +26,13 @@ int main(void) {
     static char phone[128] = "";
 
     while (!WindowShouldClose()) {
-        float w = (float)GetRenderWidth();
-        float h = (float)GetRenderHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+        float w = wlx_root.w;
+        float h = wlx_root.h;
 
         wlx_begin(ctx, (WLX_Rect){0, 0, w, h}, wlx_process_raylib_input);
         BeginDrawing();
-        ClearBackground(WLX_BACKGROUND_COLOR);
+        ClearBackground(ctx->theme->background);
 
         // Root: two rows - top for title, bottom for content
         wlx_layout_begin(ctx, 2, WLX_VERT,
@@ -40,7 +41,7 @@ int main(void) {
             wlx_label(ctx, "Grid Layout Demo",
                 .height = 50, .font_size = 28,
                 .back_color = (Color){35, 30, 45, 255},
-                .align = WLX_CENTER);
+                .content_align = WLX_CENTER);
 
             // Content: 2 columns
             wlx_layout_begin(ctx, 2, WLX_HORZ);
@@ -52,7 +53,7 @@ int main(void) {
                     wlx_label(ctx, "Form (3x2 grid, auto-advance)",
                         .height = 30, .font_size = 16,
                         .back_color = (Color){30, 40, 30, 255},
-                        .align = WLX_CENTER);
+                        .content_align = WLX_CENTER);
 
                     wlx_grid_begin(ctx, 3, 2,
                         .col_sizes = (WLX_Slot_Size[]){
@@ -62,11 +63,11 @@ int main(void) {
                             WLX_SLOT_PX(45), WLX_SLOT_PX(45), WLX_SLOT_PX(45)
                         }
                     );
-                        wlx_label(ctx, "Name:",  .align = WLX_LEFT);
+                        wlx_label(ctx, "Name:",  .content_align = WLX_LEFT);
                         wlx_inputbox(ctx, "", name, sizeof(name));
-                        wlx_label(ctx, "Email:", .align = WLX_LEFT);
+                        wlx_label(ctx, "Email:", .content_align = WLX_LEFT);
                         wlx_inputbox(ctx, "", email, sizeof(email));
-                        wlx_label(ctx, "Phone:", .align = WLX_LEFT);
+                        wlx_label(ctx, "Phone:", .content_align = WLX_LEFT);
                         wlx_inputbox(ctx, "", phone, sizeof(phone));
                     wlx_grid_end(ctx);
                 wlx_layout_end(ctx);
@@ -78,37 +79,37 @@ int main(void) {
                     wlx_label(ctx, "Spanning (3x3 grid, grid_cell)",
                         .height = 30, .font_size = 16,
                         .back_color = (Color){40, 30, 30, 255},
-                        .align = WLX_CENTER);
+                        .content_align = WLX_CENTER);
 
                     wlx_grid_begin(ctx, 3, 3);
                         // Big tile: 2 rows x 2 cols at (0,0)
                         wlx_grid_cell(ctx, 0, 0, .row_span = 2, .col_span = 2);
                         wlx_label(ctx, "2x2 Tile",
                             .back_color = (Color){40, 60, 90, 255},
-                            .align = WLX_CENTER);
+                            .content_align = WLX_CENTER);
 
                         // Right column
                         wlx_grid_cell(ctx, 0, 2);
                         wlx_label(ctx, "R0 C2",
                             .back_color = (Color){60, 40, 40, 255},
-                            .align = WLX_CENTER);
+                            .content_align = WLX_CENTER);
 
                         wlx_grid_cell(ctx, 1, 2);
                         wlx_label(ctx, "R1 C2",
                             .back_color = (Color){40, 60, 40, 255},
-                            .align = WLX_CENTER);
+                            .content_align = WLX_CENTER);
 
                         // Bottom row (auto-advance from 2,0)
                         wlx_grid_cell(ctx, 2, 0);
                         wlx_label(ctx, "R2 C0",
                             .back_color = (Color){50, 50, 30, 255},
-                            .align = WLX_CENTER);
+                            .content_align = WLX_CENTER);
                         wlx_label(ctx, "R2 C1",
                             .back_color = (Color){30, 50, 50, 255},
-                            .align = WLX_CENTER);
+                            .content_align = WLX_CENTER);
                         wlx_label(ctx, "R2 C2",
                             .back_color = (Color){50, 30, 50, 255},
-                            .align = WLX_CENTER);
+                            .content_align = WLX_CENTER);
                     wlx_grid_end(ctx);
                 wlx_layout_end(ctx);
 

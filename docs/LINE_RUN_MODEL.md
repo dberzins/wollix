@@ -103,28 +103,51 @@ kept on UTF-8 boundaries (see next section).
 
 ## 3. Text Units and UTF-8 Policy
 
-The build walks the slice in **text units**. A text unit is:
+The build walks the slice in **text units**. A text unit is an
+*approximated extended grapheme cluster*: one or more whole UTF-8
+codepoints joined by four rules, or one byte as the fallback for
+malformed input. The rules, a four-rule approximation of UAX #29 decided
+by one boundary predicate (`wlx_text_unit_boundary`):
 
-- one whole UTF-8 codepoint, when the bytes at the current offset form a
-  valid 2-4 byte sequence fully contained in the slice, or
-- one byte, as a fallback for ASCII and malformed input.
+1. a codepoint in the *Extend* set joins the unit before it — the
+   combining-mark blocks (U+0300-036F, U+0483-0489, U+1AB0-1AFF,
+   U+1DC0-1DFF, U+20D0-20FF, U+FE20-FE2F), ZWNJ and ZWJ (U+200C-200D),
+   the variation selectors (U+FE00-FE0F, U+E0100-E01EF), the emoji
+   modifiers (U+1F3FB-1F3FF) and the tag characters (U+E0020-E007F);
+2. a pictographic codepoint (U+2600-27BF, U+1F000-1FAFF) joins a ZWJ
+   before it, so ZWJ emoji sequences are one unit;
+3. regional indicators (U+1F1E6-1F1FF) pair up, so a flag is one unit
+   and a run of them splits in twos;
+4. a control (C0, DEL, C1), a malformed byte, the text start and the text
+   end never join on either side.
 
-This policy has two consequences:
+Every Extend range lies inside Unicode's `Grapheme_Extend` property, so a
+join the model makes is one UAX #29 makes too; what it leaves split is
+listed in Section 16. Both steppers — `wlx_text_unit_next` forward and
+`wlx_text_unit_prev` backward — derive from the same predicate, so they
+are exact inverses over valid and malformed input alike; the ASCII path
+decides with one byte compare.
+
+This policy has three consequences:
 
 1. **Malformed input cannot stall or crash layout.** Invalid bytes are
    consumed one at a time and measured as whatever the backend renders
    for them. Layout always makes forward progress.
-2. **No split point ever lands inside a valid multibyte sequence.** Line
-   breaks, truncation boundaries, caret offsets, and edit points are all
+2. **No split point ever lands inside a valid multibyte sequence or a
+   cluster.** Line breaks, truncation boundaries, caret offsets, edit
+   points, the measure origin and the advances-chunk splice are all
    normalized to unit boundaries. A public cursor offset that arrives
-   mid-sequence is snapped back to the start of its codepoint.
+   inside a cluster is snapped back to the cluster's start; an insert
+   truncated by the buffer capacity drops a partial cluster rather than
+   landing it.
+3. **One Backspace, one caret step, one mask char per cluster.** A
+   decomposed accent, a flag or a ZWJ family is deleted whole, stepped
+   over whole and masked as one `*` in a password field, on every
+   backend — including unshaped ones that draw the cluster as its parts.
 
 Text units are also the currency of the run budgets (Section 11): caps
 are expressed in units, not bytes, so a budget means the same thing for
-ASCII and multibyte text.
-
-The model works on codepoints, not grapheme clusters. See Section 16 for
-what that implies.
+ASCII, multibyte and cluster-dense text.
 
 ---
 
@@ -197,6 +220,14 @@ advances** — the measured width of the line prefix ending at each unit:
    width, or when the unit budget runs out. The first unit of a line is
    always accepted even if it alone overflows, so progress is guaranteed
    and a too-narrow rect still shows something.
+4. In wrap mode the walk also carries the row's **break state**: the
+   latest whitespace unit (space or tab) it accepted is the row's break
+   opportunity. A non-whitespace unit that overflows cuts the row back
+   to that opportunity (`CUT`), so the next row starts on the word;
+   without one the row ends at the last unit that fit, inside the word.
+   Whitespace that overflows depends on the build: display builds accept
+   it anyway and it hangs past the width (the row ends with the run);
+   editable builds cut or reject it like any other unit (Section 7).
 
 One step, as a flow:
 
@@ -207,10 +238,11 @@ flowchart TD
     nl -- "no" --> stop{"text end, separator, or unit budget reached?"}
     stop -- "yes" --> done["record ends"]
     stop -- "no" --> fetch["fetch next unit advances - wlx_text_unit_fetch, batched or per-unit arm"]
-    fetch --> fit{"wlx_text_fit_step per unit"}
+    fetch --> fit{"wlx_text_fit_step per unit - under wrap, wlx_text_wrap_fit_step over the row's break state"}
     fit -- "ACCEPT: prefix fits, keep walking" --> stop
     fit -- "ACCEPT_END: first unit alone overflows" --> done
     fit -- "REJECT: unit starts the next record" --> done
+    fit -- "CUT (wrap): rewind to the break opportunity; the next row starts there" --> done
     done --> tail["separator / truncated-tail epilogue"]
     empty --> next["one line record + next offset"]
     tail --> next
@@ -304,10 +336,33 @@ flowchart TD
 ```
 
 **Wrap mode** (`wrap = true`): a line that reaches the rect width breaks
-at the last unit that fit, and the next record continues from the break
-offset. Wrapping is **per text unit** — there is no word-boundary
-backtracking; a long word breaks mid-word. Used by multiline inputbox and
-textarea content.
+at its latest **break opportunity** — after the last whitespace unit
+(space or tab) that fit — and the next record continues from there, so
+rows end at word boundaries. A word wider than the row breaks inside
+the word, at the last unit that fit. Whitespace that overflows the width
+is placed by the build's whitespace mode (`wrap_strict_ws` on the build
+inputs):
+
+- **Display builds** (labels, buttons, captions; the flag off): the
+  whitespace **hangs** — it stays on the row it follows, measured past
+  the width, so no row after a wrap break starts with whitespace and a
+  word that fit is never moved to the next row.
+- **Editable builds** (multiline inputbox, textarea, the editor's
+  wrapped mode; the flag on): the whitespace is treated like any
+  overflowing unit — the row cuts at its latest break opportunity, so
+  the word before the whitespace moves down with it, or with no earlier
+  opportunity the whitespace opens the next row at column zero. Every
+  row then measures within the width (except a first unit wider than
+  it), a row may start with whitespace, and a caret inside trailing
+  whitespace always stands on a row inside the width.
+
+On a row another row of the same line follows, `advance_w` is the **ink
+extent** — the advance at the row's last non-whitespace unit — while
+`measured_w` keeps the full extent; alignment (Section 8) and the
+overflow scissor test read `advance_w`. Rows ended by a separator, the
+text end or the unit budget keep `advance_w == measured_w`, trailing
+whitespace included. Opportunities are whitespace only: no ideographic
+break-anywhere class and no hyphenation (Section 16).
 
 **No-wrap mode** (`wrap = false`): a line that reaches the rect width is
 width-truncated. What happens next depends on the flavor:
@@ -527,12 +582,16 @@ One call fills the cumulative advance width of the run prefixes ending
 at each core-supplied `unit_ends[i]` (Section 5). The core owns the
 unit policy and the tab splitting; the backend walks its own
 glyph/cluster geometry and reports the advance at (or snapped to the
-cluster edge after) each requested byte end. `NULL` keeps the per-unit
+cluster edge after) each requested byte end, in logical byte order laid
+out left to right (the geometry model of Section 16); an answer in any
+other order is clamped, and in `WLX_DEBUG` builds reported once as
+`WLX_ERR_BACKEND_ANSWER`. `NULL` keeps the per-unit
 prefix fallback — external backends work unmodified. See
-`docs/API_REFERENCE.md` for the full contract, and note the decoration
-rule: an application that wraps a backend's text callbacks (e.g. a
-font-size scale) must wrap all four text paths together, or retained
-geometry will disagree with draw.
+`docs/API_REFERENCE.md` for the full contract. An application that
+reshapes text styles (e.g. a font-size scale) does so through
+`wlx_set_style_transform`, which the core applies before every text
+callback - draw, measure and advances alike - so retained geometry
+cannot disagree with draw.
 
 One line's traffic on each measurement path, and the shared emission:
 
@@ -565,8 +624,9 @@ What the model asks of a backend:
   advances callback, the build measures growing prefixes of each line,
   one call per accepted text unit. Backends on that path are expected
   to make repeated measurement of recently seen runs cheap (the SDL3
-  and Raylib adapters keep text caches; see ADR_012/ADR_013 in
-  `docs/dev/`). With the callback, a line's geometry fills in a handful
+  and Raylib adapters keep text caches; see `WLX_SDL3_TEXT_CACHE_CAP`
+  and `WLX_RAYLIB_TEXT_CACHE_CAP` in API_REFERENCE.md). With
+  the callback, a line's geometry fills in a handful
   of chunked calls instead — and the editor retains the result, so
   steady frames stop asking entirely
   ([EDITOR_MODEL.md §4](EDITOR_MODEL.md#4-retained-line-geometry)).
@@ -601,12 +661,13 @@ Costs a user of the pipeline should know:
 The perf instrumentation (see `docs/PERFORMANCE_DIAGNOSTICS.md`) counts
 fitted builds and measured bytes per frame (`fitted_text_runs`,
 `text_measured_bytes`), which is the first thing to look at when text
-cost is suspect — with one caveat: the measure-call counter hooks the
-public measure entry, while the line build measures through a private
-helper, so build traffic is invisible to it. The authoritative
-instrument is `make perf-editor`, which counts calls and bytes at the
-backend boundary per frame class (cold, idle, scroll, typing, END on a
-giant line) and asserts them against recorded baselines.
+cost is suspect. Every backend text call is counted where the core makes
+it: `measure_calls` covers the line build's prefix measures as well as
+the widgets' own, and `advances_calls` / `advances_bytes` the batched
+`measure_text_advances` fills. The gated instrument is `make
+perf-editor`, which counts calls and bytes at the backend boundary per
+frame class (cold, idle, scroll, typing, END on a giant line) and
+asserts them against recorded baselines.
 
 ---
 
@@ -626,6 +687,12 @@ Guaranteed by the model (and locked by tests):
 - Caret, hit test, selection, and draw agree, because they consume the
   same records, the same retained advances, and the same measure
   origin.
+- Wrapped rows end at word boundaries: after the latest space or tab
+  that fit, with overflowing whitespace hanging on its row in display
+  builds and never in editable builds, where every row fits the width; a
+  word wider than the row breaks inside it. The retained store's row
+  table and the measuring scan make the same decision (the equivalence
+  and parity suites run spaced prose in wrap mode).
 - Kerning and run metrics are exact within a measured run: fit
   decisions use whole-run metrics (whole-prefix measures, or advance
   arrays from the same shaped pass the draw uses), never summed glyph
@@ -633,23 +700,50 @@ Guaranteed by the model (and locked by tests):
   advances chunk splice, or a windowed-origin re-entry seam — the
   documented seam classes, all confined to x-space; byte offsets are
   exact everywhere.
+- Grapheme clusters are never split: the text unit is the four-rule
+  cluster of Section 3, so caret motion, deletes, hit tests, wrapping,
+  the measure origin, the chunk splice and the password mask all rest on
+  cluster boundaries, and the forward and backward steppers are exact
+  inverses (`tests/test_grapheme.c` and the cluster cases of the
+  editing, geometry, undo and parity suites).
 
 Not attempted (deliberately, until evidence demands more):
 
-- **Grapheme clusters.** The unit is the codepoint. Combining marks,
-  ZWJ emoji sequences, and other multi-codepoint clusters can be split by
-  caret motion or wrapping. Fine for Latin-script UI text and code; not a
-  full text-editing model.
-- **Complex-script shaping and bidi.** Runs are passed to the backend
-  as-is, left to right. Contextual shaping across a break point is not
-  reconsidered, and right-to-left text is not reordered.
-- **Word wrap.** Wrapping breaks at unit granularity, not word
-  boundaries.
+- **Grapheme clusters beyond the four rules.** Hangul jamo composition,
+  spacing marks and prepends (the Indic vowel signs), conjuncts and the
+  marks of scripts outside the Extend blocks of Section 3 still split per
+  codepoint, as every cluster did before; a ZWJ after a non-pictographic
+  base followed by an emoji joins where UAX #29 would break. The full
+  `Grapheme_Extend` table and the remaining rules are additions behind
+  the one predicate when evidence asks for them.
+- **Complex-script shaping and bidi.** Decided, not merely unattempted:
+  text geometry is logical-order and left to right. Runs are
+  passed to the backend as-is; every consumer maps a byte offset to a
+  non-decreasing x and back. Both fetch arms deliver a non-decreasing
+  array: the batched advances fill clamps a backend answer in any other
+  order (a font shaped right to left), and the per-unit arm clamps a
+  prefix width that dips under negative tracking (a unit narrower than
+  the spacing). A right-to-left run therefore renders in logical order
+  on the native adapters (mirrored, for Hebrew or Arabic), while the web
+  host's canvas reorders the drawn run by its own bidi algorithm and the
+  caret geometry stays logical, so caret and drawing can disagree there. Contextual
+  shaping across a break point is not reconsidered. The recorded path is
+  a visual-run layer: per-line UAX #9 runs above the same per-run
+  primitive, with a direction hint as an additive `WLX_Text_Style` field.
+  An application must not set a right-to-left shaping direction on a font
+  it hands to Wollix.
+- **Break opportunities beyond whitespace.** Word wrap breaks after
+  spaces and tabs only: no ideographic break-anywhere class (a CJK run
+  on a row that holds an earlier space moves whole to the next row; a
+  CJK-only line breaks per unit, which is correct for it), no hyphen or
+  soft-hyphen breaks. The classifier is one function, so each class is
+  an addition when evidence asks for it.
 - **Per-span styling.** A build has one `WLX_Text_Style`; there is no
   rich-text run model.
 
-These boundaries come from ADR_008 (first-pass scope) and ADR_034
-(editor scope); richer typography is future ADR territory.
+These boundaries are design decisions: the first-pass scope, the editor
+scope and the document storage contract, the word-wrap scope and the
+logical-order geometry. Richer typography would take a new decision.
 
 ---
 
@@ -666,6 +760,8 @@ All caps are compile-time macros, overridable before including
 #define WLX_EDITOR_MAX_LINE_UNITS       1024  // units per editor window record (safety cap)
 #define WLX_EDITOR_ORIGIN_BACKSCAN      64    // bytes scanned back for a space-edge origin
 #define WLX_TEXT_ADVANCES_CHUNK         256   // units per measure_text_advances call
+#define WLX_TEXT_UNDO_ENTRIES           512   // undo journal entries per text widget and direction
+#define WLX_TEXT_UNDO_BYTES             262144 // undo journal bytes of removed text (same scope)
 #include "wollix.h"
 #include "wollix_editor.h"   // when using wlx_editor; all knobs above are core-defined
 ```
@@ -673,4 +769,8 @@ All caps are compile-time macros, overridable before including
 The editor's own header defines one further knob
 (`WLX_EDITOR_OVERSCAN_LINES`) and the retained geometry store is sized
 from the viewport, not a knob — both documented in
-[EDITOR_MODEL.md §10](EDITOR_MODEL.md#10-configuration).
+[EDITOR_MODEL.md §10](EDITOR_MODEL.md#10-configuration). The two undo
+caps bound the per-widget undo journal shared by the inputbox, textarea
+and editor (whole oldest steps evicted first, a single oversize step
+still kept); `WLX_TEXT_UNDO_ENTRIES 0` compiles the journal out. See
+[WIDGETS.md "Undo and redo"](WIDGETS.md#undo-and-redo).

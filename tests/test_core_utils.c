@@ -1,6 +1,8 @@
 // test_core_utils.c - shared core utilities the adapters also consume:
 // wlx_buf_reserve (grow-and-reuse flat buffer), wlx_utf8_floor (boundary
-// floor), wlx_hash_fnv1a64 (byte-content hash of the measurement caches);
+// floor), wlx_clipboard_cstr (the clipboard transports' C string),
+// wlx_rect_round_edges (the scissors' whole-number clip),
+// wlx_hash_fnv1a64 (byte-content hash of the measurement caches);
 // plus the small pure helpers the widget code shares (sub-pixel outline
 // rule, reference line height, glyph-row block width) and the layout axis
 // / CONTENT-slot predicates.
@@ -39,6 +41,36 @@ TEST(utf8_floor_lands_on_boundaries) {
     ASSERT_EQ_INT(10, (long)wlx_utf8_floor(s, 10));  // NUL after the emoji
 }
 
+TEST(clipboard_cstr_terminates_and_caps_on_a_boundary) {
+    char *buf = NULL;
+    size_t cap = 0;
+    // A span is not NUL terminated: the copy is.
+    ASSERT_EQ_STR("abc", wlx_clipboard_cstr(&buf, &cap, "abcdef", 3, 64));
+    // A 6-byte cap keeps 5 bytes, cut back to the euro sign's lead byte.
+    const char s[] = "ab\xE2\x82\xAC" "cd";
+    ASSERT_EQ_STR("ab", wlx_clipboard_cstr(&buf, &cap, s, sizeof s - 1, 4));
+    ASSERT_EQ_STR("ab\xE2\x82\xAC", wlx_clipboard_cstr(&buf, &cap, s, sizeof s - 1, 6));
+    // Nothing to copy, even from NULL: the empty string.
+    ASSERT_EQ_STR("", wlx_clipboard_cstr(&buf, &cap, NULL, 0, 64));
+    wlx_free(buf);
+}
+
+TEST(rect_round_edges_rounds_each_edge_alone) {
+    int x0, y0, x1, y1;
+    // 33.333 * 1.5 lands just under 50: the width alone would truncate to 49.
+    wlx_rect_round_edges((WLX_Rect){ 49.99999f, 10.4f, 49.99999f, 10.6f }, &x0, &y0, &x1, &y1);
+    ASSERT_EQ_INT(50, x0);
+    ASSERT_EQ_INT(100, x1);
+    ASSERT_EQ_INT(10, y0);
+    ASSERT_EQ_INT(21, y1);
+    // Left of the origin rounds the same way (floor, not truncation).
+    wlx_rect_round_edges((WLX_Rect){ -2.6f, -0.4f, 2.0f, 1.0f }, &x0, &y0, &x1, &y1);
+    ASSERT_EQ_INT(-3, x0);
+    ASSERT_EQ_INT(-1, x1);
+    ASSERT_EQ_INT(0, y0);
+    ASSERT_EQ_INT(1, y1);
+}
+
 TEST(fnv1a64_matches_known_vectors) {
     ASSERT_TRUE(wlx_hash_fnv1a64("", 0) == 0xcbf29ce484222325ULL);
     ASSERT_TRUE(wlx_hash_fnv1a64("a", 1) == 0xaf63dc4c8601ec8cULL);
@@ -66,7 +98,8 @@ TEST(outline_subpixel_scales_alpha_below_one_px) {
 
 // A measure that reports no line height, so the reference line height must
 // fall back to the font size while the space advance still comes back.
-static void _cu_measure_flat(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+static void _cu_measure_flat(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    (void)user;
     (void)style;
     size_t len = text ? strlen(text) : 0;
     if (out_w) *out_w = (float)len * 7.0f;
@@ -177,6 +210,8 @@ TEST(layout_slot_is_content_bounds) {
 SUITE(core_utils) {
     RUN_TEST(buf_reserve_grows_geometrically_and_keeps_content);
     RUN_TEST(utf8_floor_lands_on_boundaries);
+    RUN_TEST(clipboard_cstr_terminates_and_caps_on_a_boundary);
+    RUN_TEST(rect_round_edges_rounds_each_edge_alone);
     RUN_TEST(fnv1a64_matches_known_vectors);
     RUN_TEST(outline_subpixel_scales_alpha_below_one_px);
     RUN_TEST(text_line_height_falls_back_to_font_size);

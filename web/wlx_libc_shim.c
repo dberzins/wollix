@@ -181,10 +181,9 @@ float fmodf(float x, float y) {
 FILE _stderr_obj = { 2 };
 FILE *stderr = &_stderr_obj;
 
-int puts(const char *s) {
-    (void)s;
-    return 0;
-}
+// puts is not defined here: the declaration in wlx_libc_shim.h stays
+// undefined, the link (--allow-undefined) turns it into the env.puts import,
+// and the host prints its line to the console.
 
 static int fmt_int(char *buf, size_t remaining, int value) {
     char tmp[16];

@@ -70,8 +70,8 @@ Common inheritance triggers are:
 
 | Field kind | Omitted marker | Result |
 |------------|----------------|--------|
-| Negative-is-never-valid floats, such as `border_width`, `roundness`, `height`, and `opacity` | `-1` | Use the theme or widget default. |
-| Hover brightness fields, where negative values are valid | `WLX_FLOAT_UNSET` | Use the theme hover value. |
+| Numeric fields where zero is a meaningful value, such as `border_width`, `roundness`, `height`, and `opacity` | `WLX_UNSET` (`-1`) | Use the theme or widget default. |
+| Hover brightness fields, where negative values are valid | `WLX_UNSET` (`-1.0f`; the domain is `-1 < b <= 1`) | Use the theme hover value. |
 | Text size fields, such as `font_size` | `0` or less | Use the theme text metric. |
 | Colors | all-zero `WLX_Color` | Use the theme color or the widget-specific fallback. |
 | Fonts | `WLX_FONT_DEFAULT` | Use the theme font or backend default. |

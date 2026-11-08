@@ -15,23 +15,27 @@
 // No-op draw stubs
 // ============================================================================
 
-static void noop_draw_rect(WLX_Rect r, WLX_Color c) {
+static void noop_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)c;
 }
 
 static float _mock_last_border_thick = 0.0f;
 static WLX_Color _mock_last_border_color = {0};
-static void noop_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
+static void noop_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c, void *user) {
+    (void)user;
     _mock_last_border_thick = thick;
     _mock_last_border_color = c;
     (void)r;
 }
 
-static void noop_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c) {
+static void noop_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)roundness; (void)segments; (void)c;
 }
 
-static void noop_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
+static void noop_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)roundness; (void)segments; (void)thick; (void)c;
 }
 
@@ -39,7 +43,8 @@ static int _mock_circle_call_count = 0;
 static float _mock_last_circle_cx = 0;
 static float _mock_last_circle_cy = 0;
 static float _mock_last_circle_radius = 0;
-static void noop_draw_circle(float cx, float cy, float radius, int segments, WLX_Color c) {
+static void noop_draw_circle(float cx, float cy, float radius, int segments, WLX_Color c, void *user) {
+    (void)user;
     _mock_circle_call_count++;
     _mock_last_circle_cx = cx;
     _mock_last_circle_cy = cy;
@@ -52,7 +57,8 @@ static float _mock_last_ring_cx = 0;
 static float _mock_last_ring_cy = 0;
 static float _mock_last_ring_inner_r = 0;
 static float _mock_last_ring_outer_r = 0;
-static void noop_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c) {
+static void noop_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c, void *user) {
+    (void)user;
     _mock_ring_call_count++;
     _mock_last_ring_cx = cx;
     _mock_last_ring_cy = cy;
@@ -61,26 +67,32 @@ static void noop_draw_ring(float cx, float cy, float inner_r, float outer_r, int
     (void)segments; (void)c;
 }
 
-static void noop_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c) {
+static void noop_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)x1; (void)y1; (void)x2; (void)y2; (void)thick; (void)c;
 }
 
-static void noop_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void noop_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)text; (void)x; (void)y; (void)style;
 }
 
-static void noop_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+static void noop_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    (void)user;
     (void)tex; (void)src; (void)dst; (void)tint;
 }
 
-static void noop_begin_scissor(WLX_Rect r) {
+static void noop_begin_scissor(WLX_Rect r, void *user) {
+    (void)user;
     (void)r;
 }
 
-static void noop_end_scissor(void) {
+static void noop_end_scissor(void *user) {
+    (void)user;
 }
 
-static float noop_get_frame_time(void) {
+static float noop_get_frame_time(void *user) {
+    (void)user;
     return 1.0f / 60.0f;  // fixed 60 fps
 }
 
@@ -93,11 +105,13 @@ static float noop_get_frame_time(void) {
 static char  *_mock_clipboard = NULL;
 static size_t _mock_clipboard_cap = 0;
 
-static const char *mock_clipboard_get(void) {
+static const char *mock_clipboard_get(void *user) {
+    (void)user;
     return _mock_clipboard != NULL ? _mock_clipboard : "";
 }
 
-static void mock_clipboard_set(const char *text, size_t len) {
+static void mock_clipboard_set(const char *text, size_t len, void *user) {
+    (void)user;
     if (!wlx_buf_reserve(&_mock_clipboard, &_mock_clipboard_cap, len + 1)) return;
     if (len > 0) memcpy(_mock_clipboard, text, len);
     _mock_clipboard[len] = '\0';
@@ -105,7 +119,7 @@ static void mock_clipboard_set(const char *text, size_t len) {
 
 // Seed/inspect the stub clipboard from tests.
 static inline void test_set_clipboard(const char *text) {
-    mock_clipboard_set(text, text ? strlen(text) : 0);
+    mock_clipboard_set(text, text ? strlen(text) : 0, NULL);
 }
 
 static inline const char *test_get_clipboard(void) {
@@ -118,7 +132,8 @@ static inline const char *test_get_clipboard(void) {
 
 // Simple proportional model: each character is (font_size * 0.5) wide,
 // height equals font_size. Defaults to font_size=10 when style has 0.
-static void mock_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+static void mock_measure_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    (void)user;
     int fs = style.font_size > 0 ? style.font_size : 10;
     size_t len = text ? strlen(text) : 0;
     if (out_w) *out_w = (float)len * (float)fs * 0.5f;
@@ -131,7 +146,8 @@ static void mock_measure_text(const char *text, WLX_Text_Style style, float *out
 // suites that pin which measurement path filled a record's height (the
 // per-unit path stores this measured height; the batched advances path
 // substitutes the build's uniform line_h).
-static void mock_measure_text_tall(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+static void mock_measure_text_tall(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    (void)user;
     int fs = style.font_size > 0 ? style.font_size : 10;
     size_t len = text ? strlen(text) : 0;
     if (out_w) *out_w = (float)len * (float)fs * 0.5f;
@@ -152,7 +168,8 @@ static int _mock_advances_calls = 0;
 
 static size_t mock_measure_text_advances(const char *text, size_t len,
         WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
-        float *out_advances) {
+        float *out_advances, void *user) {
+    (void)user;
     (void)text; (void)len;
     _mock_advances_calls++;
     int fs = style.font_size > 0 ? style.font_size : 10;
@@ -180,7 +197,8 @@ static inline int test_mock_advances_calls(void) {
 static WLX_Cursor_Shape _mock_last_cursor = WLX_CURSOR_ARROW;
 static int _mock_cursor_calls = 0;
 
-static void mock_set_cursor(WLX_Cursor_Shape shape) {
+static void mock_set_cursor(WLX_Cursor_Shape shape, void *user) {
+    (void)user;
     _mock_last_cursor = shape;
     _mock_cursor_calls++;
 }
@@ -199,29 +217,66 @@ static inline void test_reset_mock_cursor(void) {
     _mock_cursor_calls = 0;
 }
 
+// Composition anchor log: every value the core pushed through
+// set_text_input_area, in order, so a test can assert the edge sequence
+// (inactive -> active -> moved -> inactive) and the pushed geometry.
+#define MOCK_TIA_LOG_CAP 32
+static WLX_Text_Input_Area _mock_tia_log[MOCK_TIA_LOG_CAP];
+static int _mock_tia_count = 0;
+
+static void mock_set_text_input_area(const WLX_Text_Input_Area *area, void *user) {
+    (void)user;
+    if (_mock_tia_count < MOCK_TIA_LOG_CAP) _mock_tia_log[_mock_tia_count] = *area;
+    _mock_tia_count++;
+}
+
+static inline int mock_tia_calls(void) { return _mock_tia_count; }
+
+// The i-th pushed anchor (0-based); a zero anchor past the log.
+static inline WLX_Text_Input_Area mock_tia_at(int i) {
+    WLX_Text_Input_Area zero;
+    memset(&zero, 0, sizeof(zero));
+    return (i >= 0 && i < _mock_tia_count && i < MOCK_TIA_LOG_CAP) ? _mock_tia_log[i] : zero;
+}
+
+static inline WLX_Text_Input_Area mock_tia_last(void) {
+    return mock_tia_at(_mock_tia_count - 1);
+}
+
+static inline void test_reset_mock_tia(void) {
+    memset(_mock_tia_log, 0, sizeof(_mock_tia_log));
+    _mock_tia_count = 0;
+}
+
 // ============================================================================
 // Mock backend constructor
 // ============================================================================
 
+// Built by assignment rather than as a designated compound literal so the
+// header also compiles as C++ (the C++ caller gate includes it).
 static inline WLX_Backend mock_backend(void) {
-    return (WLX_Backend){
-        .draw_rect         = noop_draw_rect,
-        .draw_rect_lines   = noop_draw_rect_lines,
-        .draw_rect_rounded       = noop_draw_rect_rounded,
-        .draw_rect_rounded_lines = noop_draw_rect_rounded_lines,
-        .draw_circle             = noop_draw_circle,
-        .draw_ring               = noop_draw_ring,
-        .draw_line               = noop_draw_line,
-        .draw_text         = noop_draw_text,
-        .measure_text      = mock_measure_text,
-        .draw_texture      = noop_draw_texture,
-        .begin_scissor     = noop_begin_scissor,
-        .end_scissor       = noop_end_scissor,
-        .get_frame_time    = noop_get_frame_time,
-        .clipboard_get     = mock_clipboard_get,
-        .clipboard_set     = mock_clipboard_set,
-        .set_cursor        = mock_set_cursor,
-    };
+    WLX_Backend b;
+    memset(&b, 0, sizeof(b));
+    b.contract_version        = WLX_BACKEND_CONTRACT_VERSION;
+    b.user                    = NULL;
+    b.draw_rect               = noop_draw_rect;
+    b.draw_rect_lines         = noop_draw_rect_lines;
+    b.draw_rect_rounded       = noop_draw_rect_rounded;
+    b.draw_rect_rounded_lines = noop_draw_rect_rounded_lines;
+    b.draw_circle             = noop_draw_circle;
+    b.draw_ring               = noop_draw_ring;
+    b.draw_line               = noop_draw_line;
+    b.draw_text               = noop_draw_text;
+    b.measure_text            = mock_measure_text;
+    b.draw_texture            = noop_draw_texture;
+    b.begin_scissor           = noop_begin_scissor;
+    b.end_scissor             = noop_end_scissor;
+    b.get_frame_time          = noop_get_frame_time;
+    b.clipboard_get           = mock_clipboard_get;
+    b.clipboard_set           = mock_clipboard_set;
+    b.set_cursor              = mock_set_cursor;
+    b.set_text_input_area     = mock_set_text_input_area;
+    return b;
 }
 
 // ============================================================================
@@ -251,15 +306,21 @@ static Test_Stream _test_stream;
 
 static void _test_stream_push(int kind, WLX_Rect r, float a, float b, WLX_Color c) {
     if (_test_stream.count >= TEST_STREAM_MAX) return;
-    _test_stream.cmds[_test_stream.count++] = (Test_Stream_Cmd){ kind, r, a, b, c };
+    Test_Stream_Cmd cmd = { kind, r, a, b, c };
+    _test_stream.cmds[_test_stream.count++] = cmd;
 }
-static void _ts_rect(WLX_Rect r, WLX_Color c) { _test_stream_push(1, r, 0, 0, c); }
-static void _ts_rect_lines(WLX_Rect r, float t, WLX_Color c) { _test_stream_push(2, r, t, 0, c); }
-static void _ts_rounded(WLX_Rect r, float ro, int seg, WLX_Color c) { _test_stream_push(3, r, ro, (float)seg, c); }
-static void _ts_rounded_lines(WLX_Rect r, float ro, int seg, float t, WLX_Color c) { (void)seg; _test_stream_push(4, r, ro, t, c); }
-static void _ts_text(const char *text, float x, float y, WLX_Text_Style st) {
+static void _ts_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user; _test_stream_push(1, r, 0, 0, c); }
+static void _ts_rect_lines(WLX_Rect r, float t, WLX_Color c, void *user) {
+    (void)user; _test_stream_push(2, r, t, 0, c); }
+static void _ts_rounded(WLX_Rect r, float ro, int seg, WLX_Color c, void *user) {
+    (void)user; _test_stream_push(3, r, ro, (float)seg, c); }
+static void _ts_rounded_lines(WLX_Rect r, float ro, int seg, float t, WLX_Color c, void *user) {
+    (void)user; (void)seg; _test_stream_push(4, r, ro, t, c); }
+static void _ts_text(const char *text, float x, float y, WLX_Text_Style st, void *user) {
+    (void)user;
     (void)text;
-    _test_stream_push(5, (WLX_Rect){ x, y, (float)(text ? strlen(text) : 0), (float)st.font_size }, 0, 0, st.color);
+    _test_stream_push(5, wlx_rect(x, y, (float)(text ? strlen(text) : 0), (float)st.font_size), 0, 0, st.color);
 }
 
 static inline void test_stream_install(WLX_Context *ctx) {
@@ -292,6 +353,18 @@ static inline bool test_stream_equal(const Test_Stream *a, const Test_Stream *b)
 // ============================================================================
 // Context initialization
 // ============================================================================
+
+// The editing command modifier for the platform under test, as
+// wlx_mod_command_down resolves it: Cmd on Apple platforms, Ctrl elsewhere.
+// Every chord a suite stages goes through this so a platform is never
+// hard-coded at a call site.
+static inline uint32_t test_command_mod(void) {
+#if defined(__APPLE__)
+    return WLX_MOD_SUPER;
+#else
+    return WLX_MOD_CTRL;
+#endif
+}
 
 // Zero-initialize a WLX_Context, attach mock backend, and set the root rect.
 // Call once before a sequence of test_frame_begin/end pairs.
@@ -402,11 +475,44 @@ static inline void test_frame_begin_input(WLX_Context *ctx, const WLX_Input_Stat
     wlx_begin(ctx, ctx->rect, _test_input_handler);
 }
 
+// Begin a frame carrying committed text and a composition string with its
+// codepoint cursor and selected-clause length (-1 = unknown), mouse at
+// rest and no keys. NULL stages an empty channel. Both strings are copied
+// whole up to their field capacity minus the NUL.
+static inline void test_frame_begin_ime(WLX_Context *ctx, const char *text_input,
+                                        const char *preedit, int32_t preedit_cursor,
+                                        int32_t preedit_sel_len) {
+    memset(&_test_staged_input, 0, sizeof(_test_staged_input));
+    _test_staged_input.mouse_x = 200;
+    _test_staged_input.mouse_y = 50;
+    if (text_input) {
+        size_t len = strlen(text_input);
+        if (len >= sizeof(_test_staged_input.text_input))
+            len = sizeof(_test_staged_input.text_input) - 1;
+        memcpy(_test_staged_input.text_input, text_input, len);
+        _test_staged_input.text_input[len] = '\0';
+    }
+    if (preedit) {
+        size_t len = strlen(preedit);
+        if (len >= sizeof(_test_staged_input.preedit))
+            len = sizeof(_test_staged_input.preedit) - 1;
+        memcpy(_test_staged_input.preedit, preedit, len);
+        _test_staged_input.preedit[len] = '\0';
+    }
+    _test_staged_input.preedit_cursor = preedit_cursor;
+    _test_staged_input.preedit_sel_len = preedit_sel_len;
+    wlx_begin(ctx, ctx->rect, _test_input_handler);
+}
+
 // End the current frame.
 static inline void test_frame_end(WLX_Context *ctx) {
-    // Drain any open layouts so wlx_end doesn't assert
+    // Drain any open containers so wlx_end doesn't report, each with the end
+    // that closes it.
     while (ctx->arena.layouts.count > 0) {
-        wlx_layout_end(ctx);
+        const WLX_Layout *top = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+        if (top->owner == WLX_OWNER_SCROLL_PANEL)  wlx_scroll_panel_end(ctx);
+        else if (top->owner == WLX_OWNER_OVERLAY)  wlx_overlay_end(ctx);
+        else                                       wlx_layout_end(ctx);
     }
     wlx_end(ctx);
 }

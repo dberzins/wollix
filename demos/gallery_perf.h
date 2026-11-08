@@ -148,6 +148,7 @@ typedef enum {
 typedef enum {
     GALLERY_PERF_COUNTER_COMMANDS,
     GALLERY_PERF_COUNTER_TEXT_MEASURE,
+    GALLERY_PERF_COUNTER_TEXT_ADVANCES,
     GALLERY_PERF_COUNTER_TEXT_COMMANDS,
     GALLERY_PERF_COUNTER_BACKEND_DRAW_TEXT,
     GALLERY_PERF_COUNTER_BACKEND_MEASURE_TEXT,
@@ -185,6 +186,9 @@ typedef enum {
     GALLERY_PERF_COUNTER_ARENA_GROWS,
     GALLERY_PERF_COUNTER_ALLOC_CALLS,
     GALLERY_PERF_COUNTER_REALLOC_CALLS,
+    GALLERY_PERF_COUNTER_STATE_ENTRIES,
+    GALLERY_PERF_COUNTER_EDITOR_INDICES,
+    GALLERY_PERF_COUNTER_UNDO_JOURNALS,
 } Gallery_Perf_Counter;
 
 static Gallery_Perf_Run gallery_perf = {
@@ -652,6 +656,7 @@ static uint64_t gallery_perf_counter_value(const Gallery_Perf_Sample *sample, Ga
     switch (counter) {
     case GALLERY_PERF_COUNTER_COMMANDS: return sample->core.commands.total_commands;
     case GALLERY_PERF_COUNTER_TEXT_MEASURE: return sample->core.text.measure_calls;
+    case GALLERY_PERF_COUNTER_TEXT_ADVANCES: return sample->core.text.advances_calls;
     case GALLERY_PERF_COUNTER_TEXT_COMMANDS: return sample->core.text.emitted_text_commands;
     case GALLERY_PERF_COUNTER_BACKEND_DRAW_TEXT: return sample->backend.draw_text_calls;
     case GALLERY_PERF_COUNTER_BACKEND_MEASURE_TEXT: return sample->backend.measure_text_calls;
@@ -695,6 +700,9 @@ static uint64_t gallery_perf_counter_value(const Gallery_Perf_Sample *sample, Ga
     case GALLERY_PERF_COUNTER_ALLOC_CALLS:
         return sample->core.allocator.alloc_calls + sample->core.allocator.calloc_calls;
     case GALLERY_PERF_COUNTER_REALLOC_CALLS: return sample->core.allocator.realloc_calls;
+    case GALLERY_PERF_COUNTER_STATE_ENTRIES: return sample->core.state.entries;
+    case GALLERY_PERF_COUNTER_EDITOR_INDICES: return sample->core.state.editor_indices;
+    case GALLERY_PERF_COUNTER_UNDO_JOURNALS: return sample->core.state.undo_journals;
     }
     return 0;
 }
@@ -831,6 +839,7 @@ static void gallery_perf_print_summary(const Gallery_State *gs) {
     printf("counter,avg_per_frame\n");
     printf("commands,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_COMMANDS));
     printf("text_measure_calls,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_TEXT_MEASURE));
+    printf("text_advances_calls,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_TEXT_ADVANCES));
     printf("text_commands,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_TEXT_COMMANDS));
     printf("backend_draw_text_calls,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_BACKEND_DRAW_TEXT));
     printf("backend_measure_text_calls,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_BACKEND_MEASURE_TEXT));
@@ -868,6 +877,9 @@ static void gallery_perf_print_summary(const Gallery_State *gs) {
     printf("arena_grows,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_ARENA_GROWS));
     printf("alloc_calls,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_ALLOC_CALLS));
     printf("realloc_calls,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_REALLOC_CALLS));
+    printf("state_entries,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_STATE_ENTRIES));
+    printf("editor_indices,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_EDITOR_INDICES));
+    printf("undo_journals,%.2f\n", gallery_perf_counter_average(GALLERY_PERF_COUNTER_UNDO_JOURNALS));
     printf("arena_high_water,commands=%zu,cmd_ranges=%zu,scratch=%zu,layouts=%zu,slot_offsets=%zu,dyn_offsets=%zu\n",
         gallery_perf_arena_high_water_max(WLX_ARENA_COMMANDS),
         gallery_perf_arena_high_water_max(WLX_ARENA_CMD_RANGES),
@@ -884,7 +896,7 @@ static void gallery_perf_write_csv_header(FILE *out) {
         "frame,backend,viewport_w,viewport_h,group,section,theme,timer_available,"
         "core_total_ns,begin_ns,input_ns,user_build_ns,wlx_end_ns,range_accum_ns,offset_lookup_ns,dispatch_ns,backend_callback_ns,"
         "commands_total,command_ranges,cmd_rect,cmd_rect_lines,cmd_rect_rounded,cmd_rect_rounded_lines,cmd_circle,cmd_ring,cmd_line,cmd_text,cmd_texture,cmd_scissor_begin,cmd_scissor_end,"
-        "text_measure_calls,text_measured_bytes,text_commands,text_bytes,text_runs,"
+        "text_measure_calls,text_measured_bytes,text_advances_calls,text_advances_bytes,text_commands,text_bytes,text_runs,"
         "arena_commands_high_water,arena_cmd_ranges_high_water,arena_scratch_high_water,arena_layouts_high_water,arena_slot_offsets_high_water,arena_dyn_offsets_high_water,arena_grow_count,"
         "alloc_calls,calloc_calls,realloc_calls,free_calls,alloc_bytes,calloc_bytes,realloc_bytes,"
         "backend_frame,timer_backend,backend_draw_text,backend_measure_text,backend_draw_rect,backend_draw_rect_lines,backend_draw_rect_rounded,backend_draw_rect_rounded_lines,backend_draw_circle,backend_draw_ring,backend_draw_line,backend_draw_texture,backend_begin_scissor,backend_end_scissor,backend_geometry_submit,backend_clip_change,"
@@ -904,7 +916,7 @@ static void gallery_perf_write_csv_row(FILE *out, const Gallery_Perf_Sample *sam
         "%llu,%s,%.0f,%.0f,%s,%s,%s,%d,"
         "%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
         "%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
-        "%llu,%llu,%llu,%llu,%llu,"
+        "%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
         "%zu,%zu,%zu,%zu,%zu,%zu,%llu,"
         "%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
         "%llu,%d,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,"
@@ -947,6 +959,8 @@ static void gallery_perf_write_csv_row(FILE *out, const Gallery_Perf_Sample *sam
         (unsigned long long)sample->core.commands.by_type[WLX_CMD_SCISSOR_END],
         (unsigned long long)sample->core.text.measure_calls,
         (unsigned long long)sample->core.text.measured_bytes,
+        (unsigned long long)sample->core.text.advances_calls,
+        (unsigned long long)sample->core.text.advances_bytes,
         (unsigned long long)sample->core.text.emitted_text_commands,
         (unsigned long long)sample->core.text.emitted_text_bytes,
         (unsigned long long)sample->core.text.fitted_text_runs,
@@ -1126,18 +1140,17 @@ static bool gallery_perf_str_starts_with(const char *text, const char *prefix) {
 }
 
 static bool gallery_perf_parse_args(int argc, char **argv, Gallery_State *gs) {
-    int i;
     WLX_UNUSED(gs);
-    for (i = 1; i < argc; i++) {
-        if (gallery_perf_str_starts_with(argv[i], "--perf")) {
+    if (argc > 1) {
+        if (gallery_perf_str_starts_with(argv[1], "--perf")) {
             fprintf(stderr, "gallery perf controls require rebuilding with -DWLX_PERF\n");
             return false;
         }
-        if (gallery_perf_str_eq(argv[i], "--help")) {
+        if (gallery_perf_str_eq(argv[1], "--help")) {
             printf("Wollix gallery has no runtime options in this build. Rebuild with -DWLX_PERF for --perf controls.\n");
             return false;
         }
-        fprintf(stderr, "unknown gallery argument: %s\n", argv[i]);
+        fprintf(stderr, "unknown gallery argument: %s\n", argv[1]);
         return false;
     }
     return true;

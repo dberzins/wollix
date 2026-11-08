@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Dainis Berzins
+ * Licensed under the MIT License. See LICENSE file for full text.
+ */
+
 #ifndef WOLLIX_WASM_H_
 #define WOLLIX_WASM_H_
 
@@ -7,6 +12,10 @@
 
 #ifndef WOLLIX_H_
 #error "Include wollix.h before wollix_wasm.h"
+#endif
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 // ============================================================================
@@ -44,11 +53,15 @@ static inline uint32_t wlx_wasm_pack_color(WLX_Color c) {
 // cumulative heap waste.
 //
 // Sizing constants:
-//   - WLX_WASM_POOL_MIN_ORDER: 8  -> 256 byte minimum block
-//   - WLX_WASM_POOL_MAX_ORDER: 20 -> 1 MiB maximum block
-// Sub-arenas growing past 1 MiB use the upper class and revert to malloc on
-// every growth above the cap; this is acceptable because the affected
-// general-group buffers (commands, scratch, etc.) cap well below 1 MiB.
+//   - WLX_WASM_POOL_MIN_ORDER: 8  -> 256 byte smallest class
+//   - WLX_WASM_POOL_MAX_ORDER: 20 -> 1 MiB largest class
+// A request above the largest class (wlx_wasm_pool_oversize) is served by a
+// block of exactly its size, outside the classes: malloc'd, never pooled,
+// and handed to free() when released. A sub-arena growing past 1 MiB
+// therefore takes a fresh block on every growth, and on the bare-WASM
+// target (where free() is a no-op) each replaced one stays allocated. The
+// general-group buffers (commands, scratch, layouts, stacks) reach that
+// size only in frames with tens of thousands of draw commands.
 // ============================================================================
 
 // Both orders are overridable before including this header.
@@ -103,6 +116,11 @@ static inline size_t wlx_wasm_pool_class_size(int cls) {
     return (size_t)1 << ((size_t)cls + WLX_WASM_POOL_MIN_ORDER);
 }
 
+// True for a request no class can hold: it takes a block of its own size.
+static inline bool wlx_wasm_pool_oversize(size_t size) {
+    return size > ((size_t)1 << WLX_WASM_POOL_MAX_ORDER);
+}
+
 static inline void *wlx_wasm_pool_alloc(size_t size, void *user) {
     WLX_Wasm_Pool *pool = (WLX_Wasm_Pool *)user;
     int cls;
@@ -110,10 +128,15 @@ static inline void *wlx_wasm_pool_alloc(size_t size, void *user) {
     void *p;
 
     if (size == 0) size = 1;
-    cls = wlx_wasm_pool_class(size);
-    block_size = wlx_wasm_pool_class_size(cls);
+    if (wlx_wasm_pool_oversize(size)) {
+        cls = -1;
+        block_size = size;
+    } else {
+        cls = wlx_wasm_pool_class(size);
+        block_size = wlx_wasm_pool_class_size(cls);
+    }
 
-    if (cls < WLX_WASM_POOL_CLASSES && pool->free_list[cls] != NULL) {
+    if (cls >= 0 && pool->free_list[cls] != NULL) {
         WLX_Wasm_Block *blk = pool->free_list[cls];
         pool->free_list[cls] = blk->next;
         pool->reuse_count++;
@@ -138,12 +161,17 @@ static inline void wlx_wasm_pool_free(void *ptr, size_t size, void *user) {
     WLX_Wasm_Block *blk;
 
     if (ptr == NULL) return;
+    if (size == 0) size = 1;
+    pool->free_count++;
+    if (wlx_wasm_pool_oversize(size)) {
+        if (pool->bytes_in_use >= size) pool->bytes_in_use -= size;
+        free(ptr);
+        return;
+    }
     cls = wlx_wasm_pool_class(size);
     block_size = wlx_wasm_pool_class_size(cls);
-    pool->free_count++;
     if (pool->bytes_in_use >= block_size) pool->bytes_in_use -= block_size;
 
-    if (cls >= WLX_WASM_POOL_CLASSES) return;
     blk = (WLX_Wasm_Block *)ptr;
     blk->next = pool->free_list[cls];
     pool->free_list[cls] = blk;
@@ -163,10 +191,14 @@ static inline void *wlx_wasm_pool_realloc(void *ptr, size_t old_size,
         return NULL;
     }
 
-    old_cls = wlx_wasm_pool_class(old_size == 0 ? 1 : old_size);
-    new_cls = wlx_wasm_pool_class(new_size);
-    if (new_cls == old_cls) {
-        return ptr;
+    // A same-class resize keeps the block; an oversize block is exactly its
+    // request, so any resize to or from one moves.
+    if (!wlx_wasm_pool_oversize(old_size) && !wlx_wasm_pool_oversize(new_size)) {
+        old_cls = wlx_wasm_pool_class(old_size == 0 ? 1 : old_size);
+        new_cls = wlx_wasm_pool_class(new_size);
+        if (new_cls == old_cls) {
+            return ptr;
+        }
     }
 
     new_ptr = wlx_wasm_pool_alloc(new_size, user);
@@ -283,6 +315,10 @@ extern void wlx_wasm_import_end_scissor(void);
 WLX_WASM_IMPORT("get_frame_time")
 extern float wlx_wasm_import_get_frame_time(void);
 
+// Device pixels per CSS pixel: the host answers with window.devicePixelRatio.
+WLX_WASM_IMPORT("content_scale")
+extern float wlx_wasm_import_content_scale(void);
+
 // Clipboard transport. clipboard_get_into copies the host's cached clipboard
 // string into buf (up to cap bytes, UTF-8-boundary safe) and returns the byte
 // count. clipboard_set copies a (text, len) span to the host clipboard cache.
@@ -296,6 +332,16 @@ extern void wlx_wasm_import_clipboard_set(const char *text, uint32_t len);
 // cursor. Called by the core only when the shape changes.
 WLX_WASM_IMPORT("set_cursor")
 extern void wlx_wasm_import_set_cursor(uint32_t shape);
+
+// Composition anchor: the host focuses its hidden text proxy at the caret
+// line of the focused editable text widget (or blurs it when active is 0),
+// so the browser's input method engages and its candidate window sits at
+// the caret. Units are CSS pixels inside the canvas. Called by the core only
+// when the anchor changes.
+WLX_WASM_IMPORT("set_text_input_area")
+extern void wlx_wasm_import_set_text_input_area(int32_t active, float x, float y, float w,
+                                                float h, float cursor, int32_t multiline,
+                                                int32_t password);
 
 #if defined(WLX_PERF) && defined(WLX_WASM_PERF_TIMESTAMP)
 WLX_WASM_IMPORT("perf_now_ns")
@@ -386,7 +432,8 @@ static inline void wlx_perf_wasm_present_end(void) {
 // Backend callback wrappers
 // ============================================================================
 
-static inline void wlx_wasm_draw_rect(WLX_Rect r, WLX_Color c) {
+static inline void wlx_wasm_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_rect_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -394,7 +441,8 @@ static inline void wlx_wasm_draw_rect(WLX_Rect r, WLX_Color c) {
     WLX_WASM_SCOPE_END(geometry_ns);
 }
 
-static inline void wlx_wasm_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
+static inline void wlx_wasm_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_rect_lines_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -404,7 +452,8 @@ static inline void wlx_wasm_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c
 }
 
 static inline void wlx_wasm_draw_rect_rounded(
-        WLX_Rect r, float roundness, int segments, WLX_Color c) {
+        WLX_Rect r, float roundness, int segments, WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_rect_rounded_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -414,7 +463,8 @@ static inline void wlx_wasm_draw_rect_rounded(
 }
 
 static inline void wlx_wasm_draw_rect_rounded_lines(
-        WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
+        WLX_Rect r, float roundness, int segments, float thick, WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_rect_rounded_lines_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -424,7 +474,8 @@ static inline void wlx_wasm_draw_rect_rounded_lines(
 }
 
 static inline void wlx_wasm_draw_circle(
-        float cx, float cy, float radius, int segments, WLX_Color c) {
+        float cx, float cy, float radius, int segments, WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_circle_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -435,7 +486,8 @@ static inline void wlx_wasm_draw_circle(
 
 static inline void wlx_wasm_draw_ring(
         float cx, float cy, float inner_r, float outer_r, int segments,
-        WLX_Color c) {
+        WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_ring_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -445,7 +497,8 @@ static inline void wlx_wasm_draw_ring(
 }
 
 static inline void wlx_wasm_draw_line(
-        float x1, float y1, float x2, float y2, float thick, WLX_Color c) {
+        float x1, float y1, float x2, float y2, float thick, WLX_Color c, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_line_calls);
     WLX_WASM_PERF_INC(geometry_submit_calls);
@@ -454,7 +507,8 @@ static inline void wlx_wasm_draw_line(
 }
 
 static inline void wlx_wasm_draw_text(
-        const char *text, float x, float y, WLX_Text_Style style) {
+        const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_text_calls);
     wlx_wasm_import_draw_text(
@@ -464,7 +518,8 @@ static inline void wlx_wasm_draw_text(
 }
 
 static inline void wlx_wasm_measure_text(
-        const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+        const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(measure_text_calls);
     wlx_wasm_import_measure_text(
@@ -473,7 +528,8 @@ static inline void wlx_wasm_measure_text(
 }
 
 static inline void wlx_wasm_draw_text_slice(
-        const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+        const char *text, size_t len, float x, float y, WLX_Text_Style style, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_text_calls);
     wlx_wasm_import_draw_text_slice(
@@ -484,7 +540,8 @@ static inline void wlx_wasm_draw_text_slice(
 
 static inline void wlx_wasm_measure_text_slice(
         const char *text, size_t len, WLX_Text_Style style,
-        float *out_w, float *out_h) {
+        float *out_w, float *out_h, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(measure_text_calls);
     wlx_wasm_import_measure_text_slice(
@@ -495,7 +552,8 @@ static inline void wlx_wasm_measure_text_slice(
 
 static inline size_t wlx_wasm_measure_text_advances(
         const char *text, size_t len, WLX_Text_Style style,
-        const size_t *unit_ends, size_t unit_count, float *out_advances) {
+        const size_t *unit_ends, size_t unit_count, float *out_advances, void *user) {
+    WLX_UNUSED(user);
     if (text == NULL || unit_ends == NULL || out_advances == NULL || unit_count == 0)
         return 0;
     WLX_WASM_SCOPE_BEGIN();
@@ -508,7 +566,8 @@ static inline size_t wlx_wasm_measure_text_advances(
 }
 
 static inline void wlx_wasm_draw_texture(
-        WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+        WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(draw_texture_calls);
     wlx_wasm_import_draw_texture(
@@ -536,7 +595,8 @@ static inline void wlx_wasm_texture_destroy(WLX_Texture tex) {
     wlx_wasm_import_destroy_texture(tex.handle);
 }
 
-static inline void wlx_wasm_begin_scissor(WLX_Rect r) {
+static inline void wlx_wasm_begin_scissor(WLX_Rect r, void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(begin_scissor_calls);
     WLX_WASM_PERF_INC(clip_change_calls);
@@ -544,7 +604,8 @@ static inline void wlx_wasm_begin_scissor(WLX_Rect r) {
     WLX_WASM_SCOPE_END(scissor_ns);
 }
 
-static inline void wlx_wasm_end_scissor(void) {
+static inline void wlx_wasm_end_scissor(void *user) {
+    WLX_UNUSED(user);
     WLX_WASM_SCOPE_BEGIN();
     WLX_WASM_PERF_INC(end_scissor_calls);
     WLX_WASM_PERF_INC(clip_change_calls);
@@ -552,8 +613,14 @@ static inline void wlx_wasm_end_scissor(void) {
     WLX_WASM_SCOPE_END(scissor_ns);
 }
 
-static inline float wlx_wasm_get_frame_time(void) {
+static inline float wlx_wasm_get_frame_time(void *user) {
+    WLX_UNUSED(user);
     return wlx_wasm_import_get_frame_time();
+}
+
+static inline float wlx_wasm_get_content_scale(void *user) {
+    WLX_UNUSED(user);
+    return wlx_wasm_import_content_scale();
 }
 
 // Upper bound for the clipboard receive buffer. Overridable before include.
@@ -569,7 +636,8 @@ static inline float wlx_wasm_get_frame_time(void) {
 static char *g_wlx_wasm_clipboard_buf = NULL;
 static uint32_t g_wlx_wasm_clipboard_cap = 0;
 
-static inline const char *wlx_wasm_clipboard_get(void) {
+static inline const char *wlx_wasm_clipboard_get(void *user) {
+    WLX_UNUSED(user);
     if (g_wlx_wasm_clipboard_buf == NULL) {
         // First fetch: start small, but never above the (overridable) soft
         // cap plus its terminator byte.
@@ -602,7 +670,8 @@ static inline const char *wlx_wasm_clipboard_get(void) {
     }
 }
 
-static inline void wlx_wasm_clipboard_set(const char *text, size_t len) {
+static inline void wlx_wasm_clipboard_set(const char *text, size_t len, void *user) {
+    WLX_UNUSED(user);
     wlx_wasm_import_clipboard_set(text, (uint32_t)len);
 }
 
@@ -610,8 +679,17 @@ static inline void wlx_wasm_clipboard_set(const char *text, size_t len) {
 // CSS cursor. The enum is append-only; this build check flags a new shape
 // the JS map must learn about.
 _Static_assert(WLX_CURSOR_COUNT == 2, "update the JS set_cursor map for the new WLX_Cursor_Shape");
-static inline void wlx_wasm_set_cursor(WLX_Cursor_Shape shape) {
+static inline void wlx_wasm_set_cursor(WLX_Cursor_Shape shape, void *user) {
+    WLX_UNUSED(user);
     wlx_wasm_import_set_cursor((uint32_t)shape);
+}
+
+static inline void wlx_wasm_set_text_input_area(const WLX_Text_Input_Area *area, void *user) {
+    WLX_UNUSED(user);
+    if (area == NULL) return;
+    wlx_wasm_import_set_text_input_area(area->active ? 1 : 0,
+        area->line.x, area->line.y, area->line.w, area->line.h, area->cursor,
+        area->multiline ? 1 : 0, area->password ? 1 : 0);
 }
 
 // ============================================================================
@@ -620,6 +698,8 @@ static inline void wlx_wasm_set_cursor(WLX_Cursor_Shape shape) {
 
 static inline WLX_Backend wlx_backend_wasm(void) {
     return (WLX_Backend){
+        .contract_version  = WLX_BACKEND_CONTRACT_VERSION,
+        .user              = NULL,
         .draw_rect         = wlx_wasm_draw_rect,
         .draw_rect_lines   = wlx_wasm_draw_rect_lines,
         .draw_rect_rounded       = wlx_wasm_draw_rect_rounded,
@@ -639,6 +719,8 @@ static inline WLX_Backend wlx_backend_wasm(void) {
         .clipboard_get     = wlx_wasm_clipboard_get,
         .clipboard_set     = wlx_wasm_clipboard_set,
         .set_cursor        = wlx_wasm_set_cursor,
+        .get_content_scale = wlx_wasm_get_content_scale,
+        .set_text_input_area = wlx_wasm_set_text_input_area,
     };
 }
 
@@ -655,14 +737,33 @@ extern WLX_Input_State wlx_wasm_input_state;
 // The JS host (web/wollix_wasm.js INPUT_OFFSETS) writes input fields at these
 // fixed byte offsets. Lock them here so any change to WLX_Input_State or
 // WLX_KEY_COUNT fails the build until the JS table is updated to match.
+_Static_assert(offsetof(WLX_Input_State, mouse_x)       == 0,   "WASM INPUT_OFFSETS.mouse_x out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_y)       == 4,   "WASM INPUT_OFFSETS.mouse_y out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_down)    == 8,   "WASM INPUT_OFFSETS.mouse_down out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_clicked) == 9,   "WASM INPUT_OFFSETS.mouse_clicked out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_held)    == 10,  "WASM INPUT_OFFSETS.mouse_held out of sync");
+_Static_assert(offsetof(WLX_Input_State, wheel_delta)   == 12,  "WASM INPUT_OFFSETS.wheel_delta out of sync");
 _Static_assert(offsetof(WLX_Input_State, keys_down)     == 16,  "WASM INPUT_OFFSETS.keys_down out of sync");
 _Static_assert(offsetof(WLX_Input_State, keys_pressed)  == 80,  "WASM INPUT_OFFSETS.keys_pressed out of sync");
 _Static_assert(offsetof(WLX_Input_State, text_input)    == 144, "WASM INPUT_OFFSETS.text_input out of sync");
-_Static_assert(offsetof(WLX_Input_State, keys_repeated) == 176, "WASM INPUT_OFFSETS.keys_repeated out of sync");
-_Static_assert(offsetof(WLX_Input_State, modifiers)     == 240, "WASM INPUT_OFFSETS.modifiers out of sync");
-_Static_assert(offsetof(WLX_Input_State, wheel_delta_x) == 244, "WASM INPUT_OFFSETS.wheel_delta_x out of sync");
-_Static_assert(offsetof(WLX_Input_State, mouse_right_down) == 248, "WASM INPUT_OFFSETS.mouse_right_down out of sync");
-_Static_assert(sizeof(WLX_Input_State)                  == 252, "WASM INPUT_SIZE out of sync");
+_Static_assert(offsetof(WLX_Input_State, keys_repeated) == 272, "WASM INPUT_OFFSETS.keys_repeated out of sync");
+_Static_assert(offsetof(WLX_Input_State, modifiers)     == 336, "WASM INPUT_OFFSETS.modifiers out of sync");
+_Static_assert(offsetof(WLX_Input_State, wheel_delta_x) == 340, "WASM INPUT_OFFSETS.wheel_delta_x out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_right_down) == 344, "WASM INPUT_OFFSETS.mouse_right_down out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_right_clicked) == 345, "WASM INPUT_OFFSETS.mouse_right_clicked out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_middle_down) == 346, "WASM INPUT_OFFSETS.mouse_middle_down out of sync");
+_Static_assert(offsetof(WLX_Input_State, mouse_middle_clicked) == 347, "WASM INPUT_OFFSETS.mouse_middle_clicked out of sync");
+_Static_assert(offsetof(WLX_Input_State, preedit)       == 348, "WASM INPUT_OFFSETS.preedit out of sync");
+_Static_assert(offsetof(WLX_Input_State, preedit_cursor) == 476, "WASM INPUT_OFFSETS.preedit_cursor out of sync");
+_Static_assert(offsetof(WLX_Input_State, preedit_sel_len) == 480, "WASM INPUT_OFFSETS.preedit_sel_len out of sync");
+_Static_assert(WLX_INPUT_TEXT_BYTES == 128 && WLX_INPUT_PREEDIT_BYTES == 128, "WASM INPUT_TEXT_BYTES / INPUT_PREEDIT_BYTES out of sync");
+_Static_assert(sizeof(WLX_Input_State)                  == 484, "WASM WLX_Input_State size out of sync");
+// The host mirrors WLX_Key_Code (WLX_KEY, every value spelled out) and
+// WLX_Key_Mod (WLX_MOD) by value: a renumbering moves one of these anchors.
+_Static_assert(WLX_KEY_ESCAPE == 1 && WLX_KEY_A == 10 && WLX_KEY_0 == 36
+    && WLX_KEY_DELETE == 46 && WLX_KEY_F1 == 51 && WLX_KEY_INSERT == 63 && WLX_KEY_COUNT == 64
+    && WLX_MOD_SHIFT == 1 && WLX_MOD_CTRL == 2 && WLX_MOD_ALT == 4 && WLX_MOD_SUPER == 8,
+    "WASM WLX_KEY / WLX_MOD tables out of sync");
 
 static inline WLX_Input_State *wlx_wasm_get_input_ptr(void) {
     return &wlx_wasm_input_state;
@@ -685,5 +786,9 @@ static inline void wlx_context_init_wasm(WLX_Context *ctx) {
 }
 
 #undef WLX_WASM_PERF_INC
+
+#ifdef __cplusplus
+} // extern "C"
+#endif
 
 #endif // WOLLIX_WASM_H_

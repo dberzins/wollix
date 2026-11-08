@@ -7,7 +7,8 @@
 // ============================================================================
 
 static void mock_measure_text_kerning(const char *text, WLX_Text_Style style,
-                                       float *out_w, float *out_h) {
+                                       float *out_w, float *out_h, void *user) {
+    (void)user;
     int fs = style.font_size > 0 ? style.font_size : 10;
     size_t len = text ? strlen(text) : 0;
     float w = (float)len * (float)fs * 0.5f;
@@ -26,7 +27,8 @@ static void mock_measure_text_kerning(const char *text, WLX_Text_Style style,
 static struct { char text[TL_CAPTURE_TEXT_MAX_]; float x; float y; } _tl_captures[TL_MAX_CAPTURES_];
 static int _tl_capture_count = 0;
 
-static void _tl_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void _tl_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)style;
     if (_tl_capture_count < TL_MAX_CAPTURES_) {
         const char *src = text ? text : "";
@@ -80,12 +82,14 @@ static void _tl_reset_scissor(void) {
     memset(_tl_scissor_log, 0, sizeof(_tl_scissor_log));
 }
 
-static void _tl_begin_scissor(WLX_Rect r) {
+static void _tl_begin_scissor(WLX_Rect r, void *user) {
+    (void)user;
     if (_tl_scissor_count < TL_SCISSOR_LOG_CAP_)
         _tl_scissor_log[_tl_scissor_count++] = (TL_Scissor_Entry_){1, r};
 }
 
-static void _tl_end_scissor(void) {
+static void _tl_end_scissor(void *user) {
+    (void)user;
     WLX_Rect z = {0};
     if (_tl_scissor_count < TL_SCISSOR_LOG_CAP_)
         _tl_scissor_log[_tl_scissor_count++] = (TL_Scissor_Entry_){2, z};
@@ -654,6 +658,29 @@ TEST(invalid_utf8_fallback_bytes_make_progress) {
     wlx_context_destroy(&ctx);
 }
 
+// Text whose first byte is a UTF-8 continuation byte (a Latin-1 file, a
+// truncated paste) starts with a one-byte stray unit, which the pipeline
+// treats as a boundary like any other: every text widget lays it out and
+// draws it.
+TEST(text_starting_with_continuation_byte) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 200, 120);
+    test_stream_install(&ctx);
+    test_stream_reset();
+    char buf[16] = "\xA9 x";
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 3, WLX_VERT);
+        wlx_label(&ctx, "\xA9 x");
+        (void)wlx_button(&ctx, "\xA9 x");
+        (void)wlx_inputbox(&ctx, NULL, buf, sizeof buf);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    int texts = 0;
+    for (int i = 0; i < _test_stream.count; i++) texts += _test_stream.cmds[i].kind == 5;
+    ASSERT_EQ_INT(texts, 3);
+    wlx_context_destroy(&ctx);
+}
+
 // ============================================================================
 // Conditional scissor coverage for wlx_draw_text_fitted
 // ============================================================================
@@ -721,7 +748,8 @@ TEST(fitted_text_scissors_partially_visible_line) {
 static size_t _tl_slice_measure_called_len = 0;
 static char _tl_slice_measure_text[64];
 static void _tl_capture_measure_slice(const char *text, size_t len, WLX_Text_Style style,
-                                       float *out_w, float *out_h) {
+                                       float *out_w, float *out_h, void *user) {
+    (void)user;
     _tl_slice_measure_called_len = len;
     size_t copy_len = len < 63 ? len : 63;
     memcpy(_tl_slice_measure_text, text, copy_len);
@@ -731,7 +759,7 @@ static void _tl_capture_measure_slice(const char *text, size_t len, WLX_Text_Sty
     if (len < sizeof(buf)) {
         memcpy(buf, text, len);
         buf[len] = '\0';
-        mock_measure_text(buf, style, out_w, out_h);
+        mock_measure_text(buf, style, out_w, out_h, NULL);
     }
 }
 
@@ -740,7 +768,8 @@ static size_t _tl_slice_draw_called_len = 0;
 static char _tl_slice_draw_text[64];
 static float _tl_slice_draw_x = -999.0f;
 static float _tl_slice_draw_y = -999.0f;
-static void _tl_capture_draw_slice(const char *text, size_t len, float x, float y, WLX_Text_Style style) {
+static void _tl_capture_draw_slice(const char *text, size_t len, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)style;
     _tl_slice_draw_called_len = len;
     size_t copy_len = len < 63 ? len : 63;
@@ -974,6 +1003,7 @@ SUITE(text_layout) {
     RUN_TEST(range_measure_accepts_invalid_utf8_fallback_byte);
     RUN_TEST(range_measure_accepts_long_invalid_utf8_fallback_bytes);
     RUN_TEST(invalid_utf8_fallback_bytes_make_progress);
+    RUN_TEST(text_starting_with_continuation_byte);
     RUN_TEST(fitted_text_skips_scissor_when_lines_fit);
     RUN_TEST(fitted_text_scissors_when_first_unit_exceeds_width);
     RUN_TEST(fitted_text_scissors_partially_visible_line);

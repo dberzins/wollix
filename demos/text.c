@@ -32,15 +32,17 @@ static int *get_font_codepoints(int *out_count) {
 
 int main(void) {
     printf("Wollix text demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix text demo");
     SetTargetFPS(TARGET_FPS);
 
     int cp_count = 0;
     int *codepoints = get_font_codepoints(&cp_count);
-    Font font_sans = LoadFontEx(FONT_PATH_SANS, 20, codepoints, cp_count);
+    int atlas_px = (int)(20.0f * GetWindowScaleDPI().x + 0.5f);   // crisp under FLAG_WINDOW_HIGHDPI
+    Font font_sans = LoadFontEx(FONT_PATH_SANS, atlas_px, codepoints, cp_count);
     free(codepoints);
     bool sans_ok = font_sans.glyphCount > 0;
+    if (sans_ok) SetTextureFilter(font_sans.texture, TEXTURE_FILTER_BILINEAR);
     if (!sans_ok) printf("WARNING: could not load %s\n", FONT_PATH_SANS);
     if (sans_ok) SetTextureFilter(font_sans.texture, TEXTURE_FILTER_BILINEAR);
     WLX_Font h_sans = sans_ok ? wlx_font_from_raylib(&font_sans) : WLX_FONT_DEFAULT;
@@ -52,57 +54,58 @@ int main(void) {
     WLX_Theme theme = wlx_theme_dark;
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+        float w = wlx_root.w;
+        float h = wlx_root.h;
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
         theme.font = sans_ok ? h_sans : WLX_FONT_DEFAULT;
         ctx->theme = &theme;
 
         wlx_begin(ctx, r, wlx_process_raylib_input);
             BeginDrawing();
-                ClearBackground(WLX_BACKGROUND_COLOR);
+                ClearBackground(ctx->theme->background);
 
                 wlx_layout_begin(ctx, 2, WLX_HORZ);
                     wlx_layout_begin(ctx, 9, WLX_VERT);
 
                         wlx_label(ctx, "CENTER - Vasaras diena Rīgā.",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = RED, .align = WLX_CENTER, .show_background = true
+                            .slot_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = RED, .content_align = WLX_CENTER, .show_background = true
                         );
 
                         wlx_label(ctx, "LEFT - Zaļā pļavā",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = GREEN, .align = WLX_LEFT, .show_background = true
+                            .slot_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = GREEN, .content_align = WLX_LEFT, .show_background = true
                         );
                         wlx_label(ctx, "RIGHT - Mēness gaismā",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = BLUE, .align = WLX_RIGHT, .show_background = true
+                            .slot_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = BLUE, .content_align = WLX_RIGHT, .show_background = true
                         );
 
                         wlx_label(ctx, "TOP - Jūras vējš",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = BLUE, .align = WLX_TOP, .show_background = true
+                            .slot_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = BLUE, .content_align = WLX_TOP, .show_background = true
                         );
 
                         wlx_label(ctx, "BOTTOM - Rudenī kļavu",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = BLUE, .align = WLX_BOTTOM, .show_background = true
+                            .slot_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = BLUE, .content_align = WLX_BOTTOM, .show_background = true
                         );
                         wlx_label(ctx, "TOP_LEFT - Agrā rītā.",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = YELLOW, .align = WLX_TOP_LEFT, .show_background = true
+                            .slot_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = YELLOW, .content_align = WLX_TOP_LEFT, .show_background = true
                         );
                         wlx_label(ctx, "TOP_RIGHT - Pēkšņi debesīs",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = MAGENTA, .align = WLX_TOP_RIGHT, .show_background = true
+                            .slot_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = MAGENTA, .content_align = WLX_TOP_RIGHT, .show_background = true
                         );
                         wlx_label(ctx, "BOTTOM_LEFT - Siltā tējā",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = MAGENTA, .align = WLX_BOTTOM_LEFT, .show_background = true
+                            .slot_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = MAGENTA, .content_align = WLX_BOTTOM_LEFT, .show_background = true
                         );
                         wlx_label(ctx, "BOTTOM_RIGHT - Brīžiem čukst",
-                            .widget_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = MAGENTA, .align = WLX_BOTTOM_RIGHT, .show_background = true
+                            .slot_align = WLX_TOP, .height = 50, .font_size = 20, .back_color = MAGENTA, .content_align = WLX_BOTTOM_RIGHT, .show_background = true
                         );
                     wlx_layout_end(ctx);
 
                     wlx_layout_begin(ctx, 5, WLX_HORZ);
-                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .back_color = WLX_SCROLLBAR_COLOR);
-                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .back_color = RED);
-                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .back_color = BLUE);
-                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .back_color = YELLOW);
-                        wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 50, .height = -1, .back_color = MAGENTA);
+                        wlx_widget(ctx, .slot_align = WLX_CENTER, .width = 50, .height = -1, .back_color = ctx->theme->scrollbar.bar);
+                        wlx_widget(ctx, .slot_align = WLX_CENTER, .width = 50, .height = -1, .back_color = RED);
+                        wlx_widget(ctx, .slot_align = WLX_CENTER, .width = 50, .height = -1, .back_color = BLUE);
+                        wlx_widget(ctx, .slot_align = WLX_CENTER, .width = 50, .height = -1, .back_color = YELLOW);
+                        wlx_widget(ctx, .slot_align = WLX_CENTER, .width = 50, .height = -1, .back_color = MAGENTA);
                     wlx_layout_end(ctx);
                 wlx_layout_end(ctx);
 

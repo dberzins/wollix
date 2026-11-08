@@ -143,7 +143,7 @@ Texture2D create_check_atlas_texture(void) {
 
 int main(void) {
     printf("Wollix Checkbox Texture Demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix Checkbox Texture Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -162,23 +162,24 @@ int main(void) {
     WLX_Rect atlas_checked_src   = (WLX_Rect){64, 0, 64, 64};
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+        float w = wlx_root.w;
+        float h = wlx_root.h;
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
 
         wlx_begin(ctx, r, wlx_process_raylib_input);
             BeginDrawing();
-                ClearBackground(WLX_BACKGROUND_COLOR);
+                ClearBackground(ctx->theme->background);
 
                 wlx_layout_begin(ctx, 1, WLX_HORZ);
                     wlx_layout_begin(ctx, 12, WLX_VERT);
 
                         // Title
                         wlx_label(ctx, "Checkbox texure Demo",
-                            .widget_align = WLX_TOP_LEFT, .height = 40, .font_size = 20, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_TOP_LEFT);
+                            .slot_align = WLX_TOP_LEFT, .height = 40, .font_size = 20, .back_color = ctx->theme->background, .content_align = WLX_TOP_LEFT);
                         // Subtitle
                         wlx_label(ctx, "Standard checkboxes with custom textures",
-                            .widget_align = WLX_TOP_LEFT, .height = 40, .font_size = 30, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_TOP_LEFT);
+                            .slot_align = WLX_TOP_LEFT, .height = 40, .font_size = 30, .back_color = ctx->theme->background, .content_align = WLX_TOP_LEFT);
 
                         // Texture-based wlx_checkbox options (checkmark style).
                         // Default tint is WLX_WHITE so the textures render in
@@ -187,7 +188,7 @@ int main(void) {
                             .font_size = 20,
                             .tex_checked = tex_checked,
                             .tex_unchecked = tex_unchecked,
-                            .widget_align = WLX_LEFT, .align = WLX_LEFT,
+                            .slot_align = WLX_LEFT, .content_align = WLX_LEFT,
                             .front_color = WLX_WHITE,
                         )) {
                             printf("Option 1 toggled: %s\n", app.option1 ? "ON" : "OFF");
@@ -197,7 +198,7 @@ int main(void) {
                             .font_size = 30,
                             .tex_checked = tex_checked,
                             .tex_unchecked = tex_unchecked,
-                            .widget_align = WLX_LEFT, .align = WLX_LEFT,
+                            .slot_align = WLX_LEFT, .content_align = WLX_LEFT,
                             .front_color = WLX_WHITE,
                         )) {
                             printf("Option 2 toggled: %s\n", app.option2 ? "ON" : "OFF");
@@ -207,7 +208,7 @@ int main(void) {
                             .font_size = 30,
                             .tex_checked = tex_checked,
                             .tex_unchecked = tex_unchecked,
-                            .widget_align = WLX_LEFT, .align = WLX_LEFT,
+                            .slot_align = WLX_LEFT, .content_align = WLX_LEFT,
                             .front_color = WLX_WHITE,
                         )) {
                             printf("Option 3 toggled: %s\n", app.option3 ? "ON" : "OFF");
@@ -215,14 +216,14 @@ int main(void) {
 
                         // Subtitle for star-style checkboxes
                         wlx_label(ctx, "Star-style toggle buttons",
-                            .widget_align = WLX_LEFT, .height = 40, .font_size = 30, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT);
+                            .slot_align = WLX_LEFT, .height = 40, .font_size = 30, .back_color = ctx->theme->background, .content_align = WLX_LEFT);
 
                         // Star-style texture checkboxes
                         WLX_Checkbox_Opt opt = wlx_default_checkbox_opt(
                             .font_size = 30,
                             .tex_checked = tex_star_filled,
                             .tex_unchecked = tex_star_empty,
-                            .widget_align = WLX_LEFT, .align = WLX_LEFT,
+                            .slot_align = WLX_LEFT, .content_align = WLX_LEFT,
                             .front_color = WLX_WHITE,
                         );
 
@@ -239,7 +240,7 @@ int main(void) {
                         // muted gray tint; checked uses the right cell with a
                         // semantic accent tint.
                         wlx_label(ctx, "Shared atlas (per-state src + tint)",
-                            .widget_align = WLX_LEFT, .height = 40, .font_size = 30, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT);
+                            .slot_align = WLX_LEFT, .height = 40, .font_size = 30, .back_color = ctx->theme->background, .content_align = WLX_LEFT);
 
                         if (wlx_checkbox(ctx, "Sync over cellular", &app.atlas_sync,
                             .font_size = 24,
@@ -249,7 +250,7 @@ int main(void) {
                             .tex_unchecked_src  = atlas_unchecked_src,
                             .tex_checked_tint   = (Color){70, 200, 110, 255},
                             .tex_unchecked_tint = (Color){110, 110, 110, 255},
-                            .widget_align = WLX_LEFT, .align = WLX_LEFT,
+                            .slot_align = WLX_LEFT, .content_align = WLX_LEFT,
                             .front_color = WLX_WHITE,
                         )) {
                             printf("Sync toggled: %s\n", app.atlas_sync ? "ON" : "OFF");
@@ -263,7 +264,7 @@ int main(void) {
                             .tex_unchecked_src  = atlas_unchecked_src,
                             .tex_checked_tint   = (Color){90, 160, 230, 255},
                             .tex_unchecked_tint = (Color){110, 110, 110, 255},
-                            .widget_align = WLX_LEFT, .align = WLX_LEFT,
+                            .slot_align = WLX_LEFT, .content_align = WLX_LEFT,
                             .front_color = WLX_WHITE,
                         )) {
                             printf("Notify toggled: %s\n", app.atlas_notify ? "ON" : "OFF");
@@ -278,7 +279,7 @@ int main(void) {
                             app.atlas_sync + app.atlas_notify
                         );
                         wlx_label(ctx, status_text,
-                            .widget_align = WLX_BOTTOM_LEFT, .height = 40, .font_size = 18, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_TOP_LEFT);
+                            .slot_align = WLX_BOTTOM_LEFT, .height = 40, .font_size = 18, .back_color = ctx->theme->background, .content_align = WLX_TOP_LEFT);
 
                     wlx_layout_end(ctx);
                 wlx_layout_end(ctx);

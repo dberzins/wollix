@@ -7,8 +7,9 @@
 // right then left reproduces identical geometry on the additive mock),
 // tab stops restarting at the origin, END reaching the true end of a
 // budget-deep line with the view following, editing at far offsets with
-// the caret visible, and the near-content regime keeping every origin at
-// the line start.
+// the caret visible, the near-content regime keeping every origin at
+// the line start, and the space-preferring backscan of an in-coverage
+// re-anchor counting bytes (WLX_EDITOR_ORIGIN_BACKSCAN), not units.
 //
 // Geometry model (mock backend): char width = font_size/2 = 5px at the
 // fixture's font_size 10, line height = 10, tab advance 20. Fixture:
@@ -39,7 +40,8 @@ enum { WO_BAND_X_ = 9, WO_BAND_W_ = 383 };
 static unsigned long long wo_calls;
 
 static void wo_counting_measure(const char *text, size_t len, WLX_Text_Style style,
-                                float *out_w, float *out_h) {
+                                float *out_w, float *out_h, void *user) {
+    (void)user;
     (void)text;
     wo_calls++;
     int fs = style.font_size > 0 ? style.font_size : 10;
@@ -51,7 +53,8 @@ static void wo_counting_measure(const char *text, size_t len, WLX_Text_Style sty
 static struct { char text[80]; float x; float y; size_t len; } wo_texts[WO_MAX_TEXTS_];
 static int wo_text_count;
 
-static void wo_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void wo_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)style;
     if (wo_text_count < WO_MAX_TEXTS_) {
         const char *src = text ? text : "";
@@ -70,7 +73,8 @@ static void wo_capture_draw_text(const char *text, float x, float y, WLX_Text_St
 static WLX_Rect wo_rects[WO_MAX_RECTS_];
 static int wo_rect_count;
 
-static void wo_capture_draw_rect(WLX_Rect r, WLX_Color c) {
+static void wo_capture_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)c;
     if (wo_rect_count < WO_MAX_RECTS_) wo_rects[wo_rect_count++] = r;
 }
@@ -637,7 +641,126 @@ TEST(origin_near_content_keeps_line_start_origins) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Grapheme clusters (corpus macros from test_grapheme.c, same TU)
+// ============================================================================
+
+// 44 ZWJ families (18 bytes, 90 px each) at bytes 4900..5692 of the giant
+// line, placed so a budget of units measured from the first far jump's
+// origin ends just past them. The far jump (20000 px) lands an exact
+// origin in the 'a' prefix; the next view (28500 px) exhausts the budget
+// short of the view with the families inside the measured coverage, so
+// the origin stitches exactly onto family boundary 5674 and the
+// stored-advance hit test resolves a point inside the family after it to
+// its edges; a retreat (27500 px) then walks the origin back through the
+// families onto an 'a' boundary. Every origin and every stored unit end
+// is a unit boundary throughout. The retreat's origin x is the documented
+// average-advance estimate, so exactness is pinned only before it.
+TEST(origin_moves_land_on_cluster_boundaries) {
+    for (int adv = 0; adv < 2; adv++) {
+        WLX_Context ctx;
+        wo_ctx_init(&ctx, adv == 1);
+        static char buf[8200];
+        size_t len = wo_fill_giant(buf, sizeof(buf));
+        enum { FAM_START = 4900, FAM_COUNT = 44 };
+        for (int i = 0; i < FAM_COUNT; i++) memcpy(buf + FAM_START + i * 18, GR_FAMILY, 18);
+
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        WLX_Editor_State *st = wo_state(&ctx);
+        ASSERT_TRUE(st != NULL);
+
+        // Far jump through 'a' only: exact, short of the families.
+        st->scroll_x = 20000.0f;
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        WLX_Text_Geom_Entry *e = wo_entry(&ctx, 0);
+        ASSERT_TRUE(e != NULL);
+        ASSERT_TRUE(e->origin_rel > 0 && e->origin_rel < FAM_START);
+        ASSERT_TRUE(wlx_text_unit_boundary(buf, len, e->origin_rel));
+        wo_assert_origin_exact(&ctx, 0);
+
+        // Stitch inside coverage onto family boundary 5674.
+        st->scroll_x = 28500.0f;
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        e = wo_entry(&ctx, 0);
+        ASSERT_TRUE(e != NULL);
+        ASSERT_EQ_INT(5674, (long)e->origin_rel);
+        wo_assert_origin_exact(&ctx, 0);
+        ASSERT_TRUE(e->units > 2);
+        for (size_t u = 0; u < e->units; u++)
+            ASSERT_TRUE(wlx_text_unit_boundary(buf, len, e->unit_ends[u]));
+        // The family right after the origin, through the stored advances:
+        // 35 px in resolves to its start, 55 px in to its end.
+        size_t off = 0;
+        ASSERT_TRUE(wlx_text_geom_offset_at_x(e, e->origin_rel,
+            (size_t)e->unit_ends[e->units - 1], 35.0f, &off));
+        ASSERT_EQ_INT(5674, (long)off);
+        ASSERT_TRUE(wlx_text_geom_offset_at_x(e, e->origin_rel,
+            (size_t)e->unit_ends[e->units - 1], 55.0f, &off));
+        ASSERT_EQ_INT(5692, (long)off);
+        // Round trips past the origin's back margin stay exact.
+        for (size_t b = 5720; b <= 5740; b += 20) {
+            float x = wo_caret_x(&ctx, buf, len, b);
+            ASSERT_EQ_F(WO_UNIT_W_ * (float)b, x, 0.01f);
+            ASSERT_EQ_INT((long)b, (long)wo_offset_at_x(&ctx, buf, len, st->scroll_x, x + 0.1f));
+        }
+
+        // Retreat through the families onto an 'a' boundary short of them.
+        st->scroll_x = 27500.0f;
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        wo_frame(&ctx, buf, sizeof(buf), &len);
+        e = wo_entry(&ctx, 0);
+        ASSERT_TRUE(e != NULL);
+        ASSERT_TRUE(e->origin_rel < FAM_START);
+        ASSERT_TRUE(wlx_text_unit_boundary(buf, len, e->origin_rel));
+        for (size_t u = 0; u < e->units; u++)
+            ASSERT_TRUE(wlx_text_unit_boundary(buf, len, e->unit_ends[u]));
+        wlx_context_destroy(&ctx);
+    }
+}
+
+// A line of 3-byte units (15 px each) with one space: the budget's 1024
+// units end at about 15350 px, so a view at 15200 re-anchors inside the
+// measured coverage. The covering unit ends at byte 3004 (unit 1001); the
+// backscan prefers a space edge within WLX_EDITOR_ORIGIN_BACKSCAN (64)
+// bytes behind it, however many units that is.
+static size_t wo_origin_with_space_at(int space_unit, bool advances) {
+    WLX_Context ctx;
+    wo_ctx_init(&ctx, advances);
+    static char buf[10000];
+    size_t n = 0;
+    for (int i = 0; i < 3000; i++) {
+        if (i == space_unit) buf[n++] = ' ';
+        else { memcpy(buf + n, "\xE6\x97\xA5", 3); n += 3; }
+    }
+    buf[n] = '\0';
+    size_t len = n;
+    wo_frame(&ctx, buf, sizeof(buf), &len);
+    wo_frame(&ctx, buf, sizeof(buf), &len);
+    WLX_Editor_State *st = wo_state(&ctx);
+    st->scroll_x = 15200.0f;
+    wo_frame(&ctx, buf, sizeof(buf), &len);
+    wo_frame(&ctx, buf, sizeof(buf), &len);
+    WLX_Text_Geom_Entry *e = wo_entry(&ctx, 0);
+    size_t origin = e != NULL ? (size_t)e->origin_rel : 0;
+    wlx_context_destroy(&ctx);
+    return origin;
+}
+
+TEST(origin_backscan_counts_bytes) {
+    for (int adv = 0; adv < 2; adv++) {
+        // 16 units (48 bytes) behind the covering end: the space edge wins.
+        ASSERT_EQ_INT(3 * 985 + 1, (long)wo_origin_with_space_at(985, adv == 1));
+        // 31 units but 93 bytes behind: outside the window, so the origin
+        // stays on the covering unit end.
+        ASSERT_EQ_INT(3004, (long)wo_origin_with_space_at(970, adv == 1));
+    }
+}
+
 SUITE(editor_windowed_origin) {
+    RUN_TEST(origin_moves_land_on_cluster_boundaries);
     RUN_TEST(origin_deep_view_caret_hit_draw_agree);
     RUN_TEST(origin_selection_highlight_clamps_at_seam);
     RUN_TEST(origin_held_view_and_small_wheel_never_reanchor);
@@ -647,4 +770,5 @@ SUITE(editor_windowed_origin) {
     RUN_TEST(origin_end_reaches_line_end_and_view_follows);
     RUN_TEST(origin_editing_at_far_depth_keeps_caret_visible_and_exact);
     RUN_TEST(origin_near_content_keeps_line_start_origins);
+    RUN_TEST(origin_backscan_counts_bytes);
 }

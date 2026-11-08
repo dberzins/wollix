@@ -7,6 +7,1064 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-08
+
+The text release and the last breaking window: undo and redo in the
+inputbox, textarea and editor, word-boundary wrap, grapheme-cluster
+editing, composition input on SDL3 and the web, and a per-span colour
+hook for syntax highlighting in the editor. One coordinated group
+settles the option sentinels, the alignment names and backend contract
+v2, so this is the final release that changes an option field's meaning
+or the shape of the backend contract. Wollix now builds and runs its
+tests on macOS and Windows as well as Linux, can be called from C++ and
+consumed through CMake, reports contract errors in every build, bounds
+its widget state, and maps logical units to device pixels on scaled
+displays.
+
+### Changed (Breaking) - v0.9 coordinated API group
+
+One release, one group, and the last one. **v0.9 is the final release
+that changes the meaning of an existing option field or the shape of the
+backend contract**; from the next minor on, existing names, defaults and
+signatures keep working. Renamed fields, constants and types keep a
+deprecated alias of the same storage or value for **one minor version
+after 0.9**, so existing code compiles unchanged; the aliases themselves
+(`.align`, `.widget_align`, tooltip `.padding`, `WLX_FLOAT_UNSET`,
+`WLX_Backend_V1`, `wlx_backend_from_v1`) are removed in the first minor
+release after 0.9, exactly as the v0.6 aliases were removed in 0.7, and so
+are the three pre-theme constants deprecated since v0.1.0
+(`WLX_BACKGROUND_COLOR`, `WLX_SCROLLBAR_COLOR`, `WLX_HOVER_BRIGHTNESS`; use
+`ctx->theme->background`, `scrollbar.bar` and `hover_brightness`, whose
+values differ). Default
+*meanings* cannot be aliased: each one below names its migration.
+
+- **Backend contract v2: every callback carries an instance pointer.**
+  Every `WLX_Backend` callback (the 22 of v0.8 and the two added below, 24
+  in all) takes a trailing `void *user`, the table's new
+  `user` member, passed by the core on every call and never read by it, so
+  an adapter can reach per-instance state instead of file-scope globals
+  (the in-tree adapters still use their globals this release and pass
+  `NULL`). The table also carries `contract_version`, which must be
+  `WLX_BACKEND_CONTRACT_VERSION` (`2`): `wlx_begin` checks it in every
+  build, because a v0.8 table compiles with warnings on compilers older
+  than GCC 14 and calling it through the v2 signatures is memory-unsafe.
+  Migration, one line: `ctx->backend = wlx_backend_from_v1(&my_table);`
+  with the v0.8 table typed `WLX_Backend_V1` (the shim and the type are
+  removed in the first minor after 0.9); or, for good, append `void *user`
+  to each callback and set `.contract_version`. An application that
+  overrides individual callbacks of an adapter-installed table forwards
+  `user` unchanged and never repoints `backend.user`. The v2 table gains
+  two optional members this release: `float (*get_content_scale)(void
+  *user)` (device pixels per unit; NULL or a zero-initialised table means
+  1.0) and, last, `void (*set_text_input_area)(const WLX_Text_Input_Area
+  *area, void *user)` (the composition anchor, below; NULL never tells
+  the platform); the shim leaves both NULL. The version stays `2`, and
+  this shape, members included, is the one that freezes after 0.9.
+- **`WLX_Input_State` grows for composition input, and text input is
+  focus-gated on SDL3.** `text_input` grows from 32 to 128 bytes
+  (`WLX_INPUT_TEXT_BYTES`), so a committed CJK clause is no longer cut at
+  ~10 characters, and three fields are appended: `preedit[128]`
+  (`WLX_INPUT_PREEDIT_BYTES`), the input method's current composition
+  string as *state* (the whole string, replaced by each update, empty when
+  none is in flight), with `preedit_cursor` and `preedit_sel_len` in
+  codepoints (-1 unknown). Every offset after `text_input` moves; a
+  recompile is the whole migration for C callers, and the WASM host's
+  `INPUT_OFFSETS` table and `wollix_wasm.h`'s asserts moved together
+  (`keys_repeated` 272, `modifiers` 336, `wheel_delta_x` 340,
+  `mouse_right_down` 344, `preedit` 348, cursor 476, clause 480, size
+  484). Both capacities are fixed constants, not configuration macros.
+  On SDL3 the adapter no longer calls `SDL_StartTextInput` at init: text
+  input starts when an editable text widget takes focus and stops when
+  focus leaves (through the composition anchor), so the input method and
+  any on-screen keyboard follow the focused field. An application that
+  read `ctx->input.text_input` on SDL3 with no field focused stops
+  receiving it; key codes are unaffected.
+- **`.align` is `.content_align`; `.widget_align` is `.slot_align`.** The
+  two alignment fields never said what they aligned: `content_align`
+  places the text or image inside the widget rect (the typography field,
+  and `wlx_image`'s), `slot_align` places the widget rect inside its layout
+  slot, pairing with `padding` / `content_padding`. Both old names still
+  compile via anonymous-union aliases of the same storage; every demo,
+  test and doc is on the new names. Migration: rename the initializers
+  (`sed -E 's/\.widget_align\b/.slot_align/g; s/\.align\b/.content_align/g'`
+  over your sources does it; `title_align` is untouched).
+- **`WLX_UNSET` is the single unset sentinel for numeric option fields.**
+  Every option field follows one of two rules, documented in SENTINEL.md:
+  zero is unset only where zero can never be a meaningful value (colors,
+  fonts, `font_size`, ...); everywhere zero is meaningful the macro installs
+  `WLX_UNSET` (`-1`) and the resolver replaces it with the theme, parent or
+  widget default. `-1` was already the value on most fields, so
+  `.width = -1` and friends keep working; `WLX_FLOAT_UNSET` (`-1e30f`) stays
+  as a deprecated alias that still resolves as unset. The brightness shifts
+  (`hover_brightness`, `thumb_hover_brightness`, `scrollbar_hover_brightness`,
+  theme `disabled_brightness`) join the same sentinel: their domain is now
+  `-1 < b <= 1`, and an explicit `-1.0f` means unset rather than a full
+  black shift. Four fields have no usable literal zero and read `0` as
+  unset as well: `rounded_segments` (the theme's count), the scroll
+  panel's `wheel_scroll_speed` (20 px a notch) and its `roundness` /
+  `rounded_segments` (ignored: the fill is square). Migration: write
+  `-0.999f` for a full darken; spell the sentinel `WLX_UNSET`.
+- **Panel roundness inherits the theme.** `wlx_panel_begin` `.roundness` and
+  `.rounded_segments` were literal zeros while `.border_width` inherited
+  the theme (v0.6); all three now inherit like every widget's. The bundled
+  themes ship `roundness = 0`, so stock rendering is unchanged. Migration:
+  under a custom theme with non-zero roundness, a panel that relied on the
+  literal default passes `.roundness = 0`.
+- **Tooltip `.padding` is `.content_padding`.** `padding` is the slot inset
+  everywhere else and the tooltip's was an inner inset; the tooltip now
+  carries the shared `content_padding` field group (per-side fields
+  included) with its 6 px default. `.padding` still compiles via the
+  deprecated alias. Migration: rename the initializer.
+- **Menu `.width` follows the unset rule.** Unset resolves to 180 as before;
+  an explicit `.width = 0` is now a zero-width list instead of 180, as `0`
+  is on every other `width`. Migration: drop an explicit `0`.
+- **A widget `.width` / `.height` of `0` is a zero size.** The sizing group
+  is Rule U on paper, but every reader took `0` as unset, so an explicit
+  `0`, or a computed size that reached `0` (a fill bar at 0%), filled the
+  whole slot. `WLX_UNSET` is still the slot's size; `0` is now zero wide or
+  zero tall: at the widget rect, in a CONTENT slot's measurement (no
+  intrinsic text width), for the scroll panel, and for a submenu's
+  `.width`. A text field (inputbox, editor) with `.height = 0` takes its
+  one-line minimum, as any smaller height does. Migration: drop an
+  explicit `0` that meant "fill"; check sizes computed from a fraction.
+- **Panel `.title_align = WLX_ALIGN_NONE` is honoured.** The centred default
+  moved into the macro; an explicit `WLX_ALIGN_NONE` now places the title
+  at the raw rect origin instead of being resolved to `WLX_CENTER`.
+  Migration: write `WLX_CENTER` if `WLX_ALIGN_NONE` was meant as "default".
+- **Split sizes `WLX_SLOT_AUTO` are honoured.** `first_size`, `second_size`
+  and `fill_size` default in the macro (`WLX_SLOT_PX(280)`, `WLX_SLOT_FLEX(1)`,
+  `WLX_SLOT_FLEX(1)`); an explicit `WLX_SLOT_AUTO` reaches the layout as
+  AUTO instead of being mistaken for the default. `wlx_slot_size_is_zero`
+  is removed. Migration: none unless `WLX_SLOT_AUTO` was written to mean
+  "default". On gcc, overriding one of them now trips
+  `-Woverride-init-side-effects`, which is on by default, so a `-Werror`
+  build fails where v0.8.0 was clean: add `-Wno-override-init-side-effects`
+  beside `-Wno-override-init` (the CMake target carries both).
+- **Compound content padding: unset means the widget default.** Writing
+  `.content_padding = WLX_UNSET` on the inputbox, editor, split or panel now
+  resolves to the widget's own inset (10, 10, 4, 2) exactly like omission,
+  as SENTINEL.md always said, instead of `0` (the tooltip's already
+  resolved to its 6); the constants are `WLX_INPUTBOX_CONTENT_PADDING`,
+  `WLX_SPLIT_CONTENT_PADDING`, `WLX_PANEL_CONTENT_PADDING`. Omission is
+  unchanged. Migration: write `0` for no inset (step 10).
+- **Split `.gap` is a literal `0`** like every other container gap (its `-1`
+  resolved to `0` and inherited nothing). Omission is unchanged.
+- **`WLX_Id` is the widget id type, 64-bit on every target.** `WLX_State.id`,
+  `WLX_Interaction.id`, `wlx_focused_id` and `wlx_push_id` carry `WLX_Id`
+  (`uint64_t`) instead of `size_t`; on wasm32 ids widen from 32 to 64 bits.
+  Callers that pass a `size_t` compile unchanged; one that stores an id in a
+  `size_t` compiles too, but truncates on wasm32 (step 11); an id printed
+  with `%zu` needs `PRIu64`. Every id value changes with the derivation fix under
+  Fixed (ids were never stable across builds, since the call site is part of
+  the hash).
+- **Persistent widget state has a lifetime.** `wlx_get_state` data, and
+  the state every stateful widget keeps, no longer survives until the
+  program exits. State survives while its id is requested at least once
+  every `WLX_STATE_MIN_AGE` frames (300); unrequested longer, it may be
+  reclaimed at `wlx_begin` once the context holds more than
+  `WLX_STATE_EVICT_THRESHOLD` entries (4096), or by `wlx_state_prune`, and
+  comes back zeroed. Below the threshold nothing is ever reclaimed, so an
+  application whose live set stays under it sees no change. Reclaimed
+  blocks are recycled by size (bare-WASM builds, whose `free` is a no-op,
+  reclaim too); an editor's line index and a widget's undo journal go with
+  their state entry, and so does the `WLX_DEBUG` content-slot oscillation
+  record, which follows the layout's id: a recycled block brings no bounce
+  history to the layout that receives it. Migration: state that owns resources, or must outlive
+  long absences under pressure, defines `WLX_STATE_EVICT_THRESHOLD` as
+  `0`; `WLX_State.data` is valid through the frame that returned it, so a
+  pointer kept across frames is outside the contract (under an address
+  sanitizer recycling is off and such a use is reported).
+- **The `_auto` begins, the slot-style entries and the list clipper record a
+  call site.** `wlx_layout_begin_auto_impl`, `wlx_grid_begin_auto_impl`,
+  `wlx_grid_begin_auto_tile_impl`, `wlx_grid_cell_impl`,
+  `wlx_slot_style_impl`, `wlx_grid_cell_style_impl` and
+  `wlx_list_clipper_begin_impl` take a trailing `const char *file, int
+  line` like every other option-taking entry, so their contract-error
+  reports and `WLX_DEBUG` warnings name the caller's line. The macros pass
+  `__FILE__, __LINE__`; macro callers are unaffected. Migration: struct-form
+  (C++) callers of those seven entries append `__FILE__, __LINE__`.
+- **The `wlx_editor` document contract is frozen.** The document is the
+  caller's contiguous byte buffer with an explicit length, permanently: the
+  library never owns, copies or re-materialises it, and byte offsets into
+  it are the shared coordinate system of the line index, the retained
+  geometry, the undo journal and the edit span. Library-managed storage (a
+  gap buffer, rope or piece table), if ever added, is a separate entry
+  point over a document interface, never a change to this signature.
+  Migration: none; nothing changes for callers.
+- **A single-line inputbox is one row that scrolls horizontally; `.wrap`
+  applies to multiline fields only.** A non-multiline field used to honour
+  `.wrap` (the default `true`): tall enough, it showed several rows and
+  blurred on Enter; one row tall, text past its right edge wrapped onto a
+  row the field could not show, so the visible row jumped up and the caret
+  vanished, and with `.wrap = false` the row was cut at the field edge with
+  the caret pinned there and new text typed out of sight. Now a single-line
+  field is always one visual row: text wider than the field scrolls
+  horizontally, the caret stays in view on every caret move or edit (typing,
+  HOME / END, arrows across either edge, click, paste, undo, redo), a drag
+  held past either edge auto-scrolls, the horizontal wheel scrolls a focused
+  overflowing row, the view returns to the start on blur, the horizontal
+  `content_align` applies while the row fits and yields to the scroll while
+  it overflows, and the row freezes at the per-run unit budget as before.
+  `WLX_Inputbox_State` gains `scroll_x`. Text entering a single-line field
+  (paste, typed text, a committed composition) drops its line separators,
+  as a browser `<input>` does; a multiline field keeps them. Multiline
+  fields and single-line fields whose text fits render exactly as before.
+  Migration: where several rows were meant, set `.multiline = true` (or use
+  `wlx_textarea`; Enter then inserts a newline); where one row was meant,
+  drop `.wrap`.
+
+#### Migrating from 0.8
+
+In call-site order. Everything except an application's own backend table
+compiles before you start: a v0.8 table is an error on GCC 14+ and clang
+until step 7 (older GCC only warns, and `wlx_begin` then stops at its
+contract-version check). Migrate the rest at your own pace before the next
+minor.
+
+1. **Align names.** `sed -E 's/\.widget_align\b/.slot_align/g; s/\.align\b/.content_align/g'`
+   over your sources (`title_align` is untouched). Both old names still
+   compile until the next minor.
+2. **Unset spelling.** Write `WLX_UNSET` where you wrote `-1` or
+   `WLX_FLOAT_UNSET` to mean "unset"; `-1` keeps working on every numeric
+   field, `WLX_FLOAT_UNSET` until the next minor.
+3. **Brightness `-1.0f`.** If a hover or disabled shift was exactly `-1.0f`
+   (a full black shift), write `-0.999f`; `-1.0f` now means unset.
+4. **Panel roundness under a custom theme.** A panel that relied on the
+   literal sharp default while the theme has non-zero `roundness` passes
+   `.roundness = 0`.
+5. **Tooltip inset.** `.padding` on `wlx_tooltip_for` becomes
+   `.content_padding` (old name compiles until the next minor).
+6. **Menu `.width = 0`**, **widget `.width = 0` / `.height = 0`**, **panel
+   `.title_align = WLX_ALIGN_NONE`**, **split sizes written as
+   `WLX_SLOT_AUTO`**: only if you wrote these to mean "the default" - drop
+   the field instead. A width or height computed from a fraction now
+   collapses at 0 rather than filling the slot.
+7. **Backend tables.** Append `void *user` to every callback and set
+   `.contract_version = WLX_BACKEND_CONTRACT_VERSION`; or, for now, type the
+   table `WLX_Backend_V1` and install `wlx_backend_from_v1(&table)`. An
+   application that wrapped an adapter's text callbacks to scale styles
+   installs one `wlx_set_style_transform` instead.
+8. **Callers without designated initializers** (C++ translation units,
+   table-driven builders) take `wlx_<widget>_opt_defaults()`, assign, and
+   call the `_impl` function.
+9. **Struct-form `_auto` begins, slot styles and the list clipper.** Append
+   `__FILE__, __LINE__` to `wlx_layout_begin_auto_impl`,
+   `wlx_grid_begin_auto_impl`, `wlx_grid_begin_auto_tile_impl`,
+   `wlx_grid_cell_impl`, `wlx_slot_style_impl`, `wlx_grid_cell_style_impl`
+   and `wlx_list_clipper_begin_impl` calls; macro callers change nothing.
+10. **Compound `.content_padding = -1`.** On the inputbox, editor, split and
+    panel, `-1` meant no inset at v0.8.0; it now means the widget's default
+    (10, 10, 4, 2), the same as omitting the field. Write `0` where the
+    flush look was wanted.
+11. **Widget ids.** Hold ids in `WLX_Id` (`WLX_Interaction.id`,
+    `WLX_State.id`, `wlx_focused_id()`). Storing one in a `size_t`
+    compiles with no diagnostic, but on wasm32 it keeps 32 of the 64 bits
+    and never compares equal again; on a wasm32 build clang's
+    `-Wshorten-64-to-32` or gcc's `-Wconversion` finds such stores. Print
+    ids with `PRIu64`.
+12. **Persistent state.** Nothing changes while the live set stays under
+    `WLX_STATE_EVICT_THRESHOLD` (4096). Above it, an id not requested for
+    `WLX_STATE_MIN_AGE` frames (300) may come back zeroed: define
+    `WLX_STATE_EVICT_THRESHOLD 0` for state that owns resources or must
+    outlive long absences, and never keep a `WLX_State.data` pointer past
+    the frame that returned it.
+13. **SDL3 text input.** Call `wlx_sdl3_ime_hints()` before `SDL_Init`. The
+    adapter no longer starts text input at init: it starts while an
+    inputbox or editor has focus and stops when focus leaves, so with no
+    field focused `ctx->input.text_input` stays empty. Code that read typed
+    text outside a field reads key codes instead, or starts text input
+    itself (the adapter stops it again at the next blur).
+14. **Wrapped single-line fields.** A non-multiline inputbox is one visual
+    row now, whatever `.wrap` says. A field that relied on wrapped rows
+    (tall, `.wrap` default or `true`, no `.multiline`) adds
+    `.multiline = true` or switches to `wlx_textarea`, which also turns
+    Enter from blur into a newline; a one-row field drops `.wrap`.
+
+### Added
+- **Composition (IME) input on the inputbox, textarea and editor.** The
+  platform's composition string lands in the widget's buffer at the caret
+  as a tentative span - ordinary bytes to layout, wrap, the line index,
+  caret-follow and the colour spans - underlined, with the caret inside it
+  where the input method says (codepoints snapped to a grapheme-cluster
+  boundary) and the selected clause in the selection colour. Each update
+  replaces the span, and a frame holding the same string leaves it in place
+  and reports no change; a commit lands where it began as one undo step of
+  the new `COMPOSE` class, which never coalesces; a cancel leaves buffer and
+  journal exactly as before; composing over a selection deletes it first as
+  its own step; focus leaving with a span in place keeps the bytes and
+  records the step a commit would have (a field not drawn on that frame
+  does so the next frame it is drawn), and when focus moves straight into
+  another text field the composition ends there: the backend gets one
+  inactive anchor between the two owners and the entering field never
+  shows the leaving field's string. While a span exists the keys and
+  the mouse belong to the input method, and so does the frame it commits
+  or is cancelled on: a confirming Enter or cancelling Escape the host
+  reports there neither blurs the field nor reaches it as a key, and Tab
+  does not traverse. The span follows the widget's length and
+  `.revision` like the undo journal: an outside change forgets
+  it without touching a byte. `wlx_text_composing(ctx)` reports a
+  composition in flight for callers that mirror the buffer. Backends:
+  `WLX_Text_Input_Area` and the optional `WLX_Backend.set_text_input_area`
+  carry the focused editable widget's caret line, pushed from `wlx_end`
+  only on change, with `wlx_text_input_area(ctx)` for hosts without the
+  callback. SDL3: `SDL_EVENT_TEXT_EDITING` as state, focus-gated
+  `SDL_StartTextInputWithProperties` (text or hidden password, multiline)
+  and `SDL_StopTextInput`, `SDL_SetTextInputArea` at the caret (handed
+  over again after the window moves on X11, where the input method holds
+  a screen position), the
+  composition ended when the window loses focus (the input method drops
+  it there without an editing event), and
+  `wlx_sdl3_ime_hints()` to call before `SDL_Init` so the platform draws
+  no composition window (the SDL3 demos do); on X11 the helper also takes
+  the environment's `LC_CTYPE` when the process still has the `"C"`
+  default, without which Xlib's inline-composition path hangs on a
+  composition with ASCII before non-ASCII text. Web host: a hidden text
+  proxy at the caret receives composition and dead keys, which produced
+  no text before. Raylib stays commit-only. `make perf-editor` gains
+  composing and commit rows inside twice the typing bounds with no index
+  rebuild, and a held row at the idle bounds with no index patch;
+  `tests/test_ime.c` pins the no-composition identity of the three
+  widgets and the composition behaviour in forty tests. The
+  README's text-entry disclaimer is rewritten accordingly.
+- **`WLX_DEBUG` report for decreasing advances.** A `measure_text_advances`
+  chunk whose advances decrease (a font shaped right to left, or a lost
+  splice) reports the new `WLX_ERR_BACKEND_ANSWER` (a backend answer
+  outside its contract; the content-scale check below uses it in every
+  build) once per site through
+  the error handler before the clamp flattens it (every unit edge inside
+  the chunk onto the first value below it); negative `spacing` is exempt,
+  since an additive backend's prefix widths may legitimately dip there,
+  and release builds clamp silently as before. `WLX_ERR_BACKEND` keeps
+  its fatal meaning (no usable table at `wlx_begin`).
+- **Coordinate units and content scale.** One Wollix unit is a logical
+  pixel; the backend maps it to device pixels by its content scale (2.0 on
+  a 2x display, 1.5 at a 150% setting). `WLX_Backend.get_content_scale`
+  (optional, see the contract entry above) reports the scale; `wlx_begin`
+  samples it once per frame, reports `WLX_ERR_BACKEND_ANSWER` and runs at
+  1.0 for a value outside `[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]`
+  (new configuration macros, 0.25 and 8.0), and bumps the text-geometry
+  generation when the scale changes. `wlx_content_scale(ctx)` reads the
+  frame's value. Root-rect helpers per backend: `wlx_raylib_root_rect()`
+  (the screen size in units) and `wlx_sdl3_root_rect()` (the output size
+  over the display scale); the README and every demo use them, and every
+  demo opts its window into high density (`FLAG_WINDOW_HIGHDPI`,
+  `SDL_WINDOW_HIGH_PIXEL_DENSITY`). The SDL3 adapter maps every geometry
+  callback and the clip rect from units to pixels, rasterises its font
+  variants at `font_size * scale` and returns measures in units, so text
+  is crisp at any scale; the mouse goes through
+  `SDL_RenderCoordinatesFromWindow`. The Raylib adapter reports the scale
+  Raylib applies (`GetWindowScaleDPI` under `FLAG_WINDOW_HIGHDPI`); text
+  crispness there is the application's atlas size (the API reference's
+  "High-DPI with Raylib"). Both native adapters round clip-rect edges on
+  their own, so a device-grid boundary between units never loses a pixel
+  column. The web host answers a `content_scale` import with
+  `devicePixelRatio`. Documented under "Coordinate space" in the API
+  reference; the option tables now say "in units" where they said "in
+  pixels".
+- **Contract errors are reported in every build.** A caller-contract
+  violation (more children than slots, a grid cell outside the grid, an
+  end without a begin, a widget with no layout open, a count of zero, a
+  required pointer that is NULL, the CONTENT-slot limit) reports through
+  the context's error handler (`wlx_set_error_handler`, `WLX_Error`,
+  `WLX_Error_Code`, `WLX_Error_Fn`, `wlx_error_count`) and then degrades
+  the way API_REFERENCE "Error Reporting" tables: a zero-size rect at the
+  layout's far edge for an overrun (the child contributes nothing to
+  CONTENT measurement), an ignored placement for a grid cell outside the
+  grid, a return for an unmatched end or pop, each container closed with
+  its own end for an end of the wrong kind (a layout end on a scroll panel
+  or an overlay, a scroll-panel or overlay end over a container still open
+  inside it), a report at `wlx_end` for an id still pushed (every build;
+  it was a `WLX_DEBUG` assert), the clip a still-open layout or scroll
+  panel holds released at `wlx_end` (flat replay and immediate mode left
+  the backend scissor on), the rows that fit the parent for a list clipper
+  outside a scroll panel (a plain assert before), an id hashed from an
+  empty path for a NULL call site passed to a struct-form entry (it was
+  dereferenced: a crash in every build), the root rect for a widget
+  with no layout open, 1 for a bad count, 1 px for a bad size, an inert
+  widget for a NULL pointer. Under `NDEBUG` these used to index out of
+  bounds without a word; a slot overrun's write past a CONTENT-tracked
+  parent's measure buffer is gone. With no handler the default prints each
+  distinct site once through the new `WLX_ERROR_PRINT` configuration
+  macro (`WLX_ERROR_SITES_MAX` sites, 32) and aborts only in a build
+  without `NDEBUG`, so debug builds still stop at the site. Every layout
+  records its begin site; a report names the widget's line and the
+  layout's begin line. The header's ASSERTION POLICY gains the third tier.
+  `WLX_Layout.is_overlay_root` is replaced by `owner` (`WLX_Layout_Owner`),
+  the tag the ends check.
+- **`wlx_state_prune`.** Reclaims persistent state not requested for a
+  caller-chosen number of frames (at least one, so the current frame's
+  widgets always survive) and returns the count; the deterministic release
+  point after a route change. `WLX_STATE_EVICT_THRESHOLD`,
+  `WLX_STATE_MIN_AGE` and `WLX_STATE_RECYCLE` are `#ifndef`-overridable
+  before the include.
+- **Debug builds report a repeated state request.** Under `WLX_DEBUG`, a
+  second `wlx_get_state` request for one id in a frame (a CONTENT layout
+  or a stateful helper reached twice without `wlx_push_id`, two
+  containers without `.id`) is reported once per call site: both requests
+  share one block, which the interaction path's duplicate check could not
+  see for widgets that have no interaction. A widget's interaction and its
+  state share one id and are not a repeat; release builds are unchanged.
+- **State counts in the perf frame.** `WLX_Perf_Frame.state` carries the
+  state map's entries and slot capacity, and the live editor line indices
+  and undo journals at frame end (a reclaimed widget's item, kept zeroed
+  for reuse, is not counted); the gallery's benchmark CSV prints
+  them and the desktop `WLX_PERF` dashboard reports each new peak on
+  stderr.
+- **Every backend text call in the perf frame.** `WLX_Perf_Text_Stats`
+  counted measures only at the public `wlx_measure_text_slice`, so the
+  layout pipeline's prefix measures, most of a text-heavy frame's backend
+  traffic, never showed: a wrapped editor that re-measured lines on every
+  frame read a steady 24 measures a frame while its frame time tripled.
+  `measure_calls` and `measured_bytes` now count every `measure_text` /
+  `measure_text_slice` call where the core makes it, and the new
+  `advances_calls` / `advances_bytes` count the `measure_text_advances`
+  fills; the gallery's benchmark CSV gains both columns. Readers of
+  `measure_calls` see the true, higher numbers.
+- **Per-span colour on the editor (syntax highlighting).** `wlx_editor`
+  gains `.span_color` / `.span_color_user`: a callback
+  (`WLX_Text_Span_Color_Fn` over a `WLX_Text_Span_Query`) that names the
+  colour of the span starting at a byte offset, asked at draw time for the
+  visible records only and never retained - the application owns the
+  tokenizer and its state. The core clips every answered end to the
+  document and the record, snaps it forward to a grapheme-cluster boundary
+  (a cluster never draws in two colours) and advances one unit when it does
+  not progress (an assertion under `WLX_DEBUG`); a zero colour draws in
+  `front_color`, and any other colour takes the widget's disabled shift and
+  opacity like its own colours. Pieces are placed from the retained
+  advances, so caret, hit-test, selection and wrap are unchanged and steady
+  frames measure nothing more (`make perf-editor` runs every workload
+  coloured against the plain bounds); the one approximation is that a
+  kerning pair across a colour edge is lost in the drawn glyphs, zero on
+  monospace fonts and of the same class as a tab stop. The editor's tab
+  walk and the new span edges are one core routine, the record piece
+  drawer, beside the selection band. The dashboard's editor colours its C
+  sample document through a demo-local tokenizer
+  (`demos/dashboard/dashboard_syntax.h`). Not part of the breaking group;
+  the fields are additive.
+- **Calling from C++.** The public halves of `wollix.h` and
+  `wollix_editor.h` carry C linkage (`extern "C"`) and parse as C++11 (one
+  extension, anonymous structs inside a union, that every compiler accepts
+  outside `-pedantic-errors`), so a C++ translation unit includes them as-is
+  and links against the implementation compiled as C11 in one C translation
+  unit. The three backend adapters carry the same guards for uniformity but
+  stay includable only in that C translation unit, since they are
+  `static inline` bodies over implementation internals; defining
+  `WOLLIX_IMPLEMENTATION` from C++ is not supported. The
+  documented path is `wlx_<widget>_opt_defaults()`, assign, call the
+  widget's `_impl` entry; README "Using from C++" and API_REFERENCE
+  "Calling from C++" carry the rules, the example and the entry table.
+- **C++ spellings of the literal helpers.** `WLX_RGBA` and every
+  `WLX_SLOT_*` macro expand under `__cplusplus` to a brace-initialised
+  prvalue (`WLX_SLOT_LIT` picks the form per language), with the casts
+  C++11 list-initialisation needs for `int` arguments; the C expansions are
+  unchanged. `WLX_SIZES` stays C-only and documents the named-array form.
+- **`from_defaults` marker.** Every option struct ends with
+  `bool from_defaults`, set by its defaults macro and so by the defaults
+  function and every copy. Under `WLX_DEBUG` a struct that reaches a widget
+  entry with the flag clear (a zero-initialised struct, which holds zeros
+  where the defaults are non-zero) warns once per call site, naming the
+  entry and the defaults function to start from; release builds never read
+  it. SENTINEL.md documents the rule.
+- **C++ gate in `make test`.** `tests/test_cpp_path.cpp` is a C++11 caller
+  over the public headers and the mock backend, linked against the
+  implementation compiled as C11; `CXX` follows `CC` unless set in the
+  environment or on the command line (a `CC` naming clang picks clang++,
+  anything else g++) so the CI matrix covers both front ends.
+- **CMake package.** A root `CMakeLists.txt` exports the header-only target
+  `wollix::wollix`, which carries the include path, C11 and the compiler
+  flags the option macros need (`-Wno-override-init` and
+  `-Wno-override-init-side-effects` gated to C on gcc,
+  `-Wno-initializer-overrides` on clang, `/Zc:preprocessor` on MSVC, and
+  `/std:c11` on MSVC where CMake is older than 3.20), for
+  `find_package(wollix CONFIG)`, `add_subdirectory` and `FetchContent`. The
+  version is read from `WOLLIX_VERSION`; the config file is
+  `SameMinorVersion` while the major version is 0. `WOLLIX_BUILD_TESTS`
+  registers the `make test` binaries with CTest and `WOLLIX_BUILD_DEMOS`
+  builds the Raylib and SDL3 demos when found; both default on only when
+  Wollix is the top-level project. The Raylib demos find Raylib as a CMake
+  package or a plain install (`WOLLIX_RAYLIB_DIR`); `WOLLIX_FETCH_RAYLIB`
+  (off by default) downloads and builds Raylib 5.5 from source when
+  neither is found. The Makefile stays the developer tool
+  and CI runs both (README "Using CMake", CONTRIBUTING "Building and
+  tests").
+- **Test tree builds where VLAs and `<unistd.h>` do not.** The dashboard
+  table's row-size array is a fixed buffer with a documented row cap, and
+  the test harness probes the terminal with `_isatty` under `_WIN32`.
+- **`ASAN_DETECT_LEAKS`.** `make test-asan` takes the leak-detection switch
+  as a variable (default on) so hosts without LeakSanitizer keep the
+  address and undefined-behaviour checks.
+- **macOS CI leg.** `test-macos` runs the unit suite, the warnings-as-errors
+  set and the sanitizer runner on `macos-latest`.
+- **Two compiler gates.** The bare-WASM build compiles with `-Wall -Wextra`
+  and fails on a 64-to-32-bit narrowing (`-Werror=shorten-64-to-32`): wasm32
+  is the one target where `size_t` is 32 bits, and an id stored in a
+  `size_t` there left the Pages demo deaf to input for four days with every
+  gate green. Every repository build adds `-Wundef`, so a value-tested `#if`
+  placed before its macro's definition warns (and fails the
+  warnings-as-errors legs) instead of compiling its block out.
+- **Windows/MSVC CI leg.** `test-windows` configures the CMake project,
+  builds the Debug configuration (asserts live, as in `make test`) and runs
+  CTest under MSVC (C11 mode, the conforming preprocessor, the C++ gate
+  under `cl`) on `windows-latest`; the death-check binary stays
+  POSIX-only. The test tree and the dashboard theme no longer
+  rely on compound literals in static initializers, which MSVC C rejects.
+- **vcpkg overlay port.** `ports/wollix/` (manifest and portfile, header-only,
+  tests and demos off) installs the five headers and the CMake config as
+  `wollix::wollix` through `vcpkg install wollix --overlay-ports=ports`; it is
+  written for the release tag and is the copy submitted to the registry
+  after tagging (`ports/README.md`).
+- **MSVC build requirement documented.** `/std:c11 /Zc:preprocessor`
+  (Visual Studio 2019 16.8 or later); the conforming preprocessor is needed
+  for `wlx_layout_begin_s`. The Windows CI leg above proves the set.
+- **`wlx_set_style_transform`.** A context-level transform (function plus
+  user pointer) that the core applies to the `WLX_Text_Style` immediately
+  before every text callback - draw, measure and advances - and nowhere
+  else, so widget options, the command buffer and retained geometry hold
+  nominal styles while the backend sees only transformed ones. This
+  replaces the pattern of wrapping an adapter's five text callbacks
+  identically (the rule the 0.7.0 caret-drift fix documented, and which
+  nothing could enforce): the dashboard and gallery Raylib font scales are
+  one transform each now. Every call counts as a measurement-environment
+  change, so the editor's retained geometry is rebuilt on the next frame.
+- **Option defaults as values.** `wlx_<widget>_opt_defaults()` returns each
+  option struct's defaults exactly as its macro installs them, one function
+  per struct (26 in the core, `wlx_editor_opt_defaults` in the editor
+  header). This is the call surface for code that cannot repeat designated
+  initializers - take the defaults, assign, call the `_impl` function. The
+  macros stay the C11 surface.
+- **Undo and redo in the inputbox, textarea and editor.** Every edit made
+  through a text widget lands in a per-widget undo journal in the core;
+  command+Z steps back and command+Shift+Z or command+Y steps forward
+  (repeating while held), restoring the bytes and the caret pair exactly,
+  selection included. Typed, Backspace and Delete runs coalesce into one
+  step; arrows, caret-moving clicks, Enter, Tab, paste, cut, word and
+  selection deletes and an undo itself start a new one; a new edit clears
+  redo; `read_only` rejects the chords and `password` fields keep no
+  journal. The journal is bounded per widget by the new `#ifndef`-guarded
+  `WLX_TEXT_UNDO_ENTRIES` (512) and `WLX_TEXT_UNDO_BYTES` (256 KB), whole
+  oldest steps evicted first and a single oversize step still kept;
+  `WLX_TEXT_UNDO_ENTRIES 0` compiles the journal out. History is dropped
+  when the buffer changes outside the widget: length changes are detected,
+  and `WLX_Inputbox_Opt` gains `.revision` for same-length rewrites, as the
+  editor already had. The editor's undo replays through the same edit
+  primitives as a keystroke, so its retained geometry, wrapped bottom
+  anchor and caret-follow carry over unchanged. See WIDGETS.md "Undo and
+  redo".
+- **Multi-key text fuzz.** `tests/test_fuzz_text.c` runs random op
+  sequences (typed text from ASCII to combining-mark clusters, ZWJ emoji
+  and regional-indicator pairs; deletion, motion and selection keys with
+  their modifiers; the clipboard, undo and redo chords; presses, drags,
+  the wheel; compositions that commit or cancel) over the inputbox, the
+  password field, the textarea and the editor, wrapped and not, in 48-byte
+  and larger buffers. Every frame checks the length, valid UTF-8, the caret
+  pair on unit boundaries and the editor's line index, which must be
+  patched by every edit and never rebuilt; each round ends by undoing to
+  the history's base and redoing to its tip. Fixed seeds gate `make test`
+  and `make test-asan`, a self-check proves every op class is reached in
+  every mode, and one time-seeded round per mode prints its seed if it
+  fails; printed seeds join a regression table that runs them as printed.
+- **`make docs-check`.** `tools/docs_check.py` compiles every C and C++
+  example in README.md and docs/ against the headers (an unknown field, an
+  undeclared `wlx_` name or a missing header fails), compiles and links the
+  README's C/C++ pair, resolves every anchor, checks that every `wlx_` /
+  `WLX_` name the docs use exists, keeps the option-struct and short-name
+  registries in step, and checks every option table's defaults against its
+  struct's defaults function. CI runs it in the Raylib job.
+- **SDL3: an SDL_ttf 3.3 leg and a release build.** CI's SDL3 job runs
+  against SDL_ttf 3.2.2 and against 3.3.0 (pinned by commit until it is
+  tagged), the version with the font variants, the text cache and the
+  advances callback; `make test-sdl3` now links SDL_ttf and pins that text
+  path, the composition state, the composition string's whole-codepoint
+  cap and scissor edges at scale 1.5. `make check-sdl3-ndebug` compiles the
+  SDL3 targets with `NDEBUG`, `-O2` and `-Werror`.
+
+### Fixed
+- **The editor keeps its undo history across typed text and Delete in one
+  frame.** A frame that typed text and then pressed Delete or Ctrl+Delete
+  near the start of the document, the delete removing more bytes than the
+  offset where the typed text ended, merged its edits into a byte span
+  with an end far past the document. The editor read that as a change
+  made outside the widget: it rescanned the whole document for its line
+  index, dropped its retained line geometry and cleared the undo history.
+  An undo or redo of a step holding such a pair took the same path. The
+  span is now right, and the frame patches the index like any other edit.
+  In v0.8.0 and earlier, which had no undo, the cost was the rescan alone.
+- **Option tables show the stored default.** The panel's `title_font_size`,
+  `title_height` and `capacity`, and the `content_padding` of the panel,
+  the split, the inputbox and the editor, were documented as the value the
+  widget resolves while the struct holds `0` or `WLX_UNSET`: code that read
+  `wlx_panel_opt_defaults().title_height` found 0, not 32. Every option
+  table now shows what the struct holds, the resolved value following in
+  parentheses (`WLX_UNSET` (10)), and names its struct.
+- **An auto layout's gap sits between its slots.** `wlx_layout_begin_auto`
+  and the auto grids put the gap in front of each slot after the first,
+  inside that slot, where every other layout puts it between adjacent
+  slots. A child that fills its slot therefore touched the one before it,
+  and every slot but the first was one gap taller; a child with a fixed
+  height was centred in that slot, so the first gap came out half as wide
+  as the rest; a FLEX or AUTO slot after a gap ran past the layout's edge
+  by the gap; and an auto grid whose cells were placed out of row order
+  lost the gap from its first row. Each slot now starts after the gap and
+  is its own size, so an auto layout with fixed slot sizes places its
+  children exactly where the fixed layout with the same slots does. The
+  content height and the scroll extent do not change (since v0.3.0).
+- **FILL and the scroll-panel getters inside an overlay answer for the
+  overlay.** A layout nested in an overlay resolved `WLX_SLOT_FILL`
+  against the window, or against the base-layer scroll panel when the
+  overlay was declared inside one, so one overlay sized its FILL slots
+  by where it was declared: in a 200-unit overlay a FILL slot was 300
+  units tall at the root of a 300-unit window and 120 inside a 120-unit
+  panel. FILL now resolves against the innermost scroll panel of the
+  overlay's own layer, else the overlay's body, as the overlay's own
+  slots already did. `wlx_get_scroll_panel_viewport` and
+  `wlx_get_scroll_panel_offset` answer for the current layer too: inside
+  an overlay with no panel of its own they return `{0}` and `0` rather
+  than the panel underneath, and `wlx_list_clipper_begin` there reports
+  `WLX_ERR_BAD_ARGUMENT` and builds the rows that fit its parent, as
+  outside any panel, rather than clipping against a panel that scrolls
+  another layer (since v0.8.0).
+- **SDL3: sharp outlines and thick diagonal lines keep their
+  thickness.** The SDL3 adapter drew every sharp outline (a widget border
+  at `roundness = 0`) one pixel wide whatever its `border_width`, while a
+  rounded outline of the same width drew its full width; and a diagonal
+  line (a checkbox's check mark) drew one pixel wide at any thickness. A
+  sharp outline now lies inside its rect at its width, as a rounded one
+  does, and a thick diagonal line is a quad of its width. A headless test
+  binary, `make test-sdl3` (SDL's offscreen video driver and software
+  renderer, not part of `make test`), pins both, and CI runs it.
+- **SDL3: a replacement window and an SDL re-init keep text input and the
+  event watch.** The adapter kept its window state in 18 file-scope
+  variables, and binding a new renderer reset two of them. A context
+  re-bound to a replacement window with `wlx_context_init_sdl3` therefore
+  kept the old window's "text input started" flag, and the core, which
+  pushes the composition anchor only when it changes, never told the new
+  window: a field that kept its focus took no typed text. And the event
+  watch was installed once per process behind a flag, so after an
+  `SDL_Quit` / `SDL_Init` cycle (which drops it) the wheel, committed text,
+  composition and key repeats stopped arriving. The window state is now one
+  struct that `wlx_backend_sdl3` resets to its defaults,
+  `wlx_context_init_sdl3` removes and re-adds the watch and clears the
+  context's last pushed anchor, and `make test-sdl3` pins both cases.
+  Code that read the adapter's private renderer variable,
+  `g_wlx_sdl3_renderer`, reads `g_wlx_sdl3.renderer`.
+- **SDL3: a frame's committed text ends at its first overflow, as on
+  Raylib and the web.** `text_input` is documented as a stream whose
+  first codepoint that does not fit is dropped with the rest of the
+  frame's burst. The SDL3 adapter truncated each event on its own and
+  kept appending later events that fit, so a frame that overflowed could
+  deliver text with a gap in the middle. It now stops at the first
+  overflow, as the Raylib adapter and the web host already did. All three
+  share the rule through a new core helper, `wlx_utf8_append_whole`, beside
+  `wlx_utf8_floor` (the web host has the same cut as `utf8Floor`).
+- **`WLX_TEXT_STYLE_DEFAULT` compiles as C++.** It was the one public
+  literal macro without a `__cplusplus` spelling, so a C++ caller got a
+  C99 compound literal with designated initialisers (rejected by
+  `-pedantic-errors` before C++20, and by MSVC's C++). It now has the
+  brace-initialised twin the other literal helpers have, and the C++
+  gate (`tests/test_cpp_path.cpp`, Makefile and CMake) builds with
+  `-pedantic-errors`, so a future literal macro without its twin fails
+  it. Under that flag clang++ also rejected `WLX_Layout`, whose anonymous
+  union declared its two arms' struct types in place (a C++ extension);
+  the arms are now the named types `WLX_Layout_Linear` and
+  `WLX_Layout_Grid`, with the same members (`l->linear.x` and
+  `l->grid.x` read as before).
+- **Popup rows and the tooltip text fade once.** A dropdown's and a menu
+  button's row text took the theme opacity and the opacity stack twice
+  (the popup resolved its colour, then each row, an ordinary button,
+  resolved it again), so under `theme.opacity = 0.5` the rows drew at a
+  quarter alpha beside a face at half, and a menu item with its own
+  `.front_color` drew at twice its neighbours'. The rows now resolve once
+  from the popup's own colour and opacity: they match a plain button and
+  still fade with the popup's `.opacity`. The tooltip's text, which took
+  no opacity at all, now fades with the theme and the stack; its box,
+  like all popup chrome, stays unscaled.
+- **A theme built from its global block draws every widget.** Nine of
+  `WLX_Theme`'s per-widget overrides documented a fallback the code never
+  applied, so a theme written from scratch drew an inputbox and editor
+  caret and focus border in a zero (transparent) colour, a slider with a
+  zero-height track and a zero-width thumb in zero colours, a checkbox
+  check in a zero colour, and a scroll panel with a zero-width bar. Each
+  zero override now takes its documented fallback, at every reader: the
+  focus border the accent; the caret, the slider's thumb and label and
+  the check the foreground; the slider track the colour midway between
+  the surface and the border (the toggle's and the progress bar's tracks
+  follow it); the slider track 6 px and thumb 14 px; the scroll panel's
+  bar 10 px, as the inputbox's and the editor's already were. The three
+  per-widget border widths keep their behaviour (negative is unset, 0 is
+  no border) and their comments now say so. The bundled presets set every
+  field, so no preset's look changes.
+- **`WLX_Theme.radio.label` is read.** It was declared and set in every
+  preset but never read; a radio's label colour now falls back to it
+  before the foreground.
+- **Word motion and the double-click word never split a cluster.** The
+  backward word step and the word bounds scanned bytes, so a space
+  carrying a combining mark (one grapheme cluster) was cut in two:
+  Ctrl+Left and Ctrl+Backspace after it stopped at its mark, and a
+  double-click on the word after it also took the space and the mark. The
+  backward step now walks clusters, classed by their first byte, and the
+  word bounds round up to a cluster boundary, so such a space behaves as a
+  plain space in the inputbox, the textarea and the editor.
+- **`wlx_utf8_strlen` stops at the terminator.** A string ending in a
+  truncated multibyte sequence (a lead byte the terminator cuts short)
+  made the count step over the terminator and read past the string,
+  since v0.1.0. The count is now bounded by `strlen`, with a cut-short
+  lead counted once, as `wlx_utf8_slicelen` counts it. The core never
+  calls it; the SDL3 adapter's legacy `measure_text` does.
+- **A frame after an unbalanced one starts clean.** A frame that left a
+  layout open (its `wlx_end` reports that) made any report raised in the
+  next `wlx_begin` - a NULL input handler, an unusable content scale -
+  name that stale layout as its site. A frame that left an auto-height
+  scroll panel open made the next frame's `WLX_DEBUG` checks treat its
+  root layout as inside the panel and warn about its FLEX and FILL
+  slots. `wlx_begin` now resets the per-frame pool before its first
+  check and stops tracking the panel.
+- **A press and a Tab in one frame no longer lose focus.** When a pointer
+  press and a Tab (or Shift+Tab) arrived in the same frame, the Tab walk's
+  target took focus and then dropped it again on the press, in its own
+  query. If it was queried after the pressed field, no field ended
+  focused: the pressed field showed focus for that frame and lost it with
+  no blur edge. A press on the focused field also gave that field a blur
+  and a focus edge in one frame. A button target kept the keyboard ring
+  through the press, so the ring could sit on a button while a field had
+  typing focus. Now a fresh press decides the frame's focus: the Tab does
+  not walk the ring, and it is dropped unless the press landed on a
+  focused editor, which still types it. Held Tab (auto-repeat) with a
+  click reached this, as did a slow frame that collected both events.
+  Present since keyboard traversal was added in v0.8.0.
+- **Widget ids no longer collide across call sites.** Two stateful widgets
+  a few source lines apart inside one `wlx_push_id(row)` loop resolved to
+  the same id from row 65 on (the combine added the stack value linearly
+  beside the shifted site hash, so a line step was undone by a pushed value
+  about 64 lower), and an id stack `[0, b]` hashed like `[b]`, so a reusable
+  widget called inside a loop from index 0 met its standalone call. Either
+  way two widgets shared one state block, or a release build hit the
+  state-size guard's abort. The id stack now stores per-push mixed running
+  hashes from a nonzero seed and the combine passes through a full-avalanche
+  mix (splitmix64), which also makes the stack read O(1); `WLX_DEBUG`
+  builds report two sites that share one key. Sites in two files met too,
+  at every id-stack depth: the site hash added the line to a linear hash
+  of the path, so a header and its `.c` (or `.m`) shared ids 165 lines
+  apart (`.cc` / `.hh`: 5,610), and two paths of equal length such as
+  `ab.c` / `bA.c` shared every id. The path is now hashed with FNV-1a and
+  mixed before the line is added, which also stops the contract-error
+  print-once key from merging such sites. `tests/test_widget_id.c` pins
+  every case.
+- **String ids no longer collide.** `wlx_hash_string`, which container
+  `.id` scopes push, was djb2: `"ab"` and `"bA"` gave one value, so two
+  containers with those ids at one call site were one scope, and 5,828 of
+  the 9,025 two-character printable strings shared their value with
+  another. It is now FNV-1a 64 (`NULL` still hashes to 0). Present since
+  `wlx_hash_string` was added in v0.2.0.
+- **MSVC `/W4` warnings in the header.** The U+FFFD writer copies its three
+  bytes instead of casting constants above 127 to `char` (C4310), and two
+  `int` font sizes are cast where a `float` is wanted (C4244). No behaviour
+  change.
+- **Layout `.clip` gates the pointer.** A `.clip` layout cropped its
+  children's drawing but not their hit zones: the cropped part of a widget
+  could still be hovered, pressed and dragged, and under topmost-wins
+  arbitration a clipped-away widget declared later took the click from a
+  visible one declared earlier. The clip walk that hit-testing and
+  scroll-panel nesting share (`wlx_enclosing_clip`) now counts open `.clip`
+  layouts alongside scroll panel viewports and overlay roots, so hover,
+  press, drag, the focus ring and tooltip anchors stop at the clip rect; a
+  scroll panel inside a clip layout is scissored to the intersection and the
+  clip is re-armed after the panel ends (siblings declared after a nested
+  panel were drawn unclipped). Four tests in `tests/test_layout_clip.c`.
+- **Scroll panels take the wheel only where they are visible.** A panel's
+  wheel ownership was raw containment on its viewport, so a panel cropped by
+  a `.clip` layout or scrolled out of an outer panel scrolled through its
+  invisible part and starved the visible sibling under the pointer; the
+  scroll panel bar and the text-widget scrollbar thumb also lit their hover
+  tint there. All three now go through the same container clip as hover and
+  press.
+- **Auto-counted layouts honour `.clip`.** `wlx_layout_begin_auto` accepted
+  the option but never installed the scissor or joined the clip walk, so its
+  overflowing children were drawn and stayed interactive; both begins now
+  share one clip path. Two tests.
+- **`.interact` works on the auto-counted begins.** `wlx_layout_begin_auto`,
+  `wlx_grid_begin_auto` and `wlx_grid_begin_auto_tile` with `.interact`
+  crashed at v0.8.0 (a NULL call site was hashed). With the call site they
+  now record, each gets a stable per-site id, and hover, click and
+  `interact_out` resolve as on `wlx_layout_begin`.
+- **Keyboard focus skips widgets that are clipped away, and the ring stays
+  inside the clip.** A widget scrolled out of its panel or cropped away by a
+  `.clip` layout remained a Tab stop with no ring, so keystrokes reached an
+  invisible widget; it is no longer a stop. The ring is clamped to the
+  container clip around the focused widget (a scroll panel viewport, a
+  `.clip` layout, or a popup's own rect), so a partially cropped widget's
+  ring wraps its visible part instead of stroking over the neighbouring
+  content, and a widget filling its popup gets a ring that hugs the popup
+  edge. Two tests in `tests/test_tab_traversal.c`.
+- **An out-of-range `.span` takes one slot.** A negative `.span` or
+  `WLX_UNSET` (a huge `size_t` once converted) wrapped the slot sums: an
+  auto layout wrote that many offsets past its buffer, and a fixed layout
+  or a grid passed its overrun check and rewound, so later children drew
+  over earlier ones. A span above `WLX_MAX_SLOT_COUNT` is now reported
+  (`WLX_ERR_BAD_ARGUMENT`) and takes one slot, in the slot fetch and in
+  `wlx_grid_cell`. Span 0 (what a zeroed option struct carries) takes one
+  slot silently, as `wlx_grid_cell` already did, instead of a zero-size
+  cell (or a debug abort on an auto or full layout). A nested layout with
+  `.span > 1` now credits its CONTENT measurement to the first slot of its
+  span, like a widget, instead of the last. Four tests.
+- **A negative `.gap` reads as 0 on every layout.** v0.8.0's split clamped a
+  negative gap to 0, but the other containers used it as written: `-1`
+  overlapped adjacent cells by one unit and `WLX_FLOAT_UNSET` collapsed the
+  layout (the split's first pane went to zero width). A container gap now
+  follows Rule U with unset = 0 on `wlx_layout_begin`,
+  `wlx_layout_begin_auto`, the three grid begins, `wlx_overlay_begin`,
+  `wlx_split_begin`, `wlx_panel_begin` and the `wlx_create_*`
+  constructors, so `-1` keeps working as "unset" on gaps too. No report: a
+  computed gap that goes negative reads as 0 like any other non-negative
+  Rule U field.
+- **A grid's first frame past the offsets buffer keeps its row offsets.**
+  `wlx_create_grid` reserved its row offsets, then its column offsets, and
+  wrote the rows through a pointer taken before the second reservation. On
+  the frame the two outgrew the slot-offsets buffer, the rows went into the
+  freed block (wrong row positions, or a crash under an allocator that
+  moves the block). A CONTENT layout under a lowered
+  `WLX_OFFSET_STACK_LIMIT` (or a raised `WLX_CONTENT_SLOTS_MAX`) read its
+  slot kinds from a stale offset the same way once the solver grew the byte
+  scratch. Scratch reservations now return an index and every pointer is
+  re-derived at its use. A grid test and a new
+  `tests/test_offset_stack_override.c` pin both.
+- **Ctrl+Alt is not an editing chord (AltGr typing on Windows).**
+  Browsers, SDL3 and GLFW report AltGr on Windows as Ctrl+Alt, and the
+  key still types the layout's character, but `wlx_mod_command_down` took
+  any Ctrl as the command modifier: AltGr+Z undid and then typed, and
+  AltGr+A selected all and replaced the document with one letter. Off
+  Apple the command modifier is now Ctrl with Alt up. An application that
+  relied on Ctrl+Alt+letter as an editing chord loses it, as in native
+  Windows edit controls.
+- **WASM: the page pool no longer serves a request above 1 MiB from a 1 MiB
+  block.** `wlx_wasm_pool_alloc` clamped every request to its top class
+  and `wlx_wasm_pool_realloc` kept the same block across growths inside
+  it, so a general-group arena (commands, scratch, layouts) growing past
+  1 MiB wrote past its block: a frame with more than about 20,000 draw
+  commands corrupted the heap of the bare-WASM build. A request above the
+  top class now gets a block of its own size, outside the classes, and is
+  handed to `free()` when released. Since v0.3.0.
+- **SDL3: carets and colour spans sit on the glyph cells the text is
+  drawn in.** The SDL3 adapter's `measure_text_advances` read SDL_ttf's
+  cluster rects as advances, but a cluster rect is the glyph's ink box,
+  so every position inside a line sat one left bearing too far right (and
+  the line end at the last glyph's ink edge). A caret in the middle of a
+  line landed on the next character, and with a `span_color` callback
+  each coloured piece was drawn shifted right, so the line's last piece
+  ran under the caret. The adapter now reports the shaped pen position
+  (the rect minus the glyph's bearing, the run end from
+  `TTF_GetTextSize`) and stops its fill at a glyph it cannot place, such
+  as a ligature alternate, so the core measures the rest. A wrapped
+  editor measures that rest once and keeps the line's geometry like any
+  other's, instead of measuring it again on every frame (the dashboard's
+  C sample, whose `//` and `->` are JetBrains Mono ligatures, took 3.4 ms
+  a frame wrapped against 0.6 ms unwrapped; an idle frame now makes the
+  same backend calls in both modes). Since v0.7.0.
+- **The text caret sits in the gap between two glyphs.** The inputbox,
+  textarea and editor drew the 2-unit caret 2 units past its cell
+  boundary. With advances that report the cell boundary (every backend,
+  SDL3 after the fix above), that put it on the next glyph's ink for
+  nearly every character pair: in JetBrains Mono at 13 px, 98% of pairs
+  (a caret before `D` covered its stem). The caret is now centred on the
+  boundary. `WLX_TEXT_CARET_PADDING` keeps reserving its room past the
+  line end, so wrap widths and scroll extents do not move.
+- **An empty wrapped editor draws its caret.** The wrapped caret was
+  placed from the window records alone, and an empty document builds none,
+  so a focused empty editor with `.wrap = true` showed no caret. It now
+  sits at the text origin, as in the linear editor.
+- **Text that starts with a UTF-8 continuation byte no longer aborts a
+  `WLX_DEBUG` build.** A label, button or inputbox whose text began with a
+  byte in 0x80-0xBF (a Latin-1 file, a truncated paste), and a click or
+  arrow Down onto such a line in the editor, failed a line-start assert
+  that tested the raw byte. The text pipeline treats a stray continuation
+  byte as a unit of its own and lays it out, so the check is gone (since
+  v0.7.0).
+- **A menu button's face is as tall as a button's.** Its resolver handed
+  the typography step a throwaway `min_height`, so the face never got the
+  font-size floor the button and dropdown faces get: 1 px tall in a
+  CONTENT slot (a panel body), the slot's height in a short fixed slot
+  (since v0.8.0).
+- **`wlx_overlay_begin` honours a uniform `.content_padding`.** Its default
+  macro did not install the content-padding defaults, so the four
+  per-side fields were 0 rather than `WLX_UNSET`, and a per-side value
+  beats the uniform one: `.content_padding = N` and
+  `WLX_PADDING_USE_THEME` inset nothing unless all four sides were also
+  set to `WLX_UNSET` (since v0.8.0).
+- **The `WLX_DEBUG` split tracker stays in bounds and reports its pairing.**
+  Its checks were plain asserts on a fixed eight-level table that no frame
+  reset. With `NDEBUG` also defined, a stray `wlx_split_next` wrote before
+  the table and the next `wlx_split_begin` crashed, and a `wlx_split_end`
+  missing every frame walked off it and overwrote the warning callback;
+  nesting splits nine deep asserted. A next or end with no split open, and
+  an end without a next, now report `WLX_ERR_UNBALANCED_END` through the
+  error channel; levels past `WLX_DBG_SPLIT_DEPTH_MAX` (8) are counted
+  but not tracked, and the depth resets every frame (since v0.2.0).
+- **`wlx_grid_cell` on an auto grid grows it.** A placement on a row the
+  auto grid had not grown yet (including `(-1, -1)` with a span at a row
+  start) was reported and ignored in every build; v0.8.0's release builds
+  placed it, growing the grid, and its debug builds asserted. The rows of
+  an auto grid are no longer a bound: the slot fetch grows them. Columns,
+  and `WLX_MAX_SLOT_COUNT`, still are.
+- **Dynamic layouts nest inside an auto layout.** A `wlx_layout_begin_auto`,
+  `wlx_grid_begin_auto` or list clipper in an auto layout's body placed
+  correctly, but a build without `NDEBUG` stopped at an `assert` when the
+  outer layout took its next slot (since v0.3.0). The check is gone: the
+  begin / end stack keeps every open layout's offsets in place. The one
+  order rule left, for the low-level `wlx_create_layout_auto` and
+  `wlx_create_grid_auto`, is in the API reference.
+- **`wlx_panel_begin` honours `.rounded_corners`.** The panel forwarded its
+  container chrome to its body layout but left out the corner mask, so a
+  panel asked to round only some corners rounded all four (since
+  v0.6.0).
+
+### Changed
+- **A NaN in a Rule U field reads as unset.** Half the library's reads of
+  a non-negative Rule U field (`width`, `height`, `border_width`,
+  `roundness`, `opacity`, the paddings, ...) tested `>= 0` and half
+  tested `< 0`, so a NaN took the default at some fields and passed
+  through into the geometry at others. Every read now goes through
+  `wlx_is_negative_unset`, which is `!(x >= 0)`: a NaN takes the field's
+  default everywhere. Every other value reads as before.
+- **A widget keystroke patches the editor's line index from its edit span.**
+  The index of hard line starts is no longer rescanned over the whole
+  document after every widget edit: entries before the edit keep, the
+  dirty bytes are re-derived with the rebuild's own separator grammar, and
+  entries after the edit shift by the delta, exactly equal to a rebuild (a
+  test contract over the LF, CRLF and mixed corpora, fifteen named
+  separator shapes and 50,000 randomised documents). The first frame and a
+  guard-detected external change (`.revision`, an unexplained length
+  change, a failed hard-line-start probe) still rebuild. On the 10 MB /
+  1,000,000-line acceptance document a keystroke at offset 0 drops from
+  8.0 ms to 3.5 ms on the reference machine (the 6.8 ms rescan replaced by
+  a 1.6 ms shift of the offsets after the edit, beside the 1.6 ms buffer
+  memmove); `make perf-editor` now prices its edit floor as memmove plus
+  index shift and asserts that typing frames never rebuild.
+- **Text geometry is logical-order, left to right, by contract.** Every
+  consumer of a line's advances (fit, caret, hit test, selection, colour
+  spans, wrapped rows, the windowed origin) maps a byte offset to a
+  non-decreasing x and back; `measure_text_advances` fills advances in
+  logical byte order from the shaped pass the backend draws with, and the
+  core clamps any other order. Right-to-left runs render in logical order
+  (mirrored on the native adapters; the web host's canvas reorders the
+  drawn run while caret geometry stays logical). An application must not
+  set a right-to-left shaping direction on a font it hands to Wollix
+  (SDL3: no `TTF_SetFontDirection` other than left to right). A future
+  visual-run layer keeps the same per-run primitive and carries a
+  direction as an additive `WLX_Text_Style` field, so the frozen backend
+  contract does not change for it.
+- **Slot boundaries snap to the device-pixel grid, relative to their
+  layout's origin.** The layout's integer snap of slot boundaries now
+  snaps to multiples of one device pixel in units
+  (`floorf(v * scale + 0.5f) / scale`), measured from the layout's origin.
+  At content scale 1.0 the arithmetic is exact and every boundary the
+  layout snapped before is bit-identical; at 1.5 or 2.0 boundaries land on
+  the device grid instead of the unit grid, so adjacent fills do not seam.
+  Auto-grid rows, whose growth never snapped, snap too: a fractional row
+  size or gap at 1.0 now lands on whole units, as in every other layout.
+  Origins (padding, alignment, the scroll offset) are not snapped, so at
+  1.5 a padding of 5 units puts the boundaries inside it on half device
+  pixels.
+- **`WLX_HARD_ASSERT` and `WLX_UNREACHABLE` print through `WLX_ERROR_PRINT`.**
+  Their text reaches the bare-WASM browser console (the shim maps the macro
+  to `puts`; its `fprintf` is a no-op), where they aborted without a word
+  before. Native targets see the same `file:line: wollix fatal: ...` line
+  on `stderr` as before.
+- **Wrapped text breaks at word boundaries.** Every wrapped build - labels,
+  buttons and captions with `.wrap`, the textarea, the multiline inputbox
+  and the editor's wrapped mode - now ends a row after the last space or
+  tab that fits instead of at the last codepoint that fits; a word wider
+  than the row still breaks inside it. In display text (labels, buttons,
+  captions) whitespace that overflows the width hangs on the row it
+  follows, so no row after a wrap break starts with whitespace and a word
+  that fit is never moved; in editable text (the textarea, the multiline
+  inputbox and the editor's wrapped mode) an overflowing space or tab is
+  cut or rejected like any other unit - the word before it moves down with
+  it, or the whitespace opens the next row at column zero - so every row
+  fits the field and a caret inside trailing whitespace is always drawn. A
+  wrapped row's alignment width (the record's `advance_w`) is its ink
+  extent without trailing whitespace, so centred and right-aligned wrapped
+  rows sit on their glyphs, and hanging whitespace opens no scissor. The
+  same input produces different rows than 0.8.0, and the CONTENT height of
+  a wrapped label containing spaces can grow by a row. Opportunities are
+  whitespace only: no ideographic break-anywhere or hyphen classes yet. The
+  retained editor geometry and the measuring scan share the rule
+  (`tests/test_word_wrap.c`; the equivalence, parity and re-entrancy suites
+  run spaced prose in wrap mode; caret-visibility pins in
+  `tests/test_input_multiline.c` and `tests/test_editor_wrap.c`); the
+  editor perf gate holds unamended.
+- **Text units are grapheme clusters.** Caret motion (LEFT/RIGHT, the
+  UP/DOWN landing column, clicks and drags), BACKSPACE and DELETE, hit
+  tests, wrapping, the password mask and the editor's retained geometry
+  step by an approximated extended grapheme cluster instead of a
+  codepoint: combining marks, ZWNJ/ZWJ, variation selectors, emoji
+  modifiers and tags join the unit before them, a pictographic joins a
+  ZWJ before it, regional indicators pair up, and controls and malformed
+  bytes never join. One Backspace after a ZWJ family, a flag or a
+  decomposed accent removes the whole cluster; the caret never rests
+  inside one (an app-set offset inside a cluster floors to its start);
+  no wrap row, advances chunk or measure origin splits one; a paste
+  truncated by the buffer capacity drops a partial cluster rather than
+  landing it. Deleting a combining mark alone is no longer possible
+  through a widget (an application editing the buffer still can). On an
+  unshaped backend (Raylib, the SDL3 debug font) a ZWJ sequence draws as
+  its parts and deletes as one. The unit-counted caps
+  (`WLX_TEXT_RUN_MAX_UNITS`, `WLX_EDITOR_MAX_LINE_UNITS`,
+  `WLX_INPUTBOX_MULTILINE_MAX_UNITS`, `WLX_TEXT_ADVANCES_CHUNK`,
+  `WLX_INPUTBOX_MASK_MAX`) count clusters. The `measure_text_advances`
+  contract's unit-policy sentence is reworded; no signature, field,
+  version or adapter changes. Hangul jamo composition, spacing marks,
+  prepends and conjuncts stay per codepoint; the `wlx_utf8_*` helpers
+  keep their codepoint meaning. (`tests/test_grapheme.c`; cluster cases
+  in the editing, caret, inputbox, multiline, password, undo, geometry,
+  parity, re-entrancy, word-wrap and windowed-origin suites; the editor
+  perf gate reads back identical measure traffic.)
+- SENTINEL.md is rewritten around the two unset rules, the literal
+  defaults, the request tokens and the container exception; the
+  `wollix.h` option-field comment block states the same rules in short.
+- Tests: every option default macro sets each designator once, pinned by
+  `tests/test_defaults_once` (built with the initializer-override warning
+  promoted to an error); `tests/test_sentinel.c` pins explicit zero, unset
+  inheritance, the brightness domain, the padding request token and each
+  default change above.
+- Tests: the enabled slider's press-to-jump, drag, release and custom-range
+  mapping are pinned in `tests/test_widgets.c`; the disabled case was the
+  only drag-cycle test before.
+- The four companion headers (`wollix_raylib.h`, `wollix_sdl3.h`,
+  `wollix_wasm.h`, `wollix_editor.h`) carry the MIT copyright notice the
+  core already had.
+- The repository gains `SECURITY.md`, `CODE_OF_CONDUCT.md` (Contributor
+  Covenant 2.1) and issue and pull-request templates, and the README states
+  the accessibility position.
+
+### Removed
+- `build.sh`, the pre-Makefile demo build script: it built 21 of the 31
+  demos (20 Raylib demos plus the SDL3 demo), lacked the SDL3_ttf flags its
+  own SDL3 step needed and was referenced by nothing; `make` is the build.
+- `wlx_utf8_next`, a `static inline` in the implementation section that
+  forwarded to `wlx_text_codepoint_next` with its arguments reordered
+  (`s, pos, len` against `text, length, pos`); nothing in the core, the
+  adapters or the editor called it. Code that did calls
+  `wlx_text_codepoint_next(s, len, pos)`, which steps identically,
+  malformed bytes included. The codepoint-stepping cases in
+  `tests/test_utf8.c` now pin `wlx_text_codepoint_next` directly.
+- `wlx_utf8_prev`, the backward twin of `wlx_utf8_next`: nothing in the
+  core, the adapters or the editor called it, and it agreed with
+  `wlx_text_codepoint_prev` only on valid UTF-8 (over a run of stray
+  continuation bytes it jumped to the byte before the run). Code that
+  called it calls `wlx_text_codepoint_prev(s, len, pos)`, which steps one
+  byte over malformed input. Its cases now pin `wlx_text_codepoint_prev`,
+  with a malformed-run case.
+- `WLX_Theme.toggle.track_height`: no code read it (a toggle's track is
+  as tall as its font size, and `track_to_height_ratio` sets its width),
+  and its comment promised a computed default that did not exist. A theme
+  that set it drops the line.
+- Six storage typedefs no API takes or returns: `WLX_Commands`,
+  `WLX_Cmd_Ranges`, `WLX_Layout_Stack`, `WLX_Id_Stack`,
+  `WLX_Opacity_Stack` and `WLX_Scroll_Panel_Stack`. The context has kept
+  those stacks in `WLX_Sub_Arena` since v0.5.0, so the typedefs described
+  storage that no longer existed (`WLX_Id_Stack` still said `size_t`
+  entries, where ids are 64-bit `WLX_Id`). Their API_REFERENCE sections
+  go with them.
+
 ## [0.8.0] - 2026-09-12
 
 The overlay release: draw commands and interactive widgets now carry a
@@ -184,7 +1242,7 @@ as well as vertically.
 - **Drags hold on `mouse_down`.** `WLX_INTERACT_DRAG` acquired on
   `mouse_down` but kept the drag alive only while `mouse_held` was set, so a
   host that fills `mouse_down` alone (the documented contract; `mouse_held`
-  is its legacy twin per ADR_040) lost every drag on the frame after the
+  is its legacy twin) lost every drag on the frame after the
   press. The core now reads `mouse_down` for both; `mouse_held` stays in the
   struct as the documented legacy-equal field.
 - **`wlx_last_rect` after a `wlx_menu_button_begin` block is the face.**
@@ -468,15 +1526,14 @@ as well as vertically.
   menu-button face == button face". No behavior change.
 - Docs aligned with the landed contracts: LAYOUT_MODEL.md / API_REFERENCE.md
   describe interactive containers under topmost-wins (a child button wins
-  the press; ADR_029 carries a superseded-by note), the Raylib input section
+  the press), the Raylib input section
   no longer claims wheel debouncing, README and the header preamble list the
   popup family / input v2 / focus traversal / cursor callback, the preamble
   LIMITS block lists every overridable cap, WIDGETS.md tables gain the
-  dropdown and menu-button intrinsic-width rows and `id` fields,
+  dropdown and menu-button intrinsic-width rows and `id` fields, and
   API_REFERENCE gains a "Backend - WASM" section and documents the three
-  `WLX_*_CLIPBOARD_MAX` caps, and ADR_038-042 carry their implemented
-  status. `demos/gallery_wasm.c` (orphan: the WASM gallery builds from
-  `gallery.c`) is removed.
+  `WLX_*_CLIPBOARD_MAX` caps. `demos/gallery_wasm.c` (orphan: the WASM
+  gallery builds from `gallery.c`) is removed.
 - SDL3 adapter: `wlx_sdl3_measure_text`'s debug-font `len == 0` path ends
   its `WLX_PERF` timer before returning (the started sample was dropped).
 - `wlx_menu_item`, `wlx_menu_end` and `wlx_submenu_begin` guard an empty
@@ -795,8 +1852,8 @@ existing designated initializers compile unchanged; migrate before 0.7.
   geometry, so existing call sites are unaffected. The dashboard top-bar search
   now uses this to put the magnifier glyph inside the box (via a new
   `dashboard_icon_inputbox` demo helper).
-- **Dashboard showcase ("Mechanical Glass") -- the canonical cross-backend demo
-  (ADR_026):** `demos/dashboard/` is a single-translation-unit, demo-local
+- **Dashboard showcase ("Mechanical Glass") -- the canonical cross-backend
+  demo:** `demos/dashboard/` is a single-translation-unit, demo-local
   dashboard that builds and runs on raylib, SDL3, and bare WASM. A shared top bar
   and sidebar route between distinct, persistent views -- Overview, Tokens,
   Components, Layouts, Theme Lab -- through a dashboard-local section dispatch
@@ -811,9 +1868,7 @@ existing designated initializers compile unchanged; migrate before 0.7.
   component-state matrix). The core (`wollix.h`) and backend headers are
   unchanged; the only host addition is an additive `window.open` shim in
   `web/wollix_wasm.js`. `make dashboard` / `dashboard_sdl3` / `dashboard_perf`
-  build the desktop binaries. See
-  `docs/dev/ADR_026_DASHBOARD_REPLACES_GALLERY.md` and
-  `docs/DASHBOARD_DESIGN_SYSTEM.md`.
+  build the desktop binaries. See `docs/DESIGN_SYSTEM.md`.
 - **API hygiene, additive (V05 R9a):**
   - `WLX_SCROLL_AUTO_HEIGHT` names the `-1` auto-height sentinel for
     `wlx_scroll_panel_begin`; all in-tree call sites converted.
@@ -863,7 +1918,7 @@ existing designated initializers compile unchanged; migrate before 0.7.
   (containers, grids, panels, scroll panels, and the chrome of `widget` /
   `label` / `button` / `inputbox`); widget primitives that draw their own
   rounded shapes (`checkbox`, `slider`, `progress`, `scrollbar`, `radio`) accept
-  but ignore it. See `docs/dev/ADR_025_ABSOLUTE_CORNER_RADIUS.md`.
+  but ignore it.
 - **First-class vertical gradient fill:** a two-stop vertical gradient is now a
   decoration field on every bordered widget and container. New
   `WLX_GRADIENT_FIELDS` (`gradient_top`, `gradient_bottom`) embed in
@@ -880,7 +1935,7 @@ existing designated initializers compile unchanged; migrate before 0.7.
   `max(1, rect.h / 4)` solid bands interpolating the stops. Widget-path stops
   carry the effective opacity (container stops pass through like `back_color`);
   `WLX_PERF` counts one command per element. New `wlx_color_lerp` helper; v1 is
-  vertical two-stop only (ADR_023). Covered by `tests/test_gradient.c`. See
+  vertical two-stop only. Covered by `tests/test_gradient.c`. See
   `docs/WIDGETS.md` § Gradient fill fields.
 - **Opt-in layout clipping:** `WLX_Layout_Opt` gains `.clip` (default `false`).
   When set, `wlx_layout_begin` clips its children to the post-padding content
@@ -1000,13 +2055,12 @@ existing designated initializers compile unchanged; migrate before 0.7.
   scanline overlay, and a frosted backdrop-blur stand-in (darkened/desaturated translucent
   fill) - plus pure color helpers (lerp, desaturate, blur tint, glow falloff). Wired into the
   demo as module shadows, a page gradient backdrop, an active segmented-bar glow, and a
-  dedicated "Visual effects" section. New `tests/test_dashboard_effects.c` suite. A per-effect
-  fidelity assessment is recorded under `docs/dev/dashboard/`; true backdrop blur is deferred
-  to an ADR-gated core change. `wollix.h` and backends remain unchanged.
+  dedicated "Visual effects" section. New `tests/test_dashboard_effects.c` suite. True
+  backdrop blur needs a core change and is deferred. `wollix.h` and backends remain unchanged.
 
 ### Changed
-- **The published web demo and canonical showcase are now the dashboard
-  (ADR_026).** `make wasm-site` now packages the bare-WASM **dashboard** into
+- **The published web demo and canonical showcase are now the
+  dashboard.** `make wasm-site` now packages the bare-WASM **dashboard** into
   `dist/wasm-demo/` (the GitHub Pages artifact), so the demo URL is unchanged but
   serves the dashboard. The gallery keeps building and coexists: `make gallery`,
   `make gallery_sdl3`, and the new `make gallery-wasm-site` (into
@@ -1142,12 +2196,11 @@ existing designated initializers compile unchanged; migrate before 0.7.
 - **Disabled-state Phase 1:** `.disabled` option on `wlx_button`, `wlx_checkbox`, `wlx_inputbox`,
   `wlx_slider`, `wlx_toggle`, and `wlx_radio`; `theme->disabled_brightness` and
   `theme->disabled_opacity` knobs; `WLX_DEFAULT_DISABLED_OPACITY` constant (`0.55f`) shared
-  across built-in presets. Coverage rule documented in ADR_018 and `docs/WIDGETS.md`.
+  across built-in presets. Coverage rule documented in `docs/WIDGETS.md`.
 - **WASM texture support:** `wlx_wasm_texture_create` / `wlx_wasm_texture_destroy` C helpers;
   JS host owns a per-texture `OffscreenCanvas` registry copied at upload time. Full RGB tint
   is supported via a source-space variant cache: primary path uses `ctx.filter feColorMatrix`;
   fallback uses Canvas 2D `multiply` compositing. Alpha applies per-draw via `ctx.globalAlpha`.
-  See ADR_017 for the full contract.
 - **Gallery Lucide icon atlas (32 icons, four tiers):** `demos/assets/wlx_icons.h` is now a
   576x120 white-alpha atlas at 16/24/32/48 px. `gallery_icon_src_for()` picks the sharpest tier
   at the call-site size. Source SVGs and manifest under `demos/assets/icons/`.

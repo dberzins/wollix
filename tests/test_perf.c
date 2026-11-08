@@ -165,7 +165,7 @@ TEST(perf_text_measure_counter) {
 
     test_frame_begin(&ctx, 0, 0, false, false);
     float w = 0, h = 0;
-    ctx.backend.measure_text("test", (WLX_Text_Style){.font_size = 10}, &w, &h);
+    ctx.backend.measure_text("test", (WLX_Text_Style){.font_size = 10}, &w, &h, ctx.backend.user);
     WLX_PERF_HOOK(text_measure, &ctx, 4); // "test" = 4 bytes
     test_frame_end(&ctx);
 
@@ -363,6 +363,42 @@ TEST(perf_steady_state_zero_allocations) {
     wlx_context_destroy(&ctx);
 }
 
+// Churn at a stable live count allocates nothing once warm: a fresh set of
+// 64 ids every frame drives the map past the threshold, the sweep evicts
+// entries older than the minimum age, and their blocks come back through
+// the free list for the next inserts. Warm-up covers the growth to the
+// steady oscillation (two sweep periods); the count then holds.
+TEST(perf_churn_zero_allocations) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+
+    WLX_Perf_Allocator_Stats stats = {0};
+    wlx_perf_allocator_sink = &stats;
+
+    enum { PER_FRAME = 64 };
+    const int warm = 5 * WLX_STATE_MIN_AGE;
+    const int measure = WLX_STATE_MIN_AGE + 50;
+    for (int frame = 0; frame < warm + measure; frame++) {
+        if (frame == warm) memset(&stats, 0, sizeof(stats));
+        test_frame_begin(&ctx, 0, 0, false, false);
+        for (int i = 0; i < PER_FRAME; i++) {
+            wlx_push_id(&ctx, (WLX_Id)frame * PER_FRAME + (WLX_Id)i);
+            (void)wlx_get_state_impl(&ctx, sizeof(float), "churn.c", 1);
+            wlx_pop_id(&ctx);
+        }
+        test_frame_end(&ctx);
+    }
+
+    ASSERT_TRUE(ctx.states.count > (size_t)WLX_STATE_EVICT_THRESHOLD);
+    ASSERT_TRUE(ctx.states.count <= (size_t)PER_FRAME * 2 * WLX_STATE_MIN_AGE + PER_FRAME);
+    ASSERT_EQ_INT((int)stats.alloc_calls, 0);
+    ASSERT_EQ_INT((int)stats.calloc_calls, 0);
+    ASSERT_EQ_INT((int)stats.realloc_calls, 0);
+
+    wlx_perf_allocator_sink = NULL;
+    wlx_context_destroy(&ctx);
+}
+
 
 // ============================================================================
 // Backend perf clock (the scaffold the adapter headers build on)
@@ -454,6 +490,99 @@ TEST(perf_clock_present_pair) {
     ASSERT_EQ_INT(40, (long)total);
 }
 
+// ============================================================================
+// The text counters equal the backend's text traffic
+// ============================================================================
+
+static unsigned long long pc_measure_calls, pc_measure_bytes;
+static unsigned long long pc_adv_calls, pc_adv_bytes;
+
+static void pc_measure_text(const char *text, WLX_Text_Style style, float *out_w,
+                            float *out_h, void *user) {
+    pc_measure_calls++;
+    pc_measure_bytes += strlen(text);
+    mock_measure_text(text, style, out_w, out_h, user);
+}
+
+static void pc_measure_slice(const char *text, size_t len, WLX_Text_Style style,
+                             float *out_w, float *out_h, void *user) {
+    (void)text;
+    (void)user;
+    pc_measure_calls++;
+    pc_measure_bytes += len;
+    int fs = style.font_size > 0 ? style.font_size : 10;
+    if (out_w) *out_w = (float)len * (float)fs * 0.5f;
+    if (out_h) *out_h = (float)fs;
+}
+
+static size_t pc_measure_advances(const char *text, size_t len, WLX_Text_Style style,
+        const size_t *unit_ends, size_t unit_count, float *out_advances, void *user) {
+    pc_adv_calls++;
+    pc_adv_bytes += len;
+    return mock_measure_text_advances(text, len, style, unit_ends, unit_count,
+        out_advances, user);
+}
+
+// One frame of a wrapped editor and an inputbox; the snapshot's text
+// counters must equal the calls the backend received during it.
+static void pc_frame(WLX_Context *ctx, char *doc, size_t cap, size_t *len,
+                     char *field, size_t field_cap, bool click, float wheel,
+                     const char *typed) {
+    pc_measure_calls = pc_measure_bytes = pc_adv_calls = pc_adv_bytes = 0;
+    test_frame_begin_full(ctx, 200, 60, click, click, click, wheel, NULL, NULL, NULL, 0, typed);
+    wlx_layout_begin(ctx, 2, WLX_VERT, .padding = 0, .gap = 0);
+    (void)wlx_editor_impl(ctx, NULL, doc, cap, len,
+        wlx_default_editor_opt(.content_padding = 4, .font_size = 10, .border_width = 0,
+            .wrap = true, .height = 200), "pc_editor", 1);
+    (void)wlx_inputbox_impl(ctx, NULL, field, field_cap,
+        wlx_default_inputbox_opt(.content_padding = 4, .font_size = 10), "pc_field", 1);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+    const WLX_Perf_Frame *f = wlx_perf_get_last_frame(ctx);
+    ASSERT_TRUE(f != NULL);
+    ASSERT_EQ_INT((long)pc_measure_calls, (long)f->text.measure_calls);
+    ASSERT_EQ_INT((long)pc_measure_bytes, (long)f->text.measured_bytes);
+    ASSERT_EQ_INT((long)pc_adv_calls, (long)f->text.advances_calls);
+    ASSERT_EQ_INT((long)pc_adv_bytes, (long)f->text.advances_bytes);
+}
+
+// Every backend text call is counted where the core makes it: the widgets'
+// measures and the layout pipeline's prefix measures, on the legacy
+// measure_text callback and on measure_text_slice, and the batched
+// measure_text_advances fills.
+TEST(perf_text_counters_match_backend_calls) {
+    static char doc[4096];
+    size_t len = 0;
+    for (int i = 0; i < 30; i++) {
+        int n = snprintf(doc + len, sizeof(doc) - len,
+            "%d. a hard line long enough to wrap across the band at least once, %s\n",
+            i, i % 3 == 0 ? "with a tab\there" : "plain");
+        len += (size_t)n;
+    }
+    char field[64] = "search text";
+
+    for (int pass = 0; pass < 2; pass++) {
+        WLX_Context ctx;
+        test_ctx_init(&ctx, 400, 300);
+        ctx.backend.measure_text = pc_measure_text;
+        if (pass == 1) {
+            ctx.backend.measure_text_slice = pc_measure_slice;
+            ctx.backend.measure_text_advances = pc_measure_advances;
+        }
+        size_t n = len;
+        pc_frame(&ctx, doc, sizeof(doc), &n, field, sizeof(field), false, 0.0f, NULL);
+        ASSERT_TRUE(pc_measure_calls > 0);
+        if (pass == 1) ASSERT_TRUE(pc_adv_calls > 0);
+        pc_frame(&ctx, doc, sizeof(doc), &n, field, sizeof(field), false, 0.0f, NULL);
+        pc_frame(&ctx, doc, sizeof(doc), &n, field, sizeof(field), false, -2.0f, NULL);
+        // Focus the editor, then type into it: the edit and patch paths.
+        pc_frame(&ctx, doc, sizeof(doc), &n, field, sizeof(field), true, 0.0f, NULL);
+        pc_frame(&ctx, doc, sizeof(doc), &n, field, sizeof(field), false, 0.0f, "xy");
+        ASSERT_TRUE(n == len + 2);
+        wlx_context_destroy(&ctx);
+    }
+}
+
 #endif // WLX_PERF
 
 // ============================================================================
@@ -472,6 +601,7 @@ SUITE(perf) {
     RUN_TEST(perf_text_command_counter);
     RUN_TEST(perf_text_measure_counter);
     RUN_TEST(perf_label_increments_text_counters);
+    RUN_TEST(perf_text_counters_match_backend_calls);
     RUN_TEST(perf_arena_highwater_commands);
     RUN_TEST(perf_arena_highwater_nondecreasing);
     RUN_TEST(perf_reset_clears_snapshot);
@@ -479,6 +609,7 @@ SUITE(perf) {
     RUN_TEST(perf_timer_available_when_set);
     RUN_TEST(perf_immediate_mode_zero_commands);
     RUN_TEST(perf_steady_state_zero_allocations);
+    RUN_TEST(perf_churn_zero_allocations);
     RUN_TEST(perf_clock_inc_gated_on_capturing);
     RUN_TEST(perf_clock_timer_unavailable_accumulates_nothing);
     RUN_TEST(perf_clock_accumulates_across_scopes);

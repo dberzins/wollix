@@ -15,7 +15,7 @@
 
 
 int main(void) {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix test demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -24,27 +24,28 @@ int main(void) {
     wlx_context_init_raylib(ctx);
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+        float w = wlx_root.w;
+        float h = wlx_root.h;
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
 
         wlx_begin(ctx, r, wlx_process_raylib_input);
             BeginDrawing();
-                ClearBackground(WLX_BACKGROUND_COLOR);
+                ClearBackground(ctx->theme->background);
 
                 wlx_layout_begin(ctx, 3, WLX_VERT);
                     wlx_layout_begin(ctx, 5, WLX_VERT);
 
                     wlx_button(ctx, "BUTTON1",
-                            .widget_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .align = WLX_CENTER
+                            .slot_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .content_align = WLX_CENTER
                         );
 
                     wlx_label(ctx, "TEXTBOX1",
-                            .widget_align = WLX_CENTER, .font_size = 20, .height = -1, .back_color = GREEN, .align = WLX_CENTER,
+                            .slot_align = WLX_CENTER, .font_size = 20, .height = -1, .back_color = GREEN, .content_align = WLX_CENTER,
                             .span = 3, .show_background = true
                         );
                     wlx_button(ctx, "BUTTON3",
-                            .widget_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .align = WLX_CENTER
+                            .slot_align = WLX_CENTER, .font_size = 20, .height = 50, .back_color = RED, .content_align = WLX_CENTER
                         );
                     wlx_layout_end(ctx);
                 wlx_layout_end(ctx);

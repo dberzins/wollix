@@ -10,7 +10,8 @@ static float _cd_last_circle_cx;
 static float _cd_last_circle_cy;
 static float _cd_last_circle_radius;
 
-static void cd_rec_draw_circle(float cx, float cy, float radius, int segments, WLX_Color c) {
+static void cd_rec_draw_circle(float cx, float cy, float radius, int segments, WLX_Color c, void *user) {
+    (void)user;
     _cd_circle_count++;
     _cd_last_circle_cx = cx;
     _cd_last_circle_cy = cy;
@@ -22,7 +23,8 @@ static int _cd_ring_count;
 static float _cd_last_ring_inner_r;
 static float _cd_last_ring_outer_r;
 
-static void cd_rec_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c) {
+static void cd_rec_draw_ring(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color c, void *user) {
+    (void)user;
     _cd_ring_count++;
     (void)cx; (void)cy; (void)segments; (void)c;
     _cd_last_ring_inner_r = inner_r;
@@ -31,14 +33,16 @@ static void cd_rec_draw_ring(float cx, float cy, float inner_r, float outer_r, i
 
 static int _cd_rounded_count;
 
-static void cd_rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c) {
+static void cd_rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c, void *user) {
+    (void)user;
     _cd_rounded_count++;
     (void)r; (void)roundness; (void)segments; (void)c;
 }
 
 static int _cd_rounded_lines_count;
 
-static void cd_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
+static void cd_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c, void *user) {
+    (void)user;
     _cd_rounded_lines_count++;
     (void)r; (void)roundness; (void)segments; (void)thick; (void)c;
 }

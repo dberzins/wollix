@@ -31,7 +31,7 @@ static App_State app = {
 
 int main(void) {
     printf("Wollix slider demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix slider demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -40,51 +40,52 @@ int main(void) {
     wlx_context_init_raylib(ctx);
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+        float w = wlx_root.w;
+        float h = wlx_root.h;
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
 
         wlx_begin(ctx, r, wlx_process_raylib_input);
             BeginDrawing();
-                ClearBackground(WLX_BACKGROUND_COLOR);
+                ClearBackground(ctx->theme->background);
 
                 wlx_layout_begin(ctx, 1, WLX_HORZ);
                     wlx_layout_begin(ctx, 8, WLX_VERT);
 
                         wlx_label(ctx, "Slider Demo",
-                            .widget_align = WLX_CENTER, .font_size = 28, .height = 50, .align = WLX_CENTER
+                            .slot_align = WLX_CENTER, .font_size = 28, .height = 50, .content_align = WLX_CENTER
                         );
 
                         wlx_slider(ctx, "Volume  ", &app.volume,
-                            .widget_align = WLX_CENTER, .width = 500, .height = 40,
+                            .slot_align = WLX_CENTER, .width = 500, .height = 40,
                             .min_value = 0.0f, .max_value = 1.0f
                         );
 
                         wlx_slider(ctx, "Bright  ", &app.brightness,
-                            .widget_align = WLX_CENTER, .width = 500, .height = 40,
+                            .slot_align = WLX_CENTER, .width = 500, .height = 40,
                             .min_value = 0.0f, .max_value = 1.0f
                         );
 
                         wlx_slider(ctx, "Red     ", &app.r,
-                            .widget_align = WLX_CENTER, .width = 500, .height = 40,
+                            .slot_align = WLX_CENTER, .width = 500, .height = 40,
                             .min_value = 0.0f, .max_value = 1.0f,
                             .thumb_color = RED
                         );
 
                         wlx_slider(ctx, "Green   ", &app.g,
-                            .widget_align = WLX_CENTER, .width = 500, .height = 40,
+                            .slot_align = WLX_CENTER, .width = 500, .height = 40,
                             .min_value = 0.0f, .max_value = 1.0f,
                             .thumb_color = GREEN
                         );
 
                         wlx_slider(ctx, "Blue    ", &app.b,
-                            .widget_align = WLX_CENTER, .width = 500, .height = 40,
+                            .slot_align = WLX_CENTER, .width = 500, .height = 40,
                             .min_value = 0.0f, .max_value = 1.0f,
                             .thumb_color = BLUE
                         );
 
                         wlx_slider(ctx, "Speed   ", &app.speed,
-                            .widget_align = WLX_CENTER, .width = 500, .height = 40,
+                            .slot_align = WLX_CENTER, .width = 500, .height = 40,
                             .min_value = 0.0f, .max_value = 100.0f,
                             .font_size = 18
                         );
@@ -97,7 +98,7 @@ int main(void) {
                                 (unsigned char)(app.b * 255),
                                 (unsigned char)(app.brightness * 255)
                             };
-                            wlx_widget(ctx, .widget_align = WLX_CENTER, .width = 500, .height = 60, .back_color = preview);
+                            wlx_widget(ctx, .slot_align = WLX_CENTER, .width = 500, .height = 60, .back_color = preview);
                         }
 
                     wlx_layout_end(ctx);

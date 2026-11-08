@@ -1,4 +1,4 @@
-// test_input_multiline.c - inputbox multiline mode (ADR_032): Enter inserts a
+// test_input_multiline.c - inputbox multiline mode: Enter inserts a
 // newline and keeps focus (incl. OS auto-repeat), selection replacement,
 // single-line Enter-blur retention, read_only rejection with focus held,
 // password exclusion in resolve, Escape blur, and full-buffer truncation.
@@ -17,14 +17,6 @@
 // ============================================================================
 // Fixture
 // ============================================================================
-
-static uint32_t ml_command_mod(void) {
-#if defined(__APPLE__)
-    return WLX_MOD_SUPER;
-#else
-    return WLX_MOD_CTRL;
-#endif
-}
 
 static bool ml_inputbox(WLX_Context *ctx, char *buf, size_t buf_size,
                         bool multiline, bool read_only) {
@@ -137,7 +129,7 @@ TEST(multiline_enter_replaces_selection) {
     char buf[64] = "hello";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_A, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_A, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_ENTER, 0);
     ASSERT_EQ_STR(buf, "\n");
     wlx_context_destroy(&ctx);
@@ -151,7 +143,7 @@ TEST(singleline_enter_blurs_no_insert) {
     bool focused = ml_frame_mouse(&ctx, buf, sizeof(buf), false, false, 380, true, true);
     ASSERT_TRUE(focused);
 
-    // Default mode keeps the pre-ADR_032 contract: Enter blurs, no newline.
+    // Default mode keeps the single-line contract: Enter blurs, no newline.
     focused = ml_frame_key(&ctx, buf, sizeof(buf), false, false, WLX_KEY_ENTER, 0);
     ASSERT_FALSE(focused);
     ASSERT_EQ_STR(buf, "ab");
@@ -193,7 +185,7 @@ TEST(password_forces_multiline_off) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
 
-    // Resolve-level exclusion (ADR_032 Decision 4).
+    // Resolve-level exclusion: password turns multiline off.
     ctx.theme = &wlx_theme_dark;
     WLX_Inputbox_Opt opt = wlx_default_inputbox_opt(.password = true, .multiline = true);
     wlx_resolve_opt_inputbox(&ctx, &opt);
@@ -280,7 +272,7 @@ TEST(multiline_down_moves_same_column) {
     char buf[64] = "ABCD\nEFGH";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
@@ -297,7 +289,7 @@ TEST(multiline_up_moves_same_column) {
     char buf[64] = "ABCD\nEFGH";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_LEFT, 0);
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_LEFT, 0);
 
@@ -315,7 +307,7 @@ TEST(multiline_sticky_column_across_short_line) {
     char buf[64] = "ABCDE\nZ\nFGHIJ";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     for (int i = 0; i < 4; i++)
         ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
@@ -334,7 +326,7 @@ TEST(multiline_sticky_column_roundtrip) {
     char buf[64] = "ABCDE\nZ\nFGHIJ";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     for (int i = 0; i < 4; i++)
         ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
@@ -355,16 +347,16 @@ TEST(multiline_up_first_down_last_clamp) {
     char buf[64] = "AB\nCD";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
-    // UP on the first line clamps to the line start (ADR_032 Decision 6).
+    // UP on the first line clamps to the line start.
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_UP, 0);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
     ASSERT_EQ_STR(buf, "XAB\nCD");
 
     // DOWN on the last line clamps to the line end.
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_LEFT, 0);
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "Y");
@@ -378,7 +370,7 @@ TEST(multiline_shift_down_extends_selection) {
     char buf[64] = "AB\nCD";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
 
     // SHIFT+DOWN keeps the anchor at 0 and moves the caret one line down
     // (byte 3), selecting "AB\n"; typing replaces the selection.
@@ -394,7 +386,7 @@ TEST(multiline_horizontal_motion_resets_column) {
     char buf[64] = "ABCD\nE\nFGHI";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     for (int i = 0; i < 4; i++)
         ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
@@ -417,7 +409,7 @@ TEST(multiline_wrapped_soft_line_traversal) {
     char buf[64] = "AAAA BBBB";
 
     ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 40, true, true);
-    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, ml_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
 
@@ -426,6 +418,83 @@ TEST(multiline_wrapped_soft_line_traversal) {
     ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
     ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
     ASSERT_EQ_STR(buf, "AAAA BBXBB");
+    wlx_context_destroy(&ctx);
+}
+
+TEST(multiline_wrapped_overwide_word_breaks_inside) {
+    WLX_Context ctx;
+    // Same 5-char band: "AA BBBBBBBB" wraps to "AA " / "BBBBB" / "BBB" -
+    // the cut after the space, then the over-wide word broken inside.
+    test_ctx_init(&ctx, 43, 300);
+    char buf[64] = "AA BBBBBBBB";
+
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 40, true, true);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_HOME, test_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_RIGHT, 0);
+
+    // Column 1 of "AA "; DOWN lands at column 1 of "BBBBB" (byte 4).
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
+    ASSERT_EQ_STR(buf, "AA BXBBBBBBB");
+    // Rows are now "AA " / "BXBBB" / "BBBB"; column 2 of the second soft
+    // line lands at column 2 of the third (byte 10).
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, "Y");
+    ASSERT_EQ_STR(buf, "AA BXBBBBBYBB");
+    wlx_context_destroy(&ctx);
+}
+
+// Caret line capture: the multiline inputbox draws no other line while its
+// border is off, so every captured line is the caret.
+#define ML_MAX_LINES_CAP_ 16
+static struct { float x; float y0; float y1; } _ml_lines[ML_MAX_LINES_CAP_];
+static int _ml_line_count = 0;
+
+static void _ml_capture_draw_line(float x1, float y1, float x2, float y2, float thick,
+                                  WLX_Color c, void *user) {
+    (void)x2; (void)thick; (void)c; (void)user;
+    if (_ml_line_count < ML_MAX_LINES_CAP_) {
+        _ml_lines[_ml_line_count].x = x1;
+        _ml_lines[_ml_line_count].y0 = y1;
+        _ml_lines[_ml_line_count].y1 = y2;
+        _ml_line_count++;
+    }
+}
+
+static void ml_assert_caret_inside_band(void) {
+    ASSERT_TRUE(_ml_line_count >= 1);
+    for (int i = 0; i < _ml_line_count; i++) {
+        ASSERT_TRUE(_ml_lines[i].x >= 4.0f);
+        ASSERT_TRUE(_ml_lines[i].x < 36.0f);
+    }
+}
+
+TEST(multiline_wrapped_caret_stays_inside_after_trailing_spaces) {
+    WLX_Context ctx;
+    // 5-char band again: "AAAAA" fills the first soft line, so a typed
+    // space does not fit and opens the next soft line instead of hanging
+    // past the field; the caret follows it and stays drawn.
+    test_ctx_init(&ctx, 43, 300);
+    ctx.backend.draw_line = _ml_capture_draw_line;
+    char buf[64] = "AAAAA";
+
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 40, true, true);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, test_command_mod());
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, " ");
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, " ");
+    ASSERT_EQ_STR(buf, "AAAAA  ");
+
+    // After the second space (caret 7): on the second soft line, inside
+    // the band (right edge x 35).
+    _ml_line_count = 0;
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 200, false, false);
+    ml_assert_caret_inside_band();
+
+    // Between the two spaces (caret 6) likewise.
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_LEFT, 0);
+    _ml_line_count = 0;
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 200, false, false);
+    ml_assert_caret_inside_band();
     wlx_context_destroy(&ctx);
 }
 
@@ -480,7 +549,7 @@ TEST(multiline_nowrap_hard_lines_traversal) {
     char buf[64] = "ABCD\nEFGH";
 
     ml_nowrap_frame_mouse(&ctx, buf, sizeof(buf), 380, true, true);
-    ml_nowrap_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_HOME, ml_command_mod());
+    ml_nowrap_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_HOME, test_command_mod());
     ml_nowrap_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_RIGHT, 0);
     ml_nowrap_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_RIGHT, 0);
 
@@ -494,7 +563,63 @@ TEST(multiline_nowrap_hard_lines_traversal) {
 // Suite
 // ============================================================================
 
+// ============================================================================
+// Grapheme clusters (corpus macros from test_grapheme.c, same TU)
+// ============================================================================
+
+TEST(multiline_cluster_vertical_motion_and_backspace) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    char buf[64] = "ab" GR_FAMILY "c\nxyz";
+
+    // From the end of "xyz" (x 15) UP aims inside the family's 10..100 px
+    // span and lands on its start (byte 2); DOWN returns to the latched
+    // column.
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, test_command_mod());
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_UP, 0);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_DOWN, 0);
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, "X");
+    ASSERT_EQ_STR(buf, "ab" GR_FAMILY "c\nxyzX");
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_UP, 0);
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, "Y");
+    ASSERT_EQ_STR(buf, "abY" GR_FAMILY "c\nxyzX");
+
+    // Backspace at the end of line 0 removes "c", then the family whole.
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, 0);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_BACKSPACE, 0);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_STR(buf, "abY\nxyzX");
+    wlx_context_destroy(&ctx);
+}
+
+TEST(multiline_wrapped_caret_inside_after_cluster_at_row_end) {
+    WLX_Context ctx;
+    // Band [9, 135): 25 bytes fill the first soft line, so the typed
+    // family (18 bytes, 90 px) does not fit and opens the next soft line,
+    // and the caret after it is drawn inside the band.
+    test_ctx_init(&ctx, 143, 300);
+    ctx.backend.draw_line = _ml_capture_draw_line;
+    char buf[64] = "AAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 140, true, true);
+    ml_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_END, test_command_mod());
+    ml_frame_type(&ctx, buf, sizeof(buf), true, false, GR_FAMILY);
+    ASSERT_EQ_STR(buf, "AAAAAAAAAAAAAAAAAAAAAAAAA" GR_FAMILY);
+
+    _ml_line_count = 0;
+    ml_frame_mouse(&ctx, buf, sizeof(buf), true, false, 200, false, false);
+    ASSERT_TRUE(_ml_line_count >= 1);
+    for (int i = 0; i < _ml_line_count; i++) {
+        ASSERT_TRUE(_ml_lines[i].x >= 4.0f);
+        ASSERT_TRUE(_ml_lines[i].x < 135.0f);
+    }
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(input_multiline) {
+    RUN_TEST(multiline_cluster_vertical_motion_and_backspace);
+    RUN_TEST(multiline_wrapped_caret_inside_after_cluster_at_row_end);
     RUN_TEST(multiline_enter_inserts_newline_keeps_focus);
     RUN_TEST(multiline_enter_autorepeat_inserts_again);
     RUN_TEST(multiline_enter_replaces_selection);
@@ -513,5 +638,7 @@ SUITE(input_multiline) {
     RUN_TEST(multiline_shift_down_extends_selection);
     RUN_TEST(multiline_horizontal_motion_resets_column);
     RUN_TEST(multiline_wrapped_soft_line_traversal);
+    RUN_TEST(multiline_wrapped_overwide_word_breaks_inside);
+    RUN_TEST(multiline_wrapped_caret_stays_inside_after_trailing_spaces);
     RUN_TEST(multiline_nowrap_hard_lines_traversal);
 }

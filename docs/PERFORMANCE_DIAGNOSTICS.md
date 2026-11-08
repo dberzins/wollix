@@ -191,10 +191,15 @@ snapshot publication work.
 - `WLX_Perf_Frame.commands.by_type[]` and the CSV `cmd_*` columns break that
   total down by `WLX_CMD_*` type.
 - `text_measure_calls` tracks how often the core asked the backend to measure
-  text.
+  text: every `measure_text` / `measure_text_slice` call, the widgets' and the
+  layout pipeline's prefix measures alike, counted where the core makes it.
+- `text_advances_calls` and `text_advances_bytes` track the batched
+  `measure_text_advances` fills (when the backend implements the callback).
+  A frame whose measure or advances counts stay high while nothing changes
+  is re-measuring geometry it should have retained.
 - `text_commands` tracks how many text draw commands were emitted.
-- `text_measured_bytes`, `text_bytes`, and `text_runs` are available in the
-  core snapshot and CSV for deeper text-layout analysis.
+- `text_measured_bytes`, `text_advances_bytes`, `text_bytes`, and `text_runs`
+  are available in the core snapshot and CSV for deeper text-layout analysis.
 
 High text-command counts paired with high text-measure counts usually point to
 label-heavy screens or fragmented fitted text runs.

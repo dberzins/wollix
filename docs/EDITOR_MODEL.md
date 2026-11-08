@@ -34,6 +34,8 @@ invariant registry contributors must preserve, see
 8. [Tab Expansion](#8-tab-expansion)
 9. [Performance](#9-performance)
 10. [Configuration](#10-configuration)
+11. [Per-Span Colour](#11-per-span-colour)
+12. [Composition](#12-composition)
 
 ---
 
@@ -58,6 +60,14 @@ proportional to the viewport and independent of document size, scroll
 depth, and caret position. The sections below are the additions that
 make that possible; none of them changed the record model or the
 behavior of any other widget.
+
+Every offset the editor holds — caret, anchor, hit-test result, measure
+origin, stored unit end — is a byte offset on a text-unit boundary, and
+a text unit is the approximated grapheme cluster of
+[LINE_RUN_MODEL.md §3](LINE_RUN_MODEL.md#3-text-units-and-utf-8-policy):
+caret motion, Backspace and Delete, clicks, drags and the vertical
+sticky column never land inside a combining sequence, a ZWJ emoji or a
+flag, and one Backspace removes the whole cluster.
 
 The pieces and who feeds whom:
 
@@ -89,11 +99,34 @@ separator). The index makes document geometry pure arithmetic:
   fractional line — never a document-height pixel float, so precision
   holds at any document height.
 
-The index is rebuilt by a single newline scan on any edit the widget
-applies (no incremental patching), and external buffer mutation between
-frames is caught by a cheap guard (length change or boundary-byte probe)
-plus the explicit `.revision` opt as the escape hatch. Idle frames pay no
-scan: no O(document) work of any kind happens on a frame without an edit.
+The index is built by a single newline scan on the first frame and
+rebuilt by one when external buffer mutation between frames is caught by
+the cheap guard (length change or boundary-byte probe) or by the explicit
+`.revision` opt as the escape hatch. A widget-applied edit patches it from
+the edit span instead: entries before the edit keep, the dirty bytes
+`[start - 1, new_end + 1)` are re-derived with the rebuild's own scan and
+separator grammar (a separator's kind depends on at most the byte after
+it, which is what the one-byte margins cover), and entries after the edit
+shift by the delta; the patched array is identical to a rebuild, a
+standing test contract. Idle frames pay no scan: no O(document) work of
+any kind happens on a frame without an edit, and an edit pays the buffer
+memmove plus an index shift of one offset per line after it.
+The undo journal (shared with the inputbox through the same key handler)
+rides the same guard: a rebuild the widget's own edit did not cause drops
+the history with the geometry, and an undo or redo is an ordinary edit to
+the index, its span shifting the retained geometry exactly like a
+keystroke. The journal itself is documented in
+[UNDO_MODEL.md](UNDO_MODEL.md).
+
+The index lives exactly as long as its widget's state entry. When the
+state map reclaims the entry (the lifetime rules under `wlx_get_state` in
+API_REFERENCE.md: unrequested for `WLX_STATE_MIN_AGE` frames while the
+context holds more than `WLX_STATE_EVICT_THRESHOLD` entries, or
+`wlx_state_prune`), the offsets and the retained geometry store are freed
+and the cache item is zeroed in place for the next editor. An item keeps
+its index in the cache, though the array itself moves when it grows. An
+editor that returns after that rebuilds its index from the document as on
+its first frame.
 
 ---
 
@@ -113,7 +146,9 @@ Windowing bounds how much text a frame measures; retention makes the
 next frame stop measuring it again. Next to the line index, the same
 per-id cache holds a **retained geometry store**: one entry per hard
 line the window has touched, holding the line's cumulative unit-advance
-array ([LINE_RUN_MODEL.md §5](LINE_RUN_MODEL.md#5-the-line-build-pipeline)),
+array in logical byte order ([LINE_RUN_MODEL.md §5](LINE_RUN_MODEL.md#5-the-line-build-pipeline);
+text geometry is logical-order and left to right,
+[LINE_RUN_MODEL.md §16](LINE_RUN_MODEL.md#16-guarantees-and-limitations)),
 its fit results, and — under `.wrap` — its row
 table. Window builds, caret x, hit tests, selection spans, and wrapped
 row walks replay these floats instead of re-asking the backend; a miss
@@ -123,8 +158,9 @@ path as its miss fallback, so an evicted or dropped entry costs
 traffic, never geometry.
 
 Entries are valid for one measurement environment — font, size,
-spacing, tab advance, band width, line height, wrap flag — snapshotted
-each frame; any change clears the store (tens of entries, cheap to
+spacing, tab advance, band width, line height, wrap flag, and the
+context's text environment generation, which a style transform or a
+content-scale change bumps — snapshotted each frame; any change clears the store (tens of entries, cheap to
 rebuild, wrong geometry is not). Invalidation otherwise rides the
 existing document-identity machinery:
 
@@ -156,7 +192,7 @@ flowchart TD
     measure --> entry["retained entry: advances, fit results, row table"]
     entry --> lookup
     edit["widget edit with a known span"] --> shift["edit_shift: drop touched entries, shift keys past the edit"]
-    env["measurement environment change - font, size, band, wrap"] --> clear["whole store cleared"]
+    env["measurement environment change - font, size, band, wrap, transform or scale"] --> clear["whole store cleared"]
     ext["external mutation guard or .revision bump"] --> clear
     cap["store at capacity"] --> evict["LRU evict"]
     bad["replay cannot answer mid-frame"] --> drop["entry dropped"]
@@ -243,9 +279,14 @@ measured from mid-line origins.
   it, and records with origin zero reproduce the un-windowed records
   exactly). Beyond that, the origin advances so the measured window
   covers `[scroll_x - back_margin, scroll_x + 2 * band width]`
-  (back margin: half a band). Origins snap to a unit boundary,
-  preferring the edge just after a space within a small backscan
-  (`WLX_EDITOR_ORIGIN_BACKSCAN`, default 64 bytes).
+  (back margin: half a band). Origins snap to a unit boundary (a
+  grapheme cluster edge, never inside a cluster), preferring the edge
+  just after a space within a small backscan
+  (`WLX_EDITOR_ORIGIN_BACKSCAN`, default 64 bytes). The gap estimate that
+  places a far-jumped origin in x prices each unit at the entry's
+  average advance, so a jump across a run of wide clusters (emoji) lands
+  short in x while the offset stays exact — the same documented estimate
+  class as the average-advance thumb.
 - **One origin per window.** Each retained entry freezes its origin
   offset and the origin's absolute x; fit, caret, hit test, selection,
   and draw all compute `x = origin_x + advances[unit]` from the same
@@ -377,11 +418,25 @@ The anchor, the rows, and the band:
   A range ending at `line_count * line_h - band.h` under wrap would sit
   lines above the real end, parking the thumb at the track end while
   the view scrolled back up through them.
+- Rows end at word boundaries
+  ([LINE_RUN_MODEL.md §7](LINE_RUN_MODEL.md#7-wrap-and-no-wrap-modes)):
+  a row cuts after the latest space or tab that fit, and a word wider
+  than the band breaks inside it. The editor builds in the editable
+  whitespace mode: a space or tab that does not fit never hangs past the
+  band — the row cuts at the previous space (the word before the
+  whitespace moves down with it) or, with no earlier space, the
+  whitespace opens the next row at column zero. Every row fits the band,
+  a row may start with whitespace, and a row's trailing whitespace stays
+  out of its alignment width.
 - Vertical caret motion and hit-tests resolve through on-demand wrapped
   row records of the specific lines involved. A caret offset exactly at
   a wrap break belongs to the row it **starts** (rows that end their
   hard line keep separator and frozen-tail coverage) — with the opposite
-  affinity, DOWN aiming at column zero could never cross a break.
+  affinity, DOWN aiming at column zero could never cross a break. So the
+  caret after a row's trailing space sits at column zero of the next
+  row, and a click right of a row's last glyph lands there too; a caret
+  inside trailing whitespace is always on a row inside the band and is
+  always drawn.
 - Horizontal machinery is dormant: `scroll_x` pins to zero, the
   horizontal bar never shows, Shift+wheel is not consumed.
 - Tab stops restart at each row's start (the natural consequence of the
@@ -428,8 +483,9 @@ documented in
   are asserted bounds in `make perf-editor`, not tendencies.
 - **The editor is O(viewport).** Window build, caret follow, and
   scrollbars are independent of document size, scroll depth, and caret
-  offset; only edits pay a document-length byte scan (index rebuild +
-  memmove, the same order as the edit itself).
+  offset; an edit pays the buffer memmove (O(bytes after the caret)) plus
+  the index shift (O(lines after the caret)), and only the first frame
+  and a guard-detected external change pay a document-length scan.
 
 The authoritative instrument is `make perf-editor`: it counts backend
 measure calls and bytes per frame class (cold, idle, vertical scroll,
@@ -457,7 +513,205 @@ The other editor-relevant caps — `WLX_EDITOR_MAX_LINE_UNITS`,
 by the core (the geometry machinery consuming them lives there) and are
 documented with the shared budgets in
 [LINE_RUN_MODEL.md §17](LINE_RUN_MODEL.md#17-configuration-reference).
+The undo journal's bounds, `WLX_TEXT_UNDO_ENTRIES` and
+`WLX_TEXT_UNDO_BYTES`, are core caps as well, since one journal serves
+the inputbox, textarea and editor alike; the semantics are in
+[WIDGETS.md "Undo and redo"](WIDGETS.md#undo-and-redo).
 
 The retained geometry store (Section 4) is sized from the viewport —
 about twice the window's line count, minimum 16 entries — and is not an
 exposed knob.
+
+---
+
+## 11. Per-Span Colour
+
+The editor draws one `WLX_Text_Style`, so by default every record is
+one colour. `.span_color` (with `.span_color_user`) is the hook for
+syntax highlighting: a callback that names the colour of the **span**
+starting at a byte offset, asked at draw time for the visible records
+only. Colour is the only thing it changes — no font, size, spacing or
+background, no geometry, no retained state.
+
+### The query and the answer
+
+```c
+typedef struct {
+    const char *text;    // the document
+    size_t length;       // its length
+    size_t line;         // hard line index of the span, 0-based
+    size_t line_start;   // the hard line's first byte
+    size_t line_next;    // the next hard line's first byte, or length
+    size_t offset;       // the span starts here (a text unit boundary)
+    size_t limit;        // the visible record's end
+} WLX_Text_Span_Query;
+
+typedef WLX_Color (*WLX_Text_Span_Color_Fn)(const WLX_Text_Span_Query *q,
+                                            size_t *span_end, void *user);
+```
+
+For each visible record the editor asks at the record's first byte,
+then at each answered end, until the record is covered: every byte of a
+visible record is asked about exactly once per frame and the offsets
+asked within one record strictly increase. The callback returns the
+colour of the bytes from `offset` and sets `*span_end` past the span's
+last byte; it arrives preset to `limit`, so an untouched end means "to
+the record's end". A zero colour means the widget's `front_color`.
+
+The core enforces every answer, in this order: the end is clipped to
+the document, then to the record's `limit`; an end that is not a text
+unit boundary snaps **forward** to the next one (`wlx_text_unit_next`),
+so a grapheme cluster never draws in two colours; an end at or before
+`offset` advances one unit. The first two are legitimate (a token
+continues past the record, the tokenizer thinks in bytes); the last is
+an application bug, asserted under `WLX_DEBUG` and clamped in release.
+Snapping changes only which colour a cluster's bytes draw in — byte
+offsets stay exact everywhere, as in the rest of the pipeline.
+
+A non-zero colour takes the two transforms the widget's own colours
+went through, in the same order: the theme's disabled brightness shift
+when the widget is disabled, then the widget's effective opacity. A
+faded or disabled editor therefore dims its tokens with its text. The
+context's style transform (`wlx_set_style_transform`) still applies
+afterwards, at the backend boundary, to every piece.
+
+### Where it runs: the record piece drawer
+
+The hook is consulted in the draw phase, after every geometry consumer
+of the frame (window build, caret, hit-test, selection, scroll) has
+run. The window draw hands each visible record to one core routine,
+the record piece drawer, which cuts the record at two boundary sets —
+the tab boundaries of Section 8 and the span edges — and draws the
+pieces. Per record the cheapest authoritative tier wins:
+
+1. no tab and no interior span edge: one draw call for the run;
+2. a covering retained entry (Section 4) validates every tab boundary:
+   pieces placed from the **stored advances**, zero backend measures —
+   a span edge is a unit boundary of the same predicate that produced
+   the entry's unit ends, so its x is always stored;
+3. otherwise: per-piece measure, tab stops by the next-stop rule.
+
+Piece x replays in the record-relative frame both wrap modes share, so
+a span crossing a wrapped row boundary is simply asked again at the
+next row's start, and a record entering a giant line at the windowed
+origin (Section 6) queries from that origin. With no callback the
+drawer is one span in the record's colour: exactly the tab walk, pinned
+byte-identical by the suite.
+
+Nothing is retained: colours are asked every frame, are not part of
+the retained store's environment, and a colour change invalidates
+nothing. The application owns the tokenizer and its state — block
+comments, strings, per-line start states — and any cache; `line` and
+`line_start` are in the query so a line-oriented tokenizer can key one.
+The dashboard's tokenizer (`demos/dashboard/dashboard_syntax.h`) shows
+the stateless form: it re-tokenizes the hard line from `line_start` up
+to `offset` on every query, which is cheap on short lines.
+
+### The seam
+
+Pieces are separate backend runs. A kerning or shaping pair across a
+colour edge is therefore lost in the drawn glyphs, while the caret and
+hit geometry stay on the whole-run stored advances — a sub-pixel
+offset between a glyph and the caret at a span edge on a proportional
+font, zero on the monospace fonts code editors use. It is an x-space
+approximation of the class already documented for tab stops (Section
+8) and the advances chunk splice; byte offsets are never approximate.
+
+### Cost
+
+Colouring costs no measure: `make perf-editor` runs every traffic
+workload a second time with every word a span, against the plain
+workloads' bounds, and every count matches. What grows is the command
+count — rows times pieces — and, on the native backends, the number of
+distinct cached runs (one per distinct piece instead of one per row;
+token runs repeat heavily in source code, and the dashboard's sample
+document sits at a hundred entries against caches of thousands).
+
+---
+
+## 12. Composition
+
+An input method builds text in stages: a string the person can still
+change (the *composition*, or preedit), then a commit. The editor has no
+composition concept of its own. The shared key handler applies the
+platform's current string, delivered as state in `WLX_Input_State.preedit`,
+as a **tentative span** in the document through the same two span
+primitives every keystroke uses, with the undo journal switched off:
+
+```
+frame with a composition string
+    drop the previous span      delete [preedit_start, +preedit_len), journal off
+    land the commit             text_input inserts at preedit_start, class COMPOSE
+    re-apply the string         insert preedit at the caret, journal off
+    place the caret             preedit_start + codepoints -> bytes, snapped to a unit boundary of the string
+    stop                        the key vocabulary, the motion keys and the pointer do not run
+
+frame holding the same string, nothing committed
+    keep the span               no byte moves; the frame reports no change
+    place the caret             as above (a moved caret is a caret change, not a text change)
+    stop                        as above
+
+frame that begins with a span and carries no string (the commit or cancel frame)
+    drop the previous span      as above
+    land the commit             as above
+    stop                        no key runs: the confirming or cancelling key is the input method's
+```
+
+The document therefore always holds the string as ordinary bytes, and
+the whole pipeline of this document sees it as such: the line index is
+patched from the frame's edit span (two edits, Section 2), the window
+build wraps and windows it (Sections 3 and 7), caret-follow scrolls to
+the caret inside it, the retained geometry shifts by the span's delta
+(Section 4), and the per-span colour hook colours it (Section 11). No
+geometry consumer learns about composition, which is why the feature
+costs nothing in wrapped mode where reflow would otherwise need a
+one-line scratch source. `make perf-editor` runs the composition script
+(three growing strings, then a commit) at offset 0 on the 10 MB
+document: a composition frame is two span edits, so its measure traffic
+sits inside twice the typing bounds and the index never rebuilds. Its
+held pass stages one string frame after frame, as an input method does
+between two keystrokes: a held frame edits nothing, so it patches no
+index, reports no change and measures what an idle frame measures.
+
+Drawing adds two range visuals on the record walk the selection band
+already uses (`wlx_text_range_extents`): an underline along the row
+bottom of the span, and the input method's selected clause, when it
+reports one, through the selection band. Nothing is retained.
+
+The span carries the document length and the caller's `.revision` it was
+applied under. A frame that finds either changed forgets the span
+without touching a byte (the bytes are the application's now). Focus
+leaving with a span in place adopts it: the bytes stay and gain the undo
+step a commit would have made (the span is taken out with the journal
+off and the same bytes go back in as that step, the take a composing
+frame's drop starts with too); a string the backend still carries on
+that frame is the leaving widget's and is applied by no other. An editor
+not drawn on the frame its focus went adopts the same way the next frame
+it is drawn. A refocus forgets a span recorded under an earlier focus
+(the editor was not drawn, then focused on the frame it is drawn again),
+but not the one it applied the frame before: focus taken and given back
+across one frame, as a press and a Tab on the frame a composition starts
+do, leaves the composition running. The commit itself records under the
+`COMPOSE` class, which never coalesces, so each committed clause undoes
+as one step and a cancelled composition leaves the journal exactly as it
+was (UNDO_MODEL.md, section 6). The caret's position inside the string
+comes from the platform in codepoints and is snapped forward to a
+grapheme cluster boundary of the string, so it never lands inside a
+cluster of the string (Section 1's unit model). It need not be a
+boundary of the document. When the string's first or last unit joins the
+text beside it (a leading combining mark, a ZWJ between two emoji), no
+offset at that edge is one, and the caret stays where the input method
+put it for as long as the composition is held. The commit, or a cancel,
+puts it back on a document boundary.
+
+The editor also records the caret's visual line into the frame's
+composition anchor (`WLX_Text_Input_Area`), which the core pushes to the
+backend on change so the platform starts text input while the editor has
+focus and anchors its candidate window at the caret. It records on every
+frame it holds focus, whether or not the caret is drawn: the caret is
+placed first (wrapped: the window record that covers it; linear: index
+arithmetic), then drawn on blink-on frames when its line is in view. A
+caret outside the built window is placed just past the band edge on its
+side without building its row, and the anchor pins it to that edge. An
+empty document places and draws the caret at the band origin in both
+modes.

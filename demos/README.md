@@ -11,7 +11,7 @@ README for the full target list.
 
 | Demo | Description |
 |------|-------------|
-| [button.c](button.c) | Basic button click handling with `widget_align`, `back_color`, and text alignment |
+| [button.c](button.c) | Basic button click handling with `slot_align`, `back_color`, and `content_align` |
 | [text.c](text.c) | `wlx_label` with every `WLX_Align` value, `show_background` mode, and Unicode text |
 | [checkbox.c](checkbox.c) | Six boolean toggles showing checkbox state management |
 | [checkbox_tex.c](checkbox_tex.c) | Texture-based checkboxes with programmatically generated checked/unchecked icons |
@@ -34,7 +34,7 @@ README for the full target list.
 | [grid.c](grid.c) | Form-style 3×2 grid with label + input pairs using `wlx_grid_begin` |
 | [grid_auto.c](grid_auto.c) | Auto-sizing grid with up to 200 dynamically filtered records |
 | [variable_slots.c](variable_slots.c) | Mixed slot size types (`WLX_SLOT_PX`, `WLX_SLOT_AUTO`, `WLX_SLOT_PCT`) reacting to window resize |
-| [minmax_demo.c](minmax_demo.c) | Min/max slot constraints with `WLX_SLOT_MINMAX_REDISTRIBUTE` — resize the window to see clamping |
+| [minmax_demo.c](minmax_demo.c) | Min/max slot constraints with redistribution (the default) — resize the window to see clamping |
 | [widget_size.c](widget_size.c) | Widget sizing with `span` and `height = -1` (fill parent) |
 
 ## Advanced demos

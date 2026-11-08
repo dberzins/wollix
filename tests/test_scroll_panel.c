@@ -459,6 +459,45 @@ TEST(scroll_thumb_rect_floors_and_maps_to_track_end) {
     ASSERT_EQ_F(tiny.h, 12.0f, 0.001f);
 }
 
+#ifdef WLX_DEBUG
+static int sp_warns;
+static void sp_warn_cb(const char *file, int line, const char *msg, void *user) {
+    (void)file; (void)line; (void)msg; (void)user;
+    sp_warns++;
+}
+static void sp_quiet(const WLX_Error *e, void *user) { (void)e; (void)user; }
+
+// A frame that leaves an auto-height scroll panel open (its wlx_end reports
+// that) does not carry the panel into the next frame: the next frame's
+// root layout is bounded, so its FLEX slots raise no auto-height warning.
+TEST(scroll_unended_auto_height_is_not_tracked_next_frame) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    wlx_set_error_handler(&ctx, sp_quiet, NULL);
+    wlx_dbg_init(&ctx);
+    ctx.dbg->warn_cb = sp_warn_cb;
+    ctx.dbg->warn_user_data = NULL;
+
+    test_frame_begin(&ctx, 200, 150, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_scroll_panel_begin_impl(&ctx, -1,
+        wlx_default_scroll_panel_opt(.wheel_scroll_speed = 20.0f),
+        __FILE__, __LINE__);
+    ASSERT_TRUE(ctx.auto_scroll.panel_id != 0);
+    wlx_end(&ctx);                                    // the panel is left open
+
+    sp_warns = 0;
+    test_frame_begin(&ctx, 200, 150, false, false);
+    ASSERT_EQ_ID(0, ctx.auto_scroll.panel_id);
+    wlx_layout_begin(&ctx, 2, WLX_VERT,
+        .sizes = (WLX_Slot_Size[]){ WLX_SLOT_FLEX(1), WLX_SLOT_FLEX(1) });
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(0, sp_warns);
+    wlx_context_destroy(&ctx);
+}
+#endif // WLX_DEBUG
+
 SUITE(scroll_panel) {
     RUN_TEST(scroll_thumb_rect_floors_and_maps_to_track_end);
     RUN_TEST(scroll_transparent_background_keeps_zero_fill);
@@ -473,4 +512,7 @@ SUITE(scroll_panel) {
     RUN_TEST(scroll_flat_vert_height);
     RUN_TEST(scroll_nested_vert_propagation);
     RUN_TEST(scroll_horz_layout_max_height);
+#ifdef WLX_DEBUG
+    RUN_TEST(scroll_unended_auto_height_is_not_tracked_next_frame);
+#endif
 }

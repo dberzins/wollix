@@ -1,4 +1,5 @@
-// test_layout_clip.c - opt-in layout clip + segmented progress containment
+// test_layout_clip.c - opt-in layout clip (scissor stream + pointer gating)
+// + segmented progress containment
 //
 // Included from test_main.c (single TU build) AFTER test_cmd_replay.c so the
 // crec_* recording backend (crec_ctx_init, crec_frame_begin, crec_find, the
@@ -24,6 +25,15 @@ static inline int clip_count_cmd(WLX_Cmd_Type type) {
         if (_crec_log[i].type == type) n++;
     }
     return n;
+}
+
+// Index of the last recorded command of a given type, -1 when none.
+static inline int clip_last_cmd(WLX_Cmd_Type type) {
+    int last = -1;
+    for (size_t i = 0; i < _crec_count; i++) {
+        if (_crec_log[i].type == type) last = (int)i;
+    }
+    return last;
 }
 
 // ============================================================================
@@ -173,22 +183,337 @@ TEST(layout_clip_stack_balanced) {
 
     // No leak: the final scissor command in the buffer is a SCISSOR_END, so
     // replay finishes with clipping disabled.
-    int last_begin = -1, last_end = -1;
-    for (size_t i = 0; i < _crec_count; i++) {
-        if (_crec_log[i].type == WLX_CMD_SCISSOR_BEGIN) last_begin = (int)i;
-        if (_crec_log[i].type == WLX_CMD_SCISSOR_END)   last_end   = (int)i;
+    ASSERT_TRUE(clip_last_cmd(WLX_CMD_SCISSOR_END) > clip_last_cmd(WLX_CMD_SCISSOR_BEGIN));
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
+// Layout clip: pointer gating
+// ============================================================================
+// A .clip layout bounds the pointer as well as the drawing: a child's hit
+// zone is its rect intersected with every enclosing clip of its layer, the
+// rule scroll panel viewports and overlay roots already follow.
+
+// One frame: a clip layout filling slot 0 (0..40) of a 40/200 parent, holding
+// a 0..100 interaction rect queried with `flags`; `down` presses the button;
+// `auto_begin` selects the auto-counted begin. (A root clip layout would clip
+// to the whole context rect, so the clip layout must sit in a bounded parent
+// slot.)
+static WLX_Interaction _lc_probe(WLX_Context *ctx, int mx, int my, bool down, uint32_t flags,
+                                 bool auto_begin) {
+    test_frame_begin(ctx, mx, my, down, down);
+    wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40), WLX_SLOT_PX(200)),
+                       .padding = 0, .gap = 0);
+    if (auto_begin) wlx_layout_begin_auto(ctx, WLX_VERT, 30, .padding = 0, .clip = true); // clip 0..40
+    else            wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .clip = true);       // clip 0..40
+    WLX_Interaction s = wlx_get_interaction(ctx, wlx_rect(0, 0, 100, 100), flags, "lc_probe", 1);
+    wlx_layout_end(ctx);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+    return s;
+}
+
+// Hover stops at the clip rect on the bootstrap frame and on the arbitrated
+// frame alike; inside the clip rect the widget is hot as before.
+TEST(layout_clip_gates_hover) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Interaction s = _lc_probe(&ctx, 50, 80, false, WLX_INTERACT_HOVER, false); // bootstrap: containment
+    ASSERT_FALSE(s.hover);
+    s = _lc_probe(&ctx, 50, 80, false, WLX_INTERACT_HOVER, false);                 // arbitrated: last frame's candidates
+    ASSERT_FALSE(s.hover);
+
+    (void)_lc_probe(&ctx, 50, 20, false, WLX_INTERACT_HOVER, false);               // control: inside the clip
+    s = _lc_probe(&ctx, 50, 20, false, WLX_INTERACT_HOVER, false);
+    ASSERT_TRUE(s.hover);
+    wlx_context_destroy(&ctx);
+}
+
+// A press on the cropped part of a widget does not acquire the drag, after
+// a warm frame (arbitrated) and on a fresh context (bootstrap); a press
+// inside the clip rect does.
+TEST(layout_clip_drag_not_acquired_outside) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    const uint32_t drag = WLX_INTERACT_HOVER | WLX_INTERACT_DRAG;
+    (void)_lc_probe(&ctx, 50, 80, false, drag, false);              // warm
+    WLX_Interaction s = _lc_probe(&ctx, 50, 80, true, drag, false); // press outside the clip
+    ASSERT_FALSE(s.active);
+    ASSERT_EQ_ID(ctx.interaction.active_id, 0);
+    wlx_context_destroy(&ctx);
+
+    test_ctx_init(&ctx, 400, 300);
+    s = _lc_probe(&ctx, 50, 80, true, drag, false);                 // bootstrap press outside
+    ASSERT_FALSE(s.active);
+    wlx_context_destroy(&ctx);
+
+    test_ctx_init(&ctx, 400, 300);
+    s = _lc_probe(&ctx, 50, 20, true, drag, false);                 // control: inside the clip
+    ASSERT_TRUE(s.active);
+    wlx_context_destroy(&ctx);
+}
+
+// Parent slots 0..40 and 40..240. "below" is declared first into slot 1;
+// the clip layout in slot 0 holds "big", which overflows to 0..100, so
+// 40..100 of it is cropped and sits over "below".
+static bool _lc_big_clicked = false;
+static bool _lc_below_clicked = false;
+static void _lc_click_frame(WLX_Context *ctx, int mx, int my, bool down, bool clicked) {
+    test_frame_begin(ctx, mx, my, down, clicked);
+    wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40), WLX_SLOT_PX(200)),
+                       .padding = 0, .gap = 0);
+        _lc_below_clicked |= wlx_button(ctx, "below", .pos = 1, .height = 200);   // 40..240
+        wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(100)),
+                           .pos = 0, .padding = 0, .clip = true);                 // clip 0..40
+            _lc_big_clicked |= wlx_button(ctx, "big", .height = 100);            // 0..100
+        wlx_layout_end(ctx);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
+// The visible, earlier-declared sibling receives the click; the clipped-away
+// part of the later-declared widget does not (arbitration sees the clipped
+// candidate rect). Inside the clip rect the clipped widget still wins.
+TEST(layout_clip_gates_click_visible_sibling_wins) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    _lc_big_clicked = false;
+    _lc_below_clicked = false;
+
+    _lc_click_frame(&ctx, 200, 290, false, false);   // warm
+    _lc_click_frame(&ctx, 50, 80, true, true);       // press: cropped "big", visible "below"
+    _lc_click_frame(&ctx, 50, 80, false, false);     // release
+    ASSERT_TRUE(_lc_below_clicked);
+    ASSERT_FALSE(_lc_big_clicked);
+
+    _lc_big_clicked = false;
+    _lc_below_clicked = false;
+    _lc_click_frame(&ctx, 50, 20, true, true);       // control: inside the clip
+    _lc_click_frame(&ctx, 50, 20, false, false);
+    ASSERT_TRUE(_lc_big_clicked);
+    ASSERT_FALSE(_lc_below_clicked);
+    wlx_context_destroy(&ctx);
+}
+
+// A scroll panel inside a clip layout: its scissor is the intersection with
+// the clip, and the clip is re-armed after the panel ends so a sibling
+// declared after the panel stays clipped. Expected stream: BEGIN(clip),
+// BEGIN(panel, within clip), END, BEGIN(clip re-arm), MARK_B, END, MARK_C.
+TEST(layout_clip_scroll_panel_scissor_intersects_and_rearms) {
+    WLX_Context ctx;
+    crec_ctx_init(&ctx, 400, 600);
+
+    crec_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(60), WLX_SLOT_PX(300)),
+                       .padding = 0, .gap = 0);
+        wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(100), WLX_SLOT_PX(40)),
+                           .padding = 0, .gap = 0, .clip = true);                 // clip 0..60
+            wlx_scroll_panel_begin(&ctx, 500.0f, .height = 100.0f, .padding = 0); // 0..100 overflows
+                crec_marker(&ctx, MARK_A, 40);
+            wlx_scroll_panel_end(&ctx);
+            crec_marker(&ctx, MARK_B, 40);                                        // 100..140, still inside the clip layout
+        wlx_layout_end(&ctx);
+        crec_marker(&ctx, MARK_C, 40);                                            // after the clip layout
+    wlx_layout_end(&ctx);
+    wlx_end(&ctx);
+
+    // The panel's scissor lies within the clip layout's.
+    int sb_clip = crec_find(WLX_CMD_SCISSOR_BEGIN, 0);
+    ASSERT_TRUE(sb_clip >= 0);
+    int sb_panel = crec_find(WLX_CMD_SCISSOR_BEGIN, (size_t)sb_clip + 1);
+    ASSERT_TRUE(sb_panel >= 0);
+    ASSERT_TRUE(clip_rect_contains(_crec_log[sb_clip].rect, _crec_log[sb_panel].rect));
+
+    // After the panel's END, the clip rect is re-armed before MARK_B draws.
+    int se_panel = crec_find(WLX_CMD_SCISSOR_END, (size_t)sb_panel + 1);
+    ASSERT_TRUE(se_panel >= 0);
+    int sb_rearm = crec_find(WLX_CMD_SCISSOR_BEGIN, (size_t)se_panel + 1);
+    int mb = crec_find_color(MARK_B, 0);
+    ASSERT_TRUE(mb >= 0);
+    ASSERT_TRUE(sb_rearm >= 0 && sb_rearm < mb);
+    ASSERT_EQ_F(_crec_log[sb_rearm].rect.y, _crec_log[sb_clip].rect.y, 0.01f);
+    ASSERT_EQ_F(_crec_log[sb_rearm].rect.h, _crec_log[sb_clip].rect.h, 0.01f);
+
+    // Balanced: clip enter, panel enter, re-arm = 3 begins; panel and clip
+    // ends = 2 ends; the frame finishes with the scissor disabled.
+    ASSERT_EQ_INT(3, clip_count_cmd(WLX_CMD_SCISSOR_BEGIN));
+    ASSERT_EQ_INT(2, clip_count_cmd(WLX_CMD_SCISSOR_END));
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    ASSERT_TRUE(clip_last_cmd(WLX_CMD_SCISSOR_END) > clip_last_cmd(WLX_CMD_SCISSOR_BEGIN));
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
+// Layout clip: wheel gating
+// ============================================================================
+
+static float _lc_inner_y = 0.0f, _lc_sibling_y = 0.0f;
+
+// Slot 0 (0..60) holds a clip layout with a scroll panel overflowing to
+// 0..100; slot 1 (60..300) holds a sibling scroll panel. Both have room to
+// scroll. Records each panel's content rect y right after its begin.
+static void _lc_wheel_frame(WLX_Context *ctx, int mx, int my, float wheel) {
+    test_frame_begin_ex(ctx, mx, my, false, false, false, wheel, NULL, NULL, NULL);
+    wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(60), WLX_SLOT_PX(240)),
+                       .padding = 0, .gap = 0);
+        wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .clip = true);            // clip 0..60
+            wlx_scroll_panel_begin(ctx, 500.0f, .height = 100.0f, .padding = 0);   // 0..100
+                _lc_inner_y = wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].rect.y;
+                wlx_widget(ctx, .height = 500);
+            wlx_scroll_panel_end(ctx);
+        wlx_layout_end(ctx);
+        wlx_scroll_panel_begin(ctx, 800.0f, .padding = 0);                         // 60..300
+            _lc_sibling_y = wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1].rect.y;
+            wlx_widget(ctx, .height = 800);
+        wlx_scroll_panel_end(ctx);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+}
+
+// A wheel notch over the cropped part of the inner panel scrolls the visible
+// sibling under the pointer, not the cropped panel; over the visible part of
+// the inner panel it scrolls that panel alone.
+TEST(layout_clip_gates_wheel) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    _lc_wheel_frame(&ctx, 50, 80, 0.0f);       // warm
+    _lc_wheel_frame(&ctx, 50, 80, -1.0f);      // wheel over the cropped part (60..100)
+    _lc_wheel_frame(&ctx, 50, 80, 0.0f);       // read back
+    ASSERT_EQ_F(_lc_inner_y, 0.0f, 0.01f);     // cropped panel did not scroll
+    ASSERT_TRUE(_lc_sibling_y < 60.0f);         // the visible sibling did
+    wlx_context_destroy(&ctx);
+
+    test_ctx_init(&ctx, 400, 300);             // control: wheel over the visible part
+    _lc_wheel_frame(&ctx, 50, 30, 0.0f);
+    _lc_wheel_frame(&ctx, 50, 30, -1.0f);
+    _lc_wheel_frame(&ctx, 50, 30, 0.0f);
+    ASSERT_TRUE(_lc_inner_y < 0.0f);
+    ASSERT_EQ_F(_lc_sibling_y, 60.0f, 0.01f);
+    wlx_context_destroy(&ctx);
+}
+
+// The auto-counted begin honours .clip the same way: one SCISSOR_BEGIN on the
+// post-padding content rect and one SCISSOR_END.
+TEST(layout_auto_clip_emits_scissor_on_content_rect) {
+    WLX_Context ctx;
+    crec_ctx_init(&ctx, 400, 300);
+
+    crec_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_auto(&ctx, WLX_VERT, 40, .clip = true, .padding = 10);
+        WLX_Rect content = wlx_get_parent_rect(&ctx);
+        crec_marker(&ctx, MARK_A, 40);
+    wlx_layout_end(&ctx);
+    wlx_end(&ctx);
+
+    ASSERT_EQ_INT(1, clip_count_cmd(WLX_CMD_SCISSOR_BEGIN));
+    ASSERT_EQ_INT(1, clip_count_cmd(WLX_CMD_SCISSOR_END));
+    int sb = crec_find(WLX_CMD_SCISSOR_BEGIN, 0);
+    ASSERT_TRUE(sb >= 0);
+    ASSERT_EQ_F(_crec_log[sb].rect.x, content.x, 0.01f);
+    ASSERT_EQ_F(_crec_log[sb].rect.y, content.y, 0.01f);
+    ASSERT_EQ_F(_crec_log[sb].rect.w, content.w, 0.01f);
+    ASSERT_EQ_F(_crec_log[sb].rect.h, content.h, 0.01f);
+    wlx_context_destroy(&ctx);
+}
+
+// And it gates the pointer like the counted begin.
+TEST(layout_auto_clip_gates_hover) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Interaction s = _lc_probe(&ctx, 50, 80, false, WLX_INTERACT_HOVER, true);
+    ASSERT_FALSE(s.hover);
+    s = _lc_probe(&ctx, 50, 80, false, WLX_INTERACT_HOVER, true);
+    ASSERT_FALSE(s.hover);
+    (void)_lc_probe(&ctx, 50, 20, false, WLX_INTERACT_HOVER, true);
+    s = _lc_probe(&ctx, 50, 20, false, WLX_INTERACT_HOVER, true);
+    ASSERT_TRUE(s.hover);
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
+// A clip left open at wlx_end (its layout or scroll panel already reported)
+// is released, in flat replay and in immediate mode, as the layered passes do
+// ============================================================================
+
+static int _lc_begins, _lc_ends, _lc_reports;
+static void _lc_count_begin(WLX_Rect r, void *user) { (void)r; (void)user; _lc_begins++; }
+static void _lc_count_end(void *user) { (void)user; _lc_ends++; }
+static void _lc_capture(const WLX_Error *e, void *user) { (void)e; (void)user; _lc_reports++; }
+
+static void _lc_scissor_ctx(WLX_Context *ctx) {
+    test_ctx_init(ctx, 400, 300);
+    ctx->backend.begin_scissor = _lc_count_begin;
+    ctx->backend.end_scissor = _lc_count_end;
+    wlx_set_error_handler(ctx, _lc_capture, NULL);
+    _lc_begins = _lc_ends = _lc_reports = 0;
+}
+
+TEST(end_releases_clip_left_open) {
+    for (int immediate = 0; immediate < 2; immediate++) {
+        WLX_Context ctx;
+        _lc_scissor_ctx(&ctx);
+        test_frame_begin(&ctx, 0, 0, false, false);
+        ctx.immediate_mode = immediate == 1;
+        wlx_layout_begin(&ctx, 1, WLX_VERT, .clip = true);   // left open
+        (void)wlx_button(&ctx, "b");
+        wlx_end(&ctx);
+        ASSERT_EQ_INT(1, _lc_reports);
+        ASSERT_EQ_INT(1, _lc_begins);
+        ASSERT_EQ_INT(1, _lc_ends);
+        wlx_context_destroy(&ctx);
     }
-    ASSERT_TRUE(last_end > last_begin);
+}
+
+TEST(end_releases_scroll_panel_clip_left_open) {
+    WLX_Context ctx;
+    _lc_scissor_ctx(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_scroll_panel_begin(&ctx, 600);                    // left open with its layout
+    (void)wlx_button(&ctx, "b");
+    wlx_end(&ctx);
+    ASSERT_EQ_INT(1, _lc_reports);
+    ASSERT_TRUE(_lc_begins > 0);
+    ASSERT_EQ_INT(_lc_begins, _lc_ends);
+    wlx_context_destroy(&ctx);
+}
+
+// Pin: balanced nested clips replay unchanged (the inner end re-arms the
+// outer clip, which its own end releases), with nothing added at wlx_end.
+TEST(end_leaves_balanced_nested_clips_alone) {
+    WLX_Context ctx;
+    _lc_scissor_ctx(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .clip = true);
+        wlx_layout_begin(&ctx, 1, WLX_VERT, .clip = true);
+            (void)wlx_button(&ctx, "b");
+        wlx_layout_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(0, _lc_reports);
+    ASSERT_EQ_INT(3, _lc_begins);
+    ASSERT_EQ_INT(2, _lc_ends);
     wlx_context_destroy(&ctx);
 }
 
 SUITE(layout_clip) {
     RUN_TEST(layout_clip_emits_scissor_on_content_rect);
+    RUN_TEST(end_releases_clip_left_open);
+    RUN_TEST(end_releases_scroll_panel_clip_left_open);
+    RUN_TEST(end_leaves_balanced_nested_clips_alone);
     RUN_TEST(layout_no_clip_emits_no_scissor);
     RUN_TEST(layout_clip_nested_intersects_scroll_panel);
     RUN_TEST(panel_clip_parity_after_refactor);
     RUN_TEST(panel_no_clip_emits_no_scissor);
     RUN_TEST(layout_clip_stack_balanced);
+    RUN_TEST(layout_clip_gates_hover);
+    RUN_TEST(layout_clip_drag_not_acquired_outside);
+    RUN_TEST(layout_clip_gates_click_visible_sibling_wins);
+    RUN_TEST(layout_clip_scroll_panel_scissor_intersects_and_rearms);
+    RUN_TEST(layout_clip_gates_wheel);
+    RUN_TEST(layout_auto_clip_emits_scissor_on_content_rect);
+    RUN_TEST(layout_auto_clip_gates_hover);
 }
 
 // ============================================================================

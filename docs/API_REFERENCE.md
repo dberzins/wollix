@@ -14,9 +14,15 @@ layout library.
 > - [LAYOUT_MODEL.md](LAYOUT_MODEL.md)
 > - [LINE_RUN_MODEL.md](LINE_RUN_MODEL.md)
 > - [EDITOR_MODEL.md](EDITOR_MODEL.md)
+> - [UNDO_MODEL.md](UNDO_MODEL.md)
 > - [SENTINEL.md](SENTINEL.md)
 > - [CORE_PATTERNS_GUIDE.md](CORE_PATTERNS_GUIDE.md)
 > - [PERFORMANCE_DIAGNOSTICS.md](PERFORMANCE_DIAGNOSTICS.md)
+
+> **Option tables:** the Default column shows the value the option struct
+> holds. When the call resolves that value as it runs, the value it takes
+> follows in parentheses: `WLX_UNSET` (10) is a field left unset that the
+> call treats as 10. See [SENTINEL.md](SENTINEL.md) for the sentinels.
 
 ---
 
@@ -32,38 +38,40 @@ layout library.
 8. [Types — Persistent State](#types--persistent-state)
 9. [Types — Theme](#types--theme)
 10. [Types — Context](#types--context)
-11. [Frame Lifecycle](#frame-lifecycle)
-12. [Layout API](#layout-api)
-13. [Grid API](#grid-api)
-14. [Slot Size Macros](#slot-size-macros)
-15. [Interaction & State](#interaction--state)
-16. [Input Queries](#input-queries)
-17. [Utility Functions](#utility-functions)
-18. [Widget — `wlx_widget`](#widget--wlx_widget)
-19. [Widget — `wlx_label`](#widget--wlx_label)
-20. [Widget — `wlx_button`](#widget--wlx_button)
-21. [Widget — `wlx_checkbox`](#widget--wlx_checkbox)
-22. [Widget — `wlx_inputbox`](#widget--wlx_inputbox)
-23. [Widget — `wlx_editor`](#widget--wlx_editor)
-24. [Widget — `wlx_slider`](#widget--wlx_slider)
-25. [Widget — `wlx_separator`](#widget--wlx_separator)
-26. [Widget — `wlx_progress`](#widget--wlx_progress)
-27. [Widget — `wlx_toggle`](#widget--wlx_toggle)
-28. [Widget — `wlx_radio`](#widget--wlx_radio)
-29. [Widget — `wlx_scroll_panel`](#widget--wlx_scroll_panel)
-30. [List Clipper — `wlx_list_clipper`](#list-clipper--wlx_list_clipper)
-31. [Compound Widget — `wlx_split`](#compound-widget--wlx_split)
-32. [Compound Widget — `wlx_panel`](#compound-widget--wlx_panel)
-33. [Overlay — `wlx_overlay`](#overlay--wlx_overlay)
-34. [Widget — `wlx_dropdown`](#widget--wlx_dropdown)
-35. [Widget — `wlx_tooltip_for`](#widget--wlx_tooltip_for)
-36. [Compound Widget — `wlx_menu`](#compound-widget--wlx_menu)
-37. [Shared Option Field Macros](#shared-option-field-macros)
-38. [Theme Presets](#theme-presets)
-39. [Backend — Raylib](#backend--raylib)
-40. [Backend — SDL3](#backend--sdl3)
-41. [Backend — WASM](#backend--wasm)
-42. [Performance Diagnostics](#performance-diagnostics)
+11. [Error Reporting](#error-reporting)
+12. [Frame Lifecycle](#frame-lifecycle)
+13. [Layout API](#layout-api)
+14. [Grid API](#grid-api)
+15. [Slot Size Macros](#slot-size-macros)
+16. [Interaction & State](#interaction--state)
+17. [Input Queries](#input-queries)
+18. [Utility Functions](#utility-functions)
+19. [Widget — `wlx_widget`](#widget--wlx_widget)
+20. [Widget — `wlx_label`](#widget--wlx_label)
+21. [Widget — `wlx_button`](#widget--wlx_button)
+22. [Widget — `wlx_checkbox`](#widget--wlx_checkbox)
+23. [Widget — `wlx_inputbox`](#widget--wlx_inputbox)
+24. [Widget — `wlx_editor`](#widget--wlx_editor)
+25. [Widget — `wlx_slider`](#widget--wlx_slider)
+26. [Widget — `wlx_separator`](#widget--wlx_separator)
+27. [Widget — `wlx_progress`](#widget--wlx_progress)
+28. [Widget — `wlx_toggle`](#widget--wlx_toggle)
+29. [Widget — `wlx_radio`](#widget--wlx_radio)
+30. [Widget — `wlx_scroll_panel`](#widget--wlx_scroll_panel)
+31. [List Clipper — `wlx_list_clipper`](#list-clipper--wlx_list_clipper)
+32. [Compound Widget — `wlx_split`](#compound-widget--wlx_split)
+33. [Compound Widget — `wlx_panel`](#compound-widget--wlx_panel)
+34. [Overlay — `wlx_overlay`](#overlay--wlx_overlay)
+35. [Widget — `wlx_dropdown`](#widget--wlx_dropdown)
+36. [Widget — `wlx_tooltip_for`](#widget--wlx_tooltip_for)
+37. [Compound Widget — `wlx_menu`](#compound-widget--wlx_menu)
+38. [Shared Option Field Macros](#shared-option-field-macros)
+39. [Calling from C++](#calling-from-c)
+40. [Theme Presets](#theme-presets)
+41. [Backend — Raylib](#backend--raylib)
+42. [Backend — SDL3](#backend--sdl3)
+43. [Backend — WASM](#backend--wasm)
+44. [Performance Diagnostics](#performance-diagnostics)
 
 ---
 
@@ -148,8 +156,8 @@ within one pixel of its bound. Note this cannot remove a physical overflow
 when fixed + min sizes already exceed the container; contain that with an
 opt-in layout `.clip`.
 
-> `WLX_SLOT_MINMAX_REDISTRIBUTE` (the former opt-in symbol) is now a deprecated
-> no-op, accepted but ignored, retained for source compatibility.
+> `WLX_SLOT_MINMAX_REDISTRIBUTE` (the former opt-in symbol) is ignored:
+> defining it has no effect, and it stays accepted.
 
 ---
 
@@ -173,6 +181,45 @@ If no timer is installed, timing fields remain zero and `timer_available` is
 
 For benchmark commands and metric interpretation, see
 [PERFORMANCE_DIAGNOSTICS.md](PERFORMANCE_DIAGNOSTICS.md).
+
+### `WLX_ERROR_PRINT`
+
+```c
+// #define WLX_ERROR_PRINT(msg) my_log_line(msg)   // define before including wollix.h
+```
+
+Where wollix's diagnostic lines go. A contract error with no handler
+installed (see [Error Reporting](#error-reporting)), a `WLX_HARD_ASSERT` and
+`WLX_UNREACHABLE` all print through it, one NUL-terminated line per call
+with no trailing newline in the argument. The default writes the line and a
+newline to `stderr`. The bare-WASM shim (`web/wlx_libc_shim.h`) defines it
+as `puts`, which the host logs to the browser console, so diagnostics are
+visible on the Pages site; an embedded target with a UART defines it the
+same way.
+
+### `WLX_CONTENT_SCALE_MIN`, `WLX_CONTENT_SCALE_MAX`
+
+```c
+// #define WLX_CONTENT_SCALE_MIN 0.25f   // define before including wollix.h
+// #define WLX_CONTENT_SCALE_MAX 8.0f
+```
+
+The range a backend's `get_content_scale` value must lie in. A value
+outside it (or NaN) reports `WLX_ERR_BACKEND_ANSWER` from `wlx_begin` and
+the frame runs at 1.0. Floats, so they are checked at run time, not by
+the preprocessor.
+
+### `WLX_ERROR_SITES_MAX`
+
+```c
+// #define WLX_ERROR_SITES_MAX 32   // define before including wollix.h
+```
+
+How many distinct contract-error sites the default handler prints before it
+goes quiet (a site is the error code plus the caller and layout locations).
+After that many it prints one "further error sites suppressed" line and
+nothing new. An installed handler and `wlx_error_count` are never
+throttled.
 
 ---
 
@@ -210,7 +257,12 @@ RGBA color. Fields are `r`, `g`, `b`, `a` — each 0–255. When all four are 0
 #define WLX_RGBA(r, g, b, a) ((WLX_Color){ (r), (g), (b), (a) })
 ```
 
-Construct a `WLX_Color` literal.
+Construct a `WLX_Color` literal. In C it is a compound literal: an
+expression, not a constant expression, so an object with static storage
+duration (a file-scope or `static` table) takes the plain brace form
+`{ r, g, b, a }` instead; gcc and clang accept the literal there as an
+extension, MSVC does not. In C++ the macro expands to a brace-initialised
+prvalue and either form is fine.
 
 ### `WLX_Texture`
 
@@ -237,6 +289,10 @@ Opaque texture handle passed to `draw_texture`. Backend-specific.
 
 ### Deprecated Color Constants
 
+Deprecated since v0.1.0 and removed in the first minor release after 0.9. The
+values predate the themes and differ from the replacements (the dark theme
+uses 27, 50 and 0.08).
+
 | Macro | Value | Replacement |
 |-------|-------|-------------|
 | `WLX_BACKGROUND_COLOR` | `{18, 18, 18, 255}` | `ctx->theme->background` |
@@ -246,6 +302,39 @@ Opaque texture handle passed to `draw_texture`. Backend-specific.
 ---
 
 ## Types — Backend
+
+### Coordinate space
+
+One Wollix unit is a **logical pixel**. Every `WLX_Rect`, every length in
+an option or theme field (padding, border width, radius, thickness,
+scrollbar width, tile size), every `font_size`, the root rect passed to
+`wlx_begin` and the mouse position in `WLX_Input_State` are in units. The
+backend maps units to device pixels by its **content scale**, the number
+of device pixels one unit occupies: 2.0 on a 2x display, 1.5 at a 150%
+setting, 1.0 when the window is not high-density. At 1.0 a unit is a
+device pixel.
+
+The core learns the scale through the optional
+`WLX_Backend.get_content_scale` callback (NULL means 1.0), samples it once
+per frame in `wlx_begin`, and uses it for exactly two things: slot
+boundaries snap to the device-pixel grid instead of the unit grid,
+measured from each layout's origin (at 1.0 the two grids are the same and
+the result is bit-identical), and
+[`wlx_content_scale`](#wlx_content_scale) reports it to the application.
+Origins (padding, alignment, the scroll offset) are not snapped, so at 1.5
+a padding of 5 units puts the boundaries inside it on half device pixels.
+Nothing else in the core reads it: no unit constant is multiplied, and
+text sizes stay in units. Where the number comes from:
+
+| Backend | Source | Root rect helper |
+|---|---|---|
+| Raylib | `GetWindowScaleDPI().x` under `FLAG_WINDOW_HIGHDPI` (1.0 without it; always on macOS), the scale Raylib's own scissor and resize paths apply | `wlx_raylib_root_rect()` |
+| SDL3 | `SDL_GetWindowDisplayScale(window)`, re-read every frame | `wlx_sdl3_root_rect()` |
+| WASM | `window.devicePixelRatio` from the host | the frame call's CSS-pixel size |
+
+Size the root with the helper for the backend you use: the older recipe
+(`GetRenderWidth` / `SDL_GetRenderOutputSize`) returns the framebuffer in
+pixels, which is twice the drawable space on a 2x display.
 
 ### `WLX_Font`
 
@@ -282,12 +371,15 @@ core falls back to temporary null-terminated strings.
     ((WLX_Text_Style){ .font = WLX_FONT_DEFAULT, .font_size = 0, .color = {0}, .spacing = 0 })
 ```
 
+Under `__cplusplus` it is the equivalent brace-initialised prvalue (see the
+C++ path's literal helpers).
+
 Text spacing support matrix for this slice:
 
 | Backend / path | Status | Behavior |
 |----------------|--------|----------|
 | Raylib | Supported | `DrawTextEx` and `MeasureTextEx` both honor `style.spacing` |
-| SDL3 custom fonts | Supported on variant path | Backend-owned font variants apply `TTF_SetFontCharSpacing` once per `(font, size, spacing)` tuple. If variant creation fails and the backend falls back to the shared base font, spacing is ignored. |
+| SDL3 custom fonts | Supported on variant path | Backend-owned font variants apply `TTF_SetFontCharSpacing` once per `(font, size, spacing, content scale)` variant. If variant creation fails and the backend falls back to the shared base font, spacing is ignored. |
 | SDL3 debug font | Unsupported | Ignores spacing in both draw and measure |
 | WASM | Unsupported | Ignores spacing in both draw and measure |
 
@@ -310,34 +402,40 @@ font size (e.g. SDL3_ttf vs. Raylib's bitmap font).
 ### `WLX_Backend`
 
 ```c
+#define WLX_BACKEND_CONTRACT_VERSION 2u
+
 typedef struct {
-    void (*draw_rect)(WLX_Rect rect, WLX_Color color);
-    void (*draw_rect_lines)(WLX_Rect rect, float thick, WLX_Color color);
-    void (*draw_rect_rounded)(WLX_Rect rect, float roundness, int segments, WLX_Color color);
-    void (*draw_rect_rounded_lines)(WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color);
-    void (*draw_circle)(float cx, float cy, float radius, int segments, WLX_Color color);
-    void (*draw_ring)(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color);
-    void (*draw_line)(float x1, float y1, float x2, float y2, float thick, WLX_Color color);
-    void (*draw_text)(const char *text, float x, float y, WLX_Text_Style style);
-    void (*measure_text)(const char *text, WLX_Text_Style style, float *out_w, float *out_h);
-    void (*draw_texture)(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint);
-    void (*begin_scissor)(WLX_Rect rect);
-    void (*end_scissor)(void);
-    float (*get_frame_time)(void);
-    void (*draw_text_slice)(const char *text, size_t len, float x, float y, WLX_Text_Style style);
-    void (*measure_text_slice)(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h);
+    uint32_t contract_version;  // WLX_BACKEND_CONTRACT_VERSION
+    void    *user;              // last argument of every callback; the core never reads it
+    void (*draw_rect)(WLX_Rect rect, WLX_Color color, void *user);
+    void (*draw_rect_lines)(WLX_Rect rect, float thick, WLX_Color color, void *user);
+    void (*draw_rect_rounded)(WLX_Rect rect, float roundness, int segments, WLX_Color color, void *user);
+    void (*draw_rect_rounded_lines)(WLX_Rect rect, float roundness, int segments, float thick, WLX_Color color, void *user);
+    void (*draw_circle)(float cx, float cy, float radius, int segments, WLX_Color color, void *user);
+    void (*draw_ring)(float cx, float cy, float inner_r, float outer_r, int segments, WLX_Color color, void *user);
+    void (*draw_line)(float x1, float y1, float x2, float y2, float thick, WLX_Color color, void *user);
+    void (*draw_text)(const char *text, float x, float y, WLX_Text_Style style, void *user);
+    void (*measure_text)(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user);
+    void (*draw_texture)(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user);
+    void (*begin_scissor)(WLX_Rect rect, void *user);
+    void (*end_scissor)(void *user);
+    float (*get_frame_time)(void *user);
+    void (*draw_text_slice)(const char *text, size_t len, float x, float y, WLX_Text_Style style, void *user);
+    void (*measure_text_slice)(const char *text, size_t len, WLX_Text_Style style, float *out_w, float *out_h, void *user);
     size_t (*measure_text_advances)(const char *text, size_t len, WLX_Text_Style style,
                                     const size_t *unit_ends, size_t unit_count,
-                                    float *out_advances);      // optional
+                                    float *out_advances, void *user);      // optional
     void (*draw_shadow)(WLX_Rect rect, WLX_Color color, float offset_x, float offset_y,
-                        float blur, int layers, float roundness, int rounded_segs); // optional
+                        float blur, int layers, float roundness, int rounded_segs, void *user); // optional
     void (*draw_glow)(WLX_Rect rect, WLX_Color color, float spread, int rings,
-                      float roundness, int rounded_segs); // optional
+                      float roundness, int rounded_segs, void *user); // optional
     void (*draw_gradient_v)(WLX_Rect rect, WLX_Color top, WLX_Color bottom,
-                            float roundness, int rounded_segs); // optional
-    const char *(*clipboard_get)(void);                         // optional
-    void (*clipboard_set)(const char *text, size_t len);        // optional
-    void (*set_cursor)(WLX_Cursor_Shape shape);                 // optional
+                            float roundness, int rounded_segs, void *user); // optional
+    const char *(*clipboard_get)(void *user);                         // optional
+    void (*clipboard_set)(const char *text, size_t len, void *user);  // optional
+    void (*set_cursor)(WLX_Cursor_Shape shape, void *user);           // optional
+    float (*get_content_scale)(void *user);                           // optional: device pixels per unit
+    void (*set_text_input_area)(const WLX_Text_Input_Area *area, void *user); // optional: composition anchor
 } WLX_Backend;
 ```
 
@@ -345,6 +443,60 @@ Function-pointer table that the library calls to perform all rendering and
 time queries. All required pointers must be non-NULL; use
 `wlx_backend_is_ready()` to verify the required set. Optional pointers may be
 left as `NULL`.
+
+**Contract v2 (v0.9).** Every callback takes a trailing `void *user`: the
+table's own `user` member, passed by the core on every call and never
+read by it, so an adapter can reach per-instance state instead of
+file-scope globals. `contract_version` must be
+`WLX_BACKEND_CONTRACT_VERSION`; `wlx_begin` checks it with a
+release-live `WLX_HARD_ASSERT`, because a table of another shape compiles
+on compilers that only warn about the callback signatures and calling it
+through these signatures is memory-unsafe. The in-tree adapters set the
+version and pass `NULL`. A v0.8 table migrates in one line with
+`wlx_backend_from_v1` (below). An application that overrides individual
+callbacks of an adapter-installed table must forward `user` unchanged and
+must not repoint `backend.user`, which every other callback of the table
+reads.
+
+**Content scale.** `get_content_scale` is optional: a zero-initialised or
+v1-shimmed table reports 1.0. The core calls it exactly once per frame
+from `wlx_begin`, after the input handler. The value must lie in
+`[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]` (0.25 to 8.0 by
+default); anything else, NaN included, reports `WLX_ERR_BACKEND_ANSWER` and
+the frame runs at 1.0. See [Coordinate space](#coordinate-space).
+
+**Composition anchor.** `set_text_input_area` is the table's last member
+and is optional: `NULL` means the platform is never told, and the shim
+leaves it `NULL`. The core assembles a [`WLX_Text_Input_Area`](#wlx_text_input_area)
+from the focused editable text widget's caret line (the inputbox, the
+textarea, the editor; never a read-only or disabled one) and pushes it
+from `wlx_end` **only when it changed**: `active` turns true when such a
+widget takes focus, the line and cursor follow the caret, and one push
+with `active` false follows the loss of focus. `active` follows focus
+alone: the caret blinking off, a caret line scrolled out of view and an
+empty buffer all keep it. The line stays inside the widget's text band (a
+caret outside the band pins to the nearer edge) and the cursor inside the
+line. Focus moving straight
+from one text widget to another is a loss first: the push for that frame
+is the inactive one, and the new widget's anchor follows on the next
+frame, so the platform ends the leaving widget's composition before the
+entering widget can receive one. An adapter starts the
+platform's text input on the active edge (engaging the input method and,
+on mobile, the keyboard), stops it on the inactive edge and drops any
+composition string it still holds, and anchors the
+candidate window at the caret on every call; the SDL3 adapter does
+exactly this through `SDL_StartTextInputWithProperties`,
+`SDL_StopTextInput` and `SDL_SetTextInputArea`, the web host by
+focusing and placing its hidden text proxy. The anchor is in units
+relative to the window, and a window move changes nothing in it, so the
+core does not push; an adapter whose platform turned the anchor into a
+screen position hands it over again itself (the SDL3 adapter does on
+X11, after `SDL_EVENT_WINDOW_MOVED`). What an adapter keeps between
+pushes belongs to the window it is bound to: binding a context to a new
+window resets it and clears the core's last pushed anchor, so a field that
+keeps its focus is anchored again on the next frame. Hosts without the
+callback read the last pushed value with `wlx_text_input_area`. The table's
+shape, this member included, is the frozen v2 contract.
 
 | Callback | Purpose |
 |----------|---------|
@@ -370,16 +522,18 @@ left as `NULL`.
 | `clipboard_get` | Optional synchronous clipboard read: returns a borrowed NUL-terminated UTF-8 string valid until the next backend call; `NULL` hook makes paste a safe no-op |
 | `clipboard_set` | Optional synchronous clipboard write: copies the byte slice out before returning; `NULL` hook makes copy/cut safe no-ops |
 | `set_cursor` | Optional mouse-cursor shape: apply a `WLX_Cursor_Shape` (`WLX_CURSOR_ARROW`, `WLX_CURSOR_IBEAM`) to the platform cursor. The core resolves the shape from the widget under the pointer once per frame in `wlx_begin` and calls this **only when it changes**, so implementations are stateless one-liners; `NULL` leaves the platform cursor untouched |
+| `get_content_scale` | Optional device pixels per unit (see **Content scale** above); `NULL` means 1.0 |
+| `set_text_input_area` | Optional composition anchor: the focused editable text widget's caret line and caret offset, or inactive (see **Composition anchor** above). Pushed from `wlx_end` **only when it changes**: start or stop the platform's text input on the `active` edges and re-anchor its candidate window on every call; `NULL` never tells the platform |
 
 The C-string callbacks remain the compatibility floor;
 `wlx_backend_is_ready()` accepts either form per direction (`draw_text_slice`
 *or* `draw_text`, `measure_text_slice` *or* `measure_text`). Slice callbacks
 are the preferred contract for new backends, are appended to the struct for
 designated-initializer compatibility, and are used whenever both the core path
-and the backend provide them. Of the in-tree adapters, SDL3 and WASM wire
-both slice callbacks; Raylib wires `measure_text_slice` (+
-`measure_text_advances`) and leaves `draw_text_slice` on the core's
-NUL-copy fallback (`DrawTextEx` needs a C string either way). Recorded text commands store only `(bytes, len)`;
+and the backend provide them. All three in-tree adapters wire both slice
+callbacks; Raylib's `draw_text_slice` makes the NUL-terminated copy itself
+(`DrawTextEx` needs a C string), and Raylib also wires
+`measure_text_advances`. Recorded text commands store only `(bytes, len)`;
 Wollix materializes a temporary null-terminated copy only when dispatching
 through the legacy `draw_text` / `measure_text` fallback. For text without
 embedded NUL bytes, slice and C-string callbacks should produce equivalent
@@ -388,7 +542,7 @@ in the public text model; spans are truncated at the first NUL before backend
 dispatch.
 
 **`measure_text_advances` contract.** The callback fills
-`out_advances[i]` with the cumulative advance width in pixels of the run
+`out_advances[i]` with the cumulative advance width in units of the run
 prefix `[0, unit_ends[i])`, for every `i < unit_count`, and returns the
 number of leading entries filled — a partial fill is valid; the core
 falls back to per-unit prefix measures for the rest. The run
@@ -396,25 +550,120 @@ falls back to per-unit prefix measures for the rest. The run
 expansion is active (the core splits at tabs and applies next-tab-stop
 rounding between segments itself). `unit_ends` is strictly increasing
 with `unit_ends[unit_count - 1] == len`; the core derives the unit
-policy (UTF-8 codepoints, malformed bytes as one-byte units), so a
-backend never re-implements it — it walks its own glyph or cluster
-geometry and reports the advance at (or snapped to the nearest cluster
-edge after) each requested byte end. Reported advances should be
-non-decreasing; the core clamps regardless. Requests are capped at
+policy (approximated grapheme clusters: combining marks, ZWJ sequences,
+variation selectors and regional-indicator pairs join; malformed bytes
+are one-byte units), so a backend never re-implements it — it walks its
+own glyph or cluster geometry and reports the advance at (or snapped to
+the nearest cluster edge after) each requested byte end, **in logical
+byte order, laid out left to right**. Text geometry is logical-order:
+every consumer maps a byte offset to a non-decreasing x and
+back, so a backend fills advances in that order from the same shaped pass
+it draws with. Reported advances must be non-decreasing; the core clamps
+any other order (every unit edge inside the chunk collapses onto the
+first value below it, so the run keeps one width and every caret offset
+inside it lands on the same x) and, in `WLX_DEBUG` builds, reports the
+chunk once as `WLX_ERR_BACKEND_ANSWER`, except under negative `spacing`,
+where an additive backend's prefix widths may legitimately dip.
+An application must not set a right-to-left or vertical shaping direction
+on a font it hands to Wollix (see the SDL3 section). Requests are capped at
 `WLX_TEXT_ADVANCES_CHUNK` units (default 256, `#ifndef`-overridable);
 consecutive chunks of one line are spliced by adding the previous
 chunk's final advance, so shaping context does not carry across a chunk
 boundary — the same documented approximation class as a tab stop inside
 a line. A backend's advances must be consistent with its own draw of
-the same run: applications that decorate a backend's text callbacks
-(e.g. a font-size scale) **must decorate all four text paths
-together** — `draw_text`/`draw_text_slice`, `measure_text`/
-`measure_text_slice`, and `measure_text_advances` — because advances
-are retained as caret, hit-test, and fit geometry against text drawn
-through the decorated draw path. All three in-tree adapters implement
-the callback (SDL3 requires SDL_ttf >= 3.3.0; older builds simply stay
-on the fallback). See `docs/LINE_RUN_MODEL.md` §5 and §14 for where it
-sits in the pipeline.
+the same run, since advances are retained as caret, hit-test and fit
+geometry against text drawn through `draw_text_slice`; an application
+that reshapes text styles (a font-size scale, say) does so through
+`wlx_set_style_transform`, which the core applies before every text
+callback, so the three paths cannot disagree. All three in-tree
+adapters implement the callback (SDL3 requires SDL_ttf >= 3.3.0; older
+builds simply stay on the fallback). See `docs/LINE_RUN_MODEL.md` §5
+and §14 for where it sits in the pipeline.
+
+### `wlx_backend_from_v1` (deprecated shim)
+
+```c
+typedef struct { /* the v0.8 WLX_Backend: same members, no user, no version */ } WLX_Backend_V1;
+WLXDEF WLX_Backend wlx_backend_from_v1(const WLX_Backend_V1 *v1);
+```
+
+Wraps a v0.8-shaped table in a v2 one: 22 trampolines reach the v1 table
+through `user`, and a `NULL` v1 member stays `NULL` on the v2 table so the
+core's optional fallbacks apply as for a native table. The caller keeps
+the v1 table alive for the context's lifetime (static storage in
+practice):
+
+```c
+static WLX_Backend_V1 my_table = { .draw_rect = my_draw_rect, /* ... */ };
+ctx->backend = wlx_backend_from_v1(&my_table);
+```
+
+Removed, with `WLX_Backend_V1`, in the first minor release after 0.9; the
+real migration is appending `void *user` to every callback and setting
+`.contract_version`.
+
+### `wlx_set_style_transform`
+
+```c
+typedef WLX_Text_Style (*WLX_Style_Transform_Fn)(WLX_Text_Style style, void *user);
+WLXDEF void wlx_set_style_transform(WLX_Context *ctx, WLX_Style_Transform_Fn fn, void *user);
+```
+
+Installs (or clears, with `NULL`) the context's style transform: the one
+place an application reshapes text styles. The core applies it to the
+`WLX_Text_Style` immediately before every text callback - draw, measure
+and advances alike - and nowhere else, so widget options, the command
+buffer and retained geometry hold nominal styles while the backend sees
+only transformed ones, and draw, measure and advances always agree. The
+function must be pure in `(style, user)` and return a style the backend
+can render. Every call counts as a measurement-environment change:
+retained text geometry measured under the previous transform is rebuilt
+on the next frame. Change the transform's behaviour only through this
+call; mutating `user` behind it leaves retained geometry stale.
+
+```c
+static WLX_Text_Style scale_for_raylib(WLX_Text_Style s, void *user) {
+    (void)user;
+    if (s.font_size > 0) s.font_size = (int)(s.font_size * 1.31f + 0.5f);
+    return s;
+}
+wlx_set_style_transform(ctx, scale_for_raylib, NULL);
+```
+
+### Per-span colour (`WLX_Text_Span_Color_Fn`)
+
+```c
+typedef struct {
+    const char *text;    // the document
+    size_t length;       // its length
+    size_t line;         // hard line index of the span, 0-based
+    size_t line_start;   // the hard line's first byte
+    size_t line_next;    // the next hard line's first byte, or length
+    size_t offset;       // the span starts here (a text unit boundary)
+    size_t limit;        // the visible record's end; nothing past it draws this call
+} WLX_Text_Span_Query;
+
+typedef WLX_Color (*WLX_Text_Span_Color_Fn)(const WLX_Text_Span_Query *q,
+                                            size_t *span_end, void *user);
+```
+
+The callback type behind `wlx_editor`'s `.span_color` / `.span_color_user`
+(syntax highlighting). A text widget asks it at draw time, for the visible
+records only, walking each record from its first byte: return the colour
+of the bytes from `q->offset` and set `*span_end` past the span's last
+byte (greater than `q->offset`, at most `q->length`; it arrives preset to
+`q->limit`). A zero colour means the widget's `front_color`. The core
+clips the end to `q->limit`, snaps it forward to a text unit boundary so
+a grapheme cluster never draws in two colours, and advances one unit when
+it does not progress (an assertion under `WLX_DEBUG`). A non-zero colour
+takes the widget's disabled shift and effective opacity like its own
+colours; the context's style transform still applies afterwards, at the
+boundary. Colours are asked every frame and never retained; the
+application owns the tokenizer and its state. Pieces are placed from the
+retained advances, so geometry is unchanged and steady frames measure
+nothing more; a kerning pair across a colour edge is lost in the drawn
+glyphs (zero on monospace fonts). See `docs/EDITOR_MODEL.md` §11 and
+`docs/WIDGETS.md` "Per-span colour".
 
 ### In-tree adapter capabilities
 
@@ -431,6 +680,8 @@ software or copy path):
 | `draw_shadow` / `draw_glow` | - (layered fallback) | - (layered fallback) | - (layered fallback) |
 | `clipboard_get` / `clipboard_set` | yes | yes | yes |
 | `set_cursor` | yes | yes | yes (host CSS cursor) |
+| `get_content_scale` | yes (`GetWindowScaleDPI().x`; off Apple only under `FLAG_WINDOW_HIGHDPI`, else 1.0) | yes (`SDL_GetWindowDisplayScale`) | yes (`devicePixelRatio`) |
+| `set_text_input_area` | - (committed text only, no composition) | yes (`SDL_StartTextInputWithProperties`, `SDL_SetTextInputArea`, `SDL_EVENT_TEXT_EDITING`) | yes (a hidden text proxy at the caret; composition and dead keys through it) |
 
 ### `wlx_backend_is_ready`
 
@@ -439,7 +690,10 @@ static inline bool wlx_backend_is_ready(const WLX_Context *ctx);
 ```
 
 Returns `true` if `ctx` is non-NULL and all required backend function pointers
-are set. Text callbacks are accepted in either form per direction: a backend
+are set. It does not check `contract_version`; `wlx_begin` does, with a
+release-live `WLX_HARD_ASSERT`, after these pointer checks and before any
+callback runs. Text
+callbacks are accepted in either form per direction: a backend
 is ready with `draw_text_slice` *or* `draw_text`, and `measure_text_slice`
 *or* `measure_text` (the slice entries are the preferred contract; the
 NUL-terminated pair is the compatibility form). Optional callbacks such as
@@ -478,8 +732,12 @@ typedef enum {
 } WLX_Align;
 ```
 
-Used for both widget placement inside a slot (`widget_align`) and text
-alignment inside a widget (`align`).
+Used for both widget placement inside a slot (`slot_align`: the widget rect
+inside its layout slot) and content placement inside a widget
+(`content_align`: text or image inside the widget rect). The names pair with
+`padding` (slot inset) and `content_padding` (content inset). `widget_align`
+and `align` are the deprecated pre-0.9 names: same storage, removed in the
+first minor release after 0.9.
 
 ### `WLX_Size_Kind`
 
@@ -543,7 +801,8 @@ Modifier-key state as an orthogonal bitfield (modifiers qualify other keys,
 they are not `WLX_Key_Code` entries). Backends refresh
 `WLX_Input_State.modifiers` each frame; query with `wlx_mod_down()`. Editing
 shortcuts use `wlx_mod_command_down()`, which resolves to `WLX_MOD_SUPER`
-(Cmd) on Apple platforms and `WLX_MOD_CTRL` elsewhere.
+(Cmd) on Apple platforms and `WLX_MOD_CTRL` with `WLX_MOD_ALT` up
+elsewhere.
 
 ### `WLX_Layout_Kind`
 
@@ -553,6 +812,21 @@ typedef enum {
     WLX_LAYOUT_GRID,    // wlx_grid_begin / wlx_grid_begin_auto
 } WLX_Layout_Kind;
 ```
+
+### `WLX_Layout_Owner`
+
+```c
+typedef enum {
+    WLX_OWNER_LAYOUT = 0,     // closed by wlx_layout_end (every begin and constructor)
+    WLX_OWNER_OVERLAY,        // an overlay root: closed by wlx_overlay_end
+    WLX_OWNER_SCROLL_PANEL,   // a scroll panel's content wrapper: closed by wlx_scroll_panel_end
+} WLX_Layout_Owner;
+```
+
+`WLX_Layout.owner` records which end closes a layout record. The ends check
+it: an end of the wrong kind is a contract error, reported once and repaired
+by closing each container with its own end (see
+[Error Reporting](#error-reporting)).
 
 ### `WLX_Image_Scale`
 
@@ -592,6 +866,9 @@ image+text `wlx_button` and image+text `wlx_label`.
 ### `WLX_Input_State`
 
 ```c
+#define WLX_INPUT_TEXT_BYTES    128   // text_input capacity, NUL included (fixed)
+#define WLX_INPUT_PREEDIT_BYTES 128   // preedit capacity, NUL included (fixed)
+
 typedef struct {
     int   mouse_x, mouse_y;
     bool  mouse_down;        // Left button is down this frame
@@ -600,7 +877,7 @@ typedef struct {
     float wheel_delta;       // Vertical wheel detents (positive = up)
     bool  keys_down[WLX_KEY_COUNT];     // Current held-down states
     bool  keys_pressed[WLX_KEY_COUNT];  // True for one frame on press
-    char  text_input[32];              // Text typed this frame (for inputbox)
+    char  text_input[WLX_INPUT_TEXT_BYTES]; // Committed text this frame (a stream)
     bool  keys_repeated[WLX_KEY_COUNT]; // True on each OS auto-repeat tick
     uint32_t modifiers;                // Active WLX_Key_Mod bits this frame
     float wheel_delta_x;     // Horizontal wheel detents (same polarity family)
@@ -608,6 +885,9 @@ typedef struct {
     bool  mouse_right_clicked;   // True for one frame on right press
     bool  mouse_middle_down;
     bool  mouse_middle_clicked;  // True for one frame on middle press
+    char    preedit[WLX_INPUT_PREEDIT_BYTES]; // The composition string (state, not a stream)
+    int32_t preedit_cursor;      // Caret inside it, in codepoints; -1 unknown
+    int32_t preedit_sel_len;     // Selected clause after the caret, in codepoints; -1 unknown
 } WLX_Input_State;
 ```
 
@@ -615,6 +895,15 @@ Populated by the backend's input handler each frame. Access via `ctx->input`.
 `keys_repeated` fires on the platform's auto-repeat ticks (in addition to the
 one-shot `keys_pressed` on the initial press); widgets that should react to a
 held key use `wlx_is_key_actuated()` (= pressed or repeated).
+A backend does not report a key the platform's input method consumed, one
+that confirms, edits or cancels a composition: it belongs to the
+composition, not to the widget. The web host drops a keydown with
+`isComposing` set or keyCode 229; SDL3 delivers none for such keys. The
+core does not rely on it: a frame that begins with a composition in a
+text widget is the input method's, so a key reported in it (also on the
+frame the composition commits or is cancelled) neither edits the widget
+nor blurs it, and Tab does not traverse; keys act again from the next
+frame.
 
 **Wheel contract.** Both wheel fields carry *unquantized float detents*:
 `1.0` is one notch of a clicky mouse wheel, and precision trackpads report
@@ -630,9 +919,38 @@ semantics and never affect focus or the left-press ownership. Query with
 `wlx_is_mouse_right_down()` and friends, or read `right_clicked` on a
 `WLX_Interaction` for the topmost-wins widget resolution.
 
+**Text channels.** `text_input` is a *stream*: the backend accumulates the
+frame's committed text into it (NUL terminated, whole UTF-8 sequences
+only, a codepoint that does not fit is dropped with the rest of the burst
+and never split at the cap, so a later event of the same frame does not
+land after the gap) and the core drains it once per frame. An adapter
+appends each event with `wlx_utf8_append_whole(dst, cap, len, src,
+src_len)`, which returns the new length; one short of `len + src_len`
+means the burst is over.
+`preedit` is *state*: the whole composition string the platform's input
+method currently shows, as of the end of the frame's event pump, replaced
+by each update and empty when no composition is in flight, under the same
+NUL and whole-codepoint rules. `preedit_cursor` is the caret inside the
+composition and `preedit_sel_len` the length of the selected clause after
+it, both in codepoints from the start of `preedit`, `-1` when the platform
+gives none; the core maps them to bytes, snaps the caret forward to a
+grapheme-cluster boundary of the string and clamps to the string's end. Committed text
+keeps arriving through `text_input`, including the commit that ends a
+composition. A backend empties `preedit` when its window loses focus:
+the input method ends or abandons the composition there and an unfocused
+window is told nothing, so a string left in place would outlive it (the
+SDL3 adapter does this on `SDL_EVENT_WINDOW_FOCUS_LOST`, the web host on
+its proxy's `blur`). The two capacities are the fixed constants
+`WLX_INPUT_TEXT_BYTES` and `WLX_INPUT_PREEDIT_BYTES` (128, not
+overridable: the WASM host asserts the layout at build time). See
+[Composition input](WIDGETS.md#composition-input) for what the widgets
+do with the string.
+
 **Layout is append-only.** New fields are added at the end so earlier byte
 offsets stay put for hosts that write the struct directly (the WASM host);
-`wollix_wasm.h` static-asserts the layout.
+`wollix_wasm.h` static-asserts the layout. v0.9 grew `text_input` from 32
+bytes and appended the composition fields; this is the shape that
+freezes after 0.9.
 
 ### `WLX_Input_Handler`
 
@@ -692,11 +1010,36 @@ Mouse cursor shape the core asks the backend to show through the optional
 `set_cursor` callback. `ARROW` is `0` so a zero-initialized context matches
 every platform's default cursor; the enum is append-only.
 
+### `WLX_Text_Input_Area`
+
+```c
+typedef struct {
+    bool     active;     // an editable text widget holds focus this frame
+    WLX_Rect line;       // the caret's visual line, kept inside the widget's text band (units;
+                         // a caret outside the band pins to the nearer edge)
+    float    cursor;     // caret x offset from line.x (units)
+    bool     multiline;  // textarea / editor
+    bool     password;   // masked field
+} WLX_Text_Input_Area;
+```
+
+Where the platform's input method should anchor itself: the caret line
+of the editable text widget that holds focus this frame, assembled by the
+core from the widget's caret geometry and pushed through the optional
+`WLX_Backend.set_text_input_area` callback from `wlx_end`, only when it
+changed. `active` is focus: it does not follow the caret's blink or
+whether the caret line is in view. With `active` false the other members
+are zero. `multiline` and
+`password` let a platform pick its keyboard and prediction behaviour
+(SDL3 takes them as start-time properties, so the adapter restarts text
+input when they change). Read the last pushed value with
+`wlx_text_input_area`.
+
 ### `WLX_Interaction`
 
 ```c
 typedef struct {
-    size_t id;
+    WLX_Id id;
     bool hover;           // Mouse is over widget
     bool pressed;         // Mouse is currently down on this widget
     bool clicked;         // Click completed (CLICK mode) or keyboard activated
@@ -740,8 +1083,8 @@ typedef struct {
     float accumulated_content_height;
 
     union {
-        struct { /* linear fields */ } linear;
-        struct { /* grid fields   */ } grid;
+        WLX_Layout_Linear linear;   // the linear layout's fields
+        WLX_Layout_Grid   grid;     // the grid's fields
     };
 } WLX_Layout;
 ```
@@ -749,25 +1092,16 @@ typedef struct {
 Internal layout node pushed onto the layout stack. Typically not accessed
 directly — use the layout API functions instead.
 
-### `WLX_Layout_Stack`
-
-```c
-typedef struct {
-    WLX_Layout *items;
-    size_t count, capacity;
-} WLX_Layout_Stack;
-```
-
-Dynamic array of `WLX_Layout` nodes. Managed by the library; stored in
-`ctx->arena.layouts`.
-
 ### `WLX_Widget_Opt`
 
 ```c
 typedef struct {
     WLX_LAYOUT_SLOT_FIELDS;
     WLX_WIDGET_SIZING_FIELDS;
-    WLX_Color color;
+    WLX_Color back_color;
+    WLX_BORDER_FIELDS;
+    const char *id;
+    bool from_defaults;
 } WLX_Widget_Opt;
 ```
 
@@ -778,35 +1112,62 @@ designated-initializer pattern as all other widget option structs.
 
 ## Types — Persistent State
 
+### `WLX_Id`
+
+```c
+typedef uint64_t WLX_Id;
+```
+
+The widget id type: the key of every interaction and persistent-state
+lookup, 64-bit on every target including wasm32. `0` is reserved for "no
+widget". Ids derive from the call site and the ID stack (see the Identity
+Model below), so they are not stable across builds; print one with
+`PRIu64`. Passing a `size_t` where a `WLX_Id` is expected compiles
+unchanged. A `size_t` that stores an id also compiles silently, but on wasm32
+it keeps 32 of the 64 bits and never compares equal again: declare it
+`WLX_Id`.
+
 ### `WLX_State`
 
 ```c
 typedef struct {
-    size_t id;
+    WLX_Id id;
     void  *data;
 } WLX_State;
 ```
 
 Handle returned by `wlx_get_state()`. The `data` pointer is zero-initialized on
-first access and survives across frames.
+first access. Its lifetime:
+
+- `data` is valid through the frame that returned it.
+- The state survives across frames while its id is requested at least once
+  every `WLX_STATE_MIN_AGE` frames (300).
+- State that goes unrequested longer than that may be reclaimed at a
+  `wlx_begin` once the context holds more than `WLX_STATE_EVICT_THRESHOLD`
+  entries (4096), or at any time by `wlx_state_prune`. Below the threshold,
+  and without a prune call, nothing is ever reclaimed.
+- Reclaimed state comes back zeroed on its next request, exactly as a first
+  request.
+- Reclamation drops the block without notice, so state must not own
+  resources: no heap pointers, handles or anything else that needs
+  releasing. An application whose state must own resources, or must
+  outlive long absences, defines `WLX_STATE_EVICT_THRESHOLD` as `0`.
+
+Ages count frames, not seconds. Both macros, and `WLX_STATE_RECYCLE` (`1`;
+`0` under an address sanitizer, so a use after reclamation is reported
+rather than served from a recycled block), are `#ifndef`-overridable before
+the include.
 
 ### `WLX_Inputbox_State`
 
 ```c
 typedef struct {
-    size_t cursor_pos;
-    float  cursor_blink_time;
-    size_t selection_anchor;   // selection = [min(anchor,cursor), max(...))
-    bool   mouse_selecting;    // drag-selection in progress
-    float  last_click_time;    // multi-click detection clock
-    size_t last_click_pos;
-    int    click_count;        // 1 = caret, 2 = word, 3 = select all
-    float  preferred_x;        // sticky column for UP/DOWN caret motion
-    bool   preferred_x_valid;  // cleared by any horizontal caret change
-    float  scroll_y;           // multiline: content px hidden above the band
-    size_t prev_cursor_pos;    // caret-follow motion detection
-    bool   dragging_scrollbar; // thumb drag in progress (multiline overflow)
-    float  sb_drag_offset;     // pointer offset from thumb top at drag start
+    WLX_Text_Edit_State caret; // caret, selection, click and drag gestures,
+                               // composition span (internal; shared with
+                               // the editor's state)
+    float scroll_y;            // multiline: content px hidden above the band
+    float scroll_x;            // single-line: content px hidden left of the band
+    bool  sb_was_visible;      // last frame's scrollbar visibility
 } WLX_Inputbox_State;
 ```
 
@@ -824,7 +1185,8 @@ typedef struct {
     float   drag_offset;
     bool    hovered;
     float   wheel_scroll_speed;
-    size_t  saved_auto_scroll_panel_id;
+    bool    pushed_scope;   // a scope id was pushed at begin
+    WLX_Id  saved_auto_scroll_panel_id;
     float   saved_auto_scroll_total_height;
 } WLX_Scroll_Panel_State;
 ```
@@ -842,17 +1204,6 @@ typedef struct {
 
 Open-addressing hash map of all persistent state entries. Stored in
 `ctx->states`.
-
-### `WLX_Id_Stack`
-
-```c
-typedef struct {
-    size_t *items;
-    size_t count, capacity;
-} WLX_Id_Stack;
-```
-
-Stack of extra ID values pushed by `wlx_push_id()`. Stored in `ctx->arena.id_stack`.
 
 ### `WLX_Allocator`
 
@@ -998,60 +1349,60 @@ typedef struct {
     float   hover_brightness;    // Brightness shift on hover
 
     // Disabled state (see WIDGETS.md § Disabled state)
-    float   disabled_brightness; // WLX_FLOAT_UNSET → skip; otherwise applied via wlx_color_brightness
+    float   disabled_brightness; // WLX_UNSET → skip; otherwise applied via wlx_color_brightness
     float   disabled_opacity;    // <0 → skip multiply; built-in presets use 0.55f
 
     // Opacity
     float   opacity;             // Global opacity multiplier (<0 = unset sentinel, 0.0–1.0 = explicit)
 
-    // Widget-specific overrides (zero = use globals)
+    // Widget-specific overrides: each comment names what a zero value (for
+    // a border width, a negative one) falls back to
     struct {
-        WLX_Color border_focus;  // {0} → derive from accent
-        WLX_Color cursor;        // {0} → use foreground
-        WLX_Color selection;     // {0} → derive from accent (translucent)
-        float     border_width;  // 0 → use global border_width
+        WLX_Color border_focus;  // {0} → accent
+        WLX_Color cursor;        // {0} → foreground
+        WLX_Color selection;     // {0} → accent at alpha 90
+        float     border_width;  // < 0 → global border_width; 0 → no border
     } input;
 
     struct {
-        WLX_Color track;         // {0} → derive from surface
-        WLX_Color thumb;         // {0} → use foreground
-        WLX_Color label;         // {0} → use foreground
-        float    track_height;   // 0 → default (6)
-        float    thumb_width;    // 0 → default (14)
+        WLX_Color track;         // {0} → midway between surface and border
+        WLX_Color thumb;         // {0} → foreground
+        WLX_Color label;         // {0} → foreground
+        float    track_height;   // <= 0 → 6
+        float    thumb_width;    // <= 0 → 14
     } slider;
 
     struct {
-        WLX_Color check;         // {0} → use foreground
-        WLX_Color border;        // {0} → use theme border
-        float     border_width;  // 0 → use global border_width
+        WLX_Color check;         // {0} → foreground
+        WLX_Color border;        // {0} → border
+        float     border_width;  // < 0 → global border_width; 0 → no border
     } checkbox;
 
     struct {
-        WLX_Color track;              // {0} → derive from surface
-        WLX_Color track_active;       // {0} → derive from accent
-        WLX_Color thumb;              // {0} → use foreground
-        float     track_height;       // 0 → default (computed from widget height)
-        float     track_to_height_ratio; // 0 → default (2.0)
-        float     thumb_inset_ratio;  // 0 → default (0.15)
+        WLX_Color track;              // {0} → slider.track (and its fallback)
+        WLX_Color track_active;       // {0} → accent
+        WLX_Color thumb;              // {0} → foreground
+        float     track_to_height_ratio; // <= 0 → 2.0
+        float     thumb_inset_ratio;  // <= 0 → 0.15
     } toggle;
 
     struct {
-        WLX_Color ring;               // {0} → use border
-        WLX_Color fill;               // {0} → use accent
-        WLX_Color label;              // {0} → use foreground
-        float     border_width;       // 0 → use global border_width
-        float     selected_inset_ratio; // 0 → default (0.25)
+        WLX_Color ring;               // {0} → border
+        WLX_Color fill;               // {0} → accent
+        WLX_Color label;              // {0} → foreground
+        float     border_width;       // < 0 → global border_width; 0 → no border
+        float     selected_inset_ratio; // <= 0 → 0.25
     } radio;
 
     struct {
-        WLX_Color track;         // {0} → fall back to slider.track
-        WLX_Color fill;          // {0} → fall back to accent
-        float     track_height;  // 0 → fall back to slider.track_height
+        WLX_Color track;         // {0} → slider.track (and its fallback)
+        WLX_Color fill;          // {0} → accent
+        float     track_height;  // <= 0 → slider.track_height (and its fallback)
     } progress;
 
     struct {
         WLX_Color bar;           // Scrollbar thumb color
-        float    width;          // Scrollbar width (0 → default 10)
+        float    width;          // Scrollbar width (<= 0 → 10)
     } scrollbar;
 
     struct {
@@ -1066,8 +1417,11 @@ typedef struct {
 } WLX_Theme;
 ```
 
-All `{0}` color values are sentinels meaning "derive from the corresponding
-global." Set `ctx->theme` before `wlx_begin()`.
+Every per-widget override has a fallback, so a theme written from the
+global block alone still draws every widget: a zero colour or a size `<= 0`
+takes the value its comment names, read through at every use (a theme
+swapped mid-frame takes effect at once). Set `ctx->theme` before
+`wlx_begin()`.
 
 The `shadow` / `glow` sub-structs hold the default numeric knobs for the
 first-class glow/shadow effect fields (see
@@ -1088,22 +1442,22 @@ typedef struct {
 
     struct {
         // Three widget identities, each independent of the others:
-        size_t hot_id;          // hover owner this frame (pointer-derived, re-arbitrated every frame)
-        size_t active_id;       // pressed / dragged / typing-focused widget (persists until released)
-        size_t focus_id;        // keyboard (Tab) focus ring; 0 = none
+        WLX_Id hot_id;          // hover owner this frame (pointer-derived, re-arbitrated every frame)
+        WLX_Id active_id;       // pressed / dragged / typing-focused widget (persists until released)
+        WLX_Id focus_id;        // keyboard (Tab) focus ring; 0 = none
         bool   active_id_seen;  // active_id holder was queried this frame (else released at wlx_end)
         bool   focus_id_seen;   // focus_id holder was queried this frame (else released at wlx_end)
         bool   enter_consumed;  // an Enter already blurred a field this frame: no keyboard activation
         // Frame-begin ownership arbitration over the previous frame's
         // candidates (see LAYOUT_MODEL.md "Ownership Arbitration"):
         bool   arbitrate;          // previous frame recorded candidates (false on a context's first frame)
-        size_t press_owner;        // topmost candidate under a fresh left press, latched until release
-        size_t right_press_owner;  // same for the right button; never touches focus or hot
+        WLX_Id press_owner;        // topmost candidate under a fresh left press, latched until release
+        WLX_Id right_press_owner;  // same for the right button; never touches focus or hot
         int    pointer_layer;      // layer of the pointer's topmost candidate (wheel routing)
         bool   active_is_focus;    // active_id holder is a typing-focus widget (inputbox/editor)
         bool   active_consumes_tab;// ... and holds Tab for itself (editor): Tab inserts, no traversal
-        size_t focus_released_id;  // typing focus released at frame begin; it still reports just_unfocused
-        size_t focus_gained_id;    // one-shot: Tab traversal landed here; the widget acquires typing focus on its query
+        WLX_Id focus_released_id;  // typing focus released at frame begin; it still reports just_unfocused
+        WLX_Id focus_gained_id;    // one-shot: Tab traversal landed here; the widget acquires typing focus on its query
         bool   tab_consumed;       // one-shot: traversal used this frame's Tab; text edit must not insert it
         WLX_Rect focus_rect;       // clipped rect of the focus_id holder (focus ring geometry)
         bool   press_claimed;      // the press owner's own query ran (popups detect outside presses)
@@ -1114,9 +1468,13 @@ typedef struct {
     WLX_State_Map   states;    // Persistent per-widget state map
 
     struct {
-        size_t panel_id;
+        WLX_Id panel_id;
         float  total_height;
     } auto_scroll;
+
+    WLX_Error_Fn error_handler;  // contract-error handler; set through wlx_set_error_handler
+    void        *error_user;
+    int          error_count;    // read through wlx_error_count
 
     const WLX_Theme *theme;    // NULL → &wlx_theme_dark
 } WLX_Context;
@@ -1141,6 +1499,141 @@ wlx_context_init_raylib(&ctx);         // or wlx_context_init_sdl3(&ctx, win, re
 ctx.theme = &wlx_theme_light;          // optional; NULL defaults to wlx_theme_dark
 // ... use &ctx ...
 wlx_context_destroy(&ctx);             // frees internal buffers
+```
+
+---
+
+## Error Reporting
+
+A caller-contract violation (more children than slots, a grid cell outside
+the grid, an end without a begin or of the wrong kind, a widget with no layout
+open, a count of zero, a required pointer that is NULL) is reported in
+**every build**, and
+the call then degrades the way its entry documents. Nothing here compiles
+out under `NDEBUG`. Library invariants stay plain `assert()`s; memory guards
+stay `WLX_HARD_ASSERT` (release-live and fatal, printing through
+[`WLX_ERROR_PRINT`](#wlx_error_print) first).
+
+### `WLX_Error_Code`, `WLX_Error`, `WLX_Error_Fn`
+
+```c
+typedef enum {
+    WLX_ERR_NONE = 0,
+    WLX_ERR_SLOT_OVERRUN,     // more children than slots in a linear layout
+    WLX_ERR_GRID_BOUNDS,      // cell or span outside rows x cols
+    WLX_ERR_UNBALANCED_END,   // end or pop without a matching begin or push, an end of
+                              // the wrong kind, or an id still pushed at wlx_end
+    WLX_ERR_NO_LAYOUT,        // widget placed with no layout open
+    WLX_ERR_BAD_ARGUMENT,     // count 0 or negative, px <= 0, required NULL
+    WLX_ERR_LIMIT,            // a documented limit exceeded (WLX_CONTENT_SLOTS_MAX ...)
+    WLX_ERR_BACKEND,          // backend table not ready at wlx_begin
+    WLX_ERR_BACKEND_ANSWER,   // a backend callback answered outside its contract; the call degrades
+    WLX_ERR_COUNT
+} WLX_Error_Code;
+
+typedef struct WLX_Error {
+    WLX_Error_Code code;
+    const char *message;      // static, human readable
+    const char *file;         // caller site when the entry records one, else NULL
+    int         line;
+    const char *layout_file;  // begin site of the innermost open layout, else NULL
+    int         layout_line;
+} WLX_Error;
+
+typedef void (*WLX_Error_Fn)(const WLX_Error *err, void *user);
+```
+
+`file`/`line` name the widget or begin call when the entry receives a call
+site (every widget macro, every begin form, the slot-style entries and the
+list clipper do); `layout_file`/
+`layout_line` name the begin of the innermost layout open at the time,
+which for an overrun is the layout that ran out and for a missing end is
+the layout left open. The enum's names are stable; its numbering is not
+promised across releases in 0.9.
+
+### `wlx_set_error_handler`
+
+```c
+void wlx_set_error_handler(WLX_Context *ctx, WLX_Error_Fn fn, void *user);
+```
+
+Install the handler; `NULL` restores the default. **Handler contract:** it
+runs on the calling thread inside the misusing call, before the
+degradation; it sees every occurrence (at frame rate while a misuse
+recurs); it may `abort` or `exit`; it must not call any `wlx_` function on
+the same context (a `WLX_DEBUG` build asserts when a handler causes a
+second report on that context); it must not `longjmp` past the frame,
+because the layout stack and the command ranges would be left open.
+
+### `wlx_error_count`
+
+```c
+int wlx_error_count(const WLX_Context *ctx);
+```
+
+Reports since `wlx_context_init`, in every build, with or without a
+handler, never throttled. Cheap to show in a status bar.
+
+### The default handler
+
+With no handler installed, each distinct site (code, caller site, layout
+site) prints once through [`WLX_ERROR_PRINT`](#wlx_error_print):
+
+```
+demo.c:88: wollix error: slot overrun: more children than slots in this layout (layout begun at demo.c:80)
+```
+
+Then, in a build **without** `NDEBUG`, the process aborts at the site, as
+`assert()` did; in a build **with** `NDEBUG` the handler returns and the
+call degrades per the table below. After `WLX_ERROR_SITES_MAX` distinct
+sites the default prints one suppression line and stays silent.
+
+### What each violation does after the report
+
+| Violation | Code | Degradation |
+|---|---|---|
+| More children than slots in a fixed linear layout; `.pos` past the count | `WLX_ERR_SLOT_OVERRUN` | The child gets a zero-size rect at the layout's far edge, the layout's cursor stays where it was, and the child contributes nothing to CONTENT measurement |
+| `wlx_grid_cell` outside the grid (a fixed grid's rows or any grid's columns; an auto grid grows its rows) | `WLX_ERR_GRID_BOUNDS` | The placement is ignored; the cursor stands |
+| A grid cell fetched outside the grid (explicit, or auto-advance past a fixed grid's last row) | `WLX_ERR_GRID_BOUNDS` | Zero-size rect at the grid's far edge; cursor unchanged; no contribution |
+| `wlx_layout_end` / `wlx_grid_end`, `wlx_scroll_panel_end`, `wlx_pop_id`, `wlx_pop_opacity` with nothing to pop | `WLX_ERR_UNBALANCED_END` | Returns; no stack is touched |
+| `wlx_layout_end` / `wlx_grid_end` / `wlx_panel_end` on a scroll panel or overlay | `WLX_ERR_UNBALANCED_END` | Reported once, naming that container's begin; it is closed with its own end, so one container closes |
+| `wlx_scroll_panel_end` / `wlx_overlay_end` with a container opened inside it still open | `WLX_ERR_UNBALANCED_END` | Reported once, naming the open container's begin; the containers inside are closed with their own ends, then the panel or overlay |
+| `wlx_overlay_end` with no overlay open | `WLX_ERR_UNBALANCED_END` | Returns; nothing is closed (with no layout open at all it stays a hard assert) |
+| A layout still open at `wlx_end` | `WLX_ERR_UNBALANCED_END` | Reported once, naming the innermost open begin; a clip it (or a scroll panel) holds is released, the frame finishes, and the next `wlx_begin` resets the pool |
+| An id still pushed at `wlx_end` (once every layout is closed) | `WLX_ERR_UNBALANCED_END` | Reported once; the next `wlx_begin` resets the id stack |
+| A widget with no layout open | `WLX_ERR_NO_LAYOUT` | The widget takes the root rect (`ctx->rect`), as a root container does |
+| `wlx_layout_auto_slot`, `wlx_grid_auto_row_px`, `wlx_grid_cell`, `wlx_slot_style`, `wlx_grid_cell_style` with no layout open, or inside a layout of the wrong kind | `WLX_ERR_NO_LAYOUT` / `WLX_ERR_BAD_ARGUMENT` | Returns |
+| `wlx_list_clipper_begin` outside a scroll panel | `WLX_ERR_BAD_ARGUMENT` | The parent rect stands in for the viewport at offset 0: the rows that fit it are built |
+| A slot, row or column count of `0` or above `WLX_MAX_SLOT_COUNT` (a negative `int`, converted) | `WLX_ERR_BAD_ARGUMENT` | Clamped to 1 |
+| A `.span`, or a `wlx_grid_cell` `row_span` / `col_span`, above `WLX_MAX_SLOT_COUNT` (a negative `int` or `WLX_UNSET`, converted) | `WLX_ERR_BAD_ARGUMENT` | Takes one slot (one cell); a span of `0` takes one slot without a report |
+| A non-positive auto slot, row or tile size; a variable-size auto layout child with no `wlx_layout_auto_slot_px` before it | `WLX_ERR_BAD_ARGUMENT` | 1 px |
+| Positional `.pos` on a dynamic layout | `WLX_ERR_BAD_ARGUMENT` | Taken in sequence |
+| A required pointer that is NULL (`buffer`, `value`, `active`, `selected`, `open`, `length`) | `WLX_ERR_BAD_ARGUMENT` | The widget returns `false` and draws nothing; a dropdown with `options == NULL` and a nonzero count shows no options |
+| More slots than `WLX_CONTENT_SLOTS_MAX` with CONTENT sizes | `WLX_ERR_LIMIT` | CONTENT tracking is off for that layout; its CONTENT slots take their minimum size |
+| No usable backend table at `wlx_begin` | `WLX_ERR_BACKEND` | Reported, then fatal (`WLX_HARD_ASSERT`): there is no frame without a table |
+| `get_content_scale` returns a value outside `[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]`, or NaN | `WLX_ERR_BACKEND_ANSWER` | Reported at `wlx_begin`; the frame runs at 1.0 |
+| `wlx_split_next` / `wlx_split_end` with no split open, or `wlx_split_end` without `wlx_split_next` (`WLX_DEBUG` builds only) | `WLX_ERR_UNBALANCED_END` | Reported; the call goes on (the structural damage of a missing or stray split call is reported in every build by the scroll-panel and layout ends) |
+| A `measure_text_advances` chunk whose advances decrease (`WLX_DEBUG` builds only; negative `spacing` exempt) | `WLX_ERR_BACKEND_ANSWER` | Reported once per site; the chunk is clamped to non-decreasing (every unit edge inside it collapses onto the first value below it), and release builds clamp silently |
+| A NULL input handler at `wlx_begin` | `WLX_ERR_BAD_ARGUMENT` | The frame runs with no input |
+| A NULL call site (`file`) passed to a struct-form entry that derives an id (a widget, a container with `.interact`, `wlx_get_state_impl`) | `WLX_ERR_BAD_ARGUMENT` | The id hashes an empty path and the call goes on |
+
+### Examples
+
+```c
+// Log and keep running, in every build.
+static void on_wlx_error(const WLX_Error *e, void *user) {
+    Log *log = user;
+    log_error(log, "%s:%d: %s", e->file ? e->file : "wollix", e->line, e->message);
+}
+wlx_set_error_handler(&ctx, on_wlx_error, &app.log);
+
+// Make release builds stop as well.
+static void on_wlx_error_fatal(const WLX_Error *e, void *user) { (void)e; (void)user; abort(); }
+
+// In a test: capture and assert.
+static WLX_Error last; static int errors;
+static void capture(const WLX_Error *e, void *user) { (void)user; last = *e; errors++; }
+wlx_set_error_handler(&ctx, capture, NULL);
 ```
 
 ---
@@ -1183,11 +1676,53 @@ void wlx_end(WLX_Context *ctx);
 ```
 
 End the frame. Finalizes interaction state for the next frame. Call after all
-drawing and layout calls.
+drawing and layout calls. A layout still open here is a contract error,
+reported once with its begin site (see [Error Reporting](#error-reporting));
+the frame still finishes.
 
 Because deferred draw commands replay inside `wlx_end()`, keep it inside the
 backend's active frame scope. In Raylib that means calling `wlx_end(ctx)`
 before `EndDrawing()`.
+
+### `wlx_content_scale`
+
+```c
+float wlx_content_scale(const WLX_Context *ctx);
+```
+
+This frame's device pixels per unit, as sampled from
+`backend.get_content_scale` in `wlx_begin`: 1.0 before the first frame,
+when the backend has no callback, or when its value was unusable. Read it
+to choose a scaled image asset or to size drawing the application does
+itself; the layout, the theme and every option field stay in units. See
+[Coordinate space](#coordinate-space).
+
+### `wlx_text_input_area`
+
+```c
+WLX_Text_Input_Area wlx_text_input_area(const WLX_Context *ctx);
+```
+
+The composition anchor last pushed to the backend (see
+[`WLX_Text_Input_Area`](#wlx_text_input_area)): `active` with the focused
+editable text widget's caret line and caret offset, or inactive. A host
+whose backend table has no `set_text_input_area` callback reads it after
+`wlx_end` to start and stop the platform's text input and anchor its
+candidate window itself.
+
+### `wlx_text_composing`
+
+```c
+bool wlx_text_composing(const WLX_Context *ctx);
+```
+
+True while a text widget holds a composition string as a tentative span
+in its buffer, as of the last widget that ran this frame. While it is
+true the caller's buffer contains bytes the input method may still
+replace or withdraw; an application that mirrors a buffer on every
+change (live search, validation, autosave) can wait for it to turn false,
+which it does on the commit or the cancel. See
+[Composition input](WIDGETS.md#composition-input).
 
 ### Frame Loop Pattern
 
@@ -1225,14 +1760,15 @@ parent layout.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `pos` | `int` | `-1` | Target slot in parent (`-1` = next) |
+| `pos` | `int` | `WLX_UNSET` | Target slot in parent (unset = next) |
 | `span` | `size_t` | `1` | Slots to occupy in parent |
 | `overflow` | `bool` | `false` | Allow exceeding slot bounds |
 | `padding` | `float` | `0` | Uniform inset on the slot |
 | `sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `count` slot sizes. `NULL` = equal division |
+| `gap` | `float` | `0` | Spacing between adjacent slots; a negative value (`WLX_UNSET`, `WLX_FLOAT_UNSET`) reads as `0` |
 | `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every slot |
 | `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every slot |
-| `slot_border_width` | `float` | `0` | Border thickness in pixels (`0` = no border) |
+| `slot_border_width` | `float` | `0` | Border thickness in units (`0` = no border) |
 | `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full layout body. Also keys any container-owned state. `NULL` = no scoping |
 | `clip` | `bool` | `false` | Clip children to this layout's post-padding content rect (see [Layout clipping](#layout-clipping)) |
 | `interact` | `uint32_t` | `0` | `WLX_Interact_Flags` opt-in (`HOVER`/`CLICK`/`KEYBOARD`). `0` = non-interactive (no query, no overhead). See [Interactive containers](#interactive-containers) |
@@ -1269,9 +1805,20 @@ Contract and boundary rules:
   before installing, so a clip layout inside a scroll panel (or another clip
   layout) never widens the visible region; children are constrained to the
   intersection of all active clips.
-- **Backend no-op.** Clipping records `SCISSOR_BEGIN`/`SCISSOR_END` into the
-  deferred command buffer. A backend without `begin_scissor`/`end_scissor`
-  no-ops these at replay; the layout still lays out and draws, just unclipped.
+- **Input.** The clip rect bounds the pointer as well. A child's hit zone is
+  its rect intersected with every enclosing clip of its layer (clip layouts,
+  scroll panel viewports, an overlay's own rect), so the cropped part of a
+  widget cannot be hovered, pressed, dragged, focus-ringed or anchor a
+  tooltip, the same rule scroll panel viewports already follow. A scroll
+  panel inside a clip layout is scissored to the intersection, and the clip
+  is re-armed after the panel ends. A scroll panel takes the wheel only over
+  the visible part of its viewport by the same rule, and a widget whose hit
+  zone is clipped away entirely is not a Tab stop.
+- **Backend contract.** Clipping records `SCISSOR_BEGIN`/`SCISSOR_END` into the
+  deferred command buffer and the replay calls the backend's `begin_scissor` /
+  `end_scissor`, which are required callbacks (the frame-start readiness check
+  rejects a backend without them). Hit zones are bounded by the clip rect in
+  the core, independently of what the backend draws.
 - **Cost.** Each clip adds one scissor begin/end pair and can break draw
   batching, so it is opt-in. Grids do not currently expose `clip`; wrap a grid
   in a `clip` layout if you need grid-cell containment.
@@ -1337,15 +1884,13 @@ Rules:
   hover-variant width, gradient, shadow, or glow fields. An *appearing* border is
   expressed with a constant width plus a transparent (`{0}`) base color that
   toggles to an accent `hover_*` color, as in the example above.
-- **Id stability.** The interaction id is `hash(file, line) ^ id_stack` with the
+- **Id stability.** The interaction id is `mix(hash(file, line) ^ id_stack_hash)` with the
   container scope folded in (the same rule `wlx_get_state` uses), so give
   reusable row/card functions a per-instance `.id`.
 - **Supported flags.** `HOVER`, `CLICK`, and `KEYBOARD`. `FOCUS` and `DRAG` are
-  not supported on containers. The auto-counted begins
-  (`wlx_layout_begin_auto`, `wlx_grid_begin_auto`, `wlx_grid_begin_auto_tile`)
-  have no stable call-site id and do not support `interact`.
+  not supported on containers.
 - **Interactive children win the press.** Press and hover ownership is
-  topmost-wins (ADR_039): the innermost candidate under the pointer - the
+  topmost-wins: the innermost candidate under the pointer - the
   latest query at that point - owns them, so a `wlx_button` inside a `CLICK`
   container fires its own click and the container reports `clicked` only for
   presses on its own non-interactive area (labels, images, separators,
@@ -1364,7 +1909,7 @@ Push a dynamic layout whose slot count grows as children are added.
 |-----------|------|-------------|
 | `ctx` | `WLX_Context *` | The UI context |
 | `orient` | `WLX_Orient` | `WLX_HORZ` or `WLX_VERT` |
-| `slot_px` | `float` | Fixed pixel size per slot. `0` = variable (use `wlx_layout_auto_slot()` or `wlx_layout_auto_slot_px()`) |
+| `slot_px` | `float` | Fixed size per slot, in units. `0` = variable (use `wlx_layout_auto_slot()` or `wlx_layout_auto_slot_px()`) |
 
 ### `wlx_layout_auto_slot`
 
@@ -1386,7 +1931,7 @@ child calls `wlx_get_slot_rect()`.
 
 | Kind | Resolution |
 |------|------------|
-| `WLX_SIZE_PIXELS` | Exact pixel value |
+| `WLX_SIZE_PIXELS` | Exact value in units |
 | `WLX_SIZE_PERCENT` | `value × total / 100` where total is the layout rect width (HORZ) or height (VERT) |
 | `WLX_SIZE_FILL` | `value × viewport` (scroll panel viewport, or layout rect if none) |
 | `WLX_SIZE_FLEX` | **Greedy:** consumes all remaining space (`total − used`). Only the *last* FLEX slot in the layout gets the correct split — multiple FLEX slots do **not** share proportionally. |
@@ -1422,7 +1967,7 @@ void wlx_layout_auto_slot_px(WLX_Context *ctx, float px);
 Convenience wrapper — equivalent to
 `wlx_layout_auto_slot(ctx, WLX_SLOT_PX(px))`.
 
-Override the pixel size for the **next** slot in the enclosing dynamic layout.
+Override the size (in units) of the **next** slot in the enclosing dynamic layout.
 Call immediately before the widget whose size differs from the layout's global
 `slot_px`. Consumed automatically.
 
@@ -1434,7 +1979,10 @@ void wlx_layout_end(WLX_Context *ctx);
 
 Pop the current layout from the stack. Every `wlx_layout_begin` / `wlx_layout_begin_auto`
 / `wlx_grid_begin` / `wlx_grid_begin_auto` must have a matching `wlx_layout_end` (or
-`wlx_grid_end`).
+`wlx_grid_end`). An end with nothing to pop is a contract error: reported
+(see [Error Reporting](#error-reporting)) and returned from without
+touching the stack. On a scroll panel or an overlay it is reported too, and
+that container is closed with its own end (`WLX_Layout_Owner`).
 
 ---
 
@@ -1458,23 +2006,23 @@ Push a fixed-size grid layout.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `pos` | `int` | `-1` | Target slot in parent |
+| `pos` | `int` | `WLX_UNSET` | Target slot in parent |
 | `span` | `size_t` | `1` | Slots to occupy in parent |
 | `overflow` | `bool` | `false` | Allow exceeding slot bounds |
 | `padding` | `float` | `0` | Uniform inset on the slot |
 | `back_color` | `WLX_Color` | `{0}` | Background fill drawn behind the whole grid |
 | `border_color` | `WLX_Color` | `{0}` | Border color for the whole grid container |
-| `border_width` | `float` | `0` | Border thickness in pixels for the whole grid container |
+| `border_width` | `float` | `0` | Border thickness in units for the whole grid container |
 | `roundness` | `float` | `0` | Rounded corner factor (fraction of shorter side) for the grid container |
-| `corner_radius` | `float` | `0` | Absolute corner radius in pixels; `> 0` overrides `roundness`, `0` = unset |
+| `corner_radius` | `float` | `0` | Absolute corner radius in units; `> 0` overrides `roundness`, `0` = unset |
 | `rounded_segments` | `int` | `0` | Segment count for rounded corners (`0` = theme default) |
 | `rounded_corners` | `int` | `0` | `WLX_CORNERS_*` mask of which corners use the radius; `0` = all four. Omitted corners are squared off (fill only) |
-| `gap` | `float` | `0` | Spacing between adjacent cells |
+| `gap` | `float` | `0` | Spacing between adjacent cells; a negative value reads as `0` |
 | `row_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `rows` row sizes. `NULL` = equal division. Supports `WLX_SLOT_CONTENT` (with min/max) for rows that adapt to the tallest widget per row (one-frame delay). Max 32 CONTENT rows. |
 | `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes. `NULL` = equal division |
 | `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every cell |
 | `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every cell |
-| `slot_border_width` | `float` | `0` | Border thickness in pixels (`0` = no border) |
+| `slot_border_width` | `float` | `0` | Border thickness in units (`0` = no border) |
 | `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full grid body. `NULL` = no scoping |
 
 Use `border_*` to decorate the outer grid rect and `slot_border_*` to decorate each cell independently.
@@ -1491,28 +2039,28 @@ Push a dynamic grid whose row count grows as children are added.
 |-----------|------|-------------|
 | `ctx` | `WLX_Context *` | The UI context |
 | `cols` | `size_t` | Fixed number of columns |
-| `row_px` | `float` | Fixed pixel height per row |
+| `row_px` | `float` | Fixed row height in units |
 
 **Options** (`WLX_Grid_Auto_Opt`):
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `pos` | `int` | `-1` | Target slot in parent |
+| `pos` | `int` | `WLX_UNSET` | Target slot in parent |
 | `span` | `size_t` | `1` | Slots to occupy in parent |
 | `overflow` | `bool` | `false` | Allow exceeding slot bounds |
 | `padding` | `float` | `0` | Uniform inset |
 | `back_color` | `WLX_Color` | `{0}` | Background fill drawn behind the whole grid |
 | `border_color` | `WLX_Color` | `{0}` | Border color for the whole grid container |
-| `border_width` | `float` | `0` | Border thickness in pixels for the whole grid container |
+| `border_width` | `float` | `0` | Border thickness in units for the whole grid container |
 | `roundness` | `float` | `0` | Rounded corner factor (fraction of shorter side) for the grid container |
-| `corner_radius` | `float` | `0` | Absolute corner radius in pixels; `> 0` overrides `roundness`, `0` = unset |
+| `corner_radius` | `float` | `0` | Absolute corner radius in units; `> 0` overrides `roundness`, `0` = unset |
 | `rounded_segments` | `int` | `0` | Segment count for rounded corners (`0` = theme default) |
 | `rounded_corners` | `int` | `0` | `WLX_CORNERS_*` mask of which corners use the radius; `0` = all four. Omitted corners are squared off (fill only) |
-| `gap` | `float` | `0` | Spacing between adjacent cells |
+| `gap` | `float` | `0` | Spacing between adjacent cells; a negative value reads as `0` |
 | `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes |
 | `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every cell |
 | `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every cell |
-| `slot_border_width` | `float` | `0` | Border thickness in pixels (`0` = no border) |
+| `slot_border_width` | `float` | `0` | Border thickness in units (`0` = no border) |
 | `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full grid body. `NULL` = no scoping |
 
 Use `border_*` to decorate the outer grid rect and `slot_border_*` to decorate each cell independently.
@@ -1529,8 +2077,8 @@ Equivalent to `cols = floor(available_width / tile_w)` then
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `tile_w` | `float` | Desired tile width in pixels |
-| `tile_h` | `float` | Desired tile height in pixels |
+| `tile_w` | `float` | Desired tile width in units |
+| `tile_h` | `float` | Desired tile height in units |
 
 ### `wlx_grid_cell`
 
@@ -1539,6 +2087,11 @@ Equivalent to `cols = floor(available_width / tile_w)` then
 ```
 
 Override the auto-advance cursor so the **next** child occupies a specific cell.
+A cell or span outside the grid is a contract error: reported (see
+[Error Reporting](#error-reporting)) and ignored, the cursor standing. On an
+auto grid (`wlx_grid_begin_auto`) the rows are not a bound: a placement on a
+row not grown yet grows the grid to it; only the columns and
+`WLX_MAX_SLOT_COUNT` bound it.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -1549,8 +2102,8 @@ Override the auto-advance cursor so the **next** child occupies a specific cell.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `row_span` | `size_t` | `1` | Number of rows to span |
-| `col_span` | `size_t` | `1` | Number of columns to span |
+| `row_span` | `size_t` | `1` | Number of rows to span (`0` spans one; above `WLX_MAX_SLOT_COUNT` is reported and spans one) |
+| `col_span` | `size_t` | `1` | Number of columns to span (same rule) |
 | `back_color` | `WLX_Color` | `{0}` | One-shot background fill for this cell only |
 | `border_color` | `WLX_Color` | `{0}` | One-shot border color for this cell only |
 | `border_width` | `float` | `0` | One-shot border thickness for this cell only |
@@ -1572,7 +2125,7 @@ decoration (or no decoration if none is set).
 |-------|------|---------|-------------|
 | `back_color` | `WLX_Color` | `{0}` | Background fill for this cell |
 | `border_color` | `WLX_Color` | `{0}` | Border color for this cell |
-| `border_width` | `float` | `0` | Border thickness in pixels |
+| `border_width` | `float` | `0` | Border thickness in units |
 
 ### `wlx_slot_style`
 
@@ -1592,7 +2145,7 @@ The override is consumed and reset after that slot's rect is computed.
 void wlx_grid_auto_row_px(WLX_Context *ctx, float px);
 ```
 
-Override the pixel height for the **next** row in the enclosing dynamic grid.
+Override the height (in units) of the **next** row in the enclosing dynamic grid.
 Call immediately before the first widget of the row whose height differs from
 the grid's default `row_px`.
 
@@ -1609,14 +2162,17 @@ Alias for `wlx_layout_end(ctx)`.
 ## Slot Size Macros
 
 Construct `WLX_Slot_Size` values for use in `sizes` / `row_sizes` / `col_sizes`
-arrays.
+arrays. In C each macro is a compound literal (an expression, not a constant
+expression): an automatic array may use them, but an object with static
+storage duration takes the brace form, `{ WLX_SIZE_PIXELS, 44, 0, 0 }`; gcc
+and clang accept the literal there as an extension, MSVC does not.
 
 ### Basic variants
 
 | Macro | Description |
 |-------|-------------|
 | `WLX_SLOT_AUTO` | Equal division of remaining space |
-| `WLX_SLOT_PX(px)` | Fixed pixel size |
+| `WLX_SLOT_PX(px)` | Fixed size in units |
 | `WLX_SLOT_PCT(pct)` | Percentage of parent (0–100) |
 | `WLX_SLOT_FLEX(weight)` | Flex weight — proportional share of remaining space |
 | `WLX_SLOT_FILL` | Fill entire viewport (scroll panel or layout rect) |
@@ -1645,7 +2201,7 @@ arrays.
 
 | Macro | Description |
 |-------|-------------|
-| `WLX_SLOT_PX_MINMAX(px, lo, hi)` | Fixed pixels with min/max clamp |
+| `WLX_SLOT_PX_MINMAX(px, lo, hi)` | Fixed units with min/max clamp |
 | `WLX_SLOT_PCT_MINMAX(pct, lo, hi)` | Percentage with min/max clamp |
 | `WLX_SLOT_FLEX_MIN(weight, lo)` | Flex with minimum |
 | `WLX_SLOT_FLEX_MAX(weight, hi)` | Flex with maximum |
@@ -1717,8 +2273,14 @@ wlx_layout_begin_s(ctx, WLX_HORZ,
 Wollix uses one shared hash formula for all identity purposes:
 
 ```
-id = hash(file, line) ^ id_stack_hash
+id = mix(hash(file, line) ^ id_stack_hash)
 ```
+
+`mix` is a full-avalanche finalizer, and the ID stack hash is itself mixed
+per push from a nonzero seed, so a source-line step can never be undone by
+a pushed value, a push of `0` differs from no push, and stacks of different
+depth never coincide. Ids are `WLX_Id` (64-bit on every target) and are
+not stable across builds.
 
 Three conceptual roles map onto this formula:
 
@@ -1760,9 +2322,10 @@ WLX_Interaction wlx_get_interaction(
 Unified interaction handler. Returns a `WLX_Interaction` struct describing the
 current hover/press/click/focus/drag state for the given rect.
 
-Interaction IDs are derived from call-site `file`/`line` plus the ID stack
-plus a frame-local sequential counter — unique even if the same source line is
-reached multiple times.
+Interaction IDs are derived from the call-site `file`/`line` and the ID
+stack, the same derivation as state IDs. A source line reached more than once
+in a frame yields one id, so wrap each repetition in `wlx_push_id` /
+`wlx_pop_id`; `WLX_DEBUG` builds warn once per such site.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -1803,28 +2366,62 @@ for the coverage matrix.
 ```
 
 Returns a `WLX_State` handle with a pointer to zero-initialized persistent data
-of the given `type`. The data survives across frames.
+of the given `type`. The data survives across frames under the lifetime rules
+listed at `WLX_State`: valid through the frame, kept while requested within
+`WLX_STATE_MIN_AGE` frames, reclaimable only above `WLX_STATE_EVICT_THRESHOLD`
+entries or through `wlx_state_prune`, back zeroed afterwards, never owning
+resources.
 
-State IDs use call-site `file`/`line` plus the ID stack (no frame-local
-counter), so they are stable across frames. Use exactly **one** call per
-widget instance per frame.
+State IDs use call-site `file`/`line` plus the ID stack, so they are stable
+across frames. Use exactly **one** call per
+widget instance per frame: a second request for one id in the same frame
+returns the same block, so two instances silently share it. Under
+`WLX_DEBUG` that second request is reported, once per call site, with a
+hint to wrap the repeat in `wlx_push_id` / `wlx_pop_id` or give its
+container an `.id`. A widget's interaction and its state share one id, so
+requesting both does not count as a repeat.
 
 ```c
 typedef struct { float scroll_y; int page; } MyState;
 
 WLX_State s = wlx_get_state(ctx, MyState);
 MyState *state = (MyState *)s.data;
-state->page = 1;  // persists until the program exits
+state->page = 1;  // persists across frames under the lifetime rules above
 ```
+
+### `wlx_state_prune`
+
+```c
+size_t wlx_state_prune(WLX_Context *ctx, uint32_t max_age);
+```
+
+Reclaims every persistent state entry not requested for `max_age` frames
+(clamped to at least 1, so an entry requested in the current frame always
+survives) and returns the number reclaimed. The editor line index and the
+undo journal of a reclaimed widget go with it. This is the deterministic
+release point an application may use instead of, or as well as, the
+automatic sweep: after a route change, say. It may be called inside or
+between frames; the `data` pointers of surviving entries do not move.
+Between frames, `max_age` counts the frames since the one that just ended
+(1 keeps exactly that frame's entries). Inside a frame the current frame
+counts, so call it after the widgets whose state it must keep have run.
+The automatic sweep runs at `wlx_begin` before the frame counter
+advances, so `WLX_STATE_MIN_AGE` likewise counts complete frames of
+absence; it must be at least 1 (a smaller value does not compile).
 
 ### `wlx_push_id` / `wlx_pop_id`
 
 ```c
-void wlx_push_id(WLX_Context *ctx, size_t id);
+void wlx_push_id(WLX_Context *ctx, WLX_Id id);
 void wlx_pop_id(WLX_Context *ctx);
 ```
 
 Low-level escape hatch that pushes an arbitrary integer onto the ID stack.
+Pushing `0` is a real push, and the same values pushed in a different order
+or at a different depth give a different stack. A `wlx_pop_id` with nothing
+to pop is a contract error: reported (see
+[Error Reporting](#error-reporting)) and returned from, and so is an id still
+pushed when `wlx_end` runs.
 Prefer setting `.id` on container option structs (Scope ID) for
 container-body disambiguation. Use `wlx_push_id`/`wlx_pop_id` directly only
 for loop-level or reusable-function-level disambiguation that container `.id`
@@ -1909,24 +2506,28 @@ bool wlx_mod_command_down(WLX_Context *ctx);
 ```
 
 Returns `true` when the platform's editing command modifier is held:
-`WLX_MOD_SUPER` (Cmd) on Apple platforms, `WLX_MOD_CTRL` elsewhere. All
-inputbox clipboard shortcuts route through this helper.
+`WLX_MOD_SUPER` (Cmd) on Apple platforms, `WLX_MOD_CTRL` with `WLX_MOD_ALT`
+up elsewhere. Ctrl+Alt is AltGr on Windows (browsers, SDL3 and GLFW report
+it that way) and types the layout's character, so it is not an editing
+chord. The clipboard, select-all and undo / redo chords of the text widgets,
+and the command-modified HOME / END, route through this helper.
 
 ### `wlx_focused_id`
 
 ```c
-size_t wlx_focused_id(WLX_Context *ctx);
+WLX_Id wlx_focused_id(WLX_Context *ctx);
 ```
 
 Id of the widget holding the keyboard (Tab) focus ring, or `0`. Compare
 against `WLX_Interaction.id`. Tab / Shift-Tab move it through the previous
 frame's Tab stops in declaration order (topmost layer only, wrapping at both
-ends); any pointer press, or Escape with nothing active, clears it; a widget
-that stops being declared releases it at `wlx_end`. While non-zero, `wlx_end`
-draws an accent outline around the focused widget's rect
-(`WLX_FOCUS_RING_THICKNESS` / `WLX_FOCUS_RING_GAP`, `#ifndef`-overridable;
-color `theme->accent`). Independent of `WLX_Interaction.focused`, which keeps
-its typing-focus meaning.
+ends); any pointer press clears it (a Tab in the same frame does not move it),
+and so does Escape with nothing active; a widget that stops being declared
+releases it at `wlx_end`. While non-zero, `wlx_end` draws an accent outline
+around the focused widget's rect (`WLX_FOCUS_RING_THICKNESS` /
+`WLX_FOCUS_RING_GAP`, `#ifndef`-overridable; color `theme->accent`).
+Independent of `WLX_Interaction.focused`, which keeps its typing-focus
+meaning.
 
 ### `wlx_is_mouse_right_down` / `wlx_is_mouse_right_clicked` / `wlx_is_mouse_middle_down` / `wlx_is_mouse_middle_clicked`
 
@@ -2008,7 +2609,7 @@ WLX_Rect wlx_get_align_rect(WLX_Rect parent_rect, float width, float height, WLX
 ```
 
 Compute a sub-rect of `parent_rect` positioned according to `align`. Used
-internally for `widget_align`.
+internally for `slot_align`.
 
 ### `wlx_color_is_zero`
 
@@ -2022,7 +2623,8 @@ Returns `true` if all four color components are zero (the sentinel meaning
 ### Low-Level Layout Constructors
 
 These create `WLX_Layout` values without pushing them onto the stack. Rarely
-needed — prefer the `wlx_layout_begin` / `wlx_grid_begin` macros.
+needed — prefer the `wlx_layout_begin` / `wlx_grid_begin` macros. A negative
+`gap` reads as `0`, as it does on every begin.
 
 ```c
 WLX_Layout wlx_create_layout(WLX_Context *ctx, WLX_Rect r, size_t count, WLX_Orient orient, float gap);
@@ -2033,13 +2635,24 @@ WLX_Layout wlx_create_grid_auto(WLX_Context *ctx, WLX_Rect r,
                                 size_t cols, float row_px, const WLX_Slot_Size *col_sizes, float gap);
 ```
 
+`wlx_create_layout_auto` and `wlx_create_grid_auto` grow at the tail of a
+per-frame offset buffer shared with every auto layout, auto grid and list
+clipper: do not take a slot from one while a dynamic layout created or
+begun after it is still in use, or the later layout's slots shift. The
+begin / end forms keep this order by construction.
+
 ### `wlx_get_slot_rect`
 
 ```c
 WLX_Rect wlx_get_slot_rect(WLX_Context *ctx, WLX_Layout *l, int pos, size_t span);
 ```
 
-Compute the rect for slot `pos` (spanning `span` slots) in layout `l`.
+Compute the rect for slot `pos` (spanning `span` slots) in layout `l`. A slot
+past the layout's count is a contract error: reported (see
+[Error Reporting](#error-reporting)), and the rect returned is zero-size
+at the layout's far edge with the layout's cursor unchanged. A `span` of 0
+takes one slot; a `span` above `WLX_MAX_SLOT_COUNT` is reported and takes
+one slot.
 
 ### `wlx_get_parent_rect`
 
@@ -2066,9 +2679,11 @@ wlx_layout_begin(ctx, 1, WLX_VERT,
 WLX_Rect wlx_get_scroll_panel_viewport(WLX_Context *ctx);
 ```
 
-Return the viewport rect of the innermost scroll panel. Returns `{0}` if no
-scroll panel is active. Useful for sizing children to the visible area rather
-than the (potentially larger) scrollable content area.
+Return the viewport rect of the innermost scroll panel of the current layer.
+Returns `{0}` if no scroll panel is active there: inside an overlay, a panel
+of the base layer the overlay floats over does not count. Useful for sizing
+children to the visible area rather than the (potentially larger) scrollable
+content area.
 
 ### `wlx_get_scroll_panel_offset`
 
@@ -2076,8 +2691,9 @@ than the (potentially larger) scrollable content area.
 float wlx_get_scroll_panel_offset(WLX_Context *ctx);
 ```
 
-Return the current vertical scroll offset (pixels) of the innermost scroll
-panel, or `0` when none is active. Pairs with `wlx_get_scroll_panel_viewport`
+Return the current vertical scroll offset (units) of the innermost scroll
+panel of the current layer, or `0` when none is active there. Pairs with
+`wlx_get_scroll_panel_viewport`
 to compute which rows of a long list are on screen; the list clipper uses both
 internally.
 
@@ -2299,7 +2915,7 @@ dividers, spacers, or color swatches.
 
 ```c
 wlx_widget(ctx,
-    .widget_align = WLX_CENTER, .width = 100, .height = 4,
+    .slot_align = WLX_CENTER, .width = 100, .height = 4,
     .back_color = (WLX_Color){ 80, 80, 80, 255 }
 );
 ```
@@ -2336,7 +2952,7 @@ prefer [`wlx_image`](#widget--wlx_image). Mode is selected by the inputs:
 |-------|------|---------|-------------|
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
-| *typography* | | | `font`, `font_size`, `align`, `wrap` (default `true`) |
+| *typography* | | | `font`, `font_size`, `content_align`, `wrap` (default `true`) |
 | *colors* | | | `front_color`, `back_color` |
 | *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
 | `show_background` | `bool` | `false` | Draw filled background behind content. Hover brightens the fill only when this is `true`. |
@@ -2346,29 +2962,76 @@ prefer [`wlx_image`](#widget--wlx_image). Mode is selected by the inputs:
 | `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`; alpha multiplied by the opacity stack. |
 | `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Image position relative to text in text + image mode. |
 | `image_size` | `float` | `0` | Reserved square size. `<= 0` derives from `font_size` (text + image) or uses the full label rect (image-only). |
-| `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
-| `content_padding` | `float` | `-1` | Uniform inner inset around content (text + image). `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
-| `content_padding_top` | `float` | `-1` | Top-side content inset. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side content inset. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side content inset. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side content inset. `< 0` falls back to `content_padding`. |
+| `image_text_gap` | `float` | `WLX_UNSET` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset around content (text + image). Unset resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side content inset. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side content inset. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side content inset. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side content inset. `< 0` falls back to `content_padding`. |
 | `style` | `WLX_Text_Style` | `{0}` | Optional aggregate typography (`font`, `font_size`, `color`, `spacing`). When `style.font_size > 0` the aggregate overrides individual `font`, `font_size`, `spacing`, and `front_color`. A fully-zero `style.color` falls back to the resolved `front_color`. Setting both `style.font_size > 0` and the field `font_size > 0` is misuse: `style` wins, and `WLX_DEBUG` builds emit a once-per-site warning. |
 | `vertical_metric` | `WLX_Vertical_Metric` | `WLX_VMETRIC_LINE_HEIGHT` | Vertical centering basis. `WLX_VMETRIC_LINE_HEIGHT` centers using the backend's reported line height. `WLX_VMETRIC_FONT_SIZE` centers using the font size (em box), giving consistent cap-height placement across backends whose line heights differ from the font size. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
-Wrapped fitted labels break greedily at UTF-8 codepoint boundaries, honor
-explicit `\n`, `\r\n`, and `\r` separators, and emit one backend text draw per
-visible line. Labels are non-interactive: hover modulates only the optional
+Wrapped fitted labels break at word boundaries — after the last space or tab
+that fits the row, inside a word only when it is wider than the row, with
+overflowing whitespace hanging on its row and left out of the row's alignment
+width — honor explicit `\n`, `\r\n`, and `\r` separators, and emit one backend
+text draw per visible line. Labels are non-interactive: hover modulates only the optional
 background, never the texture tint, and labels never consume clicks from
 other widgets.
 
-`align` positions the combined image+text block inside the label rect (or
+`content_align` positions the combined image+text block inside the label rect (or
 the image-only sub-rect when `image_size > 0`); `image_placement` controls
 which side of the text the image sits on. The two are independent.
 
 See also: [`wlx_button`](#widget--wlx_button) for the parallel image-capable
 button surface, [`WLX_Image_Scale`](#wlx_image_scale),
 [`WLX_Image_Placement`](#wlx_image_placement).
+
+---
+
+## Widget — `wlx_image`
+
+```c
+#define wlx_image(ctx, texture, ...options)
+// void — no return value
+```
+
+Draws an application-supplied `WLX_Texture` inside the widget rect.
+Non-interactive: it takes no input and returns nothing. The texture must
+have `width > 0` and `height > 0`. An unloaded texture fails
+`WLX_IMAGE_ASSERT_TEXTURE_VALID` (an `assert` by default, overridable
+before the include); with the check compiled out, it draws nothing and
+the widget still takes its slot. Under a `WLX_SIZE_CONTENT` width the
+widget's intrinsic width is `src.w`, or the texture's width when
+`src.w <= 0`.
+
+**Option struct:** `WLX_Image_Opt`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
+| *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
+| `scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_STRETCH` | How the texture fits the widget rect; see [`WLX_Image_Scale`](#wlx_image_scale). |
+| `content_align` | `WLX_Align` | `WLX_CENTER` | Positions the image inside the widget rect under `FIT` and `NONE`, and anchors the crop under `FILL`; no effect under `STRETCH`. `align` is its pre-0.9 name (same storage, removed in the first minor release after 0.9). |
+| `tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`; alpha multiplied by the opacity stack. |
+| `src` | `WLX_Rect` | `{0}` | Source sub-rect. `w` or `h <= 0` means the full texture. |
+| `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
+
+The image has no border, background or content padding; `slot_align`
+places the widget rect in its slot and `content_align` places the image
+inside that rect.
+
+```c
+wlx_image(ctx, spritesheet,
+    .scale = WLX_IMAGE_SCALE_NONE,
+    .content_align = WLX_TOP_LEFT,
+    .src = (WLX_Rect){ 0, 0, 32, 32 });
+```
+
+See also: [`WLX_Image_Scale`](#wlx_image_scale), the image-capable
+[`wlx_label`](#widget--wlx_label) and [`wlx_button`](#widget--wlx_button),
+and the [`wlx_image` guide](WIDGETS.md#wlx_image).
 
 ---
 
@@ -2398,7 +3061,7 @@ Mode is selected by the inputs:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | *shared fields* | | | placement, sizing, typography (default `wrap = true`), colors, border |
-| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Per-call hover brightness shift for the fill. Unset uses `theme->hover_brightness`; a negative value darkens (e.g. for an already-bright accent fill). |
+| `hover_brightness` | `float` | `WLX_UNSET` | Per-call hover brightness shift for the fill. Unset uses `theme->hover_brightness`; a negative value darkens (e.g. for an already-bright accent fill). |
 | `hover_back_color` | `WLX_Color` | `{0}` | Per-call hover fill replacement. When set, replaces `back_color` while hovered instead of using the brightness path. `{0}` = unset. |
 | `texture` | `WLX_Texture` | zero handle | Optional image content. `width/height <= 0` means no image. |
 | `texture_src` | `WLX_Rect` | `{0}` | Source sub-rect. `w/h <= 0` means the full texture. |
@@ -2406,19 +3069,19 @@ Mode is selected by the inputs:
 | `texture_tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`; alpha multiplied by the opacity stack. |
 | `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Image position relative to text in image+text mode. |
 | `image_size` | `float` | `0` | Reserved square size. `<= 0` derives from `font_size` (image+text) or uses the full button rect (image-only). |
-| `image_text_gap` | `float` | `-1` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
-| `content_padding` | `float` | `-1` | Uniform inner inset around content (text + image). Chrome and hit rect stay at the full button rect. `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
-| `content_padding_top` | `float` | `-1` | Top-side content inset. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side content inset. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side content inset. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side content inset. `< 0` falls back to `content_padding`. |
+| `image_text_gap` | `float` | `WLX_UNSET` | Pixels between image and text. `< 0` resolves to `font_size * 0.5`. |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset around content (text + image). Chrome and hit rect stay at the full button rect. unset resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side content inset. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side content inset. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side content inset. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side content inset. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site. |
 
 Button captions follow the same fitted line/run layout and per-line alignment
 behavior as labels. Hover modulates only the chrome background — the texture
 tint is not double-modulated by hover.
 
-`align` positions the combined image+text block inside the button rect (or
+`content_align` positions the combined image+text block inside the button rect (or
 the image-only sub-rect when `image_size > 0`); `image_placement` controls
 which side of the text the image sits on. The two are independent.
 
@@ -2440,8 +3103,6 @@ label surface, [`WLX_Image_Scale`](#wlx_image_scale),
 | `text` | `const char *` | Label text |
 | `checked` | `bool *` | Pointer to state — toggled on click |
 
-**Option struct:** `WLX_Checkbox_Opt`
-
 Supports native and texture-backed rendering. Texture mode activates only
 when **both** `tex_checked` and `tex_unchecked` are drawable; otherwise both
 states fall back to native rendering. The texture path follows the same
@@ -2452,14 +3113,16 @@ brightness does not modulate texture tint. `check_color` only affects native
 rendering. Use `wlx_checkbox(..., .tex_checked = ..., .tex_unchecked = ...)`
 instead of the removed `wlx_checkbox_tex` compatibility macro.
 
+**Option struct:** `WLX_Checkbox_Opt`
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | *shared fields* | | | placement, sizing, typography (default `wrap = false`), colors |
 | `full_slot_hit` | `bool` | `true` | Use the full slot rect for hover/click interaction |
 | `border_color` | `WLX_Color` | `{0}` | Indicator border. `{0}` = theme `checkbox.border` |
-| `border_width` | `float` | `-1` | Indicator border width. `-1` = theme `checkbox.border_width` |
-| `roundness` | `float` | `-1` | Indicator corner roundness. `-1` = theme default |
-| `rounded_segments` | `int` | `-1` | Rounded-corner segment count. `-1` = theme default |
+| `border_width` | `float` | `WLX_UNSET` | Indicator border width. unset = theme `checkbox.border_width` |
+| `roundness` | `float` | `WLX_UNSET` | Indicator corner roundness. unset = theme default |
+| `rounded_segments` | `int` | `WLX_UNSET` | Rounded-corner segment count. unset = theme default |
 | `check_color` | `WLX_Color` | `{0}` | Checkmark color (native mode only). `{0}` = theme `checkbox.check` |
 | `tex_checked` | `WLX_Texture` | zero handle | Checked-state texture; both `tex_checked` and `tex_unchecked` must be drawable to activate texture mode |
 | `tex_unchecked` | `WLX_Texture` | zero handle | Unchecked-state texture; required alongside `tex_checked` for texture mode |
@@ -2467,11 +3130,11 @@ instead of the removed `wlx_checkbox_tex` compatibility macro.
 | `tex_unchecked_src` | `WLX_Rect` | `{0}` | Source rect within `tex_unchecked`. `{0}` = full texture |
 | `tex_checked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_checked`. `{0}` = `WLX_WHITE` |
 | `tex_unchecked_tint` | `WLX_Color` | `{0}` | Tint applied to `tex_unchecked`. `{0}` = `WLX_WHITE` |
-| `content_padding` | `float` | `-1` | Uniform inner inset around the indicator + label content. Chrome and slot stay put; the hit rect honours `full_slot_hit`. `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset around the indicator + label content. Chrome and slot stay put; the hit rect honours `full_slot_hit`. unset resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
@@ -2484,7 +3147,7 @@ instead of the removed `wlx_checkbox_tex` compatibility macro.
 // previously returned focus — use .out_focused for that)
 
 #define wlx_textarea(ctx, label, buffer, buffer_size, ...options)
-// Sugar: wlx_inputbox with .multiline = true, .align = WLX_TOP_LEFT preset
+// Sugar: wlx_inputbox with .multiline = true, .content_align = WLX_TOP_LEFT preset
 // before the caller's options (both presets overridable per call)
 ```
 
@@ -2498,17 +3161,25 @@ enclosing scroll panel), a draggable scrollbar appears while overflowing
 (`.show_scrollbar`), and drag-selecting past the band edge auto-scrolls.
 The buffer stays one byte buffer, but when `wrap` is enabled the visible
 text and cursor are laid out over fitted visual lines using the same
-line/run measurement path as labels and buttons. Multiline geometry runs on
+line/run measurement path as labels and buttons, with one difference for
+edited text: a space or tab that does not fit the row never hangs past the
+field - the row breaks at the previous whitespace (the word before it moves
+down) or the whitespace opens the next row - so the caret always stays
+inside the field. Multiline geometry runs on
 its own budget (`WLX_INPUTBOX_MULTILINE_MAX_UNITS` 4096 /
 `WLX_INPUTBOX_MULTILINE_MAX_LINES` 512, compile-time overridable); past it
 the caret pins to the last built line while the buffer keeps accepting
 text.
 
-Editing model (all mutations and offsets are UTF-8 codepoint safe):
+Editing model (all mutations and offsets are grapheme-cluster safe: the
+text unit is an approximated extended grapheme cluster — combining marks,
+ZWJ sequences, variation selectors and regional-indicator pairs join — so
+no caret, selection edge, delete or truncation ever lands inside one):
 
-- **Deletion** — BACKSPACE deletes backward, DELETE forward; both repeat
-  while held (OS auto-repeat via `keys_repeated`).
-- **Navigation** — LEFT/RIGHT move by codepoint (repeat while held);
+- **Deletion** — BACKSPACE deletes the cluster before the caret, DELETE
+  the one at it; both repeat while held (OS auto-repeat via
+  `keys_repeated`).
+- **Navigation** — LEFT/RIGHT move by cluster (repeat while held);
   Ctrl/Alt+LEFT/RIGHT move by word; HOME/END jump within the caret's visual
   line; command+HOME/END jump to the buffer start/end. In multiline mode
   UP/DOWN move to the adjacent visual line (hard and soft breaks alike) at a
@@ -2522,11 +3193,22 @@ Editing model (all mutations and offsets are UTF-8 codepoint safe):
   replace a live selection.
 - **Clipboard** — command+C copy, command+X cut, command+V paste, command+A
   select all, where the command modifier is Cmd on Apple platforms and Ctrl
-  elsewhere (`wlx_mod_command_down`). Paste is not limited by the 32-byte
-  per-frame text ring and truncates to `buffer_size` on a codepoint boundary.
+  elsewhere (`wlx_mod_command_down`). Paste is not limited by the
+  per-frame `text_input` stream (`WLX_INPUT_TEXT_BYTES`) and truncates to `buffer_size` on a cluster boundary
+  (a partial cluster never lands).
   On the bare-WASM backend the clipboard is a best-effort cached string:
   copy/cut update the browser clipboard asynchronously, and cross-app content
   arrives only after a browser paste gesture refreshes the cache.
+- **Undo/redo** — command+Z undoes and command+Shift+Z or command+Y redoes,
+  repeating while held. Typed, BACKSPACE and DELETE runs coalesce into one
+  step; arrows, caret-moving clicks, Enter, paste, cut, word and selection
+  deletes and an undo itself start a new one. Each step restores the bytes
+  and the caret pair (selection included); a new edit clears redo;
+  `read_only` rejects the chords and `password` fields keep no journal. The
+  journal is bounded per widget by `WLX_TEXT_UNDO_ENTRIES` (512) and
+  `WLX_TEXT_UNDO_BYTES` (256 KB), overridable pre-include (`0` entries
+  compiles it out); history is dropped on an external length change or a
+  `.revision` bump. See WIDGETS.md "Undo and redo".
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -2539,35 +3221,36 @@ Editing model (all mutations and offsets are UTF-8 codepoint safe):
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | *shared fields* | | | placement, sizing, typography (default `wrap = true`), colors |
-| `content_padding` | `float` | `10` | Outer gutter inset applied to all sides. See `WLX_CONTENT_PADDING_FIELDS`. |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+| `content_padding` | `float` | `WLX_UNSET` (10) | Outer gutter inset applied to all sides. See `WLX_CONTENT_PADDING_FIELDS`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. `< 0` falls back to `content_padding`. |
 | `border_color` | `WLX_Color` | `{0}` | Unfocused border. `{0}` = theme `border` |
-| `border_width` | `float` | `-1` | Border width. `-1` = theme `input.border_width`, then theme `border_width` |
-| `roundness` | `float` | `-1` | Corner roundness. `-1` = theme default |
-| `rounded_segments` | `int` | `-1` | Rounded-corner segment count. `-1` = theme default |
+| `border_width` | `float` | `WLX_UNSET` | Border width. unset = theme `input.border_width`, then theme `border_width` |
+| `roundness` | `float` | `WLX_UNSET` | Corner roundness. unset = theme default |
+| `rounded_segments` | `int` | `WLX_UNSET` | Rounded-corner segment count. unset = theme default |
 | `border_focus_color` | `WLX_Color` | `{0}` | Focused border. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Blinking cursor. `{0}` = theme `input.cursor` |
 | `selection_color` | `WLX_Color` | `{0}` | Selection highlight fill. `{0}` = theme `input.selection`, then translucent accent |
-| `password` | `bool` | `false` | Masked field: renders one `*` per codepoint while the buffer keeps the plaintext; forces `wrap = false` and suppresses copy/cut |
+| `password` | `bool` | `false` | Masked field: renders one `*` per grapheme cluster (one Backspace per `*`) while the buffer keeps the plaintext; forces `wrap = false` and suppresses copy/cut |
 | `read_only` | `bool` | `false` | Rejects every mutation (typing, delete, cut, paste) while focus, selection, caret, and copy keep working. Distinct from `disabled`: no interaction lockout, no dimming |
 | `multiline` | `bool` | `false` | Enter inserts a newline and keeps focus (Escape/click-away blurs); UP/DOWN move by visual line with a sticky column; overflow scrolls internally with caret-follow and wheel. Forced off by `password`; composes with `read_only` (insert rejected, focus kept) |
 | `show_scrollbar` | `bool` | `true` | Draggable vertical scrollbar while multiline content overflows; `false` keeps wheel/caret-follow scrolling without the affordance. Inert outside multiline overflow |
+| `revision` | `uint32_t` | `0` | External-mutation guard for the undo history; bump after out-of-widget buffer edits (a length change is detected on its own) |
 | `texture` | `WLX_Texture` | zero handle | Optional icon drawn inside the field. `width <= 0` or `height <= 0` = no icon |
 | `texture_src` | `WLX_Rect` | `{0}` | Icon source sub-rect. `w <= 0` or `h <= 0` = full texture |
 | `texture_tint` | `WLX_Color` | `{0}` | Icon tint. `{0}` resolves to `WLX_WHITE` |
 | `image_placement` | `WLX_Image_Placement` | `WLX_IMAGE_PLACEMENT_LEFT` | Interior edge for the icon. Only `LEFT`/`RIGHT` meaningful; `TOP`/`BOTTOM` treated as `LEFT` |
 | `image_size` | `float` | `0` | Reserved square icon size. `<= 0` = auto from `font_size`, clamped to the field interior |
-| `image_text_gap` | `float` | `-1` | Gap between the icon band and text. `< 0` = `font_size * 0.5` |
+| `image_text_gap` | `float` | `WLX_UNSET` | Gap between the icon band and text. `< 0` = `font_size * 0.5` |
 | `out_focused` | `bool *` | `NULL` | Optional out-param: receives this frame's focus state (the pre-v0.6 return value). `NULL` = not reported |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 `content_padding*` controls the outer gutter (label area, input rect
 position, vertical centering). The text cursor inside the editing box is
-additionally inset by the fixed constant `WLX_INPUTBOX_TEXT_INSET` (5 px)
-on the x-axis only; with the default `content_padding = 10` this equals the
+additionally inset by the fixed internal constant `WLX_TEXT_FIELD_INSET`
+(5 units) on the x-axis only; with the default `content_padding = 10` this equals the
 pre-migration value of `content_padding / 2`.
 
 Default `wrap = true`. Long buffers and existing newline bytes can therefore
@@ -2576,7 +3259,7 @@ fitted line records used for rendering.
 
 A non-zero `texture` draws an icon inside the field on the leading (`LEFT`,
 default) or trailing (`RIGHT`) interior edge, centered vertically independent of
-`align`. The reserved band (`image_size + image_text_gap`) insets the text and
+`content_align`. The reserved band (`image_size + image_text_gap`) insets the text and
 caret so they never overlap the icon; a zero `texture` keeps the field text-only
 with unchanged geometry. The icon is texture-based, matching the image content of
 `wlx_label` / `wlx_button` / `wlx_checkbox`.
@@ -2597,7 +3280,8 @@ after `wollix.h` (and any backend adapter) in every translation unit
 that uses it; exactly one TU defines `WOLLIX_IMPLEMENTATION` and
 includes both, as with the core alone. The compile-time knobs
 (`WLX_EDITOR_MAX_LINE_UNITS`, `WLX_EDITOR_ORIGIN_BACKSCAN`) remain
-defined by the core. The editor's windowed-text model — line index,
+defined by the core, as do the undo journal caps (`WLX_TEXT_UNDO_ENTRIES`,
+`WLX_TEXT_UNDO_BYTES`). The editor's windowed-text model — line index,
 retained geometry, windowed origin, wrapped rows — is documented in
 [EDITOR_MODEL.md](EDITOR_MODEL.md).
 
@@ -2606,15 +3290,29 @@ explicit length in/out — non-wrapping by default, with an opt-in wrapped
 mode (`.wrap`) that breaks hard lines into band-wide rows (`size_t *length` is authoritative in both
 directions; the buffer need not be NUL-terminated, though the widget
 maintains a trailing NUL opportunistically when `*length < buffer_cap`).
+The contiguous caller-owned buffer is the permanent document contract:
+the library never owns, copies or re-materialises the document,
+and a library-managed document, if one is ever added, is a separate entry
+point rather than a change to this signature.
 Only the visible window of lines is measured, built, and drawn, so frame
 cost is O(viewport) at any document size; geometry rests on a context-owned
-per-widget line index (hard line start offsets) rebuilt by a single newline
-scan on the first frame, after every widget edit, and when the guard fires
-(`*length` change, `.revision` change, or a sampled hard-line-start probe).
+per-widget line index (hard line start offsets) built by a single newline
+scan on the first frame and whenever the guard fires (`*length` change,
+`.revision` change, or a sampled hard-line-start probe), and patched from
+the edit span after every widget edit: entries before the edit keep, the
+dirty bytes are re-derived, entries after it shift by the delta, and the
+result is identical to a rebuild (a test contract). A keystroke therefore
+costs the buffer memmove (O(bytes after the caret)) plus the index shift
+(O(lines after the caret)): on a 10 MB / 1,000,000-line document a
+keystroke at offset 0 measures about 3.5 ms on the reference machine
+(8 ms when it rescanned the document), mid-document edits proportionally
+less, and idle frames run no O(document) work.
 Bump `.revision` after mutating the buffer outside the widget.
 
 Editing and navigation follow the `wlx_inputbox` vocabulary (typing, Enter,
-Backspace/Delete with Ctrl/Alt word variants, command+C/X/V/A, arrows with
+Backspace/Delete with Ctrl/Alt word variants, command+C/X/V/A, command+Z
+undo and command+Shift+Z / command+Y redo (the inputbox's journal
+semantics, with Tab and Enter as steps of their own), arrows with
 word motion, HOME/END, sticky-column UP/DOWN, SHIFT-extended selection,
 click/double/triple/drag mouse model), plus editor-specific behavior: Tab
 inserts a literal `\t` rendered with next-tab-stop expansion
@@ -2649,19 +3347,20 @@ mode toggles.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| *shared fields* | | | placement, sizing, typography (text is top-left; `align` places the label), colors |
+| *shared fields* | | | placement, sizing, typography (text is top-left; `content_align` places the label), colors |
 | `wrap` | `bool` | `false` | Wrapped mode: band-wide rows per hard line, row-based motion, approximate vertical thumb, no horizontal scroll |
-| `content_padding` (+ per-side) | `float` | `10` | Outer inset; same model as `wlx_inputbox` |
+| `content_padding` (+ per-side) | `float` | `WLX_UNSET` (10) | Outer inset; same model as `wlx_inputbox` |
 | `border_color` / `border_width` / `roundness` / `rounded_segments` | | theme | Chrome, as on `wlx_inputbox` |
 | `border_focus_color` | `WLX_Color` | `{0}` | Focused border. `{0}` = theme `input.border_focus` |
 | `cursor_color` | `WLX_Color` | `{0}` | Caret. `{0}` = theme `input.cursor` |
 | `selection_color` | `WLX_Color` | `{0}` | Selection fill. `{0}` = theme `input.selection`, then translucent accent |
+| `span_color` / `span_color_user` | `WLX_Text_Span_Color_Fn` / `void *` | `NULL` | Per-span colour callback (syntax highlighting): asked at draw time for the visible records only, never retained; zero colour = `front_color`; span colours take the disabled shift and opacity. See "Per-span colour" in the text section |
 | `out_focused` | `bool *` | `NULL` | Receives this frame's focus state |
 | `read_only` | `bool` | `false` | Rejects mutations; focus, caret, selection, copy keep working |
 | `show_scrollbar` | `bool` | `true` | Draggable scrollbars while overflowing (vertical exact unwrapped / approximate wrapped, horizontal approximate) |
 | `line_numbers` | `bool` | `false` | Leading line-number gutter; gutter presses never touch caret, selection, or focus |
 | `tab_columns` | `int` | `4` | Tab-stop width in space-advance columns |
-| `revision` | `uint32_t` | `0` | External-mutation guard; bump after out-of-widget buffer edits |
+| `revision` | `uint32_t` | `0` | External-mutation guard; bump after out-of-widget buffer edits (rebuilds the line index and drops the undo history) |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
@@ -2685,10 +3384,10 @@ Horizontal slider. Click/drag the thumb or click the track to jump.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | *placement* | | | `pos`, `span`, `overflow`, `padding` |
-| *sizing* | | | `widget_align`, `width`, `height`, min/max, `opacity` |
+| *sizing* | | | `slot_align`, `width`, `height`, min/max, `opacity` |
 | `font` | `WLX_Font` | `WLX_FONT_DEFAULT` | Font for label/value text |
 | `font_size` | `int` | `0` | Font size |
-| `align` | `WLX_Align` | `WLX_LEFT` | Label text alignment |
+| `content_align` | `WLX_Align` | `WLX_LEFT` | Label text alignment |
 | `spacing` | `int` | `0` | Opt-in extra tracking for label/value text. `0` = natural backend spacing |
 | `show_value` | `bool` | `true` | Show the numeric value readout beside the track (renamed from `show_label` in v0.6; the alias was removed in v0.7) |
 | `track_color` | `WLX_Color` | `{0}` | Track background. `{0}` = theme `slider.track` |
@@ -2697,19 +3396,19 @@ Horizontal slider. Click/drag the thumb or click the track to jump.
 | `track_height` | `float` | `0` | Track bar height. `0` = default (6) |
 | `thumb_width` | `float` | `0` | Thumb handle width and default visual height. `0` = default (14) |
 | `border_color` | `WLX_Color` | `{0}` | Border color. `{0}` = theme `border` |
-| `border_width` | `float` | `-1` | Border width. `-1` = theme `border_width` |
-| `roundness` | `float` | `-1` | Corner rounding. `-1` = theme default, or pill ends when the theme is sharp |
-| `rounded_segments` | `int` | `-1` | Segments for rounded drawing. `-1` = theme default |
-| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Track hover brightness shift. Uses `theme->hover_brightness` when unset |
-| `thumb_hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Thumb hover brightness shift. Uses `theme->hover_brightness` when unset |
+| `border_width` | `float` | `WLX_UNSET` | Border width. unset = theme `border_width` |
+| `roundness` | `float` | `WLX_UNSET` | Corner rounding. unset = theme default, or pill ends when the theme is sharp |
+| `rounded_segments` | `int` | `WLX_UNSET` | Segments for rounded drawing. unset = theme default |
+| `hover_brightness` | `float` | `WLX_UNSET` | Track hover brightness shift. Uses `theme->hover_brightness` when unset |
+| `thumb_hover_brightness` | `float` | `WLX_UNSET` | Thumb hover brightness shift. Uses `theme->hover_brightness` when unset |
 | `fill_inactive_brightness` | `float` | `-0.3` | Filled-portion brightness offset |
 | `min_value` | `float` | `0.0` | Minimum slider value |
 | `max_value` | `float` | `1.0` | Maximum slider value |
-| `content_padding` | `float` | `-1` | Uniform inner inset around the label / track / value region. Drag hit-rect tracks the inset track. `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset around the label / track / value region. Drag hit-rect tracks the inset track. unset resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
@@ -2731,7 +3430,7 @@ is wider than tall, and a vertical line when it is taller than wide.
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | `back_color` | `WLX_Color` | `{0}` | Divider color. `{0}` = theme `border` (renamed from `color` in v0.6; the alias was removed in v0.7) |
-| `thickness` | `float` | `1.0` | Divider thickness in pixels |
+| `thickness` | `float` | `1.0` | Divider thickness in units |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
@@ -2760,11 +3459,11 @@ before drawing.
 | `track_color` | `WLX_Color` | `{0}` | Track color. `{0}` = theme `progress.track`, falling back to `slider.track` |
 | `fill_color` | `WLX_Color` | `{0}` | Fill color. `{0}` = theme `progress.fill`, falling back to `accent` |
 | `track_height` | `float` | `0` | Inner bar height. `0` = theme default |
-| `content_padding` | `float` | `-1` | Uniform inner inset around the track rect. Rendered track height is additionally clamped to the inset height. `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset around the track rect. Rendered track height is additionally clamped to the inset height. unset resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
@@ -2790,18 +3489,18 @@ The `label` may be `NULL`.
 |-------|------|---------|-------------|
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
-| *typography* | | | `font`, `font_size`, `align`, `wrap` (default `false`) |
+| *typography* | | | `font`, `font_size`, `content_align`, `wrap` (default `false`) |
 | *colors* | | | `front_color`, `back_color` (`back_color` is currently unused by this widget) |
 | *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
 | `track_color` | `WLX_Color` | `{0}` | Inactive track color. `{0}` = theme `toggle.track`, falling back to `slider.track` |
 | `track_active_color` | `WLX_Color` | `{0}` | Active track color. `{0}` = theme `toggle.track_active`, falling back to `accent` |
 | `thumb_color` | `WLX_Color` | `{0}` | Thumb color. `{0}` = theme `toggle.thumb`, falling back to `foreground` |
-| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness shift. Uses `theme->hover_brightness` when unset |
-| `content_padding` | `float` | `-1` | Uniform inner inset around the track + label content. Click/hover hit rect stays at the full slot rect. `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+| `hover_brightness` | `float` | `WLX_UNSET` | Hover brightness shift. Uses `theme->hover_brightness` when unset |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset around the track + label content. Click/hover hit rect stays at the full slot rect. unset resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
@@ -2828,17 +3527,17 @@ Select-one radio control. Activating the widget sets `*active = index`. The
 |-------|------|---------|-------------|
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
-| *typography* | | | `font`, `font_size`, `align`, `wrap` (default `false`) |
+| *typography* | | | `font`, `font_size`, `content_align`, `wrap` (default `false`) |
 | *colors* | | | `front_color`, `back_color` (`back_color` is currently unused by this widget) |
 | `ring_color` | `WLX_Color` | `{0}` | Ring color. `{0}` = theme `radio.ring`, falling back to `border` |
 | `fill_color` | `WLX_Color` | `{0}` | Selected fill color. `{0}` = theme `radio.fill`, falling back to `accent` |
-| `ring_border_width` | `float` | `-1` | Ring outline thickness. Uses theme radio/border defaults when unset |
-| `hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Hover brightness shift. Uses `theme->hover_brightness` when unset |
-| `content_padding` | `float` | `-1` | Uniform inner inset around the ring + label content. Click/hover hit rect stays at the full slot rect. `-1` resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
-| `content_padding_top` | `float` | `-1` | Top-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_right` | `float` | `-1` | Right-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_bottom` | `float` | `-1` | Bottom-side override. `< 0` falls back to `content_padding`. |
-| `content_padding_left` | `float` | `-1` | Left-side override. `< 0` falls back to `content_padding`. |
+| `ring_border_width` | `float` | `WLX_UNSET` | Ring outline thickness. Uses theme radio/border defaults when unset |
+| `hover_brightness` | `float` | `WLX_UNSET` | Hover brightness shift. Uses `theme->hover_brightness` when unset |
+| `content_padding` | `float` | `WLX_UNSET` | Uniform inner inset around the ring + label content. Click/hover hit rect stays at the full slot rect. unset resolves to `0`; pass `WLX_PADDING_USE_THEME` for the theme default. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom-side override. `< 0` falls back to `content_padding`. |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left-side override. `< 0` falls back to `content_padding`. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
 
 ---
@@ -2851,24 +3550,27 @@ void wlx_scroll_panel_end(WLX_Context *ctx);
 ```
 
 Scrollable container. Used as a begin/end pair with layout content between.
+An end without a begin is a contract error: reported (see
+[Error Reporting](#error-reporting)) and returned from; it never pops an
+unrelated layout.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `content_height` | `float` | Total scrollable height in pixels. `WLX_SCROLL_AUTO_HEIGHT` (`-1`) = auto (measured from children) |
+| `content_height` | `float` | Total scrollable height in units. `WLX_SCROLL_AUTO_HEIGHT` (`-1`) = auto (measured from children) |
 
 **Option struct:** `WLX_Scroll_Panel_Opt`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | *placement* | | | `pos`, `span`, `overflow`, `padding` |
-| *sizing* | | | `widget_align`, `width`, `height`, min/max, `opacity` |
+| *sizing* | | | `slot_align`, `width`, `height`, min/max, `opacity` |
 | `back_color` | `WLX_Color` | `{0}` | Panel background |
 | `transparent_background` | `bool` | `false` | `true` draws no fill so the container shows through (distinct from `back_color = {0}` -> theme background) |
 | `scrollbar_color` | `WLX_Color` | `{0}` | Scrollbar thumb color |
-| *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` |
-| `scrollbar_hover_brightness` | `float` | `WLX_FLOAT_UNSET` | Scrollbar hover brightness shift. Uses `theme->hover_brightness` when unset |
-| `scrollbar_width` | `float` | `-1` | Scrollbar width. `-1` = theme `scrollbar.width` |
-| `wheel_scroll_speed` | `float` | `20.0` | Pixels per wheel tick |
+| *border* | | | `border_color`, `border_width`, `roundness`, `rounded_segments` (the last two ignored: the fill is square) |
+| `scrollbar_hover_brightness` | `float` | `WLX_UNSET` | Scrollbar hover brightness shift. Uses `theme->hover_brightness` when unset |
+| `scrollbar_width` | `float` | `WLX_UNSET` | Scrollbar width. unset = theme `scrollbar.width` |
+| `wheel_scroll_speed` | `float` | `20.0` | Pixels per wheel tick (`0` reads as 20) |
 | `show_scrollbar` | `bool` | `true` | Draw the scrollbar |
 | `id` | `const char *` | `NULL` | Combined State + Scope ID. Keys the panel's own scroll state and scopes all descendant widget and state IDs for the full panel body. `NULL` = auto from call-site (no descendant scoping) |
 
@@ -2887,7 +3589,8 @@ Virtualizes a long list inside a scroll panel: only the rows within the
 viewport are produced, while spacers reserve the off-screen extent so the
 scrollbar stays correct. Per-frame cost becomes proportional to *visible* rows
 instead of total rows. Drive the panel with an explicit `content_height`
-(`wlx_list_clipper_height`), not `WLX_SCROLL_AUTO_HEIGHT`.
+(`wlx_list_clipper_height`), not `WLX_SCROLL_AUTO_HEIGHT`. Outside a scroll
+panel it is a contract error (see [Error Reporting](#error-reporting)).
 
 ```c
 float h = wlx_list_clipper_height(count, ROW_H, NULL);   // fixed pitch
@@ -2906,7 +3609,7 @@ wlx_scroll_panel_end(ctx);
 |-------|------|---------|-------------|
 | `id` | `const char *` | `NULL` | Stable id for the content layout (`NULL` = call-site) |
 | `item_offsets` | `const float *` | `NULL` | Variable-height mode: prefix sums, length `item_count + 1`, monotonic with `[0] == 0`. `NULL` selects fixed pitch (`row_height`). |
-| `overscan` | `float` | `0` | Extra pixels of rows built above/below the viewport |
+| `overscan` | `float` | `0` | Extra units of rows built above/below the viewport |
 
 **Result struct:** `WLX_List_Clipper` exposes `int first` and `int last` — the
 visible item range `[first, last)`. Remaining fields are internal.
@@ -2952,13 +3655,13 @@ the user creates their own inner layout inside each pane.
 |-------|------|---------|-------------|
 | `first_size` | `WLX_Slot_Size` | `WLX_SLOT_PX(280)` | Width/size of the first (left) pane |
 | `second_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Width/size of the second (right) pane |
-| `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FILL` | Outer wrapper slot size (e.g. `WLX_SLOT_FILL_MIN(400)`) |
-| `content_padding` | `float` | `4` | Uniform inner inset for the split container. See `WLX_CONTENT_PADDING_FIELDS`. |
-| `content_padding_top` | `float` | `-1` | Top padding override. Negative = inherit `content_padding` |
-| `content_padding_right` | `float` | `-1` | Right padding override. Negative = inherit `content_padding` |
-| `content_padding_bottom` | `float` | `-1` | Bottom padding override. Negative = inherit `content_padding` |
-| `content_padding_left` | `float` | `-1` | Left padding override. Negative = inherit `content_padding` |
-| `gap` | `float` | `0` | Space between the two pane slots |
+| `fill_size` | `WLX_Slot_Size` | `WLX_SLOT_FLEX(1)` | Outer wrapper slot size (e.g. `WLX_SLOT_FILL_MIN(400)`) |
+| `content_padding` | `float` | `WLX_UNSET` (4) | Uniform inner inset for the split container. See `WLX_CONTENT_PADDING_FIELDS`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top padding override. Negative = inherit `content_padding` |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right padding override. Negative = inherit `content_padding` |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom padding override. Negative = inherit `content_padding` |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left padding override. Negative = inherit `content_padding` |
+| `gap` | `float` | `0` | Space between the two pane slots; a negative value reads as `0` |
 | `first_back_color` | `WLX_Color` | `{0}` | First pane scroll panel background. `{0}` = theme default |
 | `second_back_color` | `WLX_Color` | `{0}` | Second pane scroll panel background. `{0}` = theme default |
 | `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full split body (both panes). `NULL` = no scoping |
@@ -3002,28 +3705,28 @@ impact. Adding or removing child widgets requires no slot-count updates.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `title` | `const char *` | `NULL` | Heading text. `NULL` = no heading (full capacity available for children) |
-| `title_font_size` | `int` | `18` | Heading font size |
-| `title_height` | `float` | `32` | Heading slot height in pixels |
+| `title_font_size` | `int` | `0` (18) | Heading font size; `<= 0` takes 18 |
+| `title_height` | `float` | `0` (32) | Heading slot height in units; `<= 0` takes 32 |
 | `title_align` | `WLX_Align` | `WLX_CENTER` | Heading text alignment |
 | `title_back_color` | `WLX_Color` | `{0}` | Heading background color. `{0}` = theme surface |
 | `back_color` | `WLX_Color` | `{0}` | Panel background color drawn behind the full panel area. `{0}` = transparent (surrounding container surface shows through) |
 | `border_color` | `WLX_Color` | `{0}` | Panel border color. `{0}` = theme `border` (v0.6) |
-| `border_width` | `float` | `-1` | Panel border thickness in pixels. `-1` (unset) inherits theme `border_width` (v0.6); an explicit `0` keeps the panel borderless |
-| `roundness` | `float` | `0` | Corner roundness for the panel background and border (fraction of shorter side). `0` = sharp corners |
-| `corner_radius` | `float` | `0` | Absolute corner radius in pixels; `> 0` overrides `roundness`, `0` = unset. See [`WLX_BORDER_FIELDS`](#wlx_border_fields--wlx_border_defaults) |
+| `border_width` | `float` | `WLX_UNSET` | Panel border thickness in units. unset inherits theme `border_width` (v0.6); an explicit `0` keeps the panel borderless |
+| `roundness` | `float` | `WLX_UNSET` | Corner roundness for the panel background and border (fraction of shorter side). unset inherits theme `roundness` (the bundled themes ship `0`); `0` = sharp corners |
+| `corner_radius` | `float` | `0` | Absolute corner radius in units; `> 0` overrides `roundness`, `0` = unset. See [`WLX_BORDER_FIELDS`](#wlx_border_fields--wlx_border_defaults) |
 | `border_color_top` / `_right` / `_bottom` / `_left` | `WLX_Color` | `{0}` | Per-side border color. `{0}` inherits `border_color`. See [Per-side container decor](#per-side-container-decor) |
-| `border_width_top` / `_right` / `_bottom` / `_left` | `float` | `-1` | Per-side border width. `< 0` inherits `border_width`; `0` switches that edge off |
-| `rounded_segments` | `int` | `0` | Corner tessellation for rounded chrome. `0` = theme default |
-| `gap` | `float` | `0` | Inter-slot spacing in the panel body |
+| `border_width_top` / `_right` / `_bottom` / `_left` | `float` | `WLX_UNSET` | Per-side border width. `< 0` inherits `border_width`; `0` switches that edge off |
+| `rounded_segments` | `int` | `WLX_UNSET` | Corner tessellation for rounded chrome. unset or `0` = theme `rounded_segments` |
+| `gap` | `float` | `0` | Inter-slot spacing in the panel body; a negative value reads as `0` |
 | *shadow / glow / gradient* | | off | Full container decor: `shadow_*`, `glow_*`, `gradient_top` / `gradient_bottom` fields, forwarded to the body layout. See [Shared Option Field Macros](#shared-option-field-macros) |
 | `slot_back_color` / `slot_border_color` / `slot_border_width` | | `{0}` / `0` | Per-slot decor applied to every body slot |
 | `clip` | `bool` | `false` | Clip panel content to the post-padding inner rect. Use when children might overflow the panel bounds |
-| `content_padding` | `float` | `2` | Uniform inner inset for the panel layout. See `WLX_CONTENT_PADDING_FIELDS`. |
-| `content_padding_top` | `float` | `-1` | Top padding override. Negative = inherit `content_padding` |
-| `content_padding_right` | `float` | `-1` | Right padding override. Negative = inherit `content_padding` |
-| `content_padding_bottom` | `float` | `-1` | Bottom padding override. Negative = inherit `content_padding` |
-| `content_padding_left` | `float` | `-1` | Left padding override. Negative = inherit `content_padding` |
-| `capacity` | `int` | `32` | Maximum number of child widgets (excluding title). Clamped to `WLX_CONTENT_SLOTS_MAX` (32) |
+| `content_padding` | `float` | `WLX_UNSET` (2) | Uniform inner inset for the panel layout. See `WLX_CONTENT_PADDING_FIELDS`. |
+| `content_padding_top` | `float` | `WLX_UNSET` | Top padding override. Negative = inherit `content_padding` |
+| `content_padding_right` | `float` | `WLX_UNSET` | Right padding override. Negative = inherit `content_padding` |
+| `content_padding_bottom` | `float` | `WLX_UNSET` | Bottom padding override. Negative = inherit `content_padding` |
+| `content_padding_left` | `float` | `WLX_UNSET` | Left padding override. Negative = inherit `content_padding` |
+| `capacity` | `int` | `0` (32) | Maximum number of child widgets (excluding title); `<= 0` takes 32. Clamped to `WLX_CONTENT_SLOTS_MAX` (32) |
 | `id` | `const char *` | `NULL` | Scope ID: scopes all descendant widget and state IDs for the full panel body. `NULL` = no scoping |
 
 **Internal structure:**
@@ -3070,12 +3773,12 @@ position (`WLX_DEBUG` warns once per site).
 | `id` | `const char *` | `NULL` | Scope id for the overlay body |
 | `sizes` | `const WLX_Slot_Size *` | `NULL` | Per-slot sizes (`NULL` = equal split); CONTENT unsupported |
 | `orient` | `WLX_Orient` | `WLX_VERT` | Body orientation |
-| `gap` | `float` | `0` | Gap between body slots |
+| `gap` | `float` | `0` | Gap between body slots; a negative value reads as `0` |
 | `clip` | `bool` | `true` | Scissor body content to `rect` |
 | `back_color` | `WLX_Color` | `{0}` | Panel fill (`{0}` = none) |
 | `border_color` / `border_width` | | `{0}` / `0` | Panel border |
 | `roundness` / `rounded_segments` | | `0` / `0` | Corner rounding |
-| `content_padding` (+ per-side) | `float` | `-1` | Body inset |
+| `content_padding` (+ per-side) | `float` | `WLX_UNSET` | Body inset |
 
 ---
 
@@ -3104,7 +3807,7 @@ face, plus:
 | `max_list_height` | `float` | `0` | List height cap. `<= 0` = `WLX_DROPDOWN_MAX_LIST_HEIGHT` (240, overridable) |
 | `list_back_color` | `WLX_Color` | `{0}` | List panel + row fill. `{0}` = theme background |
 | `list_border_color` | `WLX_Color` | `{0}` | `{0}` = face border color |
-| `list_border_width` | `float` | `-1` | `-1` = face border width |
+| `list_border_width` | `float` | `WLX_UNSET` | unset = face border width |
 | `hover_brightness` / `hover_back_color` | | unset / `{0}` | Face and row hover treatment |
 | `id` | `const char *` | `NULL` | Scope id (needed for loop-generated dropdowns) |
 
@@ -3128,13 +3831,13 @@ press. Returns whether the tip is showing. Persistent state:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `delay` | `float` | `-1` | Hover seconds before showing. `< 0` = 0.5 |
+| `delay` | `float` | `WLX_UNSET` | Hover seconds before showing. `< 0` = 0.5 |
 | `offset_x` / `offset_y` | `float` | `12` / `18` | Tip origin relative to the pointer |
-| `padding` | `float` | `-1` | Inner text inset. `< 0` = 6 |
-| *typography* | | | `font`, `font_size`, `align`, `spacing` |
+| `content_padding` (+ per-side) | `float` | `WLX_UNSET` | Inner text inset; unset = 6. `.padding` is the deprecated pre-0.9 name of the uniform field (same storage, removed in the first minor after 0.9) |
+| *typography* | | | `font`, `font_size`, `content_align`, `spacing` |
 | `front_color` / `back_color` | `WLX_Color` | `{0}` | `{0}` = theme foreground / background |
-| `border_color` / `border_width` | | `{0}` / `-1` | Unset = theme |
-| `roundness` / `rounded_segments` | | `-1` | Unset = theme |
+| `border_color` / `border_width` | | `{0}` / `WLX_UNSET` | Unset = theme |
+| `roundness` / `rounded_segments` | | `WLX_UNSET` | Unset = theme |
 | `id` | `const char *` | `NULL` | State id override |
 
 ---
@@ -3163,13 +3866,13 @@ opens a submenu on the next layer. Nesting is capped at
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `width` | `float` | `0` | `<= 0` = 180 |
+| `width` | `float` | `WLX_UNSET` | Unset = 180; `0` is a zero-width list |
 | `row_height` | `float` | `0` | `<= 0` = `font_size + 12` |
-| `item_padding` | `float` | `-1` | Item text left/right inset. `< 0` = 8 |
-| *typography* | | | `font`, `font_size`, `align`, `spacing` |
+| `item_padding` | `float` | `WLX_UNSET` | Item text left/right inset. `< 0` = 8 |
+| *typography* | | | `font`, `font_size`, `content_align`, `spacing` |
 | `front_color` / `back_color` | `WLX_Color` | `{0}` | `{0}` = theme foreground / background |
-| `border_color` / `border_width` | | `{0}` / `-1` | Panel border. Unset = theme |
-| `roundness` / `rounded_segments` | | `-1` | Unset = theme |
+| `border_color` / `border_width` | | `{0}` / `WLX_UNSET` | Panel border. Unset = theme |
+| `roundness` / `rounded_segments` | | `WLX_UNSET` | Unset = theme |
 | `hover_brightness` / `hover_back_color` | | unset / `{0}` | Item hover treatment |
 | `id` | `const char *` | `NULL` | Scope id (needed for loop-generated menus) |
 
@@ -3205,10 +3908,10 @@ label in CONTENT columns), plus the list fields:
 |-------|------|---------|-------------|
 | `menu_width` | `float` | `0` | List width. `<= 0` = the face's resolved width |
 | `row_height` | `float` | `0` | `<= 0` = `font_size + 12` |
-| `item_padding` | `float` | `-1` | Item text left/right inset. `< 0` = 8 |
+| `item_padding` | `float` | `WLX_UNSET` | Item text left/right inset. `< 0` = 8 |
 | `list_back_color` | `WLX_Color` | `{0}` | List panel + item fill. `{0}` = theme background |
 | `list_border_color` | `WLX_Color` | `{0}` | `{0}` = face border color |
-| `list_border_width` | `float` | `-1` | `-1` = face border width |
+| `list_border_width` | `float` | `WLX_UNSET` | unset = face border width |
 | `id` | `const char *` | `NULL` | Scope id (needed for loop-generated menus) |
 
 ### `wlx_submenu_begin`
@@ -3222,7 +3925,7 @@ parameters: the list anchors flush to the parent panel's right edge at the
 last emitted item's row (the trigger — make it a `.keep_open` item that
 toggles `*open`). Options are `WLX_Menu_Opt`; every unset field inherits
 the parent menu's resolved value, so a bare `wlx_submenu_begin(ctx, &open)`
-matches its parent's styling (`align` / `spacing` inherit whenever left at
+matches its parent's styling (`content_align` / `spacing` inherit whenever left at
 `WLX_LEFT` / `0` - those are their defaults and have no unset sentinel). Shares the parent's press scope (a press on
 the trigger is an inside press, so it toggles cleanly) and all close
 paths — a leaf click dismisses the submenu and every ancestor menu; body
@@ -3241,12 +3944,14 @@ Injected fields: `pos`, `span`, `overflow`, `padding`.
 
 ### `WLX_WIDGET_SIZING_FIELDS` / `WLX_WIDGET_SIZING_DEFAULTS`
 
-Injected fields: `widget_align`, `width`, `height`, `min_width`, `min_height`,
+Injected fields: `slot_align` (alias `widget_align`, deprecated), `width`,
+`height`, `min_width`, `min_height`,
 `max_width`, `max_height`, `opacity`.
 
 ### `WLX_TEXT_TYPOGRAPHY_FIELDS` / `WLX_TEXT_TYPOGRAPHY_DEFAULTS`
 
-Injected fields: `font`, `font_size`, `align`, `wrap`, `spacing`.
+Injected fields: `font`, `font_size`, `content_align` (alias `align`,
+deprecated), `wrap`, `spacing`.
 
 `spacing` defaults to `0`, which means natural backend spacing.
 
@@ -3262,13 +3967,14 @@ Injected fields: `border_color`, `border_width`, `roundness`, `corner_radius`,
 #### Absolute corner radius (`corner_radius`)
 
 `corner_radius` (also injected by `WLX_CONTAINER_DECOR_FIELDS`) declares the
-corner radius in **pixels**, where `roundness` is a fraction of the element's
+corner radius in **units**, where `roundness` is a fraction of the element's
 shorter side. It defaults to `0` (unset); when `> 0` it overrides `roundness`
 for that element. Resolution is central and at draw time: inside `wlx_draw_box`
 the px value is converted to the fraction the backends already consume,
 `clamp(2 * corner_radius / min(w,h), 0, 1)`, so the recorded command still
 carries a fraction and no backend changes. Two differently sized elements with
-the same `corner_radius` therefore render the same pixel corner.
+the same `corner_radius` therefore render the same pixel corner. The field is
+part of `WLX_BORDER_FIELDS`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -3286,8 +3992,8 @@ fill follows the radius; per-side borders stay sharp spans.
 
 Every bordered widget (and every container — see
 [Per-side container decor](#per-side-container-decor)) also carries eight
-optional per-side fields that override the uniform `border_color` /
-`border_width` on individual edges:
+optional per-side fields, part of `WLX_BORDER_FIELDS`, that override the
+uniform `border_color` / `border_width` on individual edges:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -3295,16 +4001,16 @@ optional per-side fields that override the uniform `border_color` /
 | `border_color_right` | `WLX_Color` | `{0}` | Right edge color. `{0}` inherits `border_color`. |
 | `border_color_bottom` | `WLX_Color` | `{0}` | Bottom edge color. `{0}` inherits `border_color`. |
 | `border_color_left` | `WLX_Color` | `{0}` | Left edge color. `{0}` inherits `border_color`. |
-| `border_width_top` | `float` | `-1` | Top edge width. `< 0` inherits `border_width`; `0` switches the edge off. |
-| `border_width_right` | `float` | `-1` | Right edge width. `< 0` inherits `border_width`; `0` switches the edge off. |
-| `border_width_bottom` | `float` | `-1` | Bottom edge width. `< 0` inherits `border_width`; `0` switches the edge off. |
-| `border_width_left` | `float` | `-1` | Left edge width. `< 0` inherits `border_width`; `0` switches the edge off. |
+| `border_width_top` | `float` | `WLX_UNSET` | Top edge width. `< 0` inherits `border_width`; `0` switches the edge off. |
+| `border_width_right` | `float` | `WLX_UNSET` | Right edge width. `< 0` inherits `border_width`; `0` switches the edge off. |
+| `border_width_bottom` | `float` | `WLX_UNSET` | Bottom edge width. `< 0` inherits `border_width`; `0` switches the edge off. |
+| `border_width_left` | `float` | `WLX_UNSET` | Left edge width. `< 0` inherits `border_width`; `0` switches the edge off. |
 
 Sentinel rules:
 
 - **Color `{0}`** on a side inherits the uniform `border_color`. To express a
   transparent / absent edge, set that side's *width* to `0` — not a zero color.
-- **Width `< 0`** (the `-1` default) inherits the uniform `border_width`.
+- **Width `< 0`** (the `WLX_UNSET` default) inherits the uniform `border_width`.
 - **Width `0`** explicitly switches that side off.
 - **Width `> 0`** wins for that side.
 
@@ -3333,6 +4039,189 @@ disabled"; an effect emits only when its color is non-zero, and each numeric
 knob resolves `<= 0` / `== 0` to the `WLX_Theme.shadow` / `WLX_Theme.glow` value
 then a hard fallback. See
 [WIDGETS.md § Glow and shadow fields](WIDGETS.md) for the full field table.
+
+### Unset sentinels and request tokens
+
+Every option field follows one of two unset rules (full taxonomy and
+per-field tables in [SENTINEL.md](SENTINEL.md)):
+
+| Name | Value | Meaning |
+|------|-------|---------|
+| Rule Z | `0` / `{0}` / `NULL` | Unset, only on fields where zero can never be a meaningful explicit value (colors, fonts, pointers, `font_size`, `min_*` / `max_*`, ...) |
+| `WLX_UNSET` | `(-1)` | Unset on every numeric field where zero is a meaningful explicit value (`border_width`, `roundness`, `opacity`, `width`, `height`, `pos`, `content_padding`, the brightness shifts, ...). Converts to `int` and `float` fields alike; writing it explicitly means the same as omitting the field |
+| `WLX_FLOAT_UNSET` | `(-1e30f)` | Deprecated pre-0.9 spelling of `WLX_UNSET` for the brightness fields; still resolves as unset. Removed in the first minor release after 0.9 |
+| `WLX_PADDING_USE_THEME` | `(-2.0f)` | Request token on the uniform `content_padding`: resolve unset sides to `WLX_Theme.padding` |
+| `WLX_SCROLL_AUTO_HEIGHT` | `(-1.0f)` | Request token for `wlx_scroll_panel_begin`'s `content_height`: measure the content during the frame |
+
+Brightness shifts (`hover_brightness`, `thumb_hover_brightness`,
+`scrollbar_hover_brightness`, theme `disabled_brightness`) have the signed
+domain `-1 < b <= 1`; `-1.0f` is their sentinel.
+
+### `WLX_CONTENT_PADDING_FIELDS` / `WLX_CONTENT_PADDING_DEFAULTS`
+
+Injected fields: `content_padding`, `content_padding_top`, `_right`,
+`_bottom`, `_left`, all `WLX_UNSET` by default. An unset uniform resolves to
+`0` on leaf widgets and to the compound widget's own inset:
+
+| Constant | Value | Widgets |
+|----------|-------|---------|
+| `WLX_INPUTBOX_CONTENT_PADDING` | `10.0f` | `wlx_inputbox`, `wlx_editor` |
+| `WLX_SPLIT_CONTENT_PADDING` | `4.0f` | `wlx_split_begin` |
+| `WLX_PANEL_CONTENT_PADDING` | `2.0f` | `wlx_panel_begin` |
+| `WLX_TOOLTIP_CONTENT_PADDING` | `6.0f` | `wlx_tooltip_for` |
+
+Resolvers: `WLX_RESOLVE_CONTENT_PADDING(ctx, opt)` (leaf, default `0`) and
+`WLX_RESOLVE_CONTENT_PADDING_EX(ctx, opt, widget_default)`, both returning a
+`WLX_Resolved_Padding`.
+
+### `WLX_CONTAINER_DECOR_DEFAULTS` / `WLX_CONTAINER_DECOR_DEFAULTS_CHROME`
+
+`WLX_CONTAINER_DECOR_DEFAULTS` installs literal `0` chrome (`border_width`,
+`roundness`, `rounded_segments`) for layouts, grids and slot styles, which
+have no theme chrome. `WLX_CONTAINER_DECOR_DEFAULTS_CHROME(bw, rn, rs)` is
+the parameterised form; `wlx_panel_begin` uses it with `WLX_UNSET` for all
+three so the panel inherits the theme like a widget.
+
+### Option defaults as values — `wlx_<widget>_opt_defaults()`
+
+```c
+WLXDEF WLX_Button_Opt wlx_button_opt_defaults(void);   // one per option struct
+```
+
+Returns the struct's defaults exactly as its `wlx_default_<widget>_opt`
+macro installs them (each function is `return wlx_default_<widget>_opt();`).
+The macros are the C11 call surface; these functions are the surface for
+callers that cannot repeat designators - take the defaults, assign the
+fields you want, and call the widget's `_impl` function:
+
+```c
+WLX_Button_Opt o = wlx_button_opt_defaults();
+o.font_size = 24;
+wlx_button_impl(ctx, "OK", o, __FILE__, __LINE__);
+```
+
+One function exists per option struct: `slot_style`, `grid`, `grid_auto`,
+`layout`, `overlay`, `widget`, `label`, `button`, `dropdown`, `tooltip`,
+`menu`, `menu_item`, `menu_button`, `checkbox`, `inputbox`, `slider`,
+`separator`, `progress`, `image`, `toggle`, `radio`, `scroll_panel`,
+`list_clipper`, `split`, `split_next`, `panel` (core) and `editor`
+(`wollix_editor.h`).
+
+Every option struct ends with `bool from_defaults`, set by the macro and so
+by these functions and by every copy of a struct built from either. A
+struct that reaches a widget entry with the flag clear (a zero-initialised
+struct, which holds zeros where the defaults are non-zero) makes a
+`WLX_DEBUG` build warn once per call site, naming the entry and the
+defaults function to start from. Release builds never read the flag.
+
+---
+
+## Calling from C++
+
+Wollix is compiled as C and called from C++. The public halves of
+`wollix.h` and `wollix_editor.h` carry C linkage (`extern "C"`) and parse
+as C++11 with one extension every compiler accepts (anonymous structs
+inside a union; `-pedantic-errors` rejects it); the implementation is
+compiled as C11 in one C translation unit that the C++ code links against.
+The three adapter headers carry the same guards but are not includable
+from C++ (next paragraph). Defining `WOLLIX_IMPLEMENTATION` in a C++
+translation unit is not supported.
+
+**The C translation unit owns the backend adapter.** `wollix_raylib.h`,
+`wollix_sdl3.h` and `wollix_wasm.h` are `static inline` bodies over
+implementation internals and can only be included where
+`WOLLIX_IMPLEMENTATION` is defined (this is true for multi-file C programs
+too). Put `wlx_context_init_<backend>`, `wlx_<backend>_root_rect` and the
+`wlx_begin` call with `wlx_process_<backend>_input` behind small C functions
+the C++ side calls;
+`wlx_end`, `wlx_context_destroy` and everything else in the core are
+callable directly.
+
+**Options come from the defaults functions.** Take
+`wlx_<widget>_opt_defaults()`, assign fields, and call the struct-form
+entry with the call site (the last two arguments are the call site: with the
+ID stack they derive the widget id in every build and locate `WLX_DEBUG`
+diagnostics; pass `__FILE__, __LINE__`):
+
+```cpp
+WLX_Button_Opt bo = wlx_button_opt_defaults();
+bo.content_align = WLX_CENTER;
+bo.border_width = 0;
+if (wlx_button_impl(ctx, "OK", bo, __FILE__, __LINE__)) { /* ... */ }
+```
+
+Never brace-initialise an option struct (`WLX_Button_Opt o{};`, `= {}`, or
+a C++20 designated initialiser): the defaults are non-zero, so the result is
+zeros, not defaults, and a `WLX_DEBUG` build warns once per call site
+through the `from_defaults` marker (see above). The `.field = value` macros
+(`wlx_button(ctx, "OK", .content_align = WLX_CENTER)`) are the C11 surface
+and are not available from C++.
+
+**Struct-form entries.** One per option-taking call, same name with the
+`_impl` suffix, the option struct by value, then `const char *file, int
+line`:
+
+| Entry | Options |
+|---|---|
+| `wlx_layout_begin_impl(ctx, count, orient, opt, file, line)` | `WLX_Layout_Opt` |
+| `wlx_layout_begin_auto_impl(ctx, orient, slot_px, opt, file, line)` | `WLX_Layout_Opt` |
+| `wlx_overlay_begin_impl(ctx, count, rect, opt, file, line)` | `WLX_Overlay_Opt` |
+| `wlx_grid_begin_impl(ctx, rows, cols, opt, file, line)` | `WLX_Grid_Opt` |
+| `wlx_grid_begin_auto_impl(ctx, cols, row_px, opt, file, line)` | `WLX_Grid_Auto_Opt` |
+| `wlx_grid_begin_auto_tile_impl(ctx, tile_w, tile_h, opt, file, line)` | `WLX_Grid_Auto_Opt` |
+| `wlx_grid_cell_impl(ctx, row, col, opt, file, line)` | `WLX_Slot_Style_Opt` |
+| `wlx_grid_cell_style_impl(ctx, opt, file, line)` | `WLX_Slot_Style_Opt` |
+| `wlx_slot_style_impl(ctx, opt, file, line)` | `WLX_Slot_Style_Opt` |
+| `wlx_widget_impl(ctx, opt, file, line)` | `WLX_Widget_Opt` |
+| `wlx_label_impl(ctx, text, opt, file, line)` | `WLX_Label_Opt` |
+| `wlx_button_impl(ctx, text, opt, file, line)` | `WLX_Button_Opt` |
+| `wlx_checkbox_impl(ctx, text, checked, opt, file, line)` | `WLX_Checkbox_Opt` |
+| `wlx_inputbox_impl(ctx, label, buffer, buffer_size, opt, file, line)` | `WLX_Inputbox_Opt` |
+| `wlx_editor_impl(ctx, label, buffer, buffer_cap, length, opt, file, line)` | `WLX_Editor_Opt` |
+| `wlx_slider_impl(ctx, label, value, opt, file, line)` | `WLX_Slider_Opt` |
+| `wlx_separator_impl(ctx, opt, file, line)` | `WLX_Separator_Opt` |
+| `wlx_progress_impl(ctx, value, opt, file, line)` | `WLX_Progress_Opt` |
+| `wlx_image_impl(ctx, texture, opt, file, line)` | `WLX_Image_Opt` |
+| `wlx_toggle_impl(ctx, label, value, opt, file, line)` | `WLX_Toggle_Opt` |
+| `wlx_radio_impl(ctx, label, active, index, opt, file, line)` | `WLX_Radio_Opt` |
+| `wlx_scroll_panel_begin_impl(ctx, content_height, opt, file, line)` | `WLX_Scroll_Panel_Opt` |
+| `wlx_list_clipper_begin_impl(ctx, item_count, row_height, opt, file, line)` | `WLX_List_Clipper_Opt` |
+| `wlx_split_begin_impl(ctx, opt, file, line)` | `WLX_Split_Opt` |
+| `wlx_split_next_impl(ctx, opt, file, line)` | `WLX_Split_Next_Opt` |
+| `wlx_panel_begin_impl(ctx, opt, file, line)` | `WLX_Panel_Opt` |
+| `wlx_dropdown_impl(ctx, label, selected, options, count, opt, file, line)` | `WLX_Dropdown_Opt` |
+| `wlx_tooltip_for_impl(ctx, anchor, text, opt, file, line)` | `WLX_Tooltip_Opt` |
+| `wlx_menu_begin_impl(ctx, open, x, y, opt, file, line)` | `WLX_Menu_Opt` |
+| `wlx_submenu_begin_impl(ctx, open, opt, file, line)` | `WLX_Menu_Opt` |
+| `wlx_menu_button_begin_impl(ctx, label, open, opt, file, line)` | `WLX_Menu_Button_Opt` |
+| `wlx_menu_item_impl(ctx, text, opt, file, line)` | `WLX_Menu_Item_Opt` |
+
+`wlx_get_state_impl(ctx, size, file, line)` and `wlx_split_end_impl(ctx)`
+take no options. The `_end` calls, the interaction and input queries, the
+theme and utility functions are plain functions and need no substitute.
+
+**Literal helpers.** `WLX_RGBA`, every `WLX_SLOT_*` macro and
+`WLX_TEXT_STYLE_DEFAULT` expand, under `__cplusplus`, to a
+brace-initialised prvalue with the casts C++11 list-initialisation needs,
+so `WLX_SLOT_PX(px)` with an `int` argument is fine. `WLX_SIZES` is C-only (an array compound literal has no C++
+expression form): name the array and pass the count and pointer.
+
+```cpp
+static const WLX_Slot_Size sizes[] = { WLX_SLOT_PX(44), WLX_SLOT_FLEX(1) };
+WLX_Layout_Opt lo = wlx_layout_opt_defaults();
+lo.sizes = sizes;
+wlx_layout_begin_impl(ctx, 2, WLX_VERT, lo, __FILE__, __LINE__);
+```
+
+**Build.** The C translation unit needs the override-warning suppression
+(`-Wno-initializer-overrides` on clang, `-Wno-override-init` and
+`-Wno-override-init-side-effects` on gcc) and,
+on MSVC, `/std:c11 /Zc:preprocessor` (Visual Studio 2019 16.8 or later).
+The C++ translation units need nothing beyond the include path (and no
+`-pedantic-errors`, for the anonymous structs above). `make test` builds
+and runs `tests/test_cpp_path.cpp`, a C++11 caller over the implementation
+compiled as C11, on both g++ and clang++; the Windows CI leg runs it
+under `cl`.
 
 ---
 
@@ -3397,8 +4286,50 @@ Convert a pointer to a Raylib `Font` into a `WLX_Font` handle. Pass to widget
 options or theme fields:
 
 ```c
-Font my_font = LoadFontEx("myfont.ttf", 24, NULL, 0);
-ctx->theme_copy.font = wlx_font_from_raylib(&my_font);
+static Font my_font;
+static WLX_Theme theme;
+my_font = LoadFontEx("myfont.ttf", 24, NULL, 0);
+theme = wlx_theme_dark;
+theme.font = wlx_font_from_raylib(&my_font);
+ctx->theme = &theme;
+```
+
+### `wlx_raylib_root_rect`
+
+```c
+static inline WLX_Rect wlx_raylib_root_rect(void);
+```
+
+The root rect for `wlx_begin`, in units: `{0, 0, GetScreenWidth(),
+GetScreenHeight()}`, the space Raylib draws and reports the mouse in
+under any scale. Prefer it to `GetRenderWidth`, which is the framebuffer
+in units and twice the drawable space on a 2x display under
+`FLAG_WINDOW_HIGHDPI`.
+
+### High-DPI with Raylib
+
+Set `FLAG_WINDOW_HIGHDPI` before `InitWindow`; Raylib then draws, clips
+and reports the mouse in screen units and scales to the framebuffer
+itself, and the adapter's `get_content_scale` reports that scale
+(`GetWindowScaleDPI().x` under the flag, 1.0 without it; on macOS the
+framebuffer is always the retina one, so the scale applies either way).
+Text crispness stays with the application, because it owns the atlas:
+load each font at its nominal size times `GetWindowScaleDPI().x` and
+keep a bilinear filter on the texture, and ask widgets for the nominal
+size as before. Raylib's built-in bitmap font has no scaled variant and
+stays soft on a scaled display. Raylib's scissor takes whole screen
+units, so a clip edge on a device-grid boundary between units (33.5 at
+2x) is rounded and may sit one device pixel off; the adapter rounds each
+edge on its own so the error never compounds. Requires Raylib 5.6 (5.5
+reports the pixel size from `GetScreenWidth` after a resize under the
+flag on X11 and Windows).
+
+```c
+SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
+InitWindow(800, 600, "app");
+int atlas_px = (int)(32.0f * GetWindowScaleDPI().x + 0.5f);
+Font font = LoadFontEx("myfont.ttf", atlas_px, NULL, 0);
+SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
 ```
 
 ### `WLX_RAYLIB_TEXT_CACHE_CAP`
@@ -3470,23 +4401,23 @@ Whole-string `wlx_raylib_measure_text` and slice-aware
 
 ```c
 static inline void wlx_raylib_measure_text_slice(const char *text, size_t slice_len,
-        WLX_Text_Style style, float *out_w, float *out_h);
+        WLX_Text_Style style, float *out_w, float *out_h, void *user);
 ```
 
 Slice-aware measure: accepts an explicit byte length so `wlx_span_measure_text`
 takes the slice fast path without allocating a temporary null-terminated copy
 on every internal measurement. Exposed via the
 `WLX_Backend.measure_text_slice` callback. Cache lookup happens before any
-copy work; only on miss does the fallback copy a non-null-terminated slice
-into a 256-byte stack buffer (or `wlx_alloc` for longer slices) before
-calling `MeasureTextEx`.
+copy work; on a miss the slice is always copied through `WLX_CStr_Tmp` (a
+`WLX_TEXT_RANGE_STACK_CAP`-byte stack buffer, 1024 by default; `wlx_alloc`
+beyond it) before `MeasureTextEx`.
 
 ### `wlx_raylib_measure_text_advances`
 
 ```c
 static inline size_t wlx_raylib_measure_text_advances(const char *text, size_t len,
         WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
-        float *out_advances);
+        float *out_advances, void *user);
 ```
 
 Exposed via the optional `WLX_Backend.measure_text_advances` callback.
@@ -3494,8 +4425,8 @@ Accumulates per-glyph advances exactly as `MeasureTextEx` does for a single
 line (base-size `advanceX` per glyph, one scale-factor multiply, plus
 `(codepoints - 1) * spacing`), so callback-built geometry matches the
 whole-prefix slice measures bit-for-bit on Raylib's additive model.
-Unterminated slices copy with the same stack/heap discipline as the slice
-measure.
+Every call copies the slice the same way as the slice measure; this path is
+uncached.
 
 ### Raylib Setup Pattern
 
@@ -3514,8 +4445,7 @@ int main(void) {
     wlx_context_init_raylib(&ctx);
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth(), h = GetRenderHeight();
-        wlx_begin(&ctx, (WLX_Rect){0, 0, w, h}, wlx_process_raylib_input);
+        wlx_begin(&ctx, wlx_raylib_root_rect(), wlx_process_raylib_input);
             BeginDrawing();
                 ClearBackground((Color){ 27, 27, 27, 255 });
                 // ... widgets ...
@@ -3542,8 +4472,34 @@ static inline void wlx_context_init_sdl3(WLX_Context *ctx, SDL_Window *window, S
 ```
 
 Set all `ctx->backend` function pointers to SDL3 implementations. Installs an
-SDL event watch for mouse wheel and text input events. Calls
-`SDL_StartTextInput(window)`.
+SDL event watch for the mouse wheel, committed text and composition events,
+key auto-repeat, window focus loss (it clears a composition) and window moves
+(it re-sends the composition anchor). Text input is not started here: the
+composition anchor starts it while an editable text widget has focus and stops
+it when focus leaves.
+
+Call it again to re-bind a context to a replacement window, or after an
+`SDL_Quit` / `SDL_Init` cycle: the adapter's window state (see
+`wlx_backend_sdl3`) starts clean, the event watch is installed again (once:
+a second call does not add a second watch), and the context's last pushed
+composition anchor is cleared, so a field that keeps its focus starts text
+input on the new window on the next frame. The adapter serves one window at
+a time.
+
+### `wlx_sdl3_ime_hints`
+
+```c
+static inline void wlx_sdl3_ime_hints(void);
+```
+
+Call before `SDL_Init`. Sets `SDL_HINT_IME_IMPLEMENTED_UI` to
+`"composition"`: Wollix draws the composition string inline in its text
+widgets, so the platform must not draw its own composition window (candidate
+lists stay the platform's). On X11 platforms the process also takes the
+environment's `LC_CTYPE` when it still has the `"C"` default, because Xlib
+walks every composition string with `mblen()`, and under `"C"` such a walk can
+hang inside the event pump. Where no other character type is available the
+hint is left unset and the platform draws the composition.
 
 ### `wlx_process_sdl3_input`
 
@@ -3552,7 +4508,9 @@ static inline void wlx_process_sdl3_input(WLX_Context *ctx);
 ```
 
 `WLX_Input_Handler` callback for SDL3. Calls `SDL_PumpEvents()` and reads
-mouse/keyboard state.
+mouse/keyboard state. Re-reads the window's display scale
+(`SDL_GetWindowDisplayScale`) for the frame and converts the mouse from
+window coordinates to units through `SDL_RenderCoordinatesFromWindow`.
 
 ### `wlx_backend_sdl3`
 
@@ -3560,7 +4518,30 @@ mouse/keyboard state.
 static inline WLX_Backend wlx_backend_sdl3(SDL_Renderer *renderer);
 ```
 
-Returns a `WLX_Backend` struct with all SDL3 function pointers.
+Returns a `WLX_Backend` struct with all SDL3 function pointers, and binds
+the adapter to `renderer`: its window state (the wheel, committed-text and
+composition buffers, the text input flags and anchor, the key repeats and
+the frame clock) is reset to its defaults, so call it once per window, not
+per frame.
+
+### `wlx_sdl3_root_rect`
+
+```c
+static inline WLX_Rect wlx_sdl3_root_rect(void);
+```
+
+The root rect for `wlx_begin`, in units: the renderer's output size in
+pixels over the window's display scale, which the call re-reads (once per
+frame: the input handler reuses the value, so the root and the sample the
+core receives agree). Create the window with
+`SDL_WINDOW_HIGH_PIXEL_DENSITY` to get a dense backing store on displays
+that offer one. The adapter converts every geometry callback and the clip
+rect from units to pixels itself, never through `SDL_SetRenderScale`, and
+rasterises its font variants at `font_size * scale`, so text is crisp at
+any scale without application work; measures come back in units. It
+assumes the renderer's own scale and logical presentation are left at
+their defaults. The scale is read from the renderer's window, so a table
+built with `wlx_backend_sdl3(renderer)` directly gets it too.
 
 ### `wlx_texture_from_sdl3`
 
@@ -3581,9 +4562,24 @@ helper is emitted when SDL_ttf is available at include time. Pass the returned
 handle to widget options or theme fields:
 
 ```c
+static WLX_Theme theme;
 TTF_Font *font = TTF_OpenFont("myfont.ttf", 18.0f);
-ctx->theme_copy.font = wlx_font_from_sdl3(font);
+theme = wlx_theme_dark;
+theme.font = wlx_font_from_sdl3(font);
+ctx->theme = &theme;
 ```
+
+SDL_ttf shapes text (through HarfBuzz when it is linked) in the font's
+default, left-to-right direction. Do not call `TTF_SetFontDirection` with
+`TTF_DIRECTION_RTL`, `TTF_DIRECTION_TTB` or `TTF_DIRECTION_BTT` on a font
+handed to Wollix: the core's text geometry is logical-order and left to
+right, a right-to-left direction makes `measure_text_advances`
+report visual-order cluster edges, and the core clamps such a run: every
+unit edge inside it collapses onto the first reported value, so the run
+keeps one width and every caret offset inside it lands on the same x
+(reported as `WLX_ERR_BACKEND_ANSWER` in `WLX_DEBUG` builds). Right-to-left
+text renders in logical order, which for a Hebrew or Arabic run means
+mirrored.
 
 ### `WLX_SDL3_FONT_VARIANT_CAP`
 
@@ -3594,7 +4590,7 @@ ctx->theme_copy.font = wlx_font_from_sdl3(font);
 Set the fixed capacity of the SDL3 backend's effective-font variant table
 before including `wollix_sdl3.h`. The default is `32`. Each live entry owns a
 `TTF_CopyFont`-derived `TTF_Font *` keyed by the base `TTF_Font *`, font size,
-spacing, and the base font generation snapshot. When the table is full, Wollix
+spacing, content scale, and the base font generation snapshot. When the table is full, Wollix
 evicts the least-recently-used variant and closes it synchronously with
 `TTF_CloseFont`. Variant eviction first cascade-evicts every retained
 `TTF_Text` entry that referenced the variant, so retained text cannot dangle
@@ -3610,9 +4606,8 @@ Set the fixed capacity of the SDL3 backend's retained `TTF_Text` cache before
 including `wollix_sdl3.h`. The default is `4096` (raised from the
 gallery-sized `1024` to cover an editor viewport's working set; with the
 editor's retained line geometry the steady-state working set has since
-collapsed to viewport-line scale, so lowering it back is a candidate — see
-the follow-up outcomes in
-`docs/dev/ADR_036_EDITOR_MEASUREMENT_CONTRACT_RETENTION_AND_WINDOWED_ORIGIN.md`). Each live entry owns a
+collapsed to viewport-line scale, so lowering it back is a candidate).
+Each live entry owns a
 `TTF_CreateText`-derived `TTF_Text *` keyed by `(variant, slice_len,
 fnv1a64(text bytes))` with stored `text_len` plus the bytes themselves for
 collision-rejecting hit verification. Setting the cap to `0` disables retention
@@ -3657,7 +4652,8 @@ host.
 
 Custom-font measurement and draw resolve a backend-owned effective-font variant
 before touching SDL_ttf. Variants are created lazily from the user-provided
-base `TTF_Font *`, keyed by `(base_font, font_size, spacing, base_generation)`,
+base `TTF_Font *`, keyed by `(base_font, font_size, spacing, content scale,
+base_generation)`,
 bounded by `WLX_SDL3_FONT_VARIANT_CAP`, and invalidated when
 `TTF_GetFontGeneration(base_font)` no longer matches the stored snapshot. On
 the variant path, SDL3 custom fonts honor `style.spacing` for both measurement
@@ -3704,14 +4700,24 @@ The optional `WLX_Backend.measure_text_advances` callback
 (`wlx_sdl3_measure_text_advances`) resolves one shaped `TTF_Text` for the
 run — reusing the retained cache entry when present, creating a transient
 one on miss — and walks its cluster geometry (`TTF_GetTextSubString` /
-`TTF_GetNextTextSubString`) to fill unit-end advances, snapping unit ends
-that fall inside a cluster to the cluster's trailing edge. It registers
-only when SDL_ttf >= 3.3.0 (the same floor as the font-variant machinery);
-older builds stay on the per-unit measure fallback with no behavior change.
-Plain content matches whole-prefix measures within 1px glyph-placement
-quantization; shaped contexts (kern pairs, ligatures, malformed bytes,
-run-end ink-vs-pen width) can diverge by a few px — the documented
-cluster-snap approximation (see ADR_012's addendum).
+`TTF_GetNextTextSubString`) to fill unit-end advances. A cluster's rect
+is the ink box of its glyphs, so each unit end reports the shaped pen
+position: the rect's left edge minus the glyph's left bearing (the `minx`
+of `TTF_GetGlyphMetrics`). The run end reports the run's `TTF_GetTextSize`
+width. Unit ends that fall inside a shaped cluster snap to the cluster's
+trailing edge, the next cluster's pen (with the core's grapheme-cluster
+units only ligatures and clusters beyond the core's four-rule
+approximation reach the snap). A glyph whose bearing it cannot know (a
+contextual alternate or ligature glyph, a mark joined to its base), a
+right-to-left cluster or a decreasing position ends the fill early, and
+the core measures the rest of the run by prefix. It registers only when
+SDL_ttf >= 3.3.0 (the same floor as the font-variant machinery); older
+builds stay on the per-unit measure fallback with no behavior change.
+Advances are the cell positions the shaped draw uses, so carets and
+colour-span pieces land on them. They match whole-prefix measures except
+for rounding (the draw floors each pen, a prefix measure rounds its width
+up, so up to 1px where advances are fractional) and a kern pair across
+the cut, which the shaped position includes.
 
 Callers that close SDL_ttf fonts directly must call
 `wlx_sdl3_text_cache_clear()` before `TTF_CloseFont()` on any base font handle
@@ -3728,8 +4734,10 @@ from those base fonts and retained `TTF_Text` entries reference those variants.
 #include "wollix_sdl3.h"
 
 int main(void) {
+    wlx_sdl3_ime_hints();   // before SDL_Init: Wollix draws the composition
     SDL_Init(SDL_INIT_VIDEO);
-    SDL_Window *win = SDL_CreateWindow("My App", 800, 600, SDL_WINDOW_RESIZABLE);
+    SDL_Window *win = SDL_CreateWindow("My App", 800, 600,
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     SDL_Renderer *ren = SDL_CreateRenderer(win, NULL);
 
     WLX_Context ctx = {0};
@@ -3741,9 +4749,7 @@ int main(void) {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) running = false;
         }
-        int w, h;
-        SDL_GetWindowSize(win, &w, &h);
-        wlx_begin(&ctx, (WLX_Rect){0, 0, w, h}, wlx_process_sdl3_input);
+        wlx_begin(&ctx, wlx_sdl3_root_rect(), wlx_process_sdl3_input);
             SDL_SetRenderDrawColor(ren, 27, 27, 27, 255);
             SDL_RenderClear(ren);
             // ... widgets ...
@@ -3767,8 +4773,8 @@ Defined in `wollix_wasm.h` (bare wasm32, no libc; the JS host is
 -nostdlib` plus `web/wlx_libc_shim.c`; `make wasm-site` packages the
 dashboard showcase. Every `WLX_Backend` callback is bridged to a wasm import
 in the `"wlx"` module (`draw_rect`, `draw_text_slice`, `measure_text_advances`,
-`draw_texture`, `begin_scissor`, `get_frame_time`, `clipboard_get_into`,
-`clipboard_set`, `set_cursor`, ...); structs are flattened to scalars and
+`draw_texture`, `begin_scissor`, `get_frame_time`, `content_scale`,
+`clipboard_get_into`, `clipboard_set`, `set_cursor`, ...); structs are flattened to scalars and
 `WLX_Color` is packed as one `uint32_t` (`0xRRGGBBAA`).
 
 ### `wlx_context_init_wasm`
@@ -3779,7 +4785,9 @@ static inline void wlx_context_init_wasm(WLX_Context *ctx);
 
 Set all `ctx->backend` function pointers to the wasm-import implementations
 (`wlx_backend_wasm()`): every required callback, both slice text callbacks,
-`measure_text_advances`, `draw_texture`, the clipboard pair and `set_cursor`.
+`measure_text_advances`, `draw_texture`, the clipboard pair, `set_cursor`,
+`get_content_scale` (`devicePixelRatio`) and `set_text_input_area` (the hidden
+text proxy).
 `draw_gradient_v`, `draw_shadow` and `draw_glow` stay `NULL` (software
 fallbacks). Under `WLX_PERF` it installs a timer only when
 `WLX_WASM_PERF_TIMESTAMP` is defined (the host then provides `perf_now_ns`).
@@ -3794,11 +4802,17 @@ static inline WLX_Input_State *wlx_wasm_get_input_ptr(void);
 The host writes `WLX_Input_State` straight into wasm memory before each
 `wlx_wasm_frame` call (pointer events with pointer capture, touch, raw wheel
 on both axes, three buttons with one-frame press edges, key codes incl.
-F-keys, modifiers, UTF-8 text); `wlx_process_wasm_input` copies that block
-into `ctx->input`. The header `_Static_assert`s the field offsets the host's
+F-keys, modifiers, UTF-8 committed text and the composition string with
+its cursor and clause); `wlx_process_wasm_input` copies that block into
+`ctx->input`. The header `_Static_assert`s the field offsets the host's
 `INPUT_OFFSETS` table relies on (`keys_down` 16, `text_input` 144,
-`modifiers` 240, `wheel_delta_x` 244, `mouse_right_down` 248, size 252), so a
-layout change fails the build until the JS table is updated. The app exports
+`keys_repeated` 272, `modifiers` 336, `wheel_delta_x` 340,
+`mouse_right_down` 344, `preedit` 348, `preedit_cursor` 476,
+`preedit_sel_len` 480, size 484) and the two text capacities, so a layout
+change fails the build until the JS table is updated. The host's
+`set_text_input_area` import places and focuses a hidden text proxy at
+the caret line so the browser's input method engages there; composition
+and dead keys reach the widgets through it. The app exports
 `wlx_wasm_init` / `wlx_wasm_frame(width, height)` (see
 `demos/dashboard/dashboard.c`).
 
@@ -3810,7 +4824,9 @@ static inline void        wlx_wasm_texture_destroy(WLX_Texture tex);
 ```
 
 Host-owned RGBA8 textures (the pixels are copied during the call; the handle
-is opaque and nonzero). See ADR_014 / ADR_017 for the tint contract.
+is opaque and nonzero). `draw_texture` multiplies each RGB channel of the
+texture by the tint's (a white tint draws it unchanged) and applies the
+tint's alpha on every draw.
 
 ### `WLX_WASM_CLIPBOARD_MAX`, `WLX_RAYLIB_CLIPBOARD_MAX`, `WLX_SDL3_CLIPBOARD_MAX`
 
@@ -3824,8 +4840,8 @@ WASM (the host copies into it and reports the byte count; the adapter grows
 and re-fetches until the text provably fit), and the NUL-terminated send
 buffer on Raylib / SDL3 (longer spans are truncated at a UTF-8 boundary).
 Overridable before the adapter include. The page-pool allocator
-(`WLX_Wasm_Pool`, `wlx_wasm_allocator`) is documented under Memory
-Management above.
+(`WLX_Wasm_Pool`, `wlx_wasm_allocator`) is documented under
+[WASM page-pool](#wasm-page-pool-wlx_wasm_pool-and-wlx_wasm_allocator) above.
 
 ---
 
@@ -3856,6 +4872,7 @@ typedef struct {
         WLX_Perf_Text_Stats text;
         WLX_Perf_Arena_Stats arena[WLX_ARENA_GROUP_COUNT];
         WLX_Perf_Allocator_Stats allocator;
+        WLX_Perf_State_Stats state;
 } WLX_Perf_Frame;
 ```
 
@@ -3866,11 +4883,19 @@ Core frame snapshot published after each completed `wlx_end()`.
     time.
 - `commands` stores the total command count, command-range count, and the
     `WLX_CMD_*` histogram.
-- `text` stores text-measure, emitted-text, and fitted-run counters.
+- `text` stores the backend's text traffic (`measure_calls` / `measured_bytes`
+    for every `measure_text` / `measure_text_slice` call, `advances_calls` /
+    `advances_bytes` for every `measure_text_advances` fill, each counted where
+    the core makes the call), plus emitted-text and fitted-run counters.
 - `arena` stores per-arena count, capacity, high-water, grow-count, and byte
     usage snapshots.
-- `allocator` stores `wlx_malloc` / `wlx_calloc` / `wlx_realloc` / `wlx_free`
-    counters and byte totals.
+- `allocator` stores the allocator traffic: `alloc_calls`, `calloc_calls`,
+    `realloc_calls` and `free_calls`, plus the `alloc_bytes`, `calloc_bytes`
+    and `realloc_bytes` totals.
+- `state` stores the persistent storage held at frame end: state map
+    `entries` and slot `capacity`, and the live `editor_indices` and
+    `undo_journals` (a reclaimed widget's index or journal is retired in
+    place for reuse and not counted).
 
 Supporting core sub-structs:
 
@@ -3879,6 +4904,7 @@ Supporting core sub-structs:
 - `WLX_Perf_Text_Stats`
 - `WLX_Perf_Arena_Stats`
 - `WLX_Perf_Allocator_Stats`
+- `WLX_Perf_State_Stats`
 
 ### `wlx_perf_set_timer`
 

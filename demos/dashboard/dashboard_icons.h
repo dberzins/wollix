@@ -141,7 +141,7 @@ static WLX_Texture s_dashboard_icon_atlas;
 // backend renderer set by wlx_context_init_sdl3.
 static void dashboard_icon_atlas_create(WLX_Context *ctx) {
     (void)ctx;
-    SDL_Texture *tex = SDL_CreateTexture(g_wlx_sdl3_renderer,
+    SDL_Texture *tex = SDL_CreateTexture(g_wlx_sdl3.renderer,
         SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC,
         WLX_ICONS_WIDTH, WLX_ICONS_HEIGHT);
     if (!tex) {
@@ -251,7 +251,7 @@ static void dashboard_icon_image_helper(WLX_Context *ctx, const Dashboard_Tokens
             .padding = opt.padding, .padding_top = opt.padding_top,
             .padding_right = opt.padding_right, .padding_bottom = opt.padding_bottom,
             .padding_left = opt.padding_left,
-            .widget_align = opt.widget_align,
+            .slot_align = opt.slot_align,
             .width = opt.width, .height = opt.height,
             .min_width = opt.min_width, .min_height = opt.min_height,
             .max_width = opt.max_width, .max_height = opt.max_height,

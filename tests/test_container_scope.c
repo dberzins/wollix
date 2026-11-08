@@ -5,7 +5,8 @@
 //             descendant state IDs even when the descendant call sites share
 //             the same source file and line.
 //   Negative: two containers without .id produce identical descendant state
-//             IDs from the same source line (expected collision).
+//             IDs from the same source line (expected collision); a
+//             WLX_DEBUG build reports the second request of the frame.
 
 #ifndef WOLLIX_H_
 #define WOLLIX_IMPLEMENTATION
@@ -17,6 +18,8 @@
 #ifndef TEST_MOCK_BACKEND_H_
 #include "test_mock_backend.h"
 #endif
+
+#include <string.h>
 
 // ============================================================================
 // Helpers: call wlx_get_state from a stable source location so that
@@ -154,9 +157,23 @@ TEST(scope_id_id_stack_balanced_after_layout) {
 // Negative test: omitting .id causes same-source-line IDs to collide
 // ============================================================================
 
+#ifdef WLX_DEBUG
+static int cs_repeat_warns;
+
+static void cs_warn_cb(const char *file, int line, const char *msg, void *user) {
+    (void)file; (void)line; (void)user;
+    if (strstr(msg, "state requested twice in one frame") != NULL) cs_repeat_warns++;
+}
+#endif
+
 TEST(no_scope_id_collides_descendants) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 800, 600);
+#ifdef WLX_DEBUG
+    wlx_dbg_init(&ctx);
+    ctx.dbg->warn_cb = cs_warn_cb;
+    cs_repeat_warns = 0;
+#endif
 
     test_frame_begin(&ctx, 0, 0, false, false);
 
@@ -183,6 +200,9 @@ TEST(no_scope_id_collides_descendants) {
     ASSERT_TRUE(id_from_a != 0);
     ASSERT_TRUE(id_from_b != 0);
     ASSERT_EQ_INT((int)id_from_a, (int)id_from_b);
+#ifdef WLX_DEBUG
+    ASSERT_EQ_INT(cs_repeat_warns, 1);   // the shared block is reported
+#endif
     wlx_context_destroy(&ctx);
 }
 

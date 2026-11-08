@@ -57,6 +57,15 @@ int snprintf(char *buf, size_t size, const char *fmt, ...);
 int vsnprintf(char *buf, size_t size, const char *fmt, __builtin_va_list ap);
 int puts(const char *s);
 
+// Where wollix's diagnostic lines go on this target: contract errors, hard
+// asserts and WLX_UNREACHABLE all print through WLX_ERROR_PRINT, and fprintf
+// below is a no-op, so route them to puts (the host logs it to the console).
+// This header is reached through the <stdio.h> redirect before wollix.h's
+// own default, which is #ifndef-guarded.
+#ifndef WLX_ERROR_PRINT
+#define WLX_ERROR_PRINT(msg) ((void)puts(msg))
+#endif
+
 // fprintf/printf: no-ops in bare-wasm builds (no fd_write).
 // WLX_TODO/WLX_UNREACHABLE call fprintf then abort — abort still works.
 static inline int fprintf(FILE *stream, const char *fmt, ...) {

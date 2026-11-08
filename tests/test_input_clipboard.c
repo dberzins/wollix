@@ -18,14 +18,6 @@
 // Fixture (same stable-call-site pattern as the selection suite)
 // ============================================================================
 
-static uint32_t clip_command_mod(void) {
-#if defined(__APPLE__)
-    return WLX_MOD_SUPER;
-#else
-    return WLX_MOD_CTRL;
-#endif
-}
-
 static bool clip_inputbox(WLX_Context *ctx, char *buf, size_t buf_size) {
     bool focused = false;
     (void)wlx_inputbox_impl(ctx, NULL, buf, buf_size,
@@ -108,17 +100,17 @@ TEST(clip_copy_then_paste_roundtrip) {
     clip_frame_focus(&ctx, buf, sizeof(buf));
 
     // Select all, copy: the clipboard receives the whole buffer.
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_A, clip_command_mod());
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_C, clip_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_A, test_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_C, test_command_mod());
     ASSERT_EQ_STR("hello", test_get_clipboard());
     ASSERT_EQ_STR(buf, "hello");
 
     // Replace everything with one typed char, then paste after it.
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_A, clip_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_A, test_command_mod());
     clip_frame_type(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "X");
 
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, clip_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, test_command_mod());
     ASSERT_EQ_STR(buf, "Xhello");
     wlx_context_destroy(&ctx);
 }
@@ -134,13 +126,13 @@ TEST(clip_cut_removes_and_copies) {
     clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, WLX_MOD_SHIFT);
 
     // Cut selection [2,4).
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_X, clip_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_X, test_command_mod());
     ASSERT_EQ_STR(buf, "AB");
     ASSERT_EQ_STR("CD", test_get_clipboard());
 
     // Paste it back twice at the caret (collapsed to the cut point).
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, clip_command_mod());
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, clip_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, test_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, test_command_mod());
     ASSERT_EQ_STR(buf, "ABCDCD");
     wlx_context_destroy(&ctx);
 }
@@ -151,7 +143,7 @@ TEST(clip_select_all_then_delete) {
     char buf[64] = "hello world";
 
     clip_frame_focus(&ctx, buf, sizeof(buf));
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_A, clip_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_A, test_command_mod());
     clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_BACKSPACE, 0);
 
     ASSERT_EQ_STR(buf, "");
@@ -167,7 +159,7 @@ TEST(clip_paste_truncates_on_utf8_boundary) {
     char buf[6] = "";
 
     clip_frame_focus(&ctx, buf, sizeof(buf));
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, clip_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, test_command_mod());
 
     ASSERT_EQ_STR(buf, "\xC3\xA9\xC3\xA9");
     ASSERT_EQ_INT(4, (int)strlen(buf));
@@ -183,7 +175,7 @@ TEST(clip_paste_replaces_selection) {
     clip_frame_focus(&ctx, buf, sizeof(buf));
     clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, WLX_MOD_SHIFT);
     clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_LEFT, WLX_MOD_SHIFT);
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, clip_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, test_command_mod());
 
     ASSERT_EQ_STR(buf, "ABXY");
     wlx_context_destroy(&ctx);
@@ -196,8 +188,8 @@ TEST(clip_empty_selection_copy_is_noop) {
     char buf[64] = "AB";
 
     clip_frame_focus(&ctx, buf, sizeof(buf));
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_C, clip_command_mod());
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_X, clip_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_C, test_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_X, test_command_mod());
 
     // Neither copy nor cut touched the clipboard or the buffer.
     ASSERT_EQ_STR("seed", test_get_clipboard());
@@ -212,7 +204,7 @@ TEST(clip_paste_empty_clipboard_is_noop) {
     char buf[64] = "AB";
 
     clip_frame_focus(&ctx, buf, sizeof(buf));
-    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, clip_command_mod());
+    clip_frame_key(&ctx, buf, sizeof(buf), WLX_KEY_V, test_command_mod());
 
     ASSERT_EQ_STR(buf, "AB");
     wlx_context_destroy(&ctx);
@@ -225,15 +217,15 @@ TEST(clip_masked_field_never_exports_plaintext) {
     char buf[64] = "secret";
 
     clip_frame_focus_pw(&ctx, buf, sizeof(buf));
-    clip_frame_key_pw(&ctx, buf, sizeof(buf), WLX_KEY_A, clip_command_mod());
+    clip_frame_key_pw(&ctx, buf, sizeof(buf), WLX_KEY_A, test_command_mod());
 
     // Copy on a live selection: the clipboard keeps its previous content.
-    clip_frame_key_pw(&ctx, buf, sizeof(buf), WLX_KEY_C, clip_command_mod());
+    clip_frame_key_pw(&ctx, buf, sizeof(buf), WLX_KEY_C, test_command_mod());
     ASSERT_EQ_STR("sentinel", test_get_clipboard());
 
     // Cut is fully rejected: the clipboard keeps its content AND the text
     // survives (a silent delete would suggest the bytes were exported).
-    clip_frame_key_pw(&ctx, buf, sizeof(buf), WLX_KEY_X, clip_command_mod());
+    clip_frame_key_pw(&ctx, buf, sizeof(buf), WLX_KEY_X, test_command_mod());
     ASSERT_EQ_STR("sentinel", test_get_clipboard());
     ASSERT_EQ_STR(buf, "secret");
     wlx_context_destroy(&ctx);

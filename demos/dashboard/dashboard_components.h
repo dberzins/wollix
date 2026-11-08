@@ -119,7 +119,7 @@ static inline void dashboard_heading(WLX_Context *ctx, const Dashboard_Tokens *t
         wlx_label(ctx, up,
             .id = up,
             .style = st,
-            .align = WLX_LEFT,
+            .content_align = WLX_LEFT,
             .vertical_metric = WLX_VMETRIC_FONT_SIZE,
             .border_width = 0);
     wlx_layout_end(ctx);
@@ -134,7 +134,7 @@ static inline bool dashboard_button_primary(WLX_Context *ctx, const Dashboard_To
     return wlx_button(ctx, text,
         .back_color = tk->color.accent,
         .front_color = tk->color.on_accent,
-        .roundness = 0.15f, .align = WLX_CENTER, .content_padding = 10,
+        .roundness = 0.15f, .content_align = WLX_CENTER, .content_padding = 10,
         .font = dashboard_type_font(fonts, role), .font_size = dashboard_type_px(role),
         .height = height, .id = id);
 }
@@ -162,12 +162,12 @@ static inline void dashboard_status_chip(WLX_Context *ctx, const Dashboard_Token
     wlx_layout_begin(ctx, 2, WLX_HORZ, .id = up, .gap = 0,
         .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(caption_inset), WLX_SLOT_FLEX(1) });
         wlx_widget(ctx, .id = "pip", .width = pr * 2.0f, .height = pr * 2.0f,
-            .widget_align = WLX_LEFT, .padding_left = pip_center - pr,
+            .slot_align = WLX_LEFT, .padding_left = pip_center - pr,
             .back_color = status, .roundness = 1.0f, .rounded_segments = 16, .border_width = 0);
         wlx_label(ctx, up,
             .id = up,
             .style = st,
-            .align = WLX_LEFT,
+            .content_align = WLX_LEFT,
             .vertical_metric = WLX_VMETRIC_FONT_SIZE,
             .border_width = 0);
     wlx_layout_end(ctx);
@@ -187,7 +187,7 @@ static inline void dashboard_badge(WLX_Context *ctx, const Dashboard_Tokens *tk,
     wlx_label(ctx, up,
         .id = up,
         .style = st,
-        .align = WLX_CENTER,
+        .content_align = WLX_CENTER,
         .vertical_metric = WLX_VMETRIC_FONT_SIZE,
         .show_background = true,
         .back_color = fill,
@@ -208,7 +208,7 @@ static inline void dashboard_status_pip(WLX_Context *ctx, const Dashboard_Tokens
     // translucent halo circle: .color is the dot, .glow_* the pulsing halo
     // (spread reaches the old halo radius of pr * 1.9).
     wlx_widget(ctx, .id = "pip", .width = pr * 2.0f, .height = pr * 2.0f,
-        .widget_align = WLX_CENTER,
+        .slot_align = WLX_CENTER,
         .back_color = color, .roundness = 1.0f, .rounded_segments = 20, .border_width = 0,
         .glow_color = halo, .glow_spread = pr * 0.9f, .glow_rings = 4);
     wlx_layout_end(ctx);
@@ -242,12 +242,16 @@ static inline void dashboard_segmented_progress(WLX_Context *ctx, const Dashboar
 
 // Dense data table: header row over `nrows` zebra-striped data rows with grid
 // lines. `cells` is row-major with `ncols` entries per row (nrows * ncols).
+// Rows beyond DASHBOARD_TABLE_MAX_ROWS are not shown: the row-size array is a
+// fixed buffer so the header compiles where variable-length arrays do not.
+#define DASHBOARD_TABLE_MAX_ROWS 64
 static inline void dashboard_table(WLX_Context *ctx, const Dashboard_Tokens *tk,
                                    const Dashboard_Fonts *fonts,
                                    const char **headers, const char **cells,
                                    int ncols, int nrows) {
     if (ncols < 1) ncols = 1;
     if (nrows < 0) nrows = 0;
+    if (nrows > DASHBOARD_TABLE_MAX_ROWS) nrows = DASHBOARD_TABLE_MAX_ROWS;
     const float header_h = 28.0f;
     const float row_h = 26.0f;
     const float pad = (float)tk->spacing.sm;
@@ -260,7 +264,7 @@ static inline void dashboard_table(WLX_Context *ctx, const Dashboard_Tokens *tk,
     // Header fill, zebra fills, and grid rules are the rows' own container decor:
     // per-row .back_color, a per-data-row bottom hairline, and a per-cell right
     // hairline (on every column but the last) forming the vertical separators.
-    WLX_Slot_Size row_sizes[1 + nrows];
+    WLX_Slot_Size row_sizes[1 + DASHBOARD_TABLE_MAX_ROWS];
     row_sizes[0] = WLX_SLOT_PX(header_h);
     for (int i = 1; i <= nrows; i++) row_sizes[i] = WLX_SLOT_PX(row_h);
     wlx_layout_begin(ctx, 1 + nrows, WLX_VERT, .id = "dash_table", .gap = 0,
@@ -274,7 +278,7 @@ static inline void dashboard_table(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 WLX_Color sep = (c < ncols - 1) ? tk->table.grid_line : (WLX_Color){0};
                 float sep_w  = (c < ncols - 1) ? 1.0f : 0.0f;
                 wlx_push_id(ctx, (size_t)c);
-                wlx_label(ctx, up, .id = up, .style = head_st, .align = WLX_LEFT,
+                wlx_label(ctx, up, .id = up, .style = head_st, .content_align = WLX_LEFT,
                     .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                     .content_padding_left = pad, .border_width = 0,
                     .border_color_right = sep, .border_width_right = sep_w);
@@ -294,7 +298,7 @@ static inline void dashboard_table(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     float sep_w  = (c < ncols - 1) ? 1.0f : 0.0f;
                     wlx_push_id(ctx, (size_t)c);
                     wlx_label(ctx, txt ? txt : "", .id = "cell", .style = cell_st,
-                        .align = WLX_LEFT, .vertical_metric = WLX_VMETRIC_FONT_SIZE,
+                        .content_align = WLX_LEFT, .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                         .content_padding_left = pad, .border_width = 0,
                         .border_color_right = sep, .border_width_right = sep_w);
                     wlx_pop_id(ctx);
@@ -319,7 +323,7 @@ static inline int dashboard_sidebar(WLX_Context *ctx, const Dashboard_Tokens *tk
         WLX_Color fg = is_active ? tk->color.accent : tk->color.on_surface_muted;
         if (wlx_button(ctx, items[i],
                 .back_color = bg, .front_color = fg,
-                .roundness = 0.12f, .align = WLX_LEFT,
+                .roundness = 0.12f, .content_align = WLX_LEFT,
                 .font = dashboard_type_font(fonts, role), .font_size = dashboard_type_px(role),
                 .height = 36, .id = items[i])) {
             result = i;

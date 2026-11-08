@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <inttypes.h>
 #include <raylib.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -27,7 +28,7 @@ static App_State app = {0};
 
 int main(void) {
     printf("Wollix Input Widget Demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix Input Widget Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -43,36 +44,37 @@ int main(void) {
     bool show_submit = false;
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+        float w = wlx_root.w;
+        float h = wlx_root.h;
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
 
         wlx_begin(ctx, r, wlx_process_raylib_input);
             BeginDrawing();
-                ClearBackground(WLX_BACKGROUND_COLOR);
+                ClearBackground(ctx->theme->background);
 
                 wlx_layout_begin(ctx, 1, WLX_HORZ);
                     wlx_layout_begin(ctx, 12, WLX_VERT);
 
                         // Title
                         wlx_label(ctx, "User registration form",
-                            .widget_align = WLX_TOP_LEFT, .height = 50, .font_size = 32, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
+                            .slot_align = WLX_TOP_LEFT, .height = 50, .font_size = 32, .back_color = ctx->theme->background, .content_align = WLX_LEFT
                         );
 
                         // Instructions
                         wlx_label(ctx, "Click/drag or shift+arrows to select; double-click = word, triple = all; "
                                        "ctrl+C/X/V/A clipboard; HOME/END, ctrl+arrows word jump. ENTER finishes editing.",
-                            .widget_align = WLX_LEFT, .height = 30, .font_size = 16, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
+                            .slot_align = WLX_LEFT, .height = 30, .font_size = 16, .back_color = ctx->theme->background, .content_align = WLX_LEFT
                         );
 
                         // Username input (focus reported via .out_focused;
                         // the return value is "text changed this frame")
                         static bool username_was_focused = false;
                         bool username_focused = false;
-                        wlx_inputbox(ctx, "Username:", app.username, sizeof(app.username), .height = 45, .wrap = true, .out_focused = &username_focused);
+                        wlx_inputbox(ctx, "Username:", app.username, sizeof(app.username), .height = 45, .out_focused = &username_focused);
 
                         if (username_focused && !username_was_focused) {
-                            printf("Username field focused! Active ID: %zu. Type to enter text.\n", ctx->interaction.active_id);
+                            printf("Username field focused! Active ID: %" PRIu64 ". Type to enter text.\n", ctx->interaction.active_id);
                         }
                         if (!username_focused && username_was_focused) {
                             printf("Username field unfocused. Content: '%s'\n", app.username);
@@ -102,8 +104,8 @@ int main(void) {
 
                         // Submit wlx_button
                         if (wlx_button(ctx, "Submit Form",
-                            .widget_align = WLX_CENTER, .font_size = 22, .width = 200, .height = 50, .back_color = MAROON, .align = WLX_CENTER
-                            // .widget_align = CENTER, .width = 300, .height = 40, .align = CENTER, .font_size = 20, .show_background = true
+                            .slot_align = WLX_CENTER, .font_size = 22, .width = 200, .height = 50, .back_color = MAROON, .content_align = WLX_CENTER
+                            // .slot_align = CENTER, .width = 300, .height = 40, .content_align = CENTER, .font_size = 20, .show_background = true
                         )) {
                             printf("\n=== FORM SUBMITTED ===\n");
                             printf("Username: %s\n", app.username);
@@ -119,7 +121,7 @@ int main(void) {
                         // Status message
                         if (show_submit) {
                             wlx_label(ctx, "Form submitted! Check console for details.",
-                                .widget_align = WLX_CENTER, .height = 35, .font_size = 18, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
+                                .slot_align = WLX_CENTER, .height = 35, .font_size = 18, .back_color = ctx->theme->background, .content_align = WLX_LEFT
                             );
                         }
 
@@ -135,7 +137,7 @@ int main(void) {
                         );
 
                         wlx_label(ctx, info_text,
-                            .widget_align = WLX_BOTTOM_LEFT, .height = 30, .font_size = 16, .back_color = WLX_BACKGROUND_COLOR, .align = WLX_LEFT
+                            .slot_align = WLX_BOTTOM_LEFT, .height = 30, .font_size = 16, .back_color = ctx->theme->background, .content_align = WLX_LEFT
                         );
 
                     wlx_layout_end(ctx);

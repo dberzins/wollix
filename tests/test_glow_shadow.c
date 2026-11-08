@@ -27,19 +27,23 @@ static int gs_rr, gs_rl, gs_shadow_calls, gs_glow_calls;
 static WLX_Color gs_last_shadow_color, gs_last_glow_color;
 static int gs_last_shadow_layers, gs_last_glow_rings;
 
-static void gs_rec_rr(WLX_Rect r, float ro, int s, WLX_Color c) {
+static void gs_rec_rr(WLX_Rect r, float ro, int s, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)ro; (void)s; (void)c; gs_rr++;
 }
-static void gs_rec_rl(WLX_Rect r, float ro, int s, float t, WLX_Color c) {
+static void gs_rec_rl(WLX_Rect r, float ro, int s, float t, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)ro; (void)s; (void)t; (void)c; gs_rl++;
 }
 static void gs_native_shadow(WLX_Rect r, WLX_Color c, float ox, float oy,
-        float bl, int ly, float ro, int sg) {
+        float bl, int ly, float ro, int sg, void *user) {
+    (void)user;
     (void)r; (void)ox; (void)oy; (void)bl; (void)ro; (void)sg;
     gs_shadow_calls++; gs_last_shadow_color = c; gs_last_shadow_layers = ly;
 }
 static void gs_native_glow(WLX_Rect r, WLX_Color c, float sp, int ri,
-        float ro, int sg) {
+        float ro, int sg, void *user) {
+    (void)user;
     (void)r; (void)sp; (void)ro; (void)sg;
     gs_glow_calls++; gs_last_glow_color = c; gs_last_glow_rings = ri;
 }

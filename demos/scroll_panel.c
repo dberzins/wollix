@@ -16,7 +16,7 @@
 
 int main(void) {
     printf("Scroll panel demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Scroll Panel Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -25,13 +25,14 @@ int main(void) {
     wlx_context_init_raylib(ctx);
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+        float w = wlx_root.w;
+        float h = wlx_root.h;
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
 
         wlx_begin(ctx, r, wlx_process_raylib_input);
             BeginDrawing();
-                ClearBackground(WLX_BACKGROUND_COLOR);
+                ClearBackground(ctx->theme->background);
 
                 wlx_layout_begin(ctx, 2, WLX_HORZ);
 
@@ -54,7 +55,7 @@ int main(void) {
                                     .back_color = item_color,
                                     .font_size = 18,
                                     .height = 40,
-                                    .align = WLX_CENTER
+                                    .content_align = WLX_CENTER
                                 )) {
                                     printf("Clicked: %s\n", label);
                                 }
@@ -76,7 +77,7 @@ int main(void) {
                                 wlx_label(ctx, label,
                                     .font_size = 16,
                                     .height = 40,
-                                    .align = WLX_LEFT
+                                    .content_align = WLX_LEFT
                                 );
                                 wlx_pop_id(ctx);
                             }

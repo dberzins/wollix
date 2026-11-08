@@ -18,18 +18,11 @@
 // Fixture
 // ============================================================================
 
-static uint32_t modes_command_mod(void) {
-#if defined(__APPLE__)
-    return WLX_MOD_SUPER;
-#else
-    return WLX_MOD_CTRL;
-#endif
-}
-
 static int _modes_text_draw_count = 0;
 static char _modes_text_drawn[64];
 
-static void modes_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void modes_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)x; (void)y; (void)style;
     _modes_text_draw_count++;
     const char *source = text ? text : "";
@@ -138,13 +131,13 @@ TEST(modes_password_copy_cut_suppressed) {
     char buf[64] = "secret";
 
     modes_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_A, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_A, test_command_mod());
 
     // Neither copy nor cut may export the plaintext; cut must not delete it
     // either.
-    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_C, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_C, test_command_mod());
     ASSERT_EQ_STR("seed", test_get_clipboard());
-    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_X, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_X, test_command_mod());
     ASSERT_EQ_STR("seed", test_get_clipboard());
     ASSERT_EQ_STR(buf, "secret");
     wlx_context_destroy(&ctx);
@@ -157,7 +150,7 @@ TEST(modes_password_paste_and_edit_work) {
     char buf[64] = "ab";
 
     modes_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
-    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_V, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_V, test_command_mod());
     ASSERT_EQ_STR(buf, "abXY");
 
     modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_BACKSPACE, 0);
@@ -199,12 +192,12 @@ TEST(modes_readonly_rejects_all_edits) {
     ASSERT_EQ_STR(buf, "AB");
     modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_DELETE, 0);
     ASSERT_EQ_STR(buf, "AB");
-    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_V, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_V, test_command_mod());
     ASSERT_EQ_STR(buf, "AB");
 
     // Cut must neither modify the buffer nor reach the clipboard.
-    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_A, modes_command_mod());
-    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_X, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_A, test_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_X, test_command_mod());
     ASSERT_EQ_STR(buf, "AB");
     ASSERT_EQ_STR("ZZ", test_get_clipboard());
     wlx_context_destroy(&ctx);
@@ -217,8 +210,8 @@ TEST(modes_readonly_allows_selection_and_copy) {
     char buf[64] = "hello";
 
     modes_frame_mouse(&ctx, buf, sizeof(buf), false, true, 380, true, true);
-    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_A, modes_command_mod());
-    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_C, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_A, test_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), false, true, WLX_KEY_C, test_command_mod());
 
     ASSERT_EQ_STR("hello", test_get_clipboard());
     ASSERT_EQ_STR(buf, "hello");
@@ -239,8 +232,8 @@ TEST(modes_password_readonly_combo) {
     // No edits, no clipboard export.
     modes_frame_type(&ctx, buf, sizeof(buf), true, true, "X");
     ASSERT_EQ_STR(buf, "pw");
-    modes_frame_key(&ctx, buf, sizeof(buf), true, true, WLX_KEY_A, modes_command_mod());
-    modes_frame_key(&ctx, buf, sizeof(buf), true, true, WLX_KEY_C, modes_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), true, true, WLX_KEY_A, test_command_mod());
+    modes_frame_key(&ctx, buf, sizeof(buf), true, true, WLX_KEY_C, test_command_mod());
     ASSERT_EQ_STR("seed", test_get_clipboard());
     wlx_context_destroy(&ctx);
 }
@@ -249,7 +242,45 @@ TEST(modes_password_readonly_combo) {
 // Suite
 // ============================================================================
 
+// The mask counts text units: one char per grapheme cluster (corpus macros
+// from test_grapheme.c, same TU), matching one Backspace per mask char, and
+// clicks between mask chars map to the cluster boundaries.
+TEST(modes_password_masks_one_char_per_cluster) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend.draw_text = modes_capture_draw_text;
+    // "a" + a ZWJ family (18 bytes, five codepoints) + "b": three units.
+    char buf[64] = "a" GR_FAMILY "b";
+
+    modes_reset_text_capture();
+    modes_frame_mouse(&ctx, buf, sizeof(buf), true, false, 380, true, true);
+    ASSERT_EQ_STR(_modes_text_drawn, "***");
+
+    // Backspace removes "b", then the family as one mask char.
+    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_STR(_modes_text_drawn, "**");
+    modes_frame_key(&ctx, buf, sizeof(buf), true, false, WLX_KEY_BACKSPACE, 0);
+    ASSERT_EQ_STR(_modes_text_drawn, "*");
+    ASSERT_EQ_STR(buf, "a");
+    wlx_context_destroy(&ctx);
+
+    // A click between the second and third mask chars (x 20: display
+    // boundary 2 at 19) maps to the plaintext offset after the family; one
+    // between the first two (x 15) to the offset before it.
+    WLX_Context ctx2;
+    test_ctx_init(&ctx2, 400, 300);
+    char buf2[64] = "a" GR_FAMILY "b";
+    modes_frame_mouse(&ctx2, buf2, sizeof(buf2), true, false, 20, true, true);
+    modes_frame_type(&ctx2, buf2, sizeof(buf2), true, false, "X");
+    ASSERT_EQ_STR(buf2, "a" GR_FAMILY "Xb");
+    modes_frame_mouse(&ctx2, buf2, sizeof(buf2), true, false, 15, true, true);
+    modes_frame_type(&ctx2, buf2, sizeof(buf2), true, false, "Y");
+    ASSERT_EQ_STR(buf2, "aY" GR_FAMILY "Xb");
+    wlx_context_destroy(&ctx2);
+}
+
 SUITE(input_modes) {
+    RUN_TEST(modes_password_masks_one_char_per_cluster);
     RUN_TEST(modes_password_masks_display_keeps_buffer);
     RUN_TEST(modes_password_masks_one_char_per_codepoint);
     RUN_TEST(modes_password_copy_cut_suppressed);

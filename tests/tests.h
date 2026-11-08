@@ -22,11 +22,19 @@
 #ifndef TESTS_H_
 #define TESTS_H_
 
+#include <inttypes.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <io.h>      // _isatty, _fileno
+#define TESTS_STDOUT_IS_TTY() _isatty(_fileno(stdout))
+#else
 #include <unistd.h>  // isatty
+#define TESTS_STDOUT_IS_TTY() isatty(STDOUT_FILENO)
+#endif
 
 // ============================================================================
 // Internal state
@@ -47,7 +55,7 @@ static int         _test_current_failed = 0;
 
 static inline int _test_use_color(void) {
     static int cached = -1;
-    if (cached < 0) cached = isatty(STDOUT_FILENO);
+    if (cached < 0) cached = TESTS_STDOUT_IS_TTY();
     return cached;
 }
 
@@ -130,11 +138,30 @@ static inline int _test_use_color(void) {
     }                                                                          \
 } while(0)
 
+// WLX_Id equality, compared and printed as the 64-bit values ids are: an
+// (int) or (long) cast would let two ids that differ only above bit 31
+// compare equal (long is 32 bits on Windows).
+#define ASSERT_EQ_ID(a, b) do {                                                \
+    tests_assertions++;                                                        \
+    uint64_t _ia = (uint64_t)(a), _ib = (uint64_t)(b);                         \
+    if (_ia != _ib) {                                                          \
+        _TEST_FAIL("ASSERT_EQ_ID: %" PRIu64 " != %" PRIu64, _ia, _ib);       \
+    }                                                                          \
+} while(0)
+
+#define ASSERT_NEQ_ID(a, b) do {                                               \
+    tests_assertions++;                                                        \
+    uint64_t _ia = (uint64_t)(a), _ib = (uint64_t)(b);                         \
+    if (_ia == _ib) {                                                          \
+        _TEST_FAIL("ASSERT_NEQ_ID: both are %" PRIu64, _ia);                  \
+    }                                                                          \
+} while(0)
+
 // Float equality within epsilon
 #define ASSERT_EQ_F(a, b, eps) do {                                            \
     tests_assertions++;                                                        \
     float _a = (float)(a), _b = (float)(b);                                    \
-    if (fabsf(_a - _b) > (float)(eps)) {                                       \
+    if (!(fabsf(_a - _b) <= (float)(eps))) {  /* a NaN fails */                \
         _TEST_FAIL("ASSERT_EQ_F: %.4f != %.4f (eps=%.4f)",                    \
                    (double)_a, (double)_b, (double)(eps));                     \
     }                                                                          \

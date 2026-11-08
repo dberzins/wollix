@@ -7,11 +7,13 @@
 // hover or the press from the widget it describes.
 
 static float _tt_dt = 0.0f;
-static float _tt_get_frame_time(void) { return _tt_dt; }
+static float _tt_get_frame_time(void *user) {
+    (void)user; return _tt_dt; }
 
 static WLX_Rect _tt_rects[16];
 static int _tt_rect_count = 0;
-static void _tt_rec_rect(WLX_Rect r, WLX_Color c) {
+static void _tt_rec_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)c;
     if (_tt_rect_count < 16) _tt_rects[_tt_rect_count++] = r;
 }
@@ -176,7 +178,8 @@ TEST(last_rect_reports_the_widget_just_placed) {
 // cut to the base viewport.
 static WLX_Rect _ttp_scissors[16];
 static int _ttp_scissor_count = 0;
-static void _ttp_rec_scissor(WLX_Rect r) {
+static void _ttp_rec_scissor(WLX_Rect r, void *user) {
+    (void)user;
     if (_ttp_scissor_count < 16) _ttp_scissors[_ttp_scissor_count++] = r;
 }
 

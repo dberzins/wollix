@@ -1,13 +1,34 @@
 CC = clang
 # -Werror=switch turns a WLX enum member missing from a no-default switch
 # (the key and cursor maps' completeness tripwire) into a build failure.
-BASE_CFLAGS = -Wall -Wextra -Werror=switch -std=c11 -ggdb
+# -Wundef catches a value-tested #if placed before its macro's definition,
+# which would otherwise compile the guarded block out silently.
+BASE_CFLAGS = -Wall -Wextra -Wundef -Werror=switch -std=c11 -ggdb
 
 ifeq ($(findstring gcc,$(notdir $(CC))),gcc)
-BASE_CFLAGS += -Wno-override-init
+BASE_CFLAGS += -Wno-override-init -Wno-override-init-side-effects
+DEFAULTS_ONCE_FLAGS = -Werror=override-init
 else
 BASE_CFLAGS += -Wno-initializer-overrides
+DEFAULTS_ONCE_FLAGS = -Werror=initializer-overrides
 endif
+
+# The C++ gate's compiler follows CC unless CXX comes from the environment
+# or the command line: a CC that names clang picks clang++, anything else
+# (gcc, cc, a versioned gcc) picks g++, so the CI matrix covers both front
+# ends. Its flags are independent of BASE_CFLAGS on purpose: a BASE_CFLAGS
+# override (the warnings-as-errors job) must not leak -std=c11 into a C++
+# compile. -Wno-missing-field-initializers covers the C mock backend's {0}
+# initialisers, which -Wextra flags under C++; the public halves of the
+# headers are held to -Wall -Wextra -Werror.
+ifeq ($(origin CXX),default)
+ifeq ($(findstring clang,$(notdir $(CC))),clang)
+CXX = clang++
+else
+CXX = g++
+endif
+endif
+CXX_GATE_FLAGS = -std=c++11 -pedantic-errors -Wall -Wextra -Wundef -Werror -Wno-missing-field-initializers
 
 CFLAGS = $(BASE_CFLAGS) -DWLX_DEBUG
 INCLUDES = -I. -I$(HOME)/opt/raylib/include
@@ -21,7 +42,12 @@ SDL3_LIBS = -lSDL3 -lSDL3_ttf -lm
 WASM_CC = clang
 WASM_SRC_DIR = web
 WASM_SITE_DIR = dist/wasm-demo
-WASM_BARE_CFLAGS = --target=wasm32-unknown-unknown -nostdlib -nostdinc -Wno-initializer-overrides\
+# wasm32 is the one build where size_t is 32 bits, so narrowing a 64-bit id
+# into a size_t is lossy only here: that class fails the build. The warning
+# flags precede -Wno-initializer-overrides, which -Wextra would otherwise
+# turn back on. The demos' native-only helpers are unused in this build.
+WASM_BARE_CFLAGS = --target=wasm32-unknown-unknown -nostdlib -nostdinc \
+	-Wall -Wextra -Wundef -Wno-unused-function -Werror=shorten-64-to-32 -Wno-initializer-overrides \
 	-isystem $(WASM_SRC_DIR)/libc -isystem $(shell $(WASM_CC) -print-resource-dir)/include \
     -O2 -DNDEBUG -I. \
     -Wl,--no-entry \
@@ -52,7 +78,7 @@ DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
 WASM_SITE_TARGETS = $(WASM_SITE_DIR)/dashboard.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js $(WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 GALLERY_WASM_SITE_TARGETS = $(GALLERY_WASM_SITE_DIR)/gallery.wasm $(GALLERY_WASM_SITE_DIR)/index.html $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 
-.PHONY: all clean debug release help test test-single-pass perf-test test-asan test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
+.PHONY: all clean debug release help test test-single-pass test-sdl3 check-sdl3-ndebug docs-check perf-test test-asan test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
 
 # The dashboard is the primary showcase, so the default build includes it. It
 # keeps its own -DWLX_PERF recipe ($(DASHBOARD_BIN)) rather than joining the
@@ -151,6 +177,9 @@ $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js: $(WASM_SRC_DIR)/wollix_wasm_
 # their own dirs first; the gallery's files are then copied alongside the
 # dashboard. All asset references are relative, so the gallery works under the
 # subpath unchanged. This is the target the GitHub Pages workflow deploys.
+# The packaged modules must import exactly what the host provides: env
+# abort and puts (puts carries diagnostics to the console), and every wlx
+# import from the host's table.
 pages-site: wasm-site gallery-wasm-site
 	mkdir -p $(WASM_SITE_DIR)/gallery
 	cp $(GALLERY_WASM_SITE_DIR)/gallery.wasm \
@@ -158,6 +187,8 @@ pages-site: wasm-site gallery-wasm-site
 	   $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js \
 	   $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js \
 	   $(WASM_SITE_DIR)/gallery/
+	node $(WASM_SRC_DIR)/check_wasm_imports.mjs $(WASM_SRC_DIR)/wollix_wasm.js \
+	   $(WASM_SITE_DIR)/dashboard.wasm $(WASM_SITE_DIR)/gallery/gallery.wasm
 
 debug: CFLAGS += -DDEBUG -O0
 debug: layout
@@ -171,14 +202,25 @@ TEST_BIN = $(TEST_DIR)/test_runner
 SINGLE_PASS_BIN = $(TEST_DIR)/test_single_pass
 HARD_ASSERT_BIN = $(TEST_DIR)/test_hard_assert
 CONFIG_OVERRIDE_BIN = $(TEST_DIR)/test_config_override
+OFFSET_STACK_OVERRIDE_BIN = $(TEST_DIR)/test_offset_stack_override
+UNDO_DISABLED_BIN = $(TEST_DIR)/test_undo_disabled
+DEFAULTS_ONCE_BIN = $(TEST_DIR)/test_defaults_once
+CPP_PATH_BIN = $(TEST_DIR)/test_cpp_path
+TEST_SDL3_BIN = $(TEST_DIR)/test_adapter_sdl3
 
-test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN)
+# One list, mirrored by the CMake test list in CMakeLists.txt: a binary added
+# here is added there in the same commit, and vice versa.
+test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(OFFSET_STACK_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN) $(CPP_PATH_BIN)
 	./$(TEST_BIN)
 	./$(SINGLE_PASS_BIN)
 	./$(HARD_ASSERT_BIN)
 	./$(CONFIG_OVERRIDE_BIN)
+	./$(OFFSET_STACK_OVERRIDE_BIN)
+	./$(UNDO_DISABLED_BIN)
+	./$(DEFAULTS_ONCE_BIN)
+	./$(CPP_PATH_BIN)
 
-$(TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
+$(TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h wollix_wasm.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
 
 # Opt-out path: redistribution disabled via WLX_SLOT_SINGLE_PASS_CLAMP. Built as
@@ -191,7 +233,7 @@ $(SINGLE_PASS_BIN): $(TEST_DIR)/test_single_pass.c wollix.h
 
 # Release-build guard coverage: WLX_HARD_ASSERT must fire with NDEBUG defined,
 # while plain assert() compiles out. Built as its own translation unit.
-$(HARD_ASSERT_BIN): $(TEST_DIR)/test_hard_assert.c $(TEST_DIR)/tests.h $(TEST_DIR)/test_mock_backend.h wollix.h
+$(HARD_ASSERT_BIN): $(TEST_DIR)/test_hard_assert.c $(TEST_DIR)/tests.h $(TEST_DIR)/test_mock_backend.h wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) -DNDEBUG -I. -o $@ $(TEST_DIR)/test_hard_assert.c -lm
 
 # The documented limit macros must honor a pre-include user definition. Built
@@ -199,24 +241,91 @@ $(HARD_ASSERT_BIN): $(TEST_DIR)/test_hard_assert.c $(TEST_DIR)/tests.h $(TEST_DI
 $(CONFIG_OVERRIDE_BIN): $(TEST_DIR)/test_config_override.c wollix.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_config_override.c -lm
 
+# A CONTENT layout under a lowered WLX_OFFSET_STACK_LIMIT takes its solver
+# block from the byte scratch that holds its sizes copy. Built as its own
+# translation unit with the override in the test source itself.
+$(OFFSET_STACK_OVERRIDE_BIN): $(TEST_DIR)/test_offset_stack_override.c $(TEST_DIR)/test_mock_backend.h wollix.h
+	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_offset_stack_override.c -lm
+
+# The undo journal compiles out at WLX_TEXT_UNDO_ENTRIES 0: the text widgets
+# build and edit without history and the undo chords are inert. Built as its
+# own translation unit with the override in the test source itself.
+$(UNDO_DISABLED_BIN): $(TEST_DIR)/test_undo_disabled.c $(TEST_DIR)/test_mock_backend.h wollix.h wollix_editor.h
+	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_undo_disabled.c -lm
+
+# Every option default macro sets each designator once, and every option
+# struct has a wlx_*_opt_defaults function: the declaration TU is built with
+# the initializer-override warning promoted to an error (the inverse of
+# BASE_CFLAGS); the implementation TU keeps the normal flags.
+$(DEFAULTS_ONCE_BIN): $(TEST_DIR)/test_defaults_once.c $(TEST_DIR)/test_defaults_once_impl.c $(TEST_DIR)/option_structs.h wollix.h wollix_editor.h
+	$(CC) $(BASE_CFLAGS) $(DEFAULTS_ONCE_FLAGS) -I. -c -o $(TEST_DIR)/test_defaults_once.o $(TEST_DIR)/test_defaults_once.c
+	$(CC) $(BASE_CFLAGS) -I. -c -o $(TEST_DIR)/test_defaults_once_impl.o $(TEST_DIR)/test_defaults_once_impl.c
+	$(CC) -o $@ $(TEST_DIR)/test_defaults_once.o $(TEST_DIR)/test_defaults_once_impl.o -lm
+	rm -f $(TEST_DIR)/test_defaults_once.o $(TEST_DIR)/test_defaults_once_impl.o
+
+# The documented C++ path: a C++11 caller TU over the public halves of the
+# headers and the mock backend, linked against the implementation compiled
+# as C11 in its own TU (the defaults-once implementation TU, reused as is).
+$(CPP_PATH_BIN): $(TEST_DIR)/test_cpp_path.cpp $(TEST_DIR)/test_defaults_once_impl.c $(TEST_DIR)/test_mock_backend.h $(TEST_DIR)/option_structs.h wollix.h wollix_editor.h
+	$(CXX) $(CXX_GATE_FLAGS) -I. -I$(TEST_DIR) -c -o $(TEST_DIR)/test_cpp_path.o $(TEST_DIR)/test_cpp_path.cpp
+	$(CC) $(BASE_CFLAGS) -I. -c -o $(TEST_DIR)/test_cpp_path_impl.o $(TEST_DIR)/test_defaults_once_impl.c
+	$(CXX) -o $@ $(TEST_DIR)/test_cpp_path.o $(TEST_DIR)/test_cpp_path_impl.o -lm
+	rm -f $(TEST_DIR)/test_cpp_path.o $(TEST_DIR)/test_cpp_path_impl.o
+
 PERF_TEST_BIN = $(TEST_DIR)/test_runner_perf
+
+# The SDL3 adapter headless (offscreen video driver, software renderer;
+# the binary sets both through SDL hints). Not part of `test`: SDL3 is an
+# optional dependency.
+test-sdl3: $(TEST_SDL3_BIN)
+	./$(TEST_SDL3_BIN)
+
+$(TEST_SDL3_BIN): $(TEST_DIR)/test_adapter_sdl3.c $(TEST_DIR)/tests.h wollix.h wollix_sdl3.h
+	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -I$(TEST_DIR) -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
+
+# The SDL3 translation units compiled once as a release build makes them:
+# NDEBUG (the adapters' asserts compiled out), -O2 (some warnings need the
+# optimiser's flow analysis), warnings as errors. Compile only. Both SDL_ttf
+# legs of CI run it, so the font-variant path is checked on and off.
+SDL3_NDEBUG_FLAGS = $(filter-out -ggdb,$(BASE_CFLAGS)) -DNDEBUG -O2 -Werror
+
+check-sdl3-ndebug:
+	$(CC) $(SDL3_NDEBUG_FLAGS) $(SDL3_INCLUDES) -c -o /dev/null $(DEMO_DIR)/sdl3_demo.c
+	$(CC) $(SDL3_NDEBUG_FLAGS) $(SDL3_INCLUDES) -DWLX_GALLERY_SDL3 -c -o /dev/null $(DEMO_DIR)/gallery.c
+	$(CC) $(SDL3_NDEBUG_FLAGS) $(SDL3_INCLUDES) -DWLX_PERF -DWLX_DASHBOARD_SDL3 -c -o /dev/null $(DASHBOARD_DIR)/dashboard.c
+	$(CC) $(SDL3_NDEBUG_FLAGS) $(SDL3_INCLUDES) -I$(TEST_DIR) -c -o /dev/null $(TEST_DIR)/test_adapter_sdl3.c
 
 perf-test: $(PERF_TEST_BIN)
 	./$(PERF_TEST_BIN)
 
-$(PERF_TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
+# The documentation gate (tools/docs_check.py): every C and C++ example in
+# README.md and docs/ compiles against the headers, README's C/C++ pair
+# links, anchors resolve, every wlx_/WLX_ name the docs use exists, no
+# tracked file cites an unpublished record, the option and short-name
+# registries agree, and every option table's defaults match its struct. Needs gcc, g++, Raylib (the pair links against it) and
+# the SDL3 and SDL3_ttf headers; DOCS_INCLUDES lists the backend include
+# directories.
+DOCS_INCLUDES ?= $(HOME)/opt/raylib/include $(HOME)/opt/sdl3/include $(HOME)/opt/sdl3_ttf/include
+
+docs-check:
+	DOCS_INCLUDES="$(DOCS_INCLUDES)" DOCS_LINK="$(LIBS)" python3 tools/docs_check.py
+
+$(PERF_TEST_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h wollix_wasm.h
 	$(CC) $(BASE_CFLAGS) -DWLX_PERF -I. -o $@ $(TEST_DIR)/test_main.c -lm
 
 # Sanitizer gate: the runner under ASan + UBSan with leak detection on. LSan
-# is off by default on some hosts, so the option is spelled out. The runner
-# alone is the gate; test_hard_assert longjmps out of asserts by design.
+# is off by default on some hosts, so the option is spelled out; hosts whose
+# runtime has no LeakSanitizer (Apple Silicon macOS) pass ASAN_DETECT_LEAKS=0
+# and keep the address and undefined-behaviour checks. The runner alone is
+# the gate; test_hard_assert longjmps out of asserts by design.
 TEST_ASAN_BIN = $(TEST_DIR)/test_runner_asan
 SANITIZE_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
+ASAN_DETECT_LEAKS ?= 1
 
 test-asan: $(TEST_ASAN_BIN)
-	ASAN_OPTIONS=detect_leaks=1 ./$(TEST_ASAN_BIN)
+	ASAN_OPTIONS=detect_leaks=$(ASAN_DETECT_LEAKS) ./$(TEST_ASAN_BIN)
 
-$(TEST_ASAN_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h
+$(TEST_ASAN_BIN): $(TEST_DIR)/test_main.c $(wildcard $(TEST_DIR)/*.c) $(wildcard $(TEST_DIR)/*.h) $(DASHBOARD_HEADERS) wollix.h wollix_editor.h wollix_wasm.h
 	$(CC) $(BASE_CFLAGS) $(SANITIZE_FLAGS) -I. -o $@ $(TEST_DIR)/test_main.c -lm
 
 # Editor perf gate: frame cost flat with document size (100 KB vs 10 MB),
@@ -234,7 +343,7 @@ test-demos: $(DEFAULT_TARGETS) $(DASHBOARD_BIN)
 	@echo "All demos built successfully."
 
 clean:
-	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
+	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(OFFSET_STACK_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN) $(CPP_PATH_BIN) $(TEST_SDL3_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
 	rm -rf $(WASM_SITE_DIR) $(GALLERY_WASM_SITE_DIR)
 
 # Help target
@@ -260,5 +369,8 @@ help:
 	@echo "  test         - Build and run the unit test suite"
 	@echo "  perf-test    - Build and run tests with WLX_PERF enabled"
 	@echo "  test-asan    - Run the test runner under ASan + UBSan with leak detection on"
+	@echo "  test-sdl3    - Run the SDL3 adapter test headless (needs SDL3 and SDL3_ttf)"
+	@echo "  check-sdl3-ndebug - Compile the SDL3 targets as a release build (NDEBUG, -O2, -Werror)"
+	@echo "  docs-check   - Check the docs: examples, README pair, anchors, names, registries, option defaults"
 	@echo "  test-demos   - Build all Raylib demos and verify exit codes"
 	@echo "  help         - Show this help message"

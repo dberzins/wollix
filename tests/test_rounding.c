@@ -10,7 +10,8 @@ static int _rec_draw_line_count;
 static float _rec_draw_line_x1, _rec_draw_line_y1;
 static float _rec_draw_line_x2, _rec_draw_line_y2;
 
-static void rec_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c) {
+static void rec_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)thick; (void)c;
     _rec_draw_line_count++;
     _rec_draw_line_x1 = x1; _rec_draw_line_y1 = y1;
@@ -20,7 +21,8 @@ static void rec_draw_line(float x1, float y1, float x2, float y2, float thick, W
 static int _rec_draw_rect_count;
 static WLX_Rect _rec_draw_rect_last;
 
-static void rec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void rec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)c;
     _rec_draw_rect_count++;
     _rec_draw_rect_last = r;
@@ -29,7 +31,8 @@ static void rec_draw_rect(WLX_Rect r, WLX_Color c) {
 static int _rec_draw_rect_rounded_count;
 static float _rec_draw_rect_rounded_last_rn;
 
-static void rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c) {
+static void rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)segments; (void)c;
     _rec_draw_rect_rounded_count++;
     _rec_draw_rect_rounded_last_rn = roundness;
@@ -37,7 +40,8 @@ static void rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX
 
 static int _rec_draw_rect_rounded_lines_count;
 
-static void rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
+static void rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)roundness; (void)segments; (void)thick; (void)c;
     _rec_draw_rect_rounded_lines_count++;
 }

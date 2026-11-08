@@ -181,114 +181,183 @@ TEST(utf8_strlen_4byte) {
     ASSERT_EQ_INT(3, wlx_utf8_strlen("A\xF0\x90\x90\x80\x42"));
 }
 
+TEST(utf8_strlen_truncated_lead_stays_in_string) {
+    // A 4-byte lead right before the terminator: the count stops at the
+    // terminator (each lead counts once, as in wlx_utf8_slicelen) instead
+    // of stepping over it. The buffer is exactly the string's size, so an
+    // address sanitizer reports any read past it.
+    char *s = (char *)malloc(3);
+    ASSERT_TRUE(s != NULL);
+    s[0] = 'a';
+    s[1] = (char)0xF0;
+    s[2] = '\0';
+    size_t n = wlx_utf8_strlen(s);
+    free(s);
+    ASSERT_EQ_INT(2, (long)n);
+}
+
 // ============================================================================
-// wlx_utf8_prev
+// wlx_text_codepoint_prev
 // ============================================================================
 
-TEST(utf8_prev_ascii) {
+TEST(codepoint_prev_ascii) {
     const char *s = "AB";
-    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 2));
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1));
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 0));
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_prev(s, 2, 2));
+    ASSERT_EQ_INT(0, (long)wlx_text_codepoint_prev(s, 2, 1));
+    ASSERT_EQ_INT(0, (long)wlx_text_codepoint_prev(s, 2, 0));
 }
 
-TEST(utf8_prev_2byte) {
-    // "Aö" = 'A' (1 byte) + ö (2 bytes) = 3 bytes total
+TEST(codepoint_prev_2byte) {
+    // 'A' + U+00F6 (2 bytes) = 3 bytes
     const char *s = "A\xC3\xB6";
-    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 3)); // end -> before ö
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1)); // before ö -> before A
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_prev(s, 3, 3)); // end -> before U+00F6
+    ASSERT_EQ_INT(0, (long)wlx_text_codepoint_prev(s, 3, 1)); // -> before 'A'
 }
 
-TEST(utf8_prev_3byte) {
-    // "A€" = 'A' (1 byte) + € (3 bytes) = 4 bytes total
+TEST(codepoint_prev_3byte) {
+    // 'A' + U+20AC (3 bytes) = 4 bytes
     const char *s = "A\xE2\x82\xAC";
-    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 4)); // end -> before €
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1)); // before € -> before A
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_prev(s, 4, 4));
+    ASSERT_EQ_INT(0, (long)wlx_text_codepoint_prev(s, 4, 1));
 }
 
-TEST(utf8_prev_4byte) {
-    // "A𐐀" = 'A' (1 byte) + 𐐀 (4 bytes) = 5 bytes total
+TEST(codepoint_prev_4byte) {
+    // 'A' + U+10400 (4 bytes) = 5 bytes
     const char *s = "A\xF0\x90\x90\x80";
-    ASSERT_EQ_INT(1, wlx_utf8_prev(s, 5)); // end -> before 𐐀
-    ASSERT_EQ_INT(0, wlx_utf8_prev(s, 1)); // before 𐐀 -> before A
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_prev(s, 5, 5));
+    ASSERT_EQ_INT(0, (long)wlx_text_codepoint_prev(s, 5, 1));
+}
+
+TEST(codepoint_prev_malformed_runs_step_one_byte) {
+    // Stray continuations: one byte back each, never a jump to the
+    // byte before the run.
+    const char *strays = "A\x80\x80";
+    ASSERT_EQ_INT(2, (long)wlx_text_codepoint_prev(strays, 3, 3));
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_prev(strays, 3, 2));
+    // A truncated 3-byte sequence is two one-byte steps.
+    const char *cut = "A\xE2\x82";
+    ASSERT_EQ_INT(2, (long)wlx_text_codepoint_prev(cut, 3, 3));
+    ASSERT_EQ_INT(1, (long)wlx_text_codepoint_prev(cut, 3, 2));
+    // A valid sequence followed by an extra continuation: the extra byte
+    // steps alone, then the sequence steps whole.
+    const char *extra = "\xC3\xB6\x80";
+    ASSERT_EQ_INT(2, (long)wlx_text_codepoint_prev(extra, 3, 3));
+    ASSERT_EQ_INT(0, (long)wlx_text_codepoint_prev(extra, 3, 2));
 }
 
 // ============================================================================
-// wlx_utf8_next
+// wlx_text_codepoint_next
 // ============================================================================
 
-TEST(utf8_next_ascii) {
+TEST(codepoint_next_ascii) {
     const char *s = "AB";
     size_t len = 2;
-    ASSERT_EQ_INT(1, wlx_utf8_next(s, 0, len));
-    ASSERT_EQ_INT(2, wlx_utf8_next(s, 1, len));
-    ASSERT_EQ_INT(2, wlx_utf8_next(s, 2, len)); // at end, stays
+    ASSERT_EQ_INT(1, wlx_text_codepoint_next(s, len, 0));
+    ASSERT_EQ_INT(2, wlx_text_codepoint_next(s, len, 1));
+    ASSERT_EQ_INT(2, wlx_text_codepoint_next(s, len, 2)); // at end, stays
 }
 
-TEST(utf8_next_2byte) {
+TEST(codepoint_next_2byte) {
     // "öB" = ö (2 bytes) + 'B' (1 byte) = 3 bytes total
     const char *s = "\xC3\xB6\x42";
     size_t len = 3;
-    ASSERT_EQ_INT(2, wlx_utf8_next(s, 0, len)); // skip ö
-    ASSERT_EQ_INT(3, wlx_utf8_next(s, 2, len)); // skip B
+    ASSERT_EQ_INT(2, wlx_text_codepoint_next(s, len, 0)); // skip ö
+    ASSERT_EQ_INT(3, wlx_text_codepoint_next(s, len, 2)); // skip B
 }
 
-TEST(utf8_next_3byte) {
+TEST(codepoint_next_3byte) {
     // "€B" = € (3 bytes) + 'B' (1 byte) = 4 bytes total
     const char *s = "\xE2\x82\xAC\x42";
     size_t len = 4;
-    ASSERT_EQ_INT(3, wlx_utf8_next(s, 0, len)); // skip €
-    ASSERT_EQ_INT(4, wlx_utf8_next(s, 3, len)); // skip B
+    ASSERT_EQ_INT(3, wlx_text_codepoint_next(s, len, 0)); // skip €
+    ASSERT_EQ_INT(4, wlx_text_codepoint_next(s, len, 3)); // skip B
 }
 
-TEST(utf8_next_4byte) {
+TEST(codepoint_next_4byte) {
     // "𐐀B" = 𐐀 (4 bytes) + 'B' (1 byte) = 5 bytes total
     const char *s = "\xF0\x90\x90\x80\x42";
     size_t len = 5;
-    ASSERT_EQ_INT(4, wlx_utf8_next(s, 0, len)); // skip 𐐀
-    ASSERT_EQ_INT(5, wlx_utf8_next(s, 4, len)); // skip B
+    ASSERT_EQ_INT(4, wlx_text_codepoint_next(s, len, 0)); // skip 𐐀
+    ASSERT_EQ_INT(5, wlx_text_codepoint_next(s, len, 4)); // skip B
 }
 
 // Malformed input steps one byte at a time - the same one-byte fallback
 // units the line build walks, so caret motion, forward delete, and the
 // password-mask mapping agree with layout over invalid bytes. A stray
 // lead byte must never swallow the real character after it.
-TEST(utf8_next_malformed_lead_steps_one_byte) {
+TEST(codepoint_next_malformed_lead_steps_one_byte) {
     // Stray 2-byte lead followed by ASCII: the 'A' is a real character.
     const char *s = "\xC3\x41";
-    ASSERT_EQ_INT(1, wlx_utf8_next(s, 0, 2)); // stray lead alone
-    ASSERT_EQ_INT(2, wlx_utf8_next(s, 1, 2)); // then the 'A'
+    ASSERT_EQ_INT(1, wlx_text_codepoint_next(s, 2, 0)); // stray lead alone
+    ASSERT_EQ_INT(2, wlx_text_codepoint_next(s, 2, 1)); // then the 'A'
     // Stray 3- and 4-byte leads before ASCII behave the same.
-    ASSERT_EQ_INT(1, wlx_utf8_next("\xE2\x41\x42", 0, 3));
-    ASSERT_EQ_INT(1, wlx_utf8_next("\xF0\x41\x42\x43", 0, 4));
+    ASSERT_EQ_INT(1, wlx_text_codepoint_next("\xE2\x41\x42", 3, 0));
+    ASSERT_EQ_INT(1, wlx_text_codepoint_next("\xF0\x41\x42\x43", 4, 0));
 }
 
-TEST(utf8_next_malformed_continuation_steps_one_byte) {
+TEST(codepoint_next_malformed_continuation_steps_one_byte) {
     // A bare continuation byte is a one-byte unit.
     const char *s = "\x80\x41";
-    ASSERT_EQ_INT(1, wlx_utf8_next(s, 0, 2));
+    ASSERT_EQ_INT(1, wlx_text_codepoint_next(s, 2, 0));
     // A 3-byte lead whose second continuation is broken: one byte.
-    ASSERT_EQ_INT(1, wlx_utf8_next("\xE2\x82\x41", 0, 3));
+    ASSERT_EQ_INT(1, wlx_text_codepoint_next("\xE2\x82\x41", 3, 0));
 }
 
-TEST(utf8_next_truncated_sequence_at_end) {
+TEST(codepoint_next_truncated_sequence_at_end) {
     // A lead byte whose sequence runs past the end steps to the end.
-    ASSERT_EQ_INT(2, wlx_utf8_next("\x41\xC3", 1, 2));
-    ASSERT_EQ_INT(3, wlx_utf8_next("\x41\x42\xE2", 2, 3));
+    ASSERT_EQ_INT(2, wlx_text_codepoint_next("\x41\xC3", 2, 1));
+    ASSERT_EQ_INT(3, wlx_text_codepoint_next("\x41\x42\xE2", 3, 2));
 }
 
-TEST(text_unit_next_agrees_with_utf8_next) {
-    // The two steppers are one family: identical results on valid,
-    // malformed, and boundary input (parameter order differs).
+TEST(text_unit_next_agrees_with_codepoint_next_on_codepoints) {
+    // On isolated codepoints the unit stepper and the codepoint stepper
+    // agree, valid, malformed and boundary input alike; they part only
+    // where a codepoint joins the one before it, which is the unit
+    // stepper's job (test_grapheme.c).
     const char *cases[] = { "\xC3\x41", "\x80\x41", ("A\xC3\xB6" "B"), "\xFF\xFE", "" };
     for (size_t c = 0; c < wlx_array_len(cases); c++) {
         const char *s = cases[c];
         size_t len = strlen(s);
         for (size_t pos = 0; pos <= len; pos++) {
             ASSERT_EQ_INT((int)wlx_text_unit_next(s, len, pos),
-                (int)wlx_utf8_next(s, pos, len));
+                (int)wlx_text_codepoint_next(s, len, pos));
         }
     }
+    // e + U+0301: the codepoint step stops after the e, the unit step
+    // carries the mark with it.
+    const char *ea = "e\xCC\x81";
+    ASSERT_EQ_INT(1, (int)wlx_text_codepoint_next(ea, 3, 0));
+    ASSERT_EQ_INT(3, (int)wlx_text_unit_next(ea, 3, 0));
+}
+
+// ============================================================================
+// wlx_utf8_append_whole: the commit-stream append
+// ============================================================================
+
+TEST(utf8_append_whole_fits) {
+    char buf[8] = "x";
+    ASSERT_EQ_INT(3, (int)wlx_utf8_append_whole(buf, sizeof buf, 1, "ab", 2));
+    ASSERT_EQ_STR("xab", buf);
+    // An exact fit leaves room for the NUL only.
+    ASSERT_EQ_INT(7, (int)wlx_utf8_append_whole(buf, sizeof buf, 3, "cdef", 4));
+    ASSERT_EQ_STR("xabcdef", buf);
+    // Nothing to append, or no room: unchanged, still terminated.
+    ASSERT_EQ_INT(7, (int)wlx_utf8_append_whole(buf, sizeof buf, 7, "", 0));
+    ASSERT_EQ_INT(7, (int)wlx_utf8_append_whole(buf, sizeof buf, 7, "g", 1));
+    ASSERT_EQ_STR("xabcdef", buf);
+}
+
+TEST(utf8_append_whole_drops_the_rest_at_the_first_overflow) {
+    // Room for 2 bytes: e-acute (2) fits, the euro sign (3) does not.
+    char buf[4] = "x";
+    const char *src = "\xC3\xA9\xE2\x82\xAC";
+    ASSERT_EQ_INT(3, (int)wlx_utf8_append_whole(buf, sizeof buf, 1, src, 5));
+    ASSERT_EQ_STR("x\xC3\xA9", buf);
+    // A 4-byte codepoint with 3 bytes of room: nothing lands, and the ASCII
+    // after it, which would fit, goes with it.
+    char b2[5] = "z";
+    ASSERT_EQ_INT(1, (int)wlx_utf8_append_whole(b2, sizeof b2, 1, "\xF0\x9F\x98\x80" "a", 5));
+    ASSERT_EQ_STR("z", b2);
 }
 
 // ============================================================================
@@ -345,22 +414,28 @@ SUITE(utf8) {
     RUN_TEST(utf8_strlen_latvian);
     RUN_TEST(utf8_strlen_3byte);
     RUN_TEST(utf8_strlen_4byte);
+    RUN_TEST(utf8_strlen_truncated_lead_stays_in_string);
 
     // prev
-    RUN_TEST(utf8_prev_ascii);
-    RUN_TEST(utf8_prev_2byte);
-    RUN_TEST(utf8_prev_3byte);
-    RUN_TEST(utf8_prev_4byte);
+    RUN_TEST(codepoint_prev_ascii);
+    RUN_TEST(codepoint_prev_2byte);
+    RUN_TEST(codepoint_prev_3byte);
+    RUN_TEST(codepoint_prev_4byte);
+    RUN_TEST(codepoint_prev_malformed_runs_step_one_byte);
 
     // next
-    RUN_TEST(utf8_next_ascii);
-    RUN_TEST(utf8_next_2byte);
-    RUN_TEST(utf8_next_3byte);
-    RUN_TEST(utf8_next_4byte);
-    RUN_TEST(utf8_next_malformed_lead_steps_one_byte);
-    RUN_TEST(utf8_next_malformed_continuation_steps_one_byte);
-    RUN_TEST(utf8_next_truncated_sequence_at_end);
-    RUN_TEST(text_unit_next_agrees_with_utf8_next);
+    RUN_TEST(codepoint_next_ascii);
+    RUN_TEST(codepoint_next_2byte);
+    RUN_TEST(codepoint_next_3byte);
+    RUN_TEST(codepoint_next_4byte);
+    RUN_TEST(codepoint_next_malformed_lead_steps_one_byte);
+    RUN_TEST(codepoint_next_malformed_continuation_steps_one_byte);
+    RUN_TEST(codepoint_next_truncated_sequence_at_end);
+    RUN_TEST(text_unit_next_agrees_with_codepoint_next_on_codepoints);
+
+    // append whole
+    RUN_TEST(utf8_append_whole_fits);
+    RUN_TEST(utf8_append_whole_drops_the_rest_at_the_first_overflow);
 
     // round-trip
     RUN_TEST(utf8_roundtrip);

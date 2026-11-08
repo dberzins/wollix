@@ -10,7 +10,14 @@
 //   - wlx_menu_end / wlx_menu_item / wlx_submenu_begin abort on an empty
 //     menu stack instead of indexing menu_stack[-1]
 //   - the sub-arena size_t-overflow guards abort instead of wrapping to an
-//     undersized reserve (out-of-bounds writes)
+//     undersized reserve (out-of-bounds writes), and so does the editor's
+//     line-index growth
+//   - the two text edit primitives abort on an offset past the document
+//     length instead of wrapping a memmove size
+//   - with no handler installed, a contract error's default handler prints
+//     once per site through WLX_ERROR_PRINT and returns (it aborts only in a
+//     build without NDEBUG), and a hard assert's text reaches the sink
+//     before abort()
 //
 // Death checks fork: the child triggers the guard and must die with SIGABRT.
 
@@ -18,8 +25,16 @@
 #error "compile this with -DNDEBUG"
 #endif
 
+// The diagnostic sink is a compile-time macro: every line wollix would print
+// in this TU (contract errors with no handler, hard asserts) lands in a
+// buffer instead, so the release default handler and the once-per-site sink
+// can be checked without a handler installed.
+static void test_sink_capture(const char *msg);
+#define WLX_ERROR_PRINT(msg) test_sink_capture(msg)
+
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
+#include "wollix_editor.h"
 
 #include "tests.h"
 #include "test_mock_backend.h"
@@ -28,8 +43,38 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-// Run fn in a fork with stderr silenced; report how the child exited.
+static char   test_sink_buf[8192];
+static size_t test_sink_len;
+static int    test_sink_lines;
+static int    test_sink_exit_on_fatal;   // nonzero: a "wollix fatal" line _exit()s with it
+
+static void test_sink_capture(const char *msg) {
+    size_t n = strlen(msg);
+    if (test_sink_exit_on_fatal != 0 && strstr(msg, "wollix fatal") != NULL) {
+        // +1 when a contract error line was already captured: proves the
+        // report came before the abort.
+        _exit(test_sink_exit_on_fatal + (strstr(test_sink_buf, "wollix error:") != NULL ? 1 : 0));
+    }
+    if (test_sink_len + n + 1 < sizeof test_sink_buf) {
+        memcpy(test_sink_buf + test_sink_len, msg, n);
+        test_sink_len += n;
+        test_sink_buf[test_sink_len++] = '\n';
+        test_sink_buf[test_sink_len] = '\0';
+    }
+    test_sink_lines++;
+}
+
+static void test_sink_reset(void) {
+    test_sink_len = 0;
+    test_sink_lines = 0;
+    test_sink_buf[0] = '\0';
+}
+
+// Run fn in a fork with stderr silenced; report how the child exited. The
+// raw exit status of a child that exited is kept in last_child_exit_code.
 typedef enum { CHILD_EXITED_CLEAN, CHILD_ABORTED, CHILD_OTHER } Child_Result;
+
+static int last_child_exit_code = -1;
 
 static Child_Result run_in_child(void (*fn)(void)) {
     pid_t pid = fork();
@@ -40,6 +85,7 @@ static Child_Result run_in_child(void (*fn)(void)) {
     }
     int status = 0;
     waitpid(pid, &status, 0);
+    last_child_exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     if (WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT) return CHILD_ABORTED;
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0) return CHILD_EXITED_CLEAN;
     return CHILD_OTHER;
@@ -149,8 +195,287 @@ TEST(hard_assert_fires_on_sub_arena_reserve_overflow) {
     ASSERT_TRUE(run_in_child(trigger_sub_arena_reserve_overflow) == CHILD_ABORTED);
 }
 
+// The editor's line index doubles through wlx_grow_cap: a need past
+// SIZE_MAX / 2 aborts. Before the guard the doubling wrapped the capacity
+// to 0 and spun, so the child arms an alarm to fail rather than hang.
+static void trigger_editor_index_reserve_overflow(void) {
+    alarm(5);
+    WLX_Editor_Line_Index idx;
+    memset(&idx, 0, sizeof(idx));
+    (void)wlx_editor_index_reserve(&idx, SIZE_MAX);
+}
+
+TEST(hard_assert_fires_on_editor_index_reserve_overflow) {
+    ASSERT_TRUE(run_in_child(trigger_editor_index_reserve_overflow) == CHILD_ABORTED);
+}
+
 TEST(hard_assert_fires_on_sub_arena_alloc_count_overflow) {
     ASSERT_TRUE(run_in_child(trigger_sub_arena_alloc_count_overflow) == CHILD_ABORTED);
+}
+
+// The edit primitives own their bounds: a caret or selection end past the
+// length is fatal before any record or byte move (SIGABRT, not the SIGSEGV
+// of a wrapped memmove size).
+static void trigger_text_insert_past_length(void) {
+    char buf[8] = "abc";
+    size_t length = 3, cursor = 5, anchor = 5;
+    wlx_text_edit_insert(buf, sizeof buf, &length, &cursor, &anchor, "x", 1, NULL, NULL);
+}
+
+static void trigger_text_delete_past_length(void) {
+    char buf[8] = "abc";
+    size_t length = 3, cursor = 5, anchor = 1;
+    wlx_text_edit_delete_selection(buf, &length, &cursor, &anchor, NULL, NULL);
+}
+
+TEST(hard_assert_fires_on_insert_past_length) {
+    ASSERT_TRUE(run_in_child(trigger_text_insert_past_length) == CHILD_ABORTED);
+}
+
+TEST(hard_assert_fires_on_delete_past_length) {
+    ASSERT_TRUE(run_in_child(trigger_text_delete_past_length) == CHILD_ABORTED);
+}
+
+// A backend table that never declared the v2 contract (a pre-0.9 table
+// assigned field by field, or one whose author forgot the version) must
+// fail at wlx_begin in every build, since calling its callbacks through
+// the v2 signatures would be memory-unsafe.
+static void trigger_backend_contract_mismatch(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend.contract_version = 0;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(hard_assert_fires_on_backend_contract_mismatch) {
+    ASSERT_TRUE(run_in_child(trigger_backend_contract_mismatch) == CHILD_ABORTED);
+}
+
+// --- The release error surface: default handler and sink, no handler installed ---
+
+TEST(default_handler_returns_under_ndebug) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_sink_reset();
+    wlx_error_report(&ctx, WLX_ERR_BAD_ARGUMENT, "probe message", "probe.c", 3);
+    // Reached: the default handler printed and returned instead of aborting.
+    ASSERT_EQ_INT(1, test_sink_lines);
+    ASSERT_TRUE(strstr(test_sink_buf, "probe.c:3: wollix error: probe message") != NULL);
+    ASSERT_EQ_INT(1, wlx_error_count(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+// An end of the wrong kind under NDEBUG: one sink line, and the scroll panel
+// it meant is closed with its own end, so the frame's scissors balance.
+static int ha_scissor_begins, ha_scissor_ends;
+static void ha_begin_scissor(WLX_Rect r, void *user) { (void)r; (void)user; ha_scissor_begins++; }
+static void ha_end_scissor(void *user) { (void)user; ha_scissor_ends++; }
+
+TEST(default_handler_wrong_kind_end_closes_the_panel) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend.begin_scissor = ha_begin_scissor;
+    ctx.backend.end_scissor = ha_end_scissor;
+    ha_scissor_begins = ha_scissor_ends = 0;
+    test_sink_reset();
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_scroll_panel_begin(&ctx, 600);
+    wlx_layout_end(&ctx);                       // meant wlx_scroll_panel_end
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, test_sink_lines);
+    ASSERT_TRUE(strstr(test_sink_buf, "wollix error:") != NULL);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
+    ASSERT_TRUE(ha_scissor_begins > 0);
+    ASSERT_EQ_INT(ha_scissor_begins, ha_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+// An id still pushed at wlx_end under NDEBUG (and without WLX_DEBUG): one
+// sink line; the next frame starts clean.
+TEST(default_handler_reports_id_pushed_at_end) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_sink_reset();
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_push_id(&ctx, 3);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, test_sink_lines);
+    ASSERT_TRUE(strstr(test_sink_buf, "wollix error:") != NULL);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    ASSERT_EQ_INT(0, (int)ctx.arena.id_stack.count);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, test_sink_lines);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(default_sink_prints_once_per_site) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_sink_reset();
+    for (int i = 0; i < 5; i++) {
+        wlx_error_report(&ctx, WLX_ERR_SLOT_OVERRUN, "same site", "site.c", 10);
+    }
+    ASSERT_EQ_INT(1, test_sink_lines);
+    ASSERT_EQ_INT(5, wlx_error_count(&ctx));
+    wlx_error_report(&ctx, WLX_ERR_SLOT_OVERRUN, "same site", "site.c", 11);   // another line
+    ASSERT_EQ_INT(2, test_sink_lines);
+    wlx_error_report(&ctx, WLX_ERR_GRID_BOUNDS, "same site", "site.c", 11);    // another code
+    ASSERT_EQ_INT(3, test_sink_lines);
+    wlx_error_report(&ctx, WLX_ERR_GRID_BOUNDS, "another message", "site.c", 11); // another violation
+    ASSERT_EQ_INT(4, test_sink_lines);
+    ASSERT_EQ_INT(8, wlx_error_count(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+TEST(default_sink_names_the_open_layout) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_sink_reset();
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 2, WLX_VERT);
+    wlx_error_report(&ctx, WLX_ERR_SLOT_OVERRUN, "inside", NULL, 0);
+    ASSERT_EQ_INT(1, test_sink_lines);
+    ASSERT_TRUE(strstr(test_sink_buf, "wollix error: inside (layout begun at ") != NULL);
+    ASSERT_TRUE(strstr(test_sink_buf, __FILE__) != NULL);
+    ASSERT_TRUE(strncmp(test_sink_buf, "wollix error:", 13) == 0);   // no caller site: message first
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(default_sink_suppresses_after_table_full) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_sink_reset();
+    for (int i = 0; i < WLX_ERROR_SITES_MAX + 3; i++) {
+        wlx_error_report(&ctx, WLX_ERR_BAD_ARGUMENT, "distinct", "many.c", 100 + i);
+    }
+    ASSERT_EQ_INT(WLX_ERROR_SITES_MAX + 1, test_sink_lines);   // the sites, then one suppression line
+    ASSERT_TRUE(strstr(test_sink_buf, "further error sites suppressed") != NULL);
+    ASSERT_EQ_INT(WLX_ERROR_SITES_MAX + 3, wlx_error_count(&ctx));
+    wlx_error_report(&ctx, WLX_ERR_BAD_ARGUMENT, "distinct", "many.c", 999);
+    ASSERT_EQ_INT(WLX_ERROR_SITES_MAX + 1, test_sink_lines);   // silent from here on
+    // A site already in the table stays silent too; an installed handler is never throttled.
+    wlx_context_destroy(&ctx);
+}
+
+// --- The four release probes: with no handler, each reports and degrades ---
+
+static void probe_slot_overrun(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 2, WLX_VERT);
+    for (int i = 0; i < 6; i++) (void)wlx_button(&ctx, "child");
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    if (wlx_error_count(&ctx) != 4) _exit(3);
+    wlx_context_destroy(&ctx);
+}
+
+static void probe_grid_bounds(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin(&ctx, 2, 2);
+    wlx_grid_cell(&ctx, 5, 7);
+    for (int i = 0; i < 5; i++) (void)wlx_button(&ctx, "cell");   // the fifth overruns
+    wlx_grid_end(&ctx);
+    test_frame_end(&ctx);
+    if (wlx_error_count(&ctx) != 2) _exit(3);
+    wlx_context_destroy(&ctx);
+}
+
+static void probe_extra_end(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_layout_end(&ctx);
+    wlx_layout_end(&ctx);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);   // used to abort in the sub-arena guard
+    (void)wlx_button(&ctx, "after");
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    if (wlx_error_count(&ctx) != 1) _exit(3);
+    wlx_context_destroy(&ctx);
+}
+
+static void probe_orphan_widget(void) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    (void)wlx_button(&ctx, "orphan");     // used to segfault
+    test_frame_end(&ctx);
+    if (wlx_error_count(&ctx) != 1) _exit(3);
+    wlx_context_destroy(&ctx);
+}
+
+// An empty table with the right contract version: reported through the
+// channel (the default handler returns under NDEBUG), then fatal.
+static void trigger_backend_not_ready(void) {
+    WLX_Context ctx = {0};
+    wlx_context_init(&ctx);
+    ctx.backend.contract_version = WLX_BACKEND_CONTRACT_VERSION;
+    test_sink_reset();
+    test_sink_exit_on_fatal = 43;
+    wlx_begin(&ctx, wlx_rect(0, 0, 10, 10), _test_input_handler);
+}
+
+TEST(backend_not_ready_reports_then_aborts) {
+    Child_Result r = run_in_child(trigger_backend_not_ready);
+    ASSERT_TRUE(r == CHILD_OTHER);
+    ASSERT_EQ_INT(44, last_child_exit_code);   // 43 + 1: the error line preceded the fatal one
+}
+
+// A zeroed table (contract version 0, no callbacks): the readiness report
+// reaches the sink before the version check's fatal line, so a handler
+// learns what is missing.
+static void trigger_backend_zeroed(void) {
+    WLX_Context ctx = {0};
+    wlx_context_init(&ctx);
+    test_sink_reset();
+    test_sink_exit_on_fatal = 43;
+    wlx_begin(&ctx, wlx_rect(0, 0, 10, 10), _test_input_handler);
+}
+
+TEST(backend_zeroed_reports_before_the_version_check) {
+    Child_Result r = run_in_child(trigger_backend_zeroed);
+    ASSERT_TRUE(r == CHILD_OTHER);
+    ASSERT_EQ_INT(44, last_child_exit_code);   // 43 + 1: the error line preceded the fatal one
+}
+
+TEST(release_probe_slot_overrun_exits_clean) {
+    ASSERT_TRUE(run_in_child(probe_slot_overrun) == CHILD_EXITED_CLEAN);
+}
+
+TEST(release_probe_grid_bounds_exits_clean) {
+    ASSERT_TRUE(run_in_child(probe_grid_bounds) == CHILD_EXITED_CLEAN);
+}
+
+TEST(release_probe_extra_end_exits_clean) {
+    ASSERT_TRUE(run_in_child(probe_extra_end) == CHILD_EXITED_CLEAN);
+}
+
+TEST(release_probe_orphan_widget_exits_clean) {
+    ASSERT_TRUE(run_in_child(probe_orphan_widget) == CHILD_EXITED_CLEAN);
+}
+
+static void trigger_hard_assert_through_sink(void) {
+    test_sink_reset();   // the child inherits the parent's captured lines
+    test_sink_exit_on_fatal = 42;
+    trigger_overlay_end_without_begin();   // WLX_HARD_ASSERT: its text reaches the sink first
+}
+
+TEST(hard_assert_prints_before_abort) {
+    Child_Result r = run_in_child(trigger_hard_assert_through_sink);
+    ASSERT_TRUE(r == CHILD_OTHER);
+    ASSERT_EQ_INT(42, last_child_exit_code);   // the sink saw "wollix fatal" before abort()
 }
 
 TEST(plain_assert_is_inert_under_ndebug) {
@@ -170,6 +495,23 @@ SUITE(hard_assert) {
     RUN_TEST(hard_assert_fires_on_menu_end_without_begin);
     RUN_TEST(hard_assert_fires_on_sub_arena_reserve_overflow);
     RUN_TEST(hard_assert_fires_on_sub_arena_alloc_count_overflow);
+    RUN_TEST(hard_assert_fires_on_editor_index_reserve_overflow);
+    RUN_TEST(hard_assert_fires_on_insert_past_length);
+    RUN_TEST(hard_assert_fires_on_delete_past_length);
+    RUN_TEST(hard_assert_fires_on_backend_contract_mismatch);
+    RUN_TEST(default_handler_returns_under_ndebug);
+    RUN_TEST(default_handler_wrong_kind_end_closes_the_panel);
+    RUN_TEST(default_handler_reports_id_pushed_at_end);
+    RUN_TEST(default_sink_prints_once_per_site);
+    RUN_TEST(default_sink_names_the_open_layout);
+    RUN_TEST(default_sink_suppresses_after_table_full);
+    RUN_TEST(hard_assert_prints_before_abort);
+    RUN_TEST(backend_not_ready_reports_then_aborts);
+    RUN_TEST(backend_zeroed_reports_before_the_version_check);
+    RUN_TEST(release_probe_slot_overrun_exits_clean);
+    RUN_TEST(release_probe_grid_bounds_exits_clean);
+    RUN_TEST(release_probe_extra_end_exits_clean);
+    RUN_TEST(release_probe_orphan_widget_exits_clean);
     RUN_TEST(plain_assert_is_inert_under_ndebug);
 }
 

@@ -13,19 +13,22 @@ static int _ov_scissor_begins = 0;
 static int _ov_scissor_ends = 0;
 static int _ov_rects_inside_scissor = 0;
 
-static void _ov_rec_rect(WLX_Rect r, WLX_Color c) {
+static void _ov_rec_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)c;
     if (_ov_rect_count < 16) _ov_rects[_ov_rect_count++] = r;
     if (_ov_scissor_open > 0) _ov_rects_inside_scissor++;
 }
 
-static void _ov_rec_scissor_begin(WLX_Rect r) {
+static void _ov_rec_scissor_begin(WLX_Rect r, void *user) {
+    (void)user;
     (void)r;
     _ov_scissor_begins++;
     _ov_scissor_open++;
 }
 
-static void _ov_rec_scissor_end(void) {
+static void _ov_rec_scissor_end(void *user) {
+    (void)user;
     _ov_scissor_ends++;
     _ov_scissor_open--;
 }
@@ -654,6 +657,74 @@ TEST(overlay_rects_outside_own_clip_are_culled) {
     wlx_context_destroy(&ctx);
 }
 
+// A FILL slot in a layout nested in an overlay resolves against the
+// overlay's body: 200 units here, wherever the overlay is
+// declared. It used to take the window (300) at the root and the base
+// scroll panel's viewport (120) inside one.
+static float _ov_fill_child_h(WLX_Context *ctx, bool in_panel) {
+    test_frame_begin(ctx, 0, 0, false, false);
+    wlx_layout_begin(ctx, 1, WLX_VERT);
+    if (in_panel) wlx_scroll_panel_begin(ctx, 500, .height = 120, .padding = 0);
+    wlx_overlay_begin(ctx, 1, ((WLX_Rect){ 10, 10, 150, 200 }));
+    wlx_layout_begin(ctx, 1, WLX_VERT);
+    wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_FILL));
+    wlx_layout_begin(ctx, 1, WLX_VERT);
+    float h = wlx_get_parent_rect(ctx).h;
+    wlx_layout_end(ctx);
+    wlx_layout_end(ctx);
+    wlx_layout_end(ctx);
+    wlx_overlay_end(ctx);
+    if (in_panel) wlx_scroll_panel_end(ctx);
+    wlx_layout_end(ctx);
+    test_frame_end(ctx);
+    return h;
+}
+
+TEST(overlay_fill_resolves_against_overlay) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ASSERT_EQ_F(_ov_fill_child_h(&ctx, false), 200.0f, 0.001f);
+    ASSERT_EQ_F(_ov_fill_child_h(&ctx, true), 200.0f, 0.001f);
+    wlx_context_destroy(&ctx);
+}
+
+// The scroll-panel getters answer for the current layer: inside an
+// overlay over a base panel they report no panel, inside a panel of the
+// overlay they report that panel, and the base panel again once the
+// overlay closes.
+TEST(overlay_viewport_getters_layer_scoped) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_scroll_panel_begin(&ctx, 500, .height = 120, .padding = 0);
+    // A scrolled base panel, so a leaked offset shows.
+    wlx_pool_scroll_panels(&ctx)[ctx.arena.scroll_panels.count - 1]->scroll_offset = 37.0f;
+    WLX_Rect base_vp = wlx_get_scroll_panel_viewport(&ctx);
+    ASSERT_EQ_F(wlx_get_scroll_panel_offset(&ctx), 37.0f, 0.001f);
+
+    wlx_overlay_begin(&ctx, 1, ((WLX_Rect){ 10, 10, 150, 200 }));
+    WLX_Rect vp = wlx_get_scroll_panel_viewport(&ctx);
+    ASSERT_TRUE(vp.x == 0.0f && vp.y == 0.0f && vp.w == 0.0f && vp.h == 0.0f);
+    ASSERT_EQ_F(wlx_get_scroll_panel_offset(&ctx), 0.0f, 0.001f);
+    wlx_scroll_panel_begin(&ctx, 900, .padding = 0);
+    WLX_Rect own_vp = wlx_get_scroll_panel_viewport(&ctx);
+    ASSERT_EQ_F(own_vp.h, 200.0f, 0.001f);
+    wlx_scroll_panel_end(&ctx);
+    vp = wlx_get_scroll_panel_viewport(&ctx);
+    ASSERT_TRUE(vp.w == 0.0f && vp.h == 0.0f);
+    wlx_overlay_end(&ctx);
+
+    WLX_Rect back = wlx_get_scroll_panel_viewport(&ctx);
+    ASSERT_TRUE(back.x == base_vp.x && back.y == base_vp.y
+        && back.w == base_vp.w && back.h == base_vp.h);
+    ASSERT_EQ_F(wlx_get_scroll_panel_offset(&ctx), 37.0f, 0.001f);
+    wlx_scroll_panel_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(overlay) {
     RUN_TEST(layered_replay_dispatches_ascending);
     RUN_TEST(layered_replay_keeps_scissors_within_their_layer);
@@ -675,4 +746,6 @@ SUITE(overlay) {
     RUN_TEST(nested_overlay_restores_enclosing_base);
     RUN_TEST(overlay_end_emits_no_stray_scissor_in_deferred_mode);
     RUN_TEST(overlay_rects_outside_own_clip_are_culled);
+    RUN_TEST(overlay_fill_resolves_against_overlay);
+    RUN_TEST(overlay_viewport_getters_layer_scoped);
 }

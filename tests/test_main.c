@@ -5,6 +5,10 @@
 // Disable the wlx_image empty-texture assert so test_image can exercise the
 // safe no-op fallback path without aborting the runner.
 #define WLX_IMAGE_ASSERT_TEXTURE_VALID(tex) ((void)(tex))
+// The span-colour contract check counts instead of aborting, so the suite
+// can exercise the release clamp and pin that the check fired.
+static int test_span_assert_hits = 0;
+#define WLX_TEXT_SPAN_ASSERT(cond) do { if (!(cond)) test_span_assert_hits++; } while (0)
 #define WOLLIX_IMPLEMENTATION
 #include "wollix.h"
 #include "wollix_editor.h"
@@ -17,6 +21,7 @@
 #include "test_slot_redistribute.c"
 #include "test_color.c"
 #include "test_utf8.c"
+#include "test_grapheme.c"
 #include "test_core_utils.c"
 #include "test_sub_arena.c"
 
@@ -31,6 +36,11 @@
 #include "test_input_modes.c"
 #include "test_input_multiline.c"
 #include "test_input_scroll.c"
+
+// Inputbox single-line overflow: wrap is a multiline option (a non-multiline
+// field builds one row), the row scrolls horizontally with caret-follow,
+// drag auto-scroll and the horizontal wheel, and the view resets on blur.
+#include "test_input_hscroll.c"
 #include "test_frame_time.c"
 #include "test_focus_release.c"
 #include "test_cursor_shape.c"
@@ -78,6 +88,11 @@
 // no-regression for sharp and rounded borders).
 #include "test_per_side_border.c"
 
+// Option default and sentinel contract: explicit zero, unset inheritance,
+// the signed-domain brightness sentinel, request tokens, and the v0.9
+// enumerated default changes.
+#include "test_sentinel.c"
+
 // Interaction-aware containers (.interact / .interact_out / hover-variant
 // chrome) and the per-call wlx_button hover override.
 #include "test_interactive_container.c"
@@ -94,6 +109,7 @@
 
 // Two-pass text layout regression (kerning mock)
 #include "test_text_layout.c"
+#include "test_word_wrap.c"
 
 // Text spacing opt-in API: default natural spacing and explicit propagation
 #include "test_text_spacing.c"
@@ -103,6 +119,8 @@
 
 // Container Scope ID isolation and no-id collision regression
 #include "test_container_scope.c"
+#include "test_widget_id.c"
+#include "test_state_evict.c"
 
 // WLX_PERF instrumentation: disabled-build coverage plus guarded histogram,
 // text counter, arena high-water, timer, and immediate-mode snapshot tests.
@@ -130,7 +148,7 @@
 #include "test_checkbox_texture.c"
 
 // Inputbox inner icon: text-only regression, leading/trailing band placement,
-// vertical centering independent of opt.align, default/explicit tint, and the
+// vertical centering independent of opt.content_align, default/explicit tint, and the
 // narrow-field clamp guard.
 #include "test_inputbox_icon.c"
 
@@ -218,6 +236,11 @@
 // revision interplay, read-only rejection, next-tab-stop geometry.
 #include "test_editor_edit.c"
 
+// Text undo journal: per-widget recording through the shared edit
+// primitives (entries, removed bytes, caret pairs), staleness guard,
+// password/unfocused exclusions, entry and byte caps with eviction.
+#include "test_text_undo.c"
+
 // wlx_editor wrapped mode: band-wide rows, row-space scrolling, overflow
 // probe, top/bottom clamps, thumb drag to end, mode toggles, gutter rows.
 // Included after test_editor_view.c to reuse its ev_* fixture.
@@ -227,6 +250,11 @@
 // build, edit/external/environment invalidation, key shifting, LRU bounds,
 // zero-measure idle frames.
 #include "test_editor_geom_cache.c"
+
+// WLX_Backend v2 contract: instance pointer, v1 shim, style transform at
+// the backend boundary. Reuses the mock backend and the geometry-cache
+// editor fixture (gc_*), so it follows test_editor_geom_cache.c.
+#include "test_backend_contract.c"
 
 // measure_text_advances backend callback: records, caret x, hit tests,
 // selection spans, and whole-frame draw commands identical with the
@@ -239,11 +267,34 @@
 // editing, and line-start origins for near content.
 #include "test_editor_windowed_origin.c"
 
+// wlx_editor per-span colour: no-callback identity pins on the tab walk,
+// pieces at stored advances, span-end clipping / snapping / progress, the
+// colour treatment, visible-records-only queries, geometry and measure
+// traffic identical with the hook on and off. Reuses the ev_*, ew_* and
+// wo_* fixtures, so it follows test_editor_windowed_origin.c.
+#include "test_editor_span_color.c"
+
+// Composition input on the text widgets: the no-composition identity
+// pins on the inputbox, textarea and editor (linear and wrapped), then the
+// tentative span, its journal exclusion, the commit, the adopt-on-blur
+// and the text-input-area contract. Self-contained fixture.
+#include "test_ime.c"
+// Multi-key op-sequence fuzz over the inputbox (plain and password), the
+// textarea and the editor (wrap off and on): fixed seeds gate, with a
+// coverage self-check; one time-seeded round per mode adds coverage.
+#include "test_fuzz_text.c"
+#include "test_opt_defaults_marker.c"
+// Contract errors: the handler, the record, the layout begin site, and the
+// clamps each entry documents for release builds.
+#include "test_error_surface.c"
+#include "test_content_scale.c"
+
 int main(void) {
     RUN_SUITE(layout_math);
     RUN_SUITE(slot_redistribute);
     RUN_SUITE(color);
     RUN_SUITE(utf8);
+    RUN_SUITE(grapheme);
     RUN_SUITE(core_utils);
     RUN_SUITE(sub_arena);
     RUN_SUITE(grid);
@@ -256,6 +307,7 @@ int main(void) {
     RUN_SUITE(input_modes);
     RUN_SUITE(input_multiline);
     RUN_SUITE(input_scroll);
+    RUN_SUITE(input_hscroll);
     RUN_SUITE(auto_layout);
     RUN_SUITE(fuzz);
     RUN_SUITE(edge_cases);
@@ -270,14 +322,19 @@ int main(void) {
     RUN_SUITE(progress_bounds);
     RUN_SUITE(slot_style);
     RUN_SUITE(per_side_border);
+    RUN_SUITE(sentinel);
+    RUN_SUITE(backend_contract);
     RUN_SUITE(interactive_container);
     RUN_SUITE(wasm_clipboard);
     RUN_SUITE(wasm_pool);
     RUN_SUITE(dyn_offsets);
     RUN_SUITE(text_layout);
+    RUN_SUITE(word_wrap);
     RUN_SUITE(text_spacing);
     RUN_SUITE(widget_wrapper);
     RUN_SUITE(container_scope);
+    RUN_SUITE(widget_id);
+    RUN_SUITE(state_evict);
     RUN_SUITE(perf);
     RUN_SUITE(image);
     RUN_SUITE(button_image);
@@ -304,10 +361,14 @@ int main(void) {
     RUN_SUITE(editor_view);
     RUN_SUITE(editor_caret);
     RUN_SUITE(editor_edit);
+    RUN_SUITE(text_undo);
     RUN_SUITE(editor_wrap);
     RUN_SUITE(editor_geom_cache);
     RUN_SUITE(advances_parity);
     RUN_SUITE(editor_windowed_origin);
+    RUN_SUITE(editor_span_color);
+    RUN_SUITE(ime);
+    RUN_SUITE(fuzz_text);
     RUN_SUITE(frame_time);
     RUN_SUITE(focus_release);
     RUN_SUITE(cursor_shape);
@@ -317,5 +378,8 @@ int main(void) {
     RUN_SUITE(dropdown);
     RUN_SUITE(tooltip);
     RUN_SUITE(menu);
+    RUN_SUITE(opt_defaults_marker);
+    RUN_SUITE(error_surface);
+    RUN_SUITE(content_scale);
     return test_summary();
 }

@@ -85,6 +85,39 @@ TEST(content_nested_layout_contributes_nothing_to_horz_bucket) {
     wlx_context_destroy(&ctx);
 }
 
+// A layout spanning two slots of a VERT parent credits its content height
+// to the first slot of its span, the slot a widget with the same span
+// credits.
+TEST(nested_layout_span2_credits_first_slot) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    _ca_quiet_debug(&ctx);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 3, WLX_VERT,
+        .sizes = (WLX_Slot_Size[]){ WLX_SLOT_CONTENT, WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) });
+    WLX_Layout *parent = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .span = 2);
+    (void)wlx_label(&ctx, "nested", .height = 25);
+    wlx_layout_end(&ctx);
+    const float *m = wlx_layout_content_measures(&ctx, parent);
+    ASSERT_TRUE(ca_approx(m[0], 25.0f));
+    ASSERT_TRUE(m[1] == 0.0f);
+    wlx_layout_end(&ctx);
+
+    wlx_layout_begin(&ctx, 3, WLX_VERT,
+        .sizes = (WLX_Slot_Size[]){ WLX_SLOT_CONTENT, WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) });
+    parent = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+    (void)wlx_label(&ctx, "widget", .span = 2, .height = 25);
+    m = wlx_layout_content_measures(&ctx, parent);
+    ASSERT_TRUE(ca_approx(m[0], 25.0f));
+    ASSERT_TRUE(m[1] == 0.0f);
+    wlx_layout_end(&ctx);
+
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
 // ---------------------------------------------------------------------------
 // Intrinsic widths per widget, through the mock measurer (w = len * fs / 2).
 // Fixture: HORZ [CONTENT, FLEX]; the bucket for slot 0 is read back after the
@@ -446,14 +479,16 @@ TEST(horz_content_two_slots_settle_independently) {
 
 static WLX_Rect _ca_rects[8];
 static int _ca_rect_count = 0;
-static void _ca_rec_rect(WLX_Rect r, WLX_Color c) {
+static void _ca_rec_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)c;
     if (_ca_rect_count < 8) _ca_rects[_ca_rect_count++] = r;
 }
 
 static WLX_Rect _ca_scissors[8];
 static int _ca_scissor_count = 0;
-static void _ca_rec_scissor(WLX_Rect r) {
+static void _ca_rec_scissor(WLX_Rect r, void *user) {
+    (void)user;
     if (_ca_scissor_count < 8) _ca_scissors[_ca_scissor_count++] = r;
 }
 
@@ -555,6 +590,7 @@ SUITE(content_axis) {
     RUN_TEST(content_contribution_vert_parent_takes_heights);
     RUN_TEST(content_contribution_horz_parent_takes_widths);
     RUN_TEST(content_nested_layout_contributes_nothing_to_horz_bucket);
+    RUN_TEST(nested_layout_span2_credits_first_slot);
     RUN_TEST(intrinsic_label_measured_text);
     RUN_TEST(intrinsic_explicit_width_overrides_measure);
     RUN_TEST(intrinsic_button_text_plus_image_band);

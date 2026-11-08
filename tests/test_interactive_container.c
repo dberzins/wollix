@@ -37,14 +37,18 @@ static void tic_push(int type, WLX_Rect r, WLX_Color c) {
     if (_tic_n < TIC_LOG_CAP) _tic_log[_tic_n++] = (TIC_Entry){ type, r, c };
 }
 
-static void tic_draw_rect(WLX_Rect r, WLX_Color c) { tic_push(TIC_RECT, r, c); }
-static void tic_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c) {
+static void tic_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user; tic_push(TIC_RECT, r, c); }
+static void tic_draw_rect_lines(WLX_Rect r, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)thick; tic_push(TIC_RECT_LINES, r, c);
 }
-static void tic_draw_rect_rounded(WLX_Rect r, float roundness, int seg, WLX_Color c) {
+static void tic_draw_rect_rounded(WLX_Rect r, float roundness, int seg, WLX_Color c, void *user) {
+    (void)user;
     (void)roundness; (void)seg; tic_push(TIC_RECT_ROUNDED, r, c);
 }
-static void tic_draw_rect_rounded_lines(WLX_Rect r, float roundness, int seg, float thick, WLX_Color c) {
+static void tic_draw_rect_rounded_lines(WLX_Rect r, float roundness, int seg, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)roundness; (void)seg; (void)thick; tic_push(TIC_RECT_ROUNDED_LINES, r, c);
 }
 
@@ -146,7 +150,7 @@ TEST(container_interact_zero_is_noop) {
     test_frame_end(&ctx);
 
     // No interaction queried: hot_id untouched, base chrome, hover twin ignored.
-    ASSERT_EQ_INT((int)ctx.interaction.hot_id, 0);
+    ASSERT_EQ_ID(ctx.interaction.hot_id, 0);
     ASSERT_TRUE(tic_has_fill(TIC_BASE, 0, 0, 200, 50, 0.5f));
     ASSERT_EQ_INT(tic_count(TIC_RECT, TIC_HOVER), 0);
     wlx_context_destroy(&ctx);
@@ -213,7 +217,7 @@ TEST(container_click_fires_on_release) {
     test_frame_end(&ctx);
     ASSERT_TRUE(it.pressed);
     ASSERT_TRUE(!it.clicked);
-    size_t id_press = it.id;
+    WLX_Id id_press = it.id;
 
     // Release while still inside: clicked fires.
     test_frame_begin(&ctx, 20, 20, false, false);
@@ -222,7 +226,7 @@ TEST(container_click_fires_on_release) {
     ASSERT_TRUE(it.clicked);
 
     // Id is stable across frames (same call site + scope).
-    ASSERT_EQ_INT((int)id_press, (int)it.id);
+    ASSERT_EQ_ID(id_press, it.id);
     wlx_context_destroy(&ctx);
 }
 
@@ -360,8 +364,49 @@ TEST(button_hover_brightness_unset_matches_theme) {
 // Suite
 // ============================================================================
 
+// The auto-counted begins take .interact like the counted ones: each records
+// its call site, so three of them on three lines, under one wlx_push_id
+// scope, get three distinct ids that hold across frames, and hover and click
+// resolve to the container under the pointer.
+static void tic_auto_rows(WLX_Context *ctx, WLX_Interaction out[3]) {
+    wlx_push_id(ctx, 7);
+    wlx_layout_begin(ctx, 3, WLX_VERT, .padding = 0, .gap = 0);
+    wlx_layout_begin_auto(ctx, WLX_VERT, 10.0f,
+        .interact = WLX_INTERACT_CLICK | WLX_INTERACT_HOVER, .interact_out = &out[0]);
+    wlx_layout_end(ctx);
+    wlx_grid_begin_auto(ctx, 2, 10.0f,
+        .interact = WLX_INTERACT_CLICK | WLX_INTERACT_HOVER, .interact_out = &out[1]);
+    wlx_grid_end(ctx);
+    wlx_grid_begin_auto_tile(ctx, 50.0f, 10.0f,
+        .interact = WLX_INTERACT_CLICK | WLX_INTERACT_HOVER, .interact_out = &out[2]);
+    wlx_grid_end(ctx);
+    wlx_layout_end(ctx);
+    wlx_pop_id(ctx);
+}
+
+TEST(auto_begins_interact_with_stable_ids) {
+    WLX_Context ctx;
+    tic_ctx_init(&ctx, 200, 150);
+    WLX_Interaction a[3] = {{0}}, b[3] = {{0}};
+    test_frame_begin(&ctx, 20, 75, false, false);   // over the middle one
+    tic_auto_rows(&ctx, a);
+    test_frame_end(&ctx);
+    ASSERT_TRUE(a[0].id != a[1].id && a[1].id != a[2].id && a[0].id != a[2].id);
+    ASSERT_TRUE(!a[0].hover && a[1].hover && !a[2].hover);
+    test_frame_begin(&ctx, 20, 125, true, true);    // press on the last one
+    tic_auto_rows(&ctx, b);
+    test_frame_end(&ctx);
+    test_frame_begin(&ctx, 20, 125, false, false);  // release over it
+    tic_auto_rows(&ctx, b);
+    test_frame_end(&ctx);
+    ASSERT_TRUE(b[2].clicked && !b[1].clicked && !b[0].clicked);
+    for (int i = 0; i < 3; i++) ASSERT_TRUE(a[i].id == b[i].id);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(interactive_container) {
     RUN_TEST(container_interact_reports_hover_and_writes_result);
+    RUN_TEST(auto_begins_interact_with_stable_ids);
     RUN_TEST(container_interact_out_false_when_mouse_outside);
     RUN_TEST(container_interact_zero_is_noop);
     RUN_TEST(container_hover_border_appears_only_on_hover);

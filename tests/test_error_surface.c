@@ -1,0 +1,1347 @@
+// test_error_surface.c - contract errors: the handler and the record, the
+// layout begin site every begin form records, and (in later cases) the
+// degradation each entry documents for release builds.
+//
+// The runner defines WLX_DEBUG, so a contract error with no handler installed
+// aborts (the debug default); every case here installs the capturing handler
+// first. The NDEBUG default (print once per site, return) is covered in
+// test_hard_assert.c.
+
+static WLX_Error es_first;   // the first report since es_init
+static WLX_Error es_last;
+static int       es_count;
+
+static void es_capture(const WLX_Error *e, void *user) {
+    (void)user;
+    if (es_count == 0) es_first = *e;
+    es_last = *e;
+    es_count++;
+}
+
+static void es_init(WLX_Context *ctx) {
+    test_ctx_init(ctx, 400, 300);
+    wlx_set_error_handler(ctx, es_capture, NULL);
+    memset(&es_first, 0, sizeof es_first);
+    memset(&es_last, 0, sizeof es_last);
+    es_count = 0;
+}
+
+static const WLX_Layout *es_top(const WLX_Context *ctx) {
+    return &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+}
+
+static bool es_same_file(const char *file) {
+    return file != NULL && strcmp(file, __FILE__) == 0;
+}
+
+// --- The surface ---
+
+TEST(error_handler_receives_record) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    wlx_error_report(&ctx, WLX_ERR_BAD_ARGUMENT, "probe", "f.c", 7);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_EQ_STR("probe", es_last.message);
+    ASSERT_EQ_STR("f.c", es_last.file);
+    ASSERT_EQ_INT(7, es_last.line);
+    ASSERT_TRUE(es_last.layout_file == NULL);
+    ASSERT_EQ_INT(0, es_last.layout_line);
+    ASSERT_EQ_INT(1, wlx_error_count(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+TEST(error_handler_null_restores_default) {
+    WLX_Context ctx;
+    int token = 0;
+    es_init(&ctx);
+    wlx_set_error_handler(&ctx, es_capture, &token);
+    ASSERT_TRUE(ctx.error_handler == es_capture);
+    ASSERT_TRUE(ctx.error_user == &token);
+    wlx_set_error_handler(&ctx, NULL, NULL);
+    ASSERT_TRUE(ctx.error_handler == NULL);
+    ASSERT_TRUE(ctx.error_user == NULL);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(error_count_is_never_throttled) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    for (int i = 0; i < 3; i++) {
+        wlx_error_report(&ctx, WLX_ERR_SLOT_OVERRUN, "same site", "s.c", 1);
+    }
+    ASSERT_EQ_INT(3, es_count);
+    ASSERT_EQ_INT(3, wlx_error_count(&ctx));
+    wlx_context_destroy(&ctx);
+}
+
+TEST(error_layout_site_recorded_by_every_begin) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 8, WLX_VERT); int l_linear = __LINE__;   // one slot per nested begin below
+    ASSERT_TRUE(es_same_file(es_top(&ctx)->file));
+    ASSERT_EQ_INT(l_linear, es_top(&ctx)->line);
+    // A report inside names the innermost open layout.
+    wlx_error_report(&ctx, WLX_ERR_SLOT_OVERRUN, "probe", NULL, 0);
+    ASSERT_TRUE(es_same_file(es_last.layout_file));
+    ASSERT_EQ_INT(l_linear, es_last.layout_line);
+    ASSERT_TRUE(es_last.file == NULL);
+
+    wlx_layout_begin_auto(&ctx, WLX_VERT, 20.0f); int l_auto = __LINE__;
+    ASSERT_TRUE(es_same_file(es_top(&ctx)->file));
+    ASSERT_EQ_INT(l_auto, es_top(&ctx)->line);
+    wlx_layout_end(&ctx);
+
+    wlx_grid_begin(&ctx, 2, 2); int l_grid = __LINE__;
+    ASSERT_TRUE(es_same_file(es_top(&ctx)->file));
+    ASSERT_EQ_INT(l_grid, es_top(&ctx)->line);
+    wlx_grid_end(&ctx);
+
+    wlx_grid_begin_auto(&ctx, 2, 20.0f); int l_grid_auto = __LINE__;
+    ASSERT_TRUE(es_same_file(es_top(&ctx)->file));
+    ASSERT_EQ_INT(l_grid_auto, es_top(&ctx)->line);
+    wlx_grid_end(&ctx);
+
+    wlx_grid_begin_auto_tile(&ctx, 50.0f, 20.0f); int l_tile = __LINE__;
+    ASSERT_TRUE(es_same_file(es_top(&ctx)->file));
+    ASSERT_EQ_INT(l_tile, es_top(&ctx)->line);
+    wlx_grid_end(&ctx);
+
+    wlx_scroll_panel_begin(&ctx, 500.0f); int l_panel = __LINE__;
+    ASSERT_TRUE(es_same_file(es_top(&ctx)->file));
+    ASSERT_EQ_INT(l_panel, es_top(&ctx)->line);
+    wlx_scroll_panel_end(&ctx);
+
+    wlx_overlay_begin(&ctx, 1, wlx_rect(10, 10, 100, 100)); int l_overlay = __LINE__;
+    ASSERT_TRUE(es_same_file(es_top(&ctx)->file));
+    ASSERT_EQ_INT(l_overlay, es_top(&ctx)->line);
+    wlx_overlay_end(&ctx);
+
+    wlx_layout_end(&ctx);
+    // Outside every layout a report carries no layout site.
+    wlx_error_report(&ctx, WLX_ERR_UNBALANCED_END, "probe", NULL, 0);
+    ASSERT_TRUE(es_last.layout_file == NULL);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(2, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(error_direct_create_has_no_site) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    WLX_Layout l = wlx_create_layout(&ctx, ctx.rect, 2, WLX_VERT, 0.0f);
+    ASSERT_TRUE(l.file == NULL);
+    ASSERT_EQ_INT(0, l.line);
+    ASSERT_FALSE(l.slot_clamped);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// --- The layout family: each violation reports, then degrades as documented ---
+
+static WLX_Layout *es_top_mut(WLX_Context *ctx) {
+    return &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+}
+
+TEST(slot_overrun_reports_and_collapses) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 2, WLX_VERT); int lb = __LINE__;
+    WLX_Layout *top = es_top_mut(&ctx);
+    WLX_Rect a = wlx_get_slot_rect(&ctx, top, -1, 1);
+    WLX_Rect b = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_INT(0, es_count);
+    ASSERT_EQ_F(150.0f, a.h, 0.001f);
+    ASSERT_EQ_F(150.0f, b.y, 0.001f);
+    // The third fetch overruns: reported once, collapsed at the far edge, index unchanged.
+    WLX_Rect c = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_SLOT_OVERRUN, (int)es_last.code);
+    ASSERT_TRUE(es_last.file == NULL);                  // a direct fetch has no caller site
+    ASSERT_TRUE(es_same_file(es_last.layout_file));
+    ASSERT_EQ_INT(lb, es_last.layout_line);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 300, 400, 0 }), c, 0.001f);
+    ASSERT_EQ_INT(2, (int)top->index);
+    ASSERT_TRUE(top->slot_clamped);
+    // A widget overrunning through its prologue names its own line.
+    (void)wlx_button(&ctx, "third"); int lw = __LINE__;
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(lw, es_last.line);
+    ASSERT_EQ_INT(lb, es_last.layout_line);
+    ASSERT_EQ_F(300.0f, wlx_last_rect(&ctx).y, 0.001f);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// Builds one frame: a VERT parent whose first slot is CONTENT, holding a
+// two-slot child with `labels` labels (a third one overruns). Returns the
+// parent's CONTENT slot height as measured for the next frame.
+static float es_content_height_with_labels(int labels) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    WLX_Slot_Size sizes[2] = { WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    float measured = -1.0f;
+    for (int frame = 0; frame < 2; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin(&ctx, 2, WLX_VERT, .sizes = sizes);
+        if (frame == 1) {
+            const WLX_Layout *parent = es_top(&ctx);
+            const float *off = wlx_layout_offsets(&ctx, parent);
+            measured = off[1] - off[0];
+        }
+        wlx_layout_begin(&ctx, 2, WLX_VERT);
+        for (int i = 0; i < labels; i++) {
+            wlx_push_id(&ctx, (WLX_Id)i + 1);
+            (void)wlx_label(&ctx, "row");
+            wlx_pop_id(&ctx);
+        }
+        wlx_layout_end(&ctx);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    wlx_context_destroy(&ctx);
+    return measured;
+}
+
+// Same shape, but the overrunning third child is a scroll panel with an
+// explicit height (the panel prologue contributes its viewport itself).
+static float es_content_height_with_panel_overrun(bool add_panel) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    WLX_Slot_Size sizes[2] = { WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    float measured = -1.0f;
+    for (int frame = 0; frame < 2; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin(&ctx, 2, WLX_VERT, .sizes = sizes);
+        if (frame == 1) {
+            const float *off = wlx_layout_offsets(&ctx, es_top(&ctx));
+            measured = off[1] - off[0];
+        }
+        wlx_layout_begin(&ctx, 2, WLX_VERT);
+        wlx_push_id(&ctx, 1); (void)wlx_label(&ctx, "row"); wlx_pop_id(&ctx);
+        wlx_push_id(&ctx, 2); (void)wlx_label(&ctx, "row"); wlx_pop_id(&ctx);
+        if (add_panel) {
+            wlx_scroll_panel_begin(&ctx, 500.0f, .height = 200.0f);
+            wlx_scroll_panel_end(&ctx);
+        }
+        wlx_layout_end(&ctx);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    wlx_context_destroy(&ctx);
+    return measured;
+}
+
+TEST(scroll_panel_overrun_contributes_nothing) {
+    float without = es_content_height_with_panel_overrun(false);
+    float with    = es_content_height_with_panel_overrun(true);
+    ASSERT_TRUE(without > 0.0f);
+    ASSERT_EQ_F(without, with, 0.001f);
+}
+
+TEST(dynamic_grid_column_overrun_grows_no_row) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin_auto(&ctx, 2, 30.0f);
+    WLX_Layout *top = es_top_mut(&ctx);
+    (void)wlx_get_slot_rect(&ctx, top, -1, 1);
+    (void)wlx_get_slot_rect(&ctx, top, -1, 1);   // the cursor sits at (1, 0)
+    ASSERT_EQ_INT(0, es_count);
+    ASSERT_EQ_INT(1, (int)top->grid.rows);
+    WLX_Rect r = wlx_get_slot_rect(&ctx, top, -1, 3);   // a span wider than the grid
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_GRID_BOUNDS, (int)es_last.code);
+    ASSERT_EQ_INT(1, (int)top->grid.rows);              // no phantom row
+    ASSERT_EQ_INT(2, (int)top->count);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 30, 400, 0 }), r, 0.001f);
+    ASSERT_EQ_INT(1, (int)top->grid.cursor_row);
+    ASSERT_EQ_INT(0, (int)top->grid.cursor_col);
+    // A row that does fit still grows on demand.
+    (void)wlx_get_slot_rect(&ctx, top, -1, 2);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(2, (int)top->grid.rows);
+    wlx_grid_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(null_input_handler_reports_and_runs_without_input) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 10, 10, true, true);
+    test_frame_end(&ctx);
+    wlx_begin(&ctx, ctx.rect, NULL);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_FALSE(ctx.input.mouse_down);                 // last frame's press did not carry over
+    ASSERT_FALSE(ctx.input.mouse_clicked);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    ASSERT_FALSE(wlx_button(&ctx, "quiet"));
+    wlx_layout_end(&ctx);
+    wlx_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+// A report raised in wlx_begin names no layout of the frame before: that
+// frame left a layout open, and its wlx_end reported it with the layout as
+// the site, but the next frame starts from an empty pool before its first
+// check.
+TEST(begin_report_names_no_stale_layout) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);              // never ended
+    wlx_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(es_last.layout_file != NULL);
+    wlx_begin(&ctx, ctx.rect, NULL);
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_TRUE(es_last.layout_file == NULL);
+    ASSERT_EQ_INT(0, es_last.layout_line);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_layout_end(&ctx);
+    wlx_end(&ctx);
+    ASSERT_EQ_INT(2, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(slot_overrun_skips_content_contribution) {
+    float two   = es_content_height_with_labels(2);
+    float three = es_content_height_with_labels(3);   // the third label overruns
+    ASSERT_TRUE(two > 0.0f);
+    ASSERT_EQ_F(two, three, 0.001f);
+}
+
+TEST(positional_slot_past_count_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 2, WLX_VERT);
+    WLX_Rect r = wlx_get_slot_rect(&ctx, es_top_mut(&ctx), 5, 1);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_SLOT_OVERRUN, (int)es_last.code);
+    ASSERT_TRUE(strstr(es_last.message, "position") != NULL);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 300, 400, 0 }), r, 0.001f);
+    ASSERT_EQ_INT(0, (int)es_top(&ctx)->index);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(grid_cell_out_of_range_is_ignored) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin(&ctx, 2, 2);
+    wlx_grid_cell(&ctx, 5, 7);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_GRID_BOUNDS, (int)es_last.code);
+    ASSERT_FALSE(es_top(&ctx)->grid.cell_set);
+    WLX_Rect r = wlx_get_slot_rect(&ctx, es_top_mut(&ctx), -1, 1);   // the cursor stood at (0, 0)
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 0, 200, 150 }), r, 0.001f);
+    wlx_grid_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(grid_auto_advance_past_last_row_collapses) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin(&ctx, 2, 2);
+    WLX_Layout *top = es_top_mut(&ctx);
+    for (int i = 0; i < 4; i++) (void)wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_INT(0, es_count);
+    ASSERT_EQ_INT(2, (int)top->grid.cursor_row);
+    WLX_Rect fifth = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_GRID_BOUNDS, (int)es_last.code);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 300, 400, 0 }), fifth, 0.001f);
+    ASSERT_EQ_INT(2, (int)top->grid.cursor_row);
+    ASSERT_EQ_INT(0, (int)top->grid.cursor_col);
+    ASSERT_TRUE(top->slot_clamped);
+    wlx_grid_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(layout_end_without_begin_reports_and_returns) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_layout_end(&ctx);
+    wlx_layout_end(&ctx);   // one too many
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(es_last.layout_file == NULL);
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);   // the frame goes on
+    (void)wlx_button(&ctx, "ok");
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(pops_without_push_report) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_pop_id(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_EQ_INT(0, (int)ctx.arena.id_stack.count);
+    wlx_pop_opacity(&ctx);
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.opacity_stack.count);
+    wlx_scroll_panel_end(&ctx);   // no panel open: the innermost layout must stay
+    ASSERT_EQ_INT(3, es_count);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(widget_without_layout_uses_root_rect) {
+    WLX_Context ctx, ref;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    (void)wlx_button(&ctx, "orphan"); int lw = __LINE__;
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_NO_LAYOUT, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(lw, es_last.line);
+    ASSERT_TRUE(es_last.layout_file == NULL);
+    WLX_Rect orphan = wlx_last_rect(&ctx);
+    test_frame_end(&ctx);
+    // The same button in a one-slot root layout gets the same rect.
+    test_ctx_init(&ref, 400, 300);
+    test_frame_begin(&ref, 0, 0, false, false);
+    wlx_layout_begin(&ref, 1, WLX_VERT);
+    (void)wlx_button(&ref, "orphan");
+    wlx_layout_end(&ref);
+    test_frame_end(&ref);
+    ASSERT_EQ_RECT(wlx_last_rect(&ref), orphan, 0.001f);
+    wlx_context_destroy(&ctx);
+    wlx_context_destroy(&ref);
+}
+
+TEST(open_layouts_at_end_report_once) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_layout_begin(&ctx, 1, WLX_VERT); int inner = __LINE__;
+    wlx_end(&ctx);   // two begins, no ends
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.layout_file));
+    ASSERT_EQ_INT(inner, es_last.layout_line);
+    // The next frame starts clean.
+    test_frame_begin(&ctx, 0, 0, false, false);
+    ASSERT_EQ_INT(0, (int)ctx.arena.layouts.count);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_layout_end(&ctx);
+    wlx_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(dynamic_positional_access_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_auto(&ctx, WLX_VERT, 20.0f);
+    WLX_Rect r = wlx_get_slot_rect(&ctx, es_top_mut(&ctx), 0, 1);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 0, 400, 20 }), r, 0.001f);   // taken in sequence
+    ASSERT_EQ_INT(1, (int)es_top(&ctx)->count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(layout_entries_without_layout_report_and_return) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_auto_slot_px(&ctx, 10.0f);
+    wlx_grid_cell(&ctx, 0, 0);
+    wlx_slot_style(&ctx, .border_width = 1.0f);
+    wlx_grid_cell_style(&ctx, .border_width = 1.0f);
+    ASSERT_EQ_INT(4, es_count);
+    ASSERT_EQ_INT(WLX_ERR_NO_LAYOUT, (int)es_last.code);
+    // Inside a linear layout the grid-only entries report a bad argument.
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_grid_cell(&ctx, 0, 0);
+    ASSERT_EQ_INT(5, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// --- Arguments, pointers and limits ---
+
+TEST(zero_and_negative_counts_clamp_to_one) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 0, WLX_VERT);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(1, (int)es_top(&ctx)->count);
+    (void)wlx_button(&ctx, "fills the one slot");
+    ASSERT_EQ_INT(1, es_count);
+    wlx_layout_end(&ctx);
+    wlx_layout_begin(&ctx, (size_t)-1, WLX_VERT);   // a negative int, converted
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(1, (int)es_top(&ctx)->count);
+    wlx_layout_end(&ctx);
+    wlx_grid_begin(&ctx, 0, 3);
+    ASSERT_EQ_INT(3, es_count);
+    ASSERT_EQ_INT(1, (int)es_top(&ctx)->grid.rows);
+    ASSERT_EQ_INT(3, (int)es_top(&ctx)->grid.cols);
+    wlx_grid_end(&ctx);
+    wlx_grid_begin(&ctx, 2, 0);
+    ASSERT_EQ_INT(4, es_count);
+    ASSERT_EQ_INT(2, (int)es_top(&ctx)->grid.rows);
+    ASSERT_EQ_INT(1, (int)es_top(&ctx)->grid.cols);
+    wlx_grid_end(&ctx);
+    wlx_grid_begin_auto(&ctx, 0, 20.0f);
+    ASSERT_EQ_INT(5, es_count);
+    ASSERT_EQ_INT(1, (int)es_top(&ctx)->grid.cols);
+    wlx_grid_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(non_positive_pixel_sizes_clamp) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin_auto(&ctx, 2, 0.0f);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_EQ_F(1.0f, es_top(&ctx)->grid.row_size, 0.001f);
+    wlx_grid_auto_row_px(&ctx, -1.0f);
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_F(1.0f, es_top(&ctx)->grid.next_row_size, 0.001f);
+    wlx_grid_end(&ctx);
+    wlx_grid_begin_auto_tile(&ctx, 0.0f, -2.0f);
+    ASSERT_EQ_INT(4, es_count);   // width, then height
+    ASSERT_EQ_F(1.0f, es_top(&ctx)->grid.row_size, 0.001f);
+    wlx_grid_end(&ctx);
+    wlx_layout_begin_auto(&ctx, WLX_VERT, -5.0f);
+    ASSERT_EQ_INT(5, es_count);
+    ASSERT_EQ_F(1.0f, es_top(&ctx)->linear.slot_size, 0.001f);
+    wlx_layout_end(&ctx);
+    // Variable-size mode with no size set before the child: 1 px, reported.
+    wlx_layout_begin_auto(&ctx, WLX_VERT, 0.0f);
+    ASSERT_EQ_INT(5, es_count);
+    WLX_Rect r = wlx_get_slot_rect(&ctx, es_top_mut(&ctx), -1, 1);
+    ASSERT_EQ_INT(6, es_count);
+    ASSERT_EQ_F(1.0f, r.h, 0.001f);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(required_null_pointers_are_inert) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 12, WLX_VERT);
+    const char *opts[2] = { "a", "b" };
+    size_t cmds = ctx.arena.commands.count;
+    size_t index_before = es_top(&ctx)->index;
+    ASSERT_FALSE(wlx_inputbox(&ctx, "in", NULL, 16));
+    ASSERT_FALSE(wlx_slider(&ctx, "sl", NULL));
+    ASSERT_FALSE(wlx_toggle(&ctx, "tg", NULL));
+    ASSERT_FALSE(wlx_radio(&ctx, "rd", NULL, 0));
+    ASSERT_FALSE(wlx_dropdown(&ctx, "dd", NULL, opts, 2));
+    ASSERT_FALSE(wlx_menu_begin(&ctx, NULL, 10, 10));
+    ASSERT_FALSE(wlx_menu_button_begin(&ctx, "mb", NULL));
+    ASSERT_FALSE(wlx_submenu_begin(&ctx, NULL));
+    ASSERT_FALSE(wlx_editor(&ctx, "ed", NULL, 0, NULL));
+    ASSERT_EQ_INT(9, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT((int)cmds, (int)ctx.arena.commands.count);        // nothing drawn
+    ASSERT_EQ_INT((int)index_before, (int)es_top(&ctx)->index);     // no slot taken
+    // A NULL options array with a nonzero count is reported and shown empty;
+    // the widget itself still runs.
+    int sel = 0;
+    (void)wlx_dropdown(&ctx, "dd2", &sel, NULL, 3);
+    ASSERT_EQ_INT(10, es_count);
+    ASSERT_EQ_INT((int)index_before + 1, (int)es_top(&ctx)->index);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(content_limit_reports_through_channel) {
+    enum { OVER_MAX = WLX_CONTENT_SLOTS_MAX + 1 };
+    WLX_Context ctx;
+    es_init(&ctx);
+    WLX_Slot_Size sizes[OVER_MAX];
+    for (size_t i = 0; i < OVER_MAX; i++) sizes[i] = WLX_SLOT_FLEX(1);
+    sizes[0] = WLX_SLOT_CONTENT;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, OVER_MAX, WLX_VERT, .sizes = sizes); int lb = __LINE__;
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_LIMIT, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(lb, es_last.line);
+    ASSERT_FALSE(es_top(&ctx)->has_content_slot_measures);   // not tracked, still laid out
+    (void)wlx_button(&ctx, "still draws");
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+// --- Slot spans ---
+
+// A span past WLX_MAX_SLOT_COUNT (a negative int converted, or WLX_UNSET)
+// is reported and takes one slot, and the next child takes the next slot:
+// the wrapped sum neither rewinds a fixed layout or grid nor writes past a
+// dynamic layout's offsets.
+TEST(span_wrapped_reports_and_takes_one_slot) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    // Fixed layout: index stays sequential.
+    wlx_layout_begin(&ctx, 3, WLX_VERT);
+    WLX_Layout *top = es_top_mut(&ctx);
+    (void)wlx_get_slot_rect(&ctx, top, -1, 1);
+    WLX_Rect b = wlx_get_slot_rect(&ctx, top, -1, (size_t)-1);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 100, 400, 100 }), b, 0.001f);
+    ASSERT_EQ_INT(2, (int)top->index);
+    ASSERT_EQ_INT(1, (int)top->fetch_first);
+    WLX_Rect c = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 200, 400, 100 }), c, 0.001f);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_layout_end(&ctx);
+
+    // Grid auto-advance: the cursor moves one cell on.
+    wlx_grid_begin(&ctx, 2, 2);
+    top = es_top_mut(&ctx);
+    (void)wlx_get_slot_rect(&ctx, top, -1, 1);
+    WLX_Rect g = wlx_get_slot_rect(&ctx, top, -1, (size_t)WLX_UNSET);
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_EQ_RECT(((WLX_Rect){ 200, 0, 200, 150 }), g, 0.001f);
+    ASSERT_EQ_INT(1, (int)top->fetch_first);
+    WLX_Rect h = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 150, 200, 150 }), h, 0.001f);
+    ASSERT_EQ_INT(2, es_count);
+    wlx_grid_end(&ctx);
+
+    // Auto layout, through a widget: one slot appended, reported at the
+    // widget's line.
+    wlx_layout_begin_auto(&ctx, WLX_VERT, 20);
+    top = es_top_mut(&ctx);
+    (void)wlx_label(&ctx, "a");
+    (void)wlx_label(&ctx, "b", .span = (size_t)-1); int lw = __LINE__;
+    ASSERT_EQ_INT(3, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(lw, es_last.line);
+    ASSERT_EQ_INT(2, (int)top->count);
+    ASSERT_EQ_INT(2, (int)top->index);
+    WLX_Rect d = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 40, 400, 20 }), d, 0.001f);
+    ASSERT_EQ_INT(3, es_count);
+    wlx_layout_end(&ctx);
+
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// Span 0 (what a zero-initialised option struct carries) takes one slot,
+// silently, on every layout kind. A full fixed layout then reports the
+// next fetch as an ordinary overrun.
+TEST(span_zero_takes_one_slot) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+
+    wlx_layout_begin(&ctx, 2, WLX_VERT);
+    WLX_Layout *top = es_top_mut(&ctx);
+    WLX_Rect a = wlx_get_slot_rect(&ctx, top, -1, 0);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 0, 400, 150 }), a, 0.001f);
+    WLX_Rect b = wlx_get_slot_rect(&ctx, top, -1, 0);   // the last slot
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 150, 400, 150 }), b, 0.001f);
+    ASSERT_EQ_INT(2, (int)top->index);
+    ASSERT_EQ_INT(0, es_count);
+    WLX_Rect over = wlx_get_slot_rect(&ctx, top, -1, 0);   // the layout is full
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_SLOT_OVERRUN, (int)es_last.code);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 300, 400, 0 }), over, 0.001f);
+    wlx_layout_end(&ctx);
+
+    wlx_grid_begin(&ctx, 2, 2);
+    top = es_top_mut(&ctx);
+    WLX_Rect g0 = wlx_get_slot_rect(&ctx, top, -1, 0);
+    WLX_Rect g1 = wlx_get_slot_rect(&ctx, top, -1, 0);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 0, 200, 150 }), g0, 0.001f);
+    ASSERT_EQ_RECT(((WLX_Rect){ 200, 0, 200, 150 }), g1, 0.001f);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_grid_end(&ctx);
+
+    wlx_layout_begin_auto(&ctx, WLX_VERT, 20);
+    top = es_top_mut(&ctx);
+    WLX_Rect d0 = wlx_get_slot_rect(&ctx, top, -1, 0);
+    WLX_Rect d1 = wlx_get_slot_rect(&ctx, top, -1, 0);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 0, 400, 20 }), d0, 0.001f);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 20, 400, 20 }), d1, 0.001f);
+    ASSERT_EQ_INT(2, (int)top->count);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_layout_end(&ctx);
+
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// wlx_grid_cell bounds its spans before the range check: a wrapped span
+// is reported as a bad argument and placed with span 1, never passed on
+// as a wrapped sum (from column 1) or misreported as a placement outside
+// the grid (from column 0).
+TEST(grid_cell_span_wrapped_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin(&ctx, 2, 2);
+    WLX_Layout *top = es_top_mut(&ctx);
+
+    wlx_grid_cell(&ctx, 0, 0, .col_span = (size_t)-1);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_TRUE(top->grid.cell_set);
+    ASSERT_EQ_INT(1, (int)top->grid.next_col_span);
+    WLX_Rect a = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 0, 200, 150 }), a, 0.001f);
+
+    wlx_grid_cell(&ctx, 0, 1, .col_span = (size_t)-1);
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    WLX_Rect b = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_RECT(((WLX_Rect){ 200, 0, 200, 150 }), b, 0.001f);
+
+    wlx_grid_cell(&ctx, 1, 0, .row_span = (size_t)-1);
+    ASSERT_EQ_INT(3, es_count);
+    WLX_Rect c = wlx_get_slot_rect(&ctx, top, -1, 1);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 150, 200, 150 }), c, 0.001f);
+    ASSERT_EQ_INT(1, (int)top->grid.cursor_row);
+    ASSERT_EQ_INT(1, (int)top->grid.cursor_col);
+
+    wlx_grid_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(3, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+// --- An end of the wrong kind: one report, then the container that is
+// innermost (or the one the end names) is closed with its own end ---
+
+static int es_scissor_begins, es_scissor_ends;
+static void es_count_begin_scissor(WLX_Rect r, void *user) { (void)r; (void)user; es_scissor_begins++; }
+static void es_count_end_scissor(void *user) { (void)user; es_scissor_ends++; }
+
+static void es_init_scissors(WLX_Context *ctx) {
+    es_init(ctx);
+    ctx->backend.begin_scissor = es_count_begin_scissor;
+    ctx->backend.end_scissor = es_count_end_scissor;
+    es_scissor_begins = 0;
+    es_scissor_ends = 0;
+}
+
+static void es_wrong_end_on_scroll_panel(const char *scope_id) {
+    WLX_Context ctx;
+    es_init_scissors(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 2, WLX_VERT);
+    int panel_line = __LINE__ + 1;
+    wlx_scroll_panel_begin(&ctx, 600, .id = scope_id);
+    wlx_layout_end(&ctx);                       // meant wlx_scroll_panel_end
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.layout_file));
+    ASSERT_EQ_INT(panel_line, es_last.layout_line);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.id_stack.count);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_TRUE(es_scissor_begins > 0);
+    ASSERT_EQ_INT(es_scissor_begins, es_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(layout_end_on_scroll_panel_closes_it) { es_wrong_end_on_scroll_panel(NULL); }
+TEST(layout_end_on_scoped_scroll_panel_closes_it) { es_wrong_end_on_scroll_panel("sp"); }
+
+TEST(layout_end_on_overlay_closes_it) {
+    WLX_Context ctx;
+    es_init_scissors(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_overlay_begin(&ctx, 1, ((WLX_Rect){ 10, 10, 200, 100 }));
+    wlx_layout_end(&ctx);                       // meant wlx_overlay_end
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_EQ_INT(0, (int)ctx.current_layer);
+    ASSERT_EQ_INT(0, (int)ctx.clip_base.layouts_from);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(es_scissor_begins, es_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(layout_ends_for_split_end) {
+    WLX_Context ctx;
+    es_init_scissors(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    size_t outer = ctx.arena.layouts.count;
+    wlx_split_begin(&ctx);
+    wlx_split_next(&ctx);
+    while (ctx.arena.layouts.count > outer) wlx_layout_end(&ctx);   // meant wlx_split_end
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(es_scissor_begins, es_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(scroll_panel_end_over_child_closes_both) {
+    WLX_Context ctx;
+    es_init_scissors(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_scroll_panel_begin(&ctx, 600);
+    int child_line = __LINE__ + 1;
+    wlx_layout_begin(&ctx, 2, WLX_VERT);        // left open
+    wlx_scroll_panel_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.layout_file));
+    ASSERT_EQ_INT(child_line, es_last.layout_line);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(es_scissor_begins, es_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(scroll_panel_end_over_overlay_closes_both) {
+    WLX_Context ctx;
+    es_init_scissors(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_scroll_panel_begin(&ctx, 600);
+    wlx_overlay_begin(&ctx, 1, ((WLX_Rect){ 10, 10, 200, 100 }));   // left open
+    wlx_scroll_panel_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(0, (int)ctx.current_layer);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.arena.scroll_panels.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(es_scissor_begins, es_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(overlay_end_over_child_closes_both) {
+    WLX_Context ctx;
+    es_init_scissors(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_overlay_begin(&ctx, 1, ((WLX_Rect){ 10, 10, 200, 100 }));
+    int child_line = __LINE__ + 1;
+    wlx_layout_begin(&ctx, 2, WLX_VERT);        // left open
+    wlx_overlay_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_EQ_INT(child_line, es_last.layout_line);
+    ASSERT_EQ_INT(0, (int)ctx.current_layer);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(es_scissor_begins, es_scissor_ends);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(overlay_end_without_overlay_returns) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_overlay_end(&ctx);                      // nothing to close
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_EQ_INT(1, (int)ctx.arena.layouts.count);
+    ASSERT_EQ_INT(0, (int)ctx.current_layer);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+// --- An id still pushed at wlx_end: reported in every build, once the
+// layouts balanced (a container left open with a scope id reports once) ---
+
+TEST(id_pushed_at_end_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_push_id(&ctx, 7);                       // never popped
+    (void)wlx_button(&ctx, "b");
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(es_last.layout_file == NULL);
+    // The next frame starts with an empty id stack and reports nothing.
+    test_frame_begin(&ctx, 0, 0, false, false);
+    ASSERT_EQ_INT(0, (int)ctx.arena.id_stack.count);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(open_layout_with_scope_id_reports_once) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .id = "scope");   // left open with its scope
+    wlx_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.layout_file));
+    wlx_context_destroy(&ctx);
+}
+
+// wlx_grid_auto_row_px outside an auto grid with a bad size: one report (the
+// wrong kind), not a size report as well.
+TEST(grid_auto_row_px_wrong_kind_reports_once) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_grid_auto_row_px(&ctx, -1.0f);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// The slot-style entries and wlx_grid_cell take the call site like every
+// option-taking entry: their reports name the caller's line.
+TEST(slot_style_entries_report_the_call_site) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin(&ctx, 1, 1);
+    int l1 = __LINE__ + 1;
+    wlx_slot_style(&ctx, .back_color = WLX_RGBA(1, 2, 3, 255));   // wrong kind: a grid
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(l1, es_last.line);
+    int l2 = __LINE__ + 1;
+    wlx_grid_cell(&ctx, 5, 0);                                     // outside the grid
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(WLX_ERR_GRID_BOUNDS, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(l2, es_last.line);
+    wlx_grid_end(&ctx);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    int l3 = __LINE__ + 1;
+    wlx_grid_cell_style(&ctx, .back_color = WLX_RGBA(1, 2, 3, 255));   // wrong kind: linear
+    ASSERT_EQ_INT(3, es_count);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(l3, es_last.line);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// One report since the last check, with its code, message and site: the
+// caller's line, or none (file NULL, line 0) for an entry without a site.
+#define ES_EXPECT_REPORT(n, want_code, want_msg, has_site, want_line) do { \
+    ASSERT_EQ_INT((n), es_count); \
+    ASSERT_EQ_INT((int)(want_code), (int)es_last.code); \
+    ASSERT_EQ_STR(es_last.message, (want_msg)); \
+    if (has_site) { \
+        ASSERT_TRUE(es_same_file(es_last.file)); \
+        ASSERT_EQ_INT((want_line), es_last.line); \
+    } else { \
+        ASSERT_TRUE(es_last.file == NULL); \
+        ASSERT_EQ_INT(0, es_last.line); \
+    } \
+} while (0)
+
+// Every report of the five layout entries and the two slot-size checks,
+// by code, message and site, so a shared contract cannot change what a
+// caller's handler sees.
+TEST(layout_entry_contracts_pinned) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    int l;
+
+    // No layout open.
+    wlx_layout_auto_slot_px(&ctx, 10.0f);
+    ES_EXPECT_REPORT(1, WLX_ERR_NO_LAYOUT, "wlx_layout_auto_slot called with no layout open", false, 0);
+    wlx_grid_auto_row_px(&ctx, 10.0f);
+    ES_EXPECT_REPORT(2, WLX_ERR_NO_LAYOUT, "wlx_grid_auto_row_px called with no layout open", false, 0);
+    l = __LINE__ + 1;
+    wlx_grid_cell(&ctx, 0, 0);
+    ES_EXPECT_REPORT(3, WLX_ERR_NO_LAYOUT, "wlx_grid_cell called with no layout open", true, l);
+    l = __LINE__ + 1;
+    wlx_slot_style(&ctx, .border_width = 1.0f);
+    ES_EXPECT_REPORT(4, WLX_ERR_NO_LAYOUT, "wlx_slot_style called with no layout open", true, l);
+    l = __LINE__ + 1;
+    wlx_grid_cell_style(&ctx, .border_width = 1.0f);
+    ES_EXPECT_REPORT(5, WLX_ERR_NO_LAYOUT, "wlx_grid_cell_style called with no layout open", true, l);
+
+    // The wrong kind: a fixed linear layout, then a fixed grid.
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_layout_auto_slot_px(&ctx, 10.0f);
+    ES_EXPECT_REPORT(6, WLX_ERR_BAD_ARGUMENT,
+        "wlx_layout_auto_slot is only valid inside a wlx_layout_begin_auto block", false, 0);
+    wlx_grid_auto_row_px(&ctx, 10.0f);
+    ES_EXPECT_REPORT(7, WLX_ERR_BAD_ARGUMENT,
+        "wlx_grid_auto_row_px is only valid inside a wlx_grid_begin_auto block", false, 0);
+    l = __LINE__ + 1;
+    wlx_grid_cell(&ctx, 0, 0);
+    ES_EXPECT_REPORT(8, WLX_ERR_BAD_ARGUMENT,
+        "wlx_grid_cell is only valid inside a wlx_grid_begin block", true, l);
+    l = __LINE__ + 1;
+    wlx_grid_cell_style(&ctx, .border_width = 1.0f);
+    ES_EXPECT_REPORT(9, WLX_ERR_BAD_ARGUMENT,
+        "wlx_grid_cell_style is only valid inside a grid layout", true, l);
+    wlx_layout_end(&ctx);
+    wlx_grid_begin(&ctx, 1, 1);
+    l = __LINE__ + 1;
+    wlx_slot_style(&ctx, .border_width = 1.0f);
+    ES_EXPECT_REPORT(10, WLX_ERR_BAD_ARGUMENT,
+        "wlx_slot_style is only valid inside a linear layout", true, l);
+    wlx_grid_end(&ctx);
+
+    // A negative auto slot size: the constructor reports without a site,
+    // the begin form at the caller's line; both take 1 px.
+    WLX_Layout made = wlx_create_layout_auto(&ctx, ctx.rect, WLX_VERT, -1.0f);
+    ES_EXPECT_REPORT(11, WLX_ERR_BAD_ARGUMENT,
+        "auto layout slot size is negative (0 means variable-size mode); using 1 px", false, 0);
+    ASSERT_EQ_F(made.linear.slot_size, 1.0f, 0.0001f);
+    l = __LINE__ + 1;
+    wlx_layout_begin_auto(&ctx, WLX_VERT, -1.0f);
+    ES_EXPECT_REPORT(12, WLX_ERR_BAD_ARGUMENT,
+        "wlx_layout_begin_auto: slot size is negative (0 means variable-size mode); using 1 px",
+        true, l);
+    ASSERT_EQ_F(es_top(&ctx)->linear.slot_size, 1.0f, 0.0001f);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// A list clipper outside a scroll panel has no viewport: one report naming
+// the caller's line, and the parent rect stands in at offset 0, so the rows
+// that fit it are built (300 px of 20 px rows: 0 to 15).
+TEST(list_clipper_outside_scroll_panel_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0);
+    int line = __LINE__ + 1;
+    WLX_List_Clipper clip = wlx_list_clipper_begin(&ctx, 1000, 20.0f);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_TRUE(es_same_file(es_last.file));
+    ASSERT_EQ_INT(line, es_last.line);
+    ASSERT_EQ_INT(0, clip.first);
+    ASSERT_EQ_INT(15, clip.last);
+    wlx_list_clipper_end(&ctx, &clip);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+// Inside an overlay, a scroll panel of the base layer is not the clipper's
+// viewport: the clipper reports as outside any panel and builds the
+// rows that fit its parent (100 px of 20 px rows: 0 to 5), instead of
+// clipping against the base panel (300 px: 0 to 15).
+TEST(list_clipper_in_overlay_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0);
+    wlx_scroll_panel_begin(&ctx, 2000, .padding = 0);
+    wlx_overlay_begin(&ctx, 1, ((WLX_Rect){ 0, 0, 200, 100 }));
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0);
+    int line = __LINE__ + 1;
+    WLX_List_Clipper clip = wlx_list_clipper_begin(&ctx, 1000, 20.0f);
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    ASSERT_EQ_INT(line, es_last.line);
+    ASSERT_EQ_INT(0, clip.first);
+    ASSERT_EQ_INT(5, clip.last);
+    wlx_list_clipper_end(&ctx, &clip);
+    wlx_layout_end(&ctx);
+    wlx_overlay_end(&ctx);
+    wlx_scroll_panel_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(1, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+// wlx_grid_cell on an auto grid may name rows not grown yet: the slot fetch
+// grows them (v0.8.0's release behaviour). Columns stay fixed, and so does
+// the WLX_MAX_SLOT_COUNT bound.
+static WLX_Rect es_auto_grid_cell(WLX_Context *ctx, int row, int col, size_t rs, size_t cs,
+                                  size_t *rows_out) {
+    test_frame_begin(ctx, 0, 0, false, false);
+    wlx_grid_begin_auto(ctx, 3, 40.0f, .padding = 0);
+    wlx_grid_cell(ctx, row, col, .row_span = rs, .col_span = cs);
+    (void)wlx_button(ctx, "c", .padding = 0);
+    WLX_Rect r = wlx_last_rect(ctx);
+    *rows_out = es_top(ctx)->grid.rows;
+    wlx_grid_end(ctx);
+    test_frame_end(ctx);
+    return r;
+}
+
+TEST(auto_grid_cell_grows_rows) {
+    WLX_Context ctx;
+    size_t rows = 0;
+    es_init(&ctx);
+    WLX_Rect r = es_auto_grid_cell(&ctx, -1, -1, 1, 3, &rows);   // first row, full span
+    ASSERT_EQ_INT(0, es_count);
+    ASSERT_EQ_F(r.w, 400.0f, 0.01f);
+    r = es_auto_grid_cell(&ctx, 2, 0, 1, 1, &rows);              // a row not grown yet
+    ASSERT_EQ_INT(0, es_count);
+    ASSERT_EQ_INT(3, (int)rows);
+    ASSERT_EQ_F(r.y, 80.0f, 0.01f);
+    r = es_auto_grid_cell(&ctx, 3, 1, 2, 1, &rows);              // a row span grows too
+    ASSERT_EQ_INT(0, es_count);
+    ASSERT_EQ_INT(5, (int)rows);
+    ASSERT_EQ_F(r.h, 80.0f, 0.01f);
+    (void)es_auto_grid_cell(&ctx, 0, 2, 1, 2, &rows);            // columns are fixed
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_GRID_BOUNDS, (int)es_last.code);
+    (void)es_auto_grid_cell(&ctx, (int)WLX_MAX_SLOT_COUNT, 0, 1, 1, &rows);   // the slot bound holds
+    ASSERT_EQ_INT(2, es_count);
+    ASSERT_EQ_INT(WLX_ERR_GRID_BOUNDS, (int)es_last.code);
+    wlx_context_destroy(&ctx);
+}
+
+// A struct-form caller passing a NULL call site: reported, and the id
+// hashes an empty path instead of dereferencing NULL - through a widget, a
+// container with .interact, and a state request.
+TEST(null_call_site_reports_and_runs) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 3, WLX_VERT);
+    int before = es_count;
+    (void)wlx_button_impl(&ctx, "b", wlx_button_opt_defaults(), NULL, 0);
+    ASSERT_TRUE(es_count > before);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    before = es_count;
+    WLX_Layout_Opt lo = wlx_layout_opt_defaults();
+    lo.interact = WLX_INTERACT_HOVER;
+    wlx_layout_begin_impl(&ctx, 1, WLX_VERT, lo, NULL, 0);
+    wlx_layout_end(&ctx);
+    ASSERT_TRUE(es_count > before);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    before = es_count;
+    WLX_State st = wlx_get_state_impl(&ctx, sizeof(int), NULL, 0);
+    ASSERT_TRUE(st.data != NULL);
+    ASSERT_TRUE(es_count > before);
+    ASSERT_EQ_INT(WLX_ERR_BAD_ARGUMENT, (int)es_last.code);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// --- The WLX_DEBUG split tracker: pairing mistakes are contract reports,
+// its table stays in bounds at any depth, and it resets every frame ---
+
+#ifdef WLX_DEBUG
+TEST(split_next_without_begin_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    int line = __LINE__ + 1;
+    wlx_split_next(&ctx);                      // no split open
+    ASSERT_TRUE(es_count >= 1);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_first.code);
+    ASSERT_TRUE(strstr(es_first.message, "wlx_split_next") != NULL);
+    ASSERT_TRUE(es_same_file(es_first.file));
+    ASSERT_EQ_INT(line, es_first.line);
+    ASSERT_EQ_INT(0, ctx.dbg->split_depth);
+    test_frame_end(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);   // the next frame's split works
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    int before = es_count;
+    wlx_split_begin(&ctx);
+    wlx_split_next(&ctx);
+    wlx_split_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(before, es_count);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(split_end_without_next_reports) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_split_begin(&ctx);
+    wlx_split_end(&ctx);                       // the second pane was never opened
+    ASSERT_EQ_INT(1, es_count);
+    ASSERT_EQ_INT(WLX_ERR_UNBALANCED_END, (int)es_last.code);
+    ASSERT_TRUE(strstr(es_last.message, "wlx_split_next") != NULL);
+    ASSERT_EQ_INT(0, ctx.dbg->split_depth);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(split_missing_end_resets_each_frame) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    void (*cb)(const char *, int, const char *, void *) = ctx.dbg->warn_cb;
+    test_frame_end(&ctx);
+    for (int frame = 0; frame < 12; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        ASSERT_EQ_INT(0, ctx.dbg->split_depth);
+        wlx_layout_begin(&ctx, 1, WLX_VERT);
+        wlx_split_begin(&ctx);
+        wlx_split_next(&ctx);
+        test_frame_end(&ctx);                  // no wlx_split_end: the frame end drains
+    }
+    ASSERT_TRUE(ctx.dbg->warn_cb == cb);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(split_nests_past_tracker_depth) {
+    WLX_Context ctx;
+    es_init(&ctx);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    for (int i = 0; i < 10; i++) {                      // nested in each first pane
+        wlx_push_id(&ctx, (WLX_Id)i);
+        wlx_split_begin(&ctx);
+    }
+    for (int i = 0; i < 10; i++) {
+        wlx_split_next(&ctx);
+        wlx_split_end(&ctx);
+        wlx_pop_id(&ctx);
+    }
+    ASSERT_EQ_INT(0, es_count);
+    ASSERT_EQ_INT(0, ctx.dbg->split_depth);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(0, es_count);
+    wlx_context_destroy(&ctx);
+}
+#endif
+
+SUITE(error_surface) {
+    RUN_TEST(error_handler_receives_record);
+    RUN_TEST(error_handler_null_restores_default);
+    RUN_TEST(begin_report_names_no_stale_layout);
+    RUN_TEST(error_count_is_never_throttled);
+    RUN_TEST(error_layout_site_recorded_by_every_begin);
+    RUN_TEST(error_direct_create_has_no_site);
+    RUN_TEST(slot_overrun_reports_and_collapses);
+    RUN_TEST(slot_overrun_skips_content_contribution);
+    RUN_TEST(scroll_panel_overrun_contributes_nothing);
+    RUN_TEST(dynamic_grid_column_overrun_grows_no_row);
+    RUN_TEST(null_input_handler_reports_and_runs_without_input);
+    RUN_TEST(positional_slot_past_count_reports);
+    RUN_TEST(grid_cell_out_of_range_is_ignored);
+    RUN_TEST(grid_auto_advance_past_last_row_collapses);
+    RUN_TEST(layout_end_without_begin_reports_and_returns);
+    RUN_TEST(pops_without_push_report);
+    RUN_TEST(widget_without_layout_uses_root_rect);
+    RUN_TEST(open_layouts_at_end_report_once);
+    RUN_TEST(dynamic_positional_access_reports);
+    RUN_TEST(layout_entries_without_layout_report_and_return);
+    RUN_TEST(zero_and_negative_counts_clamp_to_one);
+    RUN_TEST(non_positive_pixel_sizes_clamp);
+    RUN_TEST(required_null_pointers_are_inert);
+    RUN_TEST(content_limit_reports_through_channel);
+    RUN_TEST(span_wrapped_reports_and_takes_one_slot);
+    RUN_TEST(span_zero_takes_one_slot);
+    RUN_TEST(grid_cell_span_wrapped_reports);
+    RUN_TEST(layout_end_on_scroll_panel_closes_it);
+    RUN_TEST(layout_end_on_scoped_scroll_panel_closes_it);
+    RUN_TEST(layout_end_on_overlay_closes_it);
+    RUN_TEST(layout_ends_for_split_end);
+    RUN_TEST(scroll_panel_end_over_child_closes_both);
+    RUN_TEST(scroll_panel_end_over_overlay_closes_both);
+    RUN_TEST(overlay_end_over_child_closes_both);
+    RUN_TEST(overlay_end_without_overlay_returns);
+    RUN_TEST(id_pushed_at_end_reports);
+    RUN_TEST(open_layout_with_scope_id_reports_once);
+    RUN_TEST(grid_auto_row_px_wrong_kind_reports_once);
+    RUN_TEST(slot_style_entries_report_the_call_site);
+    RUN_TEST(layout_entry_contracts_pinned);
+    RUN_TEST(list_clipper_outside_scroll_panel_reports);
+    RUN_TEST(list_clipper_in_overlay_reports);
+    RUN_TEST(auto_grid_cell_grows_rows);
+    RUN_TEST(null_call_site_reports_and_runs);
+#ifdef WLX_DEBUG
+    RUN_TEST(split_next_without_begin_reports);
+    RUN_TEST(split_end_without_next_reports);
+    RUN_TEST(split_missing_end_resets_each_frame);
+    RUN_TEST(split_nests_past_tracker_depth);
+#endif
+}

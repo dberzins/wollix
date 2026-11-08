@@ -29,7 +29,8 @@ static unsigned long long ap_slice_calls;
 static unsigned long long ap_adv_calls;
 
 static void ap_measure_slice(const char *text, size_t len, WLX_Text_Style style,
-                             float *out_w, float *out_h) {
+                             float *out_w, float *out_h, void *user) {
+    (void)user;
     (void)text;
     ap_slice_calls++;
     int fs = style.font_size > 0 ? style.font_size : 10;
@@ -39,10 +40,11 @@ static void ap_measure_slice(const char *text, size_t len, WLX_Text_Style style,
 
 static size_t ap_measure_advances(const char *text, size_t len,
         WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
-        float *out_advances) {
+        float *out_advances, void *user) {
+    (void)user;
     ap_adv_calls++;
     return mock_measure_text_advances(text, len, style, unit_ends, unit_count,
-        out_advances);
+        out_advances, user);
 }
 
 typedef struct {
@@ -65,6 +67,10 @@ static void ap_pair_destroy(AP_Pair *p) {
     wlx_context_destroy(&p->advances);
 }
 
+// Letter spacing for ap_frame's editor; 0 except in the negative-tracking
+// test, which restores it.
+static int ap_spacing;
+
 // One editor frame on one context; mirrors the geom-cache fixture.
 static void ap_frame(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
     bool wrap, int mx, int my, bool clicked, float wheel, uint32_t mods,
@@ -75,7 +81,7 @@ static void ap_frame(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
     wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
     (void)wlx_editor_impl(ctx, NULL, buf, cap, len,
         wlx_default_editor_opt(.content_padding = 4, .font_size = 10,
-            .border_width = 0, .wrap = wrap),
+            .border_width = 0, .wrap = wrap, .spacing = ap_spacing),
         "ap_editor", 1);
     wlx_layout_end(ctx);
     test_frame_end(ctx);
@@ -213,7 +219,16 @@ static size_t ap_gen_corpus(char *buf, size_t cap) {
         "\t\tleading and doubled\ttabs\n"
         "utf8 \xC3\xA9\xC3\xA9 mixed \xE4\xB8\xAD\xE6\x96\x87 tail\n"
         "bad \xFF\xFE bytes \x80 stray \xE2\x82 truncated\n"
-        "crlf line\r\n";
+        "crlf line\r\n"
+        "prose  with  doubled  spaces  between  words  that  wrap  around  the  "
+        "band  more  than  once  over  and  over  again  until  the  line  ends\n"
+        "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+        " tail after a token that fills the band\n"
+        "short zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+        "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz after an over-wide word\n"
+        "            \n"
+        "ends with a space \n"
+        "clusters " GR_EACUTE " " GR_FLAG " " GR_FAMILY " " GR_HEART " tail\n";
     size_t off = sizeof(head) - 1;
     if (off >= cap) return 0;
     memcpy(buf, head, off);
@@ -298,6 +313,7 @@ static void ap_assert_streams_equal(AP_Pair *p, const char *doc_a,
     WLX_Text_Build_Inputs base_a = {
         .ctx = &p->fallback, .text = doc_a, .length = len, .style = ts,
         .rect = { 0, 0, w, 1000 }, .wrap = wrap,
+        .wrap_strict_ws = wrap, // the editor's rule, so the store and this scan agree
         .line_h = ia->geom.env.line_h,
         .text_unit_cap = WLX_EDITOR_MAX_LINE_UNITS,
         .truncate_continue = true,
@@ -506,11 +522,367 @@ TEST(advances_cold_build_batches_measure_traffic) {
     ap_pair_destroy(&p);
 }
 
+// A line of 300 ZWJ families (5400 bytes, 300 units; corpus macro from
+// test_grapheme.c, same TU) crosses the advances chunk cap: every stored
+// unit end on both paths is a family boundary, so no chunk splice falls
+// inside a family, and the paths keep answering identical caret x and hit
+// tests across it.
+TEST(advances_cluster_units_never_split_at_chunk) {
+    AP_Pair p;
+    ap_pair_init(&p, 400, 120);
+    static char buf_a[8192], buf_b[8192];
+    size_t len = 0;
+    memcpy(buf_a, "head\n", 5);
+    len = 5;
+    for (int i = 0; i < 300; i++) { memcpy(buf_a + len, GR_FAMILY, 18); len += 18; }
+    memcpy(buf_a + len, "\ntail", 5);
+    len += 5;
+    memcpy(buf_b, buf_a, len);
+    size_t len_a = len, len_b = len;
+
+    // Wrapped: the store builds the whole line's rows, so the entry holds
+    // all 300 units across two advances chunks; four families (360 px)
+    // fit the 383 px band per row.
+    ap_step(&p, buf_a, buf_b, sizeof(buf_a), &len_a, &len_b, true,
+        0, 0, false, 0.0f, 0, NULL, NULL);
+    ap_step(&p, buf_a, buf_b, sizeof(buf_a), &len_a, &len_b, true,
+        0, 0, false, 0.0f, 0, NULL, NULL);
+
+    WLX_Editor_Line_Index *ia = ap_index(&p.fallback);
+    WLX_Editor_Line_Index *ib = ap_index(&p.advances);
+    ASSERT_TRUE(ia != NULL && ib != NULL);
+    ASSERT_EQ_INT(3, (long)ib->count);
+    size_t start = ib->offsets[1];
+    size_t next = ib->offsets[2];
+    ASSERT_EQ_INT(5, (long)start);
+    ASSERT_EQ_INT(5 + 5400 + 1, (long)next);
+
+    for (int which = 0; which < 2; which++) {
+        WLX_Editor_Line_Index *idx = which == 0 ? ia : ib;
+        WLX_Text_Geom_Entry *e = NULL;
+        for (size_t i = 0; i < idx->geom.count; i++) {
+            if (idx->geom.entries[i].used && idx->geom.entries[i].line_start == start)
+                e = &idx->geom.entries[i];
+        }
+        ASSERT_TRUE(e != NULL);
+        ASSERT_EQ_INT(300, (long)e->units);
+        ASSERT_TRUE(e->units > (size_t)WLX_TEXT_ADVANCES_CHUNK);
+        for (size_t u = 0; u < e->units; u++)
+            ASSERT_EQ_INT(0, (long)(e->unit_ends[u] % 18));
+        ASSERT_EQ_INT(75, (long)e->rows);
+        for (size_t r = 0; r + 1 < e->rows; r++)
+            ASSERT_EQ_INT(4, (long)(e->row_units[r + 1] - e->row_units[r]));
+    }
+
+    // Unwrapped: caret x and hit tests agree between the paths across the
+    // line and answer boundaries only.
+    ap_step(&p, buf_a, buf_b, sizeof(buf_a), &len_a, &len_b, false,
+        0, 0, false, 0.0f, 0, NULL, NULL);
+    ap_step(&p, buf_a, buf_b, sizeof(buf_a), &len_a, &len_b, false,
+        0, 0, false, 0.0f, 0, NULL, NULL);
+    ia = ap_index(&p.fallback);
+    ib = ap_index(&p.advances);
+    ASSERT_TRUE(ia != NULL && ib != NULL);
+    WLX_Text_Style ts = { .font = 0, .font_size = 10,
+        .color = {255, 255, 255, 255}, .spacing = 0 };
+    float tab_advance = ia->geom.env.tab_advance;
+    float line_h = ia->geom.env.line_h;
+    for (size_t caret = start; caret <= next; caret += 6) {
+        float xa = wlx_editor_caret_x(&p.fallback, buf_a, len_a, ts,
+            tab_advance, &ia->geom, next, start, caret, true);
+        float xb = wlx_editor_caret_x(&p.advances, buf_b, len_b, ts,
+            tab_advance, &ib->geom, next, start, caret, true);
+        ASSERT_EQ_F(xa, xb, 0.0f);
+    }
+    for (float x = -7.0f; x < 27500.0f; x += 97.0f) {
+        size_t oa = wlx_editor_offset_at_x(&p.fallback, buf_a, len_a, ts,
+            line_h, tab_advance, ia, &ia->geom, 1, 30000.0f, 0.0f, x);
+        size_t ob = wlx_editor_offset_at_x(&p.advances, buf_b, len_b, ts,
+            line_h, tab_advance, ib, &ib->geom, 1, 30000.0f, 0.0f, x);
+        ASSERT_EQ_INT((long)oa, (long)ob);
+        ASSERT_TRUE(wlx_text_unit_boundary(buf_a, len_a, oa));
+    }
+    ap_pair_destroy(&p);
+}
+
+// ============================================================================
+// Contract: a backend answering in visual order is clamped and reported
+// ============================================================================
+
+static int ap_err_count;
+static int ap_err_other_code;
+static void ap_err_capture(const WLX_Error *e, void *user) {
+    (void)user;
+    ap_err_count++;
+    if (e->code != WLX_ERR_BACKEND_ANSWER) ap_err_other_code++;
+}
+
+// The mock's advances reversed within the chunk: the shape a run shaped
+// right to left reports (cluster x decreasing with the byte offset).
+static size_t ap_measure_advances_decreasing(const char *text, size_t len,
+        WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
+        float *out_advances, void *user) {
+    size_t n = mock_measure_text_advances(text, len, style, unit_ends, unit_count,
+        out_advances, user);
+    for (size_t i = 0; i < n / 2; i++) {
+        float t = out_advances[i];
+        out_advances[i] = out_advances[n - 1 - i];
+        out_advances[n - 1 - i] = t;
+    }
+    return n;
+}
+
+TEST(advances_decreasing_backend_is_clamped_and_reported) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+    ctx.backend.measure_text_slice = ap_measure_slice;
+    ctx.backend.measure_text_advances = ap_measure_advances_decreasing;
+    wlx_set_error_handler(&ctx, ap_err_capture, NULL);
+    ap_err_count = 0;
+    ap_err_other_code = 0;
+
+    char buf[64];
+    memcpy(buf, "abcdef", 7);
+    size_t len = 6;
+    ap_frame(&ctx, buf, sizeof(buf), &len, false, 0, 0, false, 0.0f, 0, NULL, NULL);
+
+    // Reported as a backend answer outside its contract, and nothing else.
+    ASSERT_TRUE(ap_err_count >= 1);
+    ASSERT_EQ_INT(0, (long)ap_err_other_code);
+
+    // Clamped: the retained entry holds a non-decreasing array. The mock's
+    // 5px units reversed are 30,25,...,5, so the clamp flattens the run to
+    // its first value at every unit.
+    WLX_Editor_Line_Index *idx = ap_index(&ctx);
+    ASSERT_TRUE(idx != NULL);
+    WLX_Text_Geom_Entry *e = wlx_text_geom_find(&idx->geom, 0, len);
+    ASSERT_TRUE(e != NULL);
+    ASSERT_EQ_INT(6, (long)e->units);
+    for (size_t u = 1; u < e->units; u++) ASSERT_TRUE(e->advances[u] >= e->advances[u - 1]);
+    ASSERT_EQ_F(30.0f, e->advances[0], 0.0f);
+    ASSERT_EQ_F(30.0f, e->advances[e->units - 1], 0.0f);
+
+    // An idle frame replays the retained geometry: no fetch, no report.
+    int reported = ap_err_count;
+    ap_frame(&ctx, buf, sizeof(buf), &len, false, 0, 0, false, 0.0f, 0, NULL, NULL);
+    ASSERT_EQ_INT((long)reported, (long)ap_err_count);
+
+    wlx_set_error_handler(&ctx, NULL, NULL);
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
+// Negative tracking: an additive backend's prefix width dips on a glyph
+// narrower than the spacing. Both measuring paths clamp the dip, so the
+// per-unit fallback and the batched fill agree, and a wrapped row's ink
+// extent never passes its measured extent.
+// ============================================================================
+
+#define AP_NEG_SPACING (-4)
+
+// Additive per byte: 'i' and ' ' are 2 px, every other byte 6 px, plus
+// the spacing between glyphs. At -4 a space or an 'i' shrinks the prefix.
+static float ap_neg_prefix(const char *text, size_t len, int spacing) {
+    if (len == 0) return 0.0f;
+    float w = 0.0f;
+    for (size_t i = 0; i < len; i++) w += (text[i] == 'i' || text[i] == ' ') ? 2.0f : 6.0f;
+    return w + (float)spacing * (float)(len - 1);
+}
+
+static void ap_neg_measure_slice(const char *text, size_t len, WLX_Text_Style style,
+                                 float *out_w, float *out_h, void *user) {
+    (void)user;
+    if (out_w) *out_w = ap_neg_prefix(text, len, style.spacing);
+    if (out_h) *out_h = 10.0f;
+}
+
+static unsigned long long ap_neg_adv_calls;
+
+static size_t ap_neg_advances(const char *text, size_t len, WLX_Text_Style style,
+        const size_t *unit_ends, size_t unit_count, float *out_advances, void *user) {
+    (void)user; (void)len;
+    ap_neg_adv_calls++;
+    for (size_t i = 0; i < unit_count; i++)
+        out_advances[i] = ap_neg_prefix(text, unit_ends[i], style.spacing);
+    return unit_count;
+}
+
+static size_t ap_neg_build(WLX_Context *ctx, const char *text, float w, bool strict,
+    WLX_Text_Line_Record *recs, size_t cap)
+{
+    WLX_Text_Style ts = { .font = 0, .font_size = 10,
+        .color = {255, 255, 255, 255}, .spacing = AP_NEG_SPACING };
+    test_frame_begin(ctx, 0, 0, false, false);
+    WLX_Text_Build_Inputs in = {
+        .ctx = ctx, .text = text, .length = strlen(text), .style = ts,
+        .rect = { 0, 0, w, 1000 }, .wrap = true, .wrap_strict_ws = strict,
+        .line_h = 10.0f, .text_unit_cap = (size_t)WLX_TEXT_RUN_MAX_UNITS,
+        .truncate_continue = true,
+    };
+    WLX_Text_Build_Cursor cur = { .text_unit_count = 0 };
+    size_t n = wlx_text_build_lines(&in, &cur, recs, cap);
+    test_frame_end(ctx);
+    return n;
+}
+
+TEST(advances_negative_tracking_arms_agree) {
+    AP_Pair p;
+    ap_pair_init(&p, 400, 120);
+    p.fallback.backend.measure_text_slice = ap_neg_measure_slice;
+    p.advances.backend.measure_text_slice = ap_neg_measure_slice;
+    p.advances.backend.measure_text_advances = ap_neg_advances;
+    ap_neg_adv_calls = 0;
+
+    // Kernel records from both arms (rows stay inside one advances chunk
+    // and tab-free), at every width and in both whitespace modes.
+    static const char *texts[] = {
+        "aaaa bbbb cccc dddd",
+        "mi mi mimi i iii mmmm",
+        "a i a i a i a i",
+        "word  two   three",
+    };
+    WLX_Text_Line_Record ra[64], rb[64];
+    for (size_t t = 0; t < sizeof texts / sizeof texts[0]; t++) {
+        for (float w = 8.0f; w <= 60.0f; w += 2.0f) {
+            for (int strict = 0; strict < 2; strict++) {
+                size_t na = ap_neg_build(&p.fallback, texts[t], w, strict == 1, ra, 64);
+                size_t nb = ap_neg_build(&p.advances, texts[t], w, strict == 1, rb, 64);
+                ASSERT_EQ_INT((long)na, (long)nb);
+                for (size_t r = 0; r < na; r++) {
+                    ap_assert_records_equal(&ra[r], &rb[r]);
+                    ASSERT_TRUE(ra[r].advance_w <= ra[r].measured_w);
+                }
+            }
+        }
+    }
+    ASSERT_TRUE(ap_neg_adv_calls > 0);   // the advances context batched
+
+    // The editor in both modes: identical frames and states from both arms.
+    ap_spacing = AP_NEG_SPACING;
+    for (int wrap = 0; wrap < 2; wrap++) {
+        char buf_a[128] = "aaaa bbbb cccc\nmi mi mimi i\nword two three";
+        char buf_b[128] = "aaaa bbbb cccc\nmi mi mimi i\nword two three";
+        size_t len_a = strlen(buf_a), len_b = strlen(buf_b);
+        size_t cap = sizeof(buf_a);
+        for (int i = 0; i < 2; i++)
+            ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, wrap == 1, 0, 0, false, 0.0f, 0, NULL, NULL);
+        ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, wrap == 1, 40, 9, true, 0.0f, 0, NULL, NULL);
+        ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, wrap == 1, 0, 0, false, 0.0f, 0, NULL, " ii");
+        ap_step_key(&p, buf_a, buf_b, cap, &len_a, &len_b, wrap == 1, WLX_KEY_END, WLX_MOD_SHIFT);
+        ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, wrap == 1, 0, 0, false, 0.0f, 0, NULL, NULL);
+    }
+    ap_spacing = 0;
+
+    // A wrapped label measures per unit: its cut rows end on a dipping space.
+    test_frame_begin(&p.fallback, 0, 0, false, false);
+    wlx_layout_begin(&p.fallback, 1, WLX_VERT, .padding = 0, .gap = 0);
+        wlx_label(&p.fallback, "aaaa bbbb cccc dddd", .font_size = 10,
+            .spacing = AP_NEG_SPACING, .wrap = true, .width = 30);
+    wlx_layout_end(&p.fallback);
+    test_frame_end(&p.fallback);
+    ap_pair_destroy(&p);
+}
+
+// ============================================================================
+// A backend that refuses a cluster
+// ============================================================================
+
+// The SDL3 adapter ends an advances fill at a cluster it cannot place
+// exactly (a ligature or contextual alternate: JetBrains Mono's "//" and
+// "->"), and a run that starts at one returns 0. This callback refuses the
+// same way at either pair, over the per-byte model.
+static size_t ap_measure_advances_refusing(const char *text, size_t len,
+        WLX_Text_Style style, const size_t *unit_ends, size_t unit_count,
+        float *out_advances, void *user) {
+    ap_adv_calls++;
+    size_t filled = mock_measure_text_advances(text, len, style, unit_ends, unit_count,
+        out_advances, user);
+    size_t start = 0;
+    for (size_t u = 0; u < filled; u++) {
+        if (start + 1 < len && ((text[start] == '/' && text[start + 1] == '/')
+                || (text[start] == '-' && text[start + 1] == '>'))) {
+            return u;
+        }
+        start = unit_ends[u];
+    }
+    return filled;
+}
+
+// C-like lines with comments and arrows, two of them long enough to wrap
+// at the fixture's 400 px; 36 hard lines, more than the band has rows, so
+// the wrapped scrollbar probe stays out of the idle traffic.
+static size_t ap_gen_code(char *buf, size_t cap) {
+    static const char *lines[] = {
+        "// A comment long enough to wrap: the retained rows must equal the scanned ones.",
+        "int count = 0;   // a trailing comment after code",
+        "node->next = head->next; head->next = node; // an arrow and a comment that wraps",
+        "plain text without a refused pair",
+        "\tif (p->len > cap) return false; // tab, arrow and comment",
+        "",
+    };
+    size_t off = 0;
+    for (int r = 0; r < 6; r++) {
+        for (size_t i = 0; i < sizeof lines / sizeof lines[0]; i++) {
+            size_t n = strlen(lines[i]);
+            if (off + n + 1 >= cap) break;
+            memcpy(buf + off, lines[i], n);
+            off += n;
+            buf[off++] = '\n';
+        }
+    }
+    buf[off] = '\0';
+    return off;
+}
+
+// A wrapped editor over a backend that refuses "//" and "->": every row is
+// retained, the refused rows measured per unit from the refusal on as the
+// measuring scan does, so each frame draws exactly as the per-unit path
+// does and an idle frame measures nothing more than the per-unit path's
+// idle frame. (Dropped instead of retained, a refused line was re-measured
+// per unit on every frame.)
+TEST(advances_refused_cluster_wrap_rows_are_retained) {
+    AP_Pair p;
+    ap_pair_init(&p, 400, 120);
+    p.advances.backend.measure_text_advances = ap_measure_advances_refusing;
+    static char buf_a[8192], buf_b[8192];
+    size_t len_a = ap_gen_code(buf_a, sizeof(buf_a));
+    size_t len_b = ap_gen_code(buf_b, sizeof(buf_b));
+    size_t cap = sizeof(buf_a);
+
+    for (int i = 0; i < 3; i++)
+        ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, true, 0, 0, false, 0.0f, 0, NULL, NULL);
+    ASSERT_TRUE(ap_adv_calls > 0);
+
+    ap_slice_calls = 0;
+    ap_frame(&p.fallback, buf_a, cap, &len_a, true, 0, 0, false, 0.0f, 0, NULL, NULL);
+    unsigned long long fallback_idle = ap_slice_calls;
+    ap_slice_calls = 0;
+    ap_adv_calls = 0;
+    ap_frame(&p.advances, buf_b, cap, &len_b, true, 0, 0, false, 0.0f, 0, NULL, NULL);
+    ASSERT_EQ_INT(0, (long)ap_adv_calls);
+    ASSERT_EQ_INT((long)fallback_idle, (long)ap_slice_calls);
+
+    // Scroll, then edit a refused line: parity on every frame.
+    for (int i = 0; i < 4; i++)
+        ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, true, 30, 30, false, -1.0f, 0, NULL, NULL);
+    ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, true, 60, 15, true, 0.0f, 0, NULL, NULL);
+    ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, true, 0, 0, false, 0.0f, 0, NULL, "x");
+    ap_step_key(&p, buf_a, buf_b, cap, &len_a, &len_b, true, WLX_KEY_ENTER, 0);
+    ap_step_key(&p, buf_a, buf_b, cap, &len_a, &len_b, true, WLX_KEY_BACKSPACE, 0);
+    for (int i = 0; i < 2; i++)
+        ap_step(&p, buf_a, buf_b, cap, &len_a, &len_b, true, 0, 0, false, 0.0f, 0, NULL, NULL);
+    ap_pair_destroy(&p);
+}
+
 SUITE(advances_parity) {
+    RUN_TEST(advances_cluster_units_never_split_at_chunk);
     RUN_TEST(advances_records_match_fallback_across_widths);
     RUN_TEST(advances_wrap_rows_match_fallback);
     RUN_TEST(advances_caret_x_and_hit_tests_match_fallback);
     RUN_TEST(advances_scenario_no_wrap_draws_identically);
     RUN_TEST(advances_scenario_wrap_draws_identically);
+    RUN_TEST(advances_refused_cluster_wrap_rows_are_retained);
     RUN_TEST(advances_cold_build_batches_measure_traffic);
+    RUN_TEST(advances_decreasing_backend_is_clamped_and_reported);
+    RUN_TEST(advances_negative_tracking_arms_agree);
 }

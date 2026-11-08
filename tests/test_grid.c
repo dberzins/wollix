@@ -667,7 +667,7 @@ TEST(grid_content_row_seed_does_not_warn_clip) {
         WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT_MAX(30) };
         wlx_grid_begin(&ctx, 1, 1, .row_sizes = row_sizes);
         wlx_label(&ctx, "Max 30", .height = 35, .font_size = 13,
-            .align = WLX_CENTER,
+            .content_align = WLX_CENTER,
             .show_background = true);
         wlx_grid_end(&ctx);
     }
@@ -797,9 +797,111 @@ TEST(grid_gap_slot_rect) {
     wlx_context_destroy(&ctx);
 }
 
+// Rows of an auto grid with a gap are the same whatever order the cells
+// are placed in: placing (2,0) first grows all three rows, and the rows
+// placed into afterwards keep their full height and the gap between them.
+TEST(auto_grid_gap_any_placement_order) {
+    static const int cells[3][2] = { { 2, 0 }, { 0, 1 }, { 1, 0 } };
+    WLX_Context ctx;
+    WLX_Rect r[3];
+    test_ctx_init(&ctx, 200, 400);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_grid_begin_auto(&ctx, 2, 30, .gap = 4);
+    for (int i = 0; i < 3; i++) {
+        wlx_grid_cell(&ctx, cells[i][0], cells[i][1]);
+        wlx_layout_begin(&ctx, 1, WLX_VERT);
+        r[i] = wlx_get_parent_rect(&ctx);
+        wlx_layout_end(&ctx);
+    }
+    wlx_grid_end(&ctx);
+    test_frame_end(&ctx);
+    for (int i = 0; i < 3; i++) {
+        ASSERT_EQ_F(r[i].y, 34.0f * (float)cells[i][0], 0.0f);
+        ASSERT_EQ_F(r[i].h, 30.0f, 0.0f);
+    }
+    wlx_context_destroy(&ctx);
+}
+
 // ============================================================================
 // Suite
 // ============================================================================
+
+// ---------------------------------------------------------------------------
+// Offsets growth frame: the first frame a grid's row and column offsets
+// outgrow the slot-offsets buffer. A contiguous allocator that always moves
+// the block on growth and poisons the old one makes a pointer held across
+// the grid's second reservation visible in a plain build.
+// ---------------------------------------------------------------------------
+
+static int tg_moves;
+
+static void *tg_moving_alloc(size_t size, void *user) {
+    (void)user;
+    void *p = malloc(size);
+    if (p != NULL) memset(p, 0xA5, size);
+    return p;
+}
+
+static void *tg_moving_realloc(void *ptr, size_t old_size, size_t new_size, void *user) {
+    (void)user;
+    void *p = malloc(new_size);
+    if (p == NULL) return NULL;
+    memset(p, 0xA5, new_size);
+    if (ptr != NULL) {
+        memcpy(p, ptr, old_size < new_size ? old_size : new_size);
+        memset(ptr, 0xA5, old_size);
+        free(ptr);
+    }
+    tg_moves++;
+    return p;
+}
+
+static void tg_moving_free(void *ptr, size_t size, void *user) {
+    (void)size; (void)user;
+    free(ptr);
+}
+
+// One frame: a 127 x 128 grid at the root and the cell rects at (1, 0) and
+// (126, 0). The row offsets fit the initial buffer and the column offsets do
+// not (rows + 1 <= WLX_DA_INIT_CAP < rows + cols + 2), so the grid's second
+// reservation grows it. *moves gets the moves inside the begin.
+static void tg_growth_frame(WLX_Context *ctx, WLX_Rect out[2], int *moves) {
+    test_frame_begin(ctx, 0, 0, false, false);
+    int before = tg_moves;
+    wlx_grid_begin(ctx, 127, 128);
+    *moves = tg_moves - before;
+    WLX_Layout *g = &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+    wlx_grid_cell(ctx, 1, 0);
+    out[0] = wlx_get_slot_rect(ctx, g, -1, 1);
+    wlx_grid_cell(ctx, 126, 0);
+    out[1] = wlx_get_slot_rect(ctx, g, -1, 1);
+    wlx_grid_end(ctx);
+    test_frame_end(ctx);
+}
+
+TEST(grid_begin_on_offsets_growth_frame) {
+    WLX_Allocator moving = {
+        .alloc = tg_moving_alloc, .realloc = tg_moving_realloc, .free = tg_moving_free,
+    };
+    WLX_Arena_Pool_Config cfg = { .contiguous = &moving };
+    WLX_Context ctx;
+    wlx_context_init_ex(&ctx, &cfg);
+    ctx.backend = mock_backend();
+    ctx.rect = wlx_rect(0, 0, 1280, 1270);   // 10 x 10 cells
+    tg_moves = 0;
+
+    WLX_Rect first[2], second[2];
+    int moved_first = 0, moved_second = 0;
+    tg_growth_frame(&ctx, first, &moved_first);
+    tg_growth_frame(&ctx, second, &moved_second);
+    ASSERT_TRUE(moved_first > 0);            // frame 1's begin grew and moved the buffer
+    ASSERT_EQ_INT(0, moved_second);          // frame 2 found it grown
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 10, 10, 10 }), second[0], 0.001f);
+    ASSERT_EQ_RECT(((WLX_Rect){ 0, 1260, 10, 10 }), second[1], 0.001f);
+    ASSERT_EQ_RECT(second[0], first[0], 0.001f);
+    ASSERT_EQ_RECT(second[1], first[1], 0.001f);
+    wlx_context_destroy(&ctx);
+}
 
 SUITE(grid) {
     // Grid creation with equal division
@@ -850,4 +952,6 @@ SUITE(grid) {
     RUN_TEST(grid_gap_basic);
     RUN_TEST(grid_gap_auto);
     RUN_TEST(grid_gap_slot_rect);
+    RUN_TEST(auto_grid_gap_any_placement_order);
+    RUN_TEST(grid_begin_on_offsets_growth_frame);
 }

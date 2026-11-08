@@ -210,18 +210,18 @@ TEST(split_nested_both_panes) {
 // ============================================================================
 
 TEST(split_defaults_resolve) {
-    // Verify that the default options produce a valid layout:
-    // - first_size defaults to PX(280)
-    // - second_size defaults to FLEX(1)
-    // - fill_size defaults to FILL
-    // - padding defaults to 4
+    // The macro installs the documented defaults directly:
+    // - first_size PX(280), second_size FLEX(1), fill_size FLEX(1)
+    // - content padding unset (resolves to the split's 4 px at begin)
     WLX_Split_Opt opt = wlx_default_split_opt();
 
-    // All sentinel zeros - will be resolved at runtime
-    ASSERT_TRUE(wlx_slot_size_is_zero(opt.first_size));
-    ASSERT_TRUE(wlx_slot_size_is_zero(opt.second_size));
-    ASSERT_TRUE(wlx_slot_size_is_zero(opt.fill_size));
-    ASSERT_EQ_F(4.0f, opt.content_padding, 0.001f);  // baked-in Split default
+    ASSERT_EQ_INT(opt.first_size.kind, WLX_SIZE_PIXELS);
+    ASSERT_EQ_F(opt.first_size.value, 280.0f, 0.001f);
+    ASSERT_EQ_INT(opt.second_size.kind, WLX_SIZE_FLEX);
+    ASSERT_EQ_F(opt.second_size.value, 1.0f, 0.001f);
+    ASSERT_EQ_INT(opt.fill_size.kind, WLX_SIZE_FLEX);
+    ASSERT_EQ_F(opt.fill_size.value, 1.0f, 0.001f);
+    ASSERT_EQ_F(opt.content_padding, (float)WLX_UNSET, 0.001f);
 
     // back_colors default to zero (theme)
     ASSERT_TRUE(wlx_color_is_zero(opt.first_back_color));

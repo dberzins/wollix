@@ -185,6 +185,13 @@ Container decor is the one exception, matching its `back_color` handling: the
 plain layout/grid decor path does not premultiply opacity, so container effect
 colors and gradient stops pass through unscaled just like `back_color`.
 
+Popups follow the same split. The list chrome of a dropdown, a menu button
+or a menu, and the tooltip's box, are container decor and stay unscaled.
+Their contents fade once, like any widget: a dropdown's or a menu button's
+rows are buttons that take the popup's own `.opacity` (so a faded popup
+fades its rows) under the theme and the stack, and the tooltip's text takes
+the theme and the stack.
+
 ---
 
 ## Configuration
@@ -213,16 +220,16 @@ to the renderer. Alpha blending works out of the box.
   and resolves to `1.0`.
 - **Values above 1.0**: not clamped. Values greater than `1.0` behave the
   same as `1.0` because alpha is clamped to `[0, 255]` at the colour level.
-- **Unmatched push/pop**: `wlx_pop_opacity` asserts that the stack is
-  non-empty. An unmatched pop will trigger an assertion failure in debug
-  builds. Unmatched pushes are harmless within a single frame because the
-  stack resets in `wlx_begin`.
+- **Unmatched push/pop**: a `wlx_pop_opacity` with nothing to pop is a
+  contract error: reported in every build (API_REFERENCE "Error Reporting")
+  and returned from. Unmatched pushes are harmless within a single frame
+  because the stack resets in `wlx_begin`.
 - **`wlx_widget()` (raw rectangle)**: `wlx_widget` takes a `WLX_Widget_Opt`
   and goes through the same `wlx_resolve_opt_widget` pipeline as all other
   widgets, so all three opacity layers apply automatically. Use `.opacity`
   or the context stack exactly as with any other widget:
   ```c
-  wlx_widget(ctx, .color = MY_COLOR, .opacity = 0.5f);
+  wlx_widget(ctx, .back_color = MY_COLOR, .opacity = 0.5f);
   ```
 
 ---

@@ -11,7 +11,7 @@
 
 int main(void) {
     printf("Wollix layout demo\n");
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Wollix Layout Demo");
     SetTargetFPS(TARGET_FPS);
 
@@ -20,22 +20,23 @@ int main(void) {
     wlx_context_init_raylib(ctx);
 
     while (!WindowShouldClose()) {
-        float w = GetRenderWidth();
-        float h = GetRenderHeight();
+        WLX_Rect wlx_root = wlx_raylib_root_rect();
+        float w = wlx_root.w;
+        float h = wlx_root.h;
 
         WLX_Rect r = {.x = 0, .y = 0, .w = w, .h = h};
 
         wlx_begin(ctx, r, wlx_process_raylib_input);
         BeginDrawing();
-            ClearBackground(WLX_BACKGROUND_COLOR);
+            ClearBackground(ctx->theme->background);
             wlx_layout_begin(ctx, 3, WLX_VERT);
                 wlx_layout_begin(ctx, 4, WLX_HORZ);
 
-                    wlx_button(ctx, "BUTTON1", .pos =1, .span = 1, .overflow = true, .width = 350, .height = 350, .back_color = BLUE, .align = WLX_LEFT);
-                    wlx_button(ctx, "BUTTON2", .back_color = MAGENTA, .align = WLX_CENTER);
+                    wlx_button(ctx, "BUTTON1", .pos =1, .span = 1, .overflow = true, .width = 350, .height = 350, .back_color = BLUE, .content_align = WLX_LEFT);
+                    wlx_button(ctx, "BUTTON2", .back_color = MAGENTA, .content_align = WLX_CENTER);
                     
                 wlx_layout_end(ctx);
-                wlx_button(ctx, "BUTTON1",.pos = 2, .back_color = GREEN, .align = WLX_CENTER);
+                wlx_button(ctx, "BUTTON1",.pos = 2, .back_color = GREEN, .content_align = WLX_CENTER);
             wlx_layout_end(ctx);
         wlx_end(ctx);
         EndDrawing();

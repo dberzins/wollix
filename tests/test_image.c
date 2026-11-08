@@ -13,7 +13,8 @@ static WLX_Color _img_last_tint;
 static int       _img_last_tex_w;
 static int       _img_last_tex_h;
 
-static void img_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+static void img_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    (void)user;
     _img_draw_count++;
     _img_last_src    = src;
     _img_last_dst    = dst;
@@ -105,7 +106,7 @@ TEST(image_none_top_left) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(50, 50),
-        .scale = WLX_IMAGE_SCALE_NONE, .align = WLX_TOP_LEFT);
+        .scale = WLX_IMAGE_SCALE_NONE, .content_align = WLX_TOP_LEFT);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_dst, ((WLX_Rect){0, 0, 50, 50}), 0.001f);
@@ -115,7 +116,7 @@ TEST(image_none_center) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(50, 50),
-        .scale = WLX_IMAGE_SCALE_NONE, .align = WLX_CENTER);
+        .scale = WLX_IMAGE_SCALE_NONE, .content_align = WLX_CENTER);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_dst, ((WLX_Rect){75, 75, 50, 50}), 0.001f);
@@ -125,7 +126,7 @@ TEST(image_none_bottom_right) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(50, 50),
-        .scale = WLX_IMAGE_SCALE_NONE, .align = WLX_BOTTOM_RIGHT);
+        .scale = WLX_IMAGE_SCALE_NONE, .content_align = WLX_BOTTOM_RIGHT);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_dst, ((WLX_Rect){150, 150, 50, 50}), 0.001f);
@@ -140,7 +141,7 @@ TEST(image_fit_landscape_source_pillarboxes_vertically) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(100, 50),
-        .scale = WLX_IMAGE_SCALE_FIT, .align = WLX_CENTER);
+        .scale = WLX_IMAGE_SCALE_FIT, .content_align = WLX_CENTER);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_src, ((WLX_Rect){0, 0, 100, 50}), 0.001f);
@@ -152,7 +153,7 @@ TEST(image_fit_portrait_source_letterboxes_horizontally) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(50, 100),
-        .scale = WLX_IMAGE_SCALE_FIT, .align = WLX_CENTER);
+        .scale = WLX_IMAGE_SCALE_FIT, .content_align = WLX_CENTER);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_src, ((WLX_Rect){0, 0, 50, 100}), 0.001f);
@@ -163,7 +164,7 @@ TEST(image_fit_align_top_left_anchors_to_origin) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(100, 50),
-        .scale = WLX_IMAGE_SCALE_FIT, .align = WLX_TOP_LEFT);
+        .scale = WLX_IMAGE_SCALE_FIT, .content_align = WLX_TOP_LEFT);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_dst, ((WLX_Rect){0, 0, 200, 100}), 0.001f);
@@ -179,7 +180,7 @@ TEST(image_fill_landscape_source_horizontal_crop_center) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(200, 100),
-        .scale = WLX_IMAGE_SCALE_FILL, .align = WLX_CENTER);
+        .scale = WLX_IMAGE_SCALE_FILL, .content_align = WLX_CENTER);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_src, ((WLX_Rect){50, 0, 100, 100}), 0.001f);
@@ -190,7 +191,7 @@ TEST(image_fill_landscape_horizontal_crop_left_anchor) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(200, 100),
-        .scale = WLX_IMAGE_SCALE_FILL, .align = WLX_LEFT);
+        .scale = WLX_IMAGE_SCALE_FILL, .content_align = WLX_LEFT);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_src, ((WLX_Rect){0, 0, 100, 100}), 0.001f);
@@ -200,7 +201,7 @@ TEST(image_fill_landscape_horizontal_crop_right_anchor) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(200, 100),
-        .scale = WLX_IMAGE_SCALE_FILL, .align = WLX_RIGHT);
+        .scale = WLX_IMAGE_SCALE_FILL, .content_align = WLX_RIGHT);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_src, ((WLX_Rect){100, 0, 100, 100}), 0.001f);
@@ -212,7 +213,7 @@ TEST(image_fill_portrait_source_vertical_crop_center) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(100, 200),
-        .scale = WLX_IMAGE_SCALE_FILL, .align = WLX_CENTER);
+        .scale = WLX_IMAGE_SCALE_FILL, .content_align = WLX_CENTER);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_src, ((WLX_Rect){0, 50, 100, 100}), 0.001f);
@@ -223,7 +224,7 @@ TEST(image_fill_portrait_vertical_crop_top_anchor) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(100, 200),
-        .scale = WLX_IMAGE_SCALE_FILL, .align = WLX_TOP);
+        .scale = WLX_IMAGE_SCALE_FILL, .content_align = WLX_TOP);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_src, ((WLX_Rect){0, 0, 100, 100}), 0.001f);
@@ -233,7 +234,7 @@ TEST(image_fill_portrait_vertical_crop_bottom_anchor) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(100, 200),
-        .scale = WLX_IMAGE_SCALE_FILL, .align = WLX_BOTTOM);
+        .scale = WLX_IMAGE_SCALE_FILL, .content_align = WLX_BOTTOM);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_src, ((WLX_Rect){0, 100, 100, 100}), 0.001f);
@@ -244,7 +245,7 @@ TEST(image_fill_matching_aspect_no_crop) {
     WLX_Context ctx;
     img_begin_square(&ctx);
     wlx_image(&ctx, img_make_texture(100, 100),
-        .scale = WLX_IMAGE_SCALE_FILL, .align = WLX_CENTER);
+        .scale = WLX_IMAGE_SCALE_FILL, .content_align = WLX_CENTER);
     img_end(&ctx);
 
     ASSERT_EQ_RECT(_img_last_src, ((WLX_Rect){0, 0, 100, 100}), 0.001f);

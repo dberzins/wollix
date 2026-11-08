@@ -9,15 +9,6 @@
 // 400x100 context, content_padding 4, border 0, font_size 10 -> band
 // {9,4,383,92} before strips, line_h 10, mock char width 5.
 
-// Command modifier for editing shortcuts (CTRL here; SUPER on Apple).
-static uint32_t ec_command_mod(void) {
-#if defined(__APPLE__)
-    return WLX_MOD_SUPER;
-#else
-    return WLX_MOD_CTRL;
-#endif
-}
-
 static bool ec_frame_key_mod(WLX_Context *ctx, char *buf, size_t cap, size_t *len,
                              WLX_Key_Code key, uint32_t mods) {
     bool keys_pressed[WLX_KEY_COUNT] = {0};
@@ -206,10 +197,10 @@ TEST(caret_arrows_word_home_end_vocabulary) {
     ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_DOWN, 0);
     ASSERT_EQ_INT((long)len, (long)st->caret.cursor_pos); // DOWN on last line -> end
 
-    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, ec_command_mod());
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, test_command_mod());
     ASSERT_EQ_INT(0, (long)st->caret.cursor_pos); // Ctrl+HOME -> document start
 
-    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, ec_command_mod());
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, test_command_mod());
     ASSERT_EQ_INT((long)len, (long)st->caret.cursor_pos); // Ctrl+END -> document end
 
     ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_UP, 0);
@@ -336,7 +327,7 @@ TEST(caret_ctrl_a_selects_all) {
     bool keys_pressed[WLX_KEY_COUNT] = {0};
     keys_pressed[WLX_KEY_A] = true;
     ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 200, 50, false, false, 0.0f,
-        ec_command_mod(), keys_pressed);
+        test_command_mod(), keys_pressed);
 
     WLX_Editor_State *st = ev_state(&ctx);
     ASSERT_TRUE(st != NULL);
@@ -352,9 +343,11 @@ static struct { float x; float clip_x; } ec_caret_lines[EC_CARET_LINES_CAP];
 static int ec_caret_line_count = 0;
 static WLX_Rect ec_last_clip;
 
-static void ec_capture_begin_scissor(WLX_Rect r) { ec_last_clip = r; }
+static void ec_capture_begin_scissor(WLX_Rect r, void *user) {
+    (void)user; ec_last_clip = r; }
 static void ec_capture_draw_line(float x1, float y1, float x2, float y2,
-                                 float thick, WLX_Color c) {
+                                 float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)y1; (void)x2; (void)y2; (void)thick; (void)c;
     if (ec_caret_line_count < EC_CARET_LINES_CAP) {
         ec_caret_lines[ec_caret_line_count].x = x1;
@@ -409,7 +402,7 @@ TEST(caret_ctrl_a_snaps_view_back_to_parked_caret) {
 
     // Focus, caret to the document end (the view follows to the bottom).
     ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 20, 50, true, true, 0.0f, 0, NULL);
-    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, ec_command_mod());
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, test_command_mod());
     ASSERT_EQ_INT((long)len, (long)st->caret.cursor_pos);
     size_t bottom_line = st->first_line;
     ASSERT_TRUE(bottom_line > 0);
@@ -420,7 +413,7 @@ TEST(caret_ctrl_a_snaps_view_back_to_parked_caret) {
 
     // Select-all changes only the anchor (the caret is already at the end);
     // caret-follow must still snap the view back to the caret.
-    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_A, ec_command_mod());
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_A, test_command_mod());
     ASSERT_EQ_INT(0, (long)st->caret.selection_anchor);
     ASSERT_EQ_INT((long)len, (long)st->caret.cursor_pos);
     ASSERT_EQ_INT((long)bottom_line, (long)st->first_line);
@@ -532,7 +525,85 @@ TEST(caret_scrollbar_press_excluded) {
     wlx_context_destroy(&ctx);
 }
 
+// ============================================================================
+// Grapheme clusters (corpus macros from test_grapheme.c, same TU)
+// ============================================================================
+
+TEST(caret_cluster_click_and_vertical_motion_land_on_boundaries) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+
+    // Line 0: "ab" + family + "c" (21 bytes; the family is one 90 px unit
+    // spanning content x 10..100, midpoint 55); line 1: "xyz".
+    char buf[64];
+    memcpy(buf, "ab" GR_FAMILY "c\nxyz", 25);
+    size_t len = 25;
+    ev_frame(&ctx, buf, sizeof(buf), &len, 0);
+    ev_frame(&ctx, buf, sizeof(buf), &len, 0);
+    WLX_Editor_State *st = ev_state(&ctx);
+    WLX_Editor_Line_Index *idx = ev_index(&ctx);
+    ASSERT_TRUE(st != NULL && idx != NULL);
+
+    // The hit test a click resolves through, swept across the family and
+    // its neighbours: only 2 or 20 come back, split at the midpoint.
+    WLX_Text_Style ts = { .font_size = 10 };
+    for (float cx = 8.0f; cx <= 102.0f; cx += 1.0f) {
+        size_t off = wlx_editor_offset_at_x(&ctx, buf, len, ts, idx->geom.env.line_h,
+            idx->geom.env.tab_advance, idx, &idx->geom, 0, 1000.0f, 0.0f, cx);
+        size_t want = cx < 55.0f ? 2 : 20;
+        ASSERT_EQ_INT((long)want, (long)off);
+    }
+    // Two real clicks, one on each side of the midpoint (screen x is
+    // content x + 9; each resolves elsewhere than the last, so no
+    // double-click forms).
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 40, 9, true, true, 0.0f, 0, NULL);
+    ASSERT_EQ_INT(2, (long)st->caret.cursor_pos);
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 100, 9, true, true, 0.0f, 0, NULL);
+    ASSERT_EQ_INT(20, (long)st->caret.cursor_pos);
+
+    // Up from the end of "xyz" (x 15) aims inside the family and lands on
+    // its start; Down returns to the latched column.
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 200, 19, true, true, 0.0f, 0, NULL);
+    ASSERT_EQ_INT(25, (long)st->caret.cursor_pos);
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_UP, 0);
+    ASSERT_EQ_INT(2, (long)st->caret.cursor_pos);
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_DOWN, 0);
+    ASSERT_EQ_INT(25, (long)st->caret.cursor_pos);
+    wlx_context_destroy(&ctx);
+}
+
+// A line whose first byte is a UTF-8 continuation byte (a Latin-1 file)
+// starts with a one-byte stray unit. A click on it and an arrow Down onto it
+// build the line from its start (the hit test enters there) and land on
+// unit boundaries.
+TEST(caret_lands_on_line_starting_with_continuation_byte) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+
+    // Line 0 "xyz"; line 1 is 0xA9 then "qr" (bytes 4..6), 5 px per byte.
+    char buf[32];
+    memcpy(buf, "xyz\n\xA9qr", 7);
+    size_t len = 7;
+    ev_frame(&ctx, buf, sizeof(buf), &len, 0);
+    ev_frame(&ctx, buf, sizeof(buf), &len, 0);
+    WLX_Editor_State *st = ev_state(&ctx);
+    ASSERT_TRUE(st != NULL);
+
+    // Line 1 at content x 10 (screen x 19, y 19): between 'q' and 'r'.
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 19, 19, true, true, 0.0f, 0, NULL);
+    ASSERT_EQ_INT(6, (long)st->caret.cursor_pos);
+    // Line 0 at content x 5 (offset 1), then Down onto line 1: x 5 is the
+    // stray byte's end.
+    ev_frame_full(&ctx, buf, sizeof(buf), &len, 0, 14, 9, true, true, 0.0f, 0, NULL);
+    ASSERT_EQ_INT(1, (long)st->caret.cursor_pos);
+    ec_frame_key_mod(&ctx, buf, sizeof(buf), &len, WLX_KEY_DOWN, 0);
+    ASSERT_EQ_INT(5, (long)st->caret.cursor_pos);
+    wlx_context_destroy(&ctx);
+}
+
 SUITE(editor_caret) {
+    RUN_TEST(caret_cluster_click_and_vertical_motion_land_on_boundaries);
+    RUN_TEST(caret_lands_on_line_starting_with_continuation_byte);
     RUN_TEST(caret_click_places_in_scrolled_window);
     RUN_TEST(caret_click_places_in_horizontally_scrolled_window);
     RUN_TEST(caret_multi_click_word_then_select_all);

@@ -30,20 +30,23 @@ static float     _cp_text_y;
 static int       _cp_rect_count;
 static WLX_Rect  _cp_last_rect;
 
-static void cp_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+static void cp_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    (void)user;
     (void)tex; (void)src; (void)tint;
     _cp_tex_count++;
     _cp_tex_dst = dst;
 }
 
-static void cp_rec_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void cp_rec_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)text; (void)style;
     _cp_text_count++;
     _cp_text_x = x;
     _cp_text_y = y;
 }
 
-static void cp_rec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void cp_rec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)c;
     _cp_rect_count++;
     _cp_last_rect = r;

@@ -1,0 +1,1001 @@
+// test_sentinel.c - option default and sentinel contract: explicit zero is
+// zero, an unset field resolves to its documented fallback, request tokens
+// are not sentinels, and the enumerated v0.9 default changes hold. A theme
+// whose per-widget overrides are all zero resolves every widget through
+// the fallbacks its comments name. Every defaults function installs the
+// DEFAULTS of every field group its struct embeds (tests/option_structs.h
+// names them), with every Rule U field at WLX_UNSET.
+// Included from test_main.c (single TU build); the resolvers are reachable
+// directly, so most cases pin resolution without running a frame.
+
+// Custom theme whose values differ from every literal default, so an
+// inherited value is distinguishable from an explicit zero and from the
+// bundled presets.
+static WLX_Theme sentinel_theme(void) {
+    WLX_Theme t = wlx_theme_dark;
+    t.border_width     = 3.0f;
+    t.roundness        = 0.5f;
+    t.rounded_segments = 8;
+    t.hover_brightness = 0.25f;
+    t.padding          = 7.0f;
+    return t;
+}
+
+// ============================================================================
+// Rule U: explicit zero is zero, unset inherits
+// ============================================================================
+
+TEST(sentinel_explicit_zero_is_zero) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Theme theme = sentinel_theme();
+    ctx.theme = &theme;
+
+    WLX_Label_Opt label = wlx_default_label_opt(.border_width = 0, .roundness = 0,
+                                                .rounded_segments = 0);
+    wlx_resolve_opt_label(&ctx, &label);
+    ASSERT_EQ_F(label.border_width, 0.0f, 0.0001f);
+    ASSERT_EQ_F(label.roundness, 0.0f, 0.0001f);
+    ASSERT_EQ_INT(label.rounded_segments, 0);
+
+    WLX_Button_Opt button = wlx_default_button_opt(.content_padding = 0);
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(&ctx, button);
+    ASSERT_EQ_F(rp.top, 0.0f, 0.0001f);
+    ASSERT_EQ_F(rp.left, 0.0f, 0.0001f);
+
+    // Layout gap is a literal: 0 means the slots abut, 5 means 5 px apart.
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(50), WLX_SLOT_PX(50)),
+                       .padding = 0, .gap = 0);
+    WLX_Layout *la = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+    WLX_Rect a0 = wlx_get_slot_rect(&ctx, la, -1, 1);
+    WLX_Rect a1 = wlx_get_slot_rect(&ctx, la, -1, 1);
+    wlx_layout_end(&ctx);
+    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(50), WLX_SLOT_PX(50)),
+                       .padding = 0, .gap = 5);
+    WLX_Layout *lb = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
+    WLX_Rect b0 = wlx_get_slot_rect(&ctx, lb, -1, 1);
+    WLX_Rect b1 = wlx_get_slot_rect(&ctx, lb, -1, 1);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+    ASSERT_EQ_F(a1.y - a0.y, 50.0f, 0.0001f);
+    ASSERT_EQ_F(b1.y - b0.y, 55.0f, 0.0001f);
+}
+
+TEST(sentinel_unset_inherits) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Theme theme = sentinel_theme();
+    ctx.theme = &theme;
+
+    // Omitted fields carry the sentinel through the macro.
+    WLX_Label_Opt omitted = wlx_default_label_opt();
+    wlx_resolve_opt_label(&ctx, &omitted);
+    ASSERT_EQ_F(omitted.border_width, 3.0f, 0.0001f);
+    ASSERT_EQ_F(omitted.roundness, 0.5f, 0.0001f);
+    ASSERT_EQ_INT(omitted.rounded_segments, 8);
+
+    // The sentinel written explicitly means the same as omission.
+    WLX_Label_Opt explicit_unset = wlx_default_label_opt(.border_width = WLX_UNSET,
+                                                         .roundness = WLX_UNSET,
+                                                         .rounded_segments = WLX_UNSET);
+    wlx_resolve_opt_label(&ctx, &explicit_unset);
+    ASSERT_EQ_F(explicit_unset.border_width, 3.0f, 0.0001f);
+    ASSERT_EQ_F(explicit_unset.roundness, 0.5f, 0.0001f);
+    ASSERT_EQ_INT(explicit_unset.rounded_segments, 8);
+
+    // Leaf-widget content padding: unset resolves to 0, not to the theme.
+    WLX_Button_Opt button = wlx_default_button_opt();
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(&ctx, button);
+    ASSERT_EQ_F(rp.top, 0.0f, 0.0001f);
+    ASSERT_EQ_F(rp.right, 0.0f, 0.0001f);
+}
+
+// Brightness shifts are the one signed-domain Rule U family: -1 is the
+// sentinel, any value above it (negative included) is explicit.
+// A NaN on a Rule U float field reads as unset. The border width
+// and roundness take the theme's (they passed the NaN through before),
+// and a widget width takes the slot's (it already did: a `>= 0` read).
+TEST(rule_u_nan_reads_as_unset) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Theme theme = sentinel_theme();
+    ctx.theme = &theme;
+
+    WLX_Label_Opt o = wlx_default_label_opt(.border_width = NAN, .roundness = NAN);
+    wlx_resolve_opt_label(&ctx, &o);
+    ASSERT_EQ_F(o.border_width, 3.0f, 0.0001f);
+    ASSERT_EQ_F(o.roundness, 0.5f, 0.0001f);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT, .padding = 0);
+    wlx_button(&ctx, "b", .width = NAN, .height = 20);
+    WLX_Rect r = wlx_last_rect(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_F(r.w, 400.0f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(sentinel_brightness_domain) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Theme theme = sentinel_theme();
+    ctx.theme = &theme;
+
+    WLX_Slider_Opt omitted = wlx_default_slider_opt();
+    wlx_resolve_opt_slider(&ctx, &omitted);
+    ASSERT_EQ_F(omitted.hover_brightness, 0.25f, 0.0001f);
+    ASSERT_EQ_F(omitted.thumb_hover_brightness, 0.125f, 0.0001f);
+
+    WLX_Slider_Opt minus_one = wlx_default_slider_opt(.hover_brightness = WLX_UNSET,
+                                                      .thumb_hover_brightness = -1.0f);
+    wlx_resolve_opt_slider(&ctx, &minus_one);
+    ASSERT_EQ_F(minus_one.hover_brightness, 0.25f, 0.0001f);
+    ASSERT_EQ_F(minus_one.thumb_hover_brightness, 0.125f, 0.0001f);
+
+    WLX_Slider_Opt legacy = wlx_default_slider_opt(.hover_brightness = WLX_FLOAT_UNSET);
+    wlx_resolve_opt_slider(&ctx, &legacy);
+    ASSERT_EQ_F(legacy.hover_brightness, 0.25f, 0.0001f);
+
+    WLX_Slider_Opt darken = wlx_default_slider_opt(.hover_brightness = -0.5f);
+    wlx_resolve_opt_slider(&ctx, &darken);
+    ASSERT_EQ_F(darken.hover_brightness, -0.5f, 0.0001f);
+
+    WLX_Slider_Opt none = wlx_default_slider_opt(.hover_brightness = 0.0f);
+    wlx_resolve_opt_slider(&ctx, &none);
+    ASSERT_EQ_F(none.hover_brightness, 0.0f, 0.0001f);
+}
+
+// WLX_PADDING_USE_THEME is a request token, distinct from unset.
+TEST(sentinel_padding_theme_token) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Theme theme = sentinel_theme();
+    ctx.theme = &theme;
+
+    WLX_Button_Opt button = wlx_default_button_opt(.content_padding = WLX_PADDING_USE_THEME);
+    WLX_Resolved_Padding rp = WLX_RESOLVE_CONTENT_PADDING(&ctx, button);
+    ASSERT_EQ_F(rp.top, 7.0f, 0.0001f);
+    ASSERT_EQ_F(rp.bottom, 7.0f, 0.0001f);
+
+    // A per-side value wins over the token; an unset side falls back to it.
+    WLX_Button_Opt mixed = wlx_default_button_opt(.content_padding = WLX_PADDING_USE_THEME,
+                                                  .content_padding_left = 1.0f);
+    rp = WLX_RESOLVE_CONTENT_PADDING(&ctx, mixed);
+    ASSERT_EQ_F(rp.left, 1.0f, 0.0001f);
+    ASSERT_EQ_F(rp.right, 7.0f, 0.0001f);
+}
+
+// ============================================================================
+// The v0.9 enumerated default changes
+// ============================================================================
+
+// Panel chrome inherits theme roundness like every widget; explicit 0 stays
+// sharp. Observed through the rounded-rect recorder of test_rounding.c.
+TEST(panel_roundness_inherits_theme) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend = rec_backend();
+    WLX_Theme theme = sentinel_theme();
+    ctx.theme = &theme;
+    WLX_Color fill = WLX_RGBA(40, 40, 40, 255);
+
+    rec_reset();
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_panel_begin(&ctx, .back_color = fill);
+    wlx_panel_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_TRUE(_rec_draw_rect_rounded_count >= 1);
+
+    rec_reset();
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_panel_begin(&ctx, .back_color = fill, .roundness = 0);
+    wlx_panel_end(&ctx);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(_rec_draw_rect_rounded_count, 0);
+    wlx_context_destroy(&ctx);
+}
+
+// The layout at the top of the pool, and the nearest enclosing HORZ one.
+static WLX_Layout *sentinel_top_layout(WLX_Context *ctx) {
+    return &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+}
+static WLX_Layout *sentinel_horz_layout(WLX_Context *ctx) {
+    for (size_t i = ctx->arena.layouts.count; i > 0; i--) {
+        WLX_Layout *l = &wlx_pool_layouts(ctx)[i - 1];
+        if (wlx_layout_is_horz(l)) return l;
+    }
+    return NULL;
+}
+
+// Split gap is a literal like every container gap: omission and 0 agree.
+TEST(split_gap_literal_zero) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_split_begin(&ctx);
+    float omitted = sentinel_horz_layout(&ctx)->gap;
+    test_frame_end(&ctx);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_split_begin(&ctx, .gap = 0);
+    float zero = sentinel_horz_layout(&ctx)->gap;
+    test_frame_end(&ctx);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_split_begin(&ctx, .gap = 5);
+    float five = sentinel_horz_layout(&ctx)->gap;
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_F(omitted, 0.0f, 0.0001f);
+    ASSERT_EQ_F(zero, 0.0f, 0.0001f);
+    ASSERT_EQ_F(five, 5.0f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+// The overlay's default macro installs the content-padding defaults like
+// every other struct carrying the group: a uniform .content_padding insets
+// the body on all four sides, and a per-side value still wins on its side.
+static WLX_Rect sentinel_overlay_body(WLX_Overlay_Opt opt) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_overlay_begin_impl(&ctx, 1, (WLX_Rect){ 10, 10, 200, 150 }, opt, __FILE__, __LINE__);
+    WLX_Rect r = wlx_get_slot_rect(&ctx, sentinel_top_layout(&ctx), -1, 1);
+    wlx_overlay_end(&ctx);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+    return r;
+}
+
+TEST(overlay_content_padding_uniform_insets) {
+    WLX_Rect none = sentinel_overlay_body(wlx_default_overlay_opt());
+    WLX_Rect uniform = sentinel_overlay_body(wlx_default_overlay_opt(.content_padding = 7));
+    WLX_Rect side = sentinel_overlay_body(wlx_default_overlay_opt(.content_padding = 7,
+        .content_padding_left = 2));
+    ASSERT_EQ_RECT(none, ((WLX_Rect){ 10, 10, 200, 150 }), 0.0001f);
+    ASSERT_EQ_RECT(uniform, ((WLX_Rect){ 17, 17, 186, 136 }), 0.0001f);
+    ASSERT_EQ_RECT(side, ((WLX_Rect){ 12, 17, 191, 136 }), 0.0001f);
+}
+
+// A negative gap reads as 0 on every layout kind: -1 and WLX_FLOAT_UNSET
+// give the .gap = 0 rects, with no contract report.
+static int sentinel_err_count;
+static void sentinel_err_capture(const WLX_Error *e, void *user) {
+    (void)e; (void)user;
+    sentinel_err_count++;
+}
+
+typedef enum {
+    SENTINEL_GAP_LAYOUT, SENTINEL_GAP_AUTO, SENTINEL_GAP_GRID, SENTINEL_GAP_GRID_AUTO,
+    SENTINEL_GAP_TILE, SENTINEL_GAP_OVERLAY, SENTINEL_GAP_SPLIT,
+} Sentinel_Gap_Kind;
+
+// One frame of `kind` built with `gap`: the slot rects of its first three
+// children (for the split, its two pane slots and its stored gap in
+// out[2].x). Returns the number of contract errors the frame reported.
+static int sentinel_gap_rects(Sentinel_Gap_Kind kind, float gap, WLX_Rect out[3]) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    wlx_set_error_handler(&ctx, sentinel_err_capture, NULL);
+    sentinel_err_count = 0;
+    memset(out, 0, 3 * sizeof *out);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    switch (kind) {
+    case SENTINEL_GAP_LAYOUT:    wlx_layout_begin(&ctx, 3, WLX_VERT, .gap = gap); break;
+    case SENTINEL_GAP_AUTO:      wlx_layout_begin_auto(&ctx, WLX_VERT, 20, .gap = gap); break;
+    case SENTINEL_GAP_GRID:      wlx_grid_begin(&ctx, 2, 2, .gap = gap); break;
+    case SENTINEL_GAP_GRID_AUTO: wlx_grid_begin_auto(&ctx, 2, 20, .gap = gap); break;
+    case SENTINEL_GAP_TILE:      wlx_grid_begin_auto_tile(&ctx, 100, 20, .gap = gap); break;
+    case SENTINEL_GAP_OVERLAY:
+        wlx_overlay_begin(&ctx, 3, ((WLX_Rect){ 10, 10, 200, 150 }), .gap = gap);
+        break;
+    case SENTINEL_GAP_SPLIT:
+        wlx_layout_begin(&ctx, 1, WLX_VERT);
+        wlx_split_begin(&ctx, .gap = gap);
+        break;
+    }
+    if (kind == SENTINEL_GAP_SPLIT) {
+        WLX_Layout *h = sentinel_horz_layout(&ctx);
+        out[0] = wlx_calc_layout_slot_rect(&ctx, h, 0, 1);
+        out[1] = wlx_calc_layout_slot_rect(&ctx, h, 1, 1);
+        out[2].x = h->gap;
+        wlx_split_next(&ctx);
+        wlx_split_end(&ctx);
+        wlx_layout_end(&ctx);
+    } else {
+        WLX_Layout *top = sentinel_top_layout(&ctx);
+        for (int i = 0; i < 3; i++) out[i] = wlx_get_slot_rect(&ctx, top, -1, 1);
+        if (kind == SENTINEL_GAP_OVERLAY) wlx_overlay_end(&ctx);
+        else if (kind == SENTINEL_GAP_LAYOUT || kind == SENTINEL_GAP_AUTO) wlx_layout_end(&ctx);
+        else wlx_grid_end(&ctx);
+    }
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+    return sentinel_err_count;
+}
+
+static void sentinel_gap_case(Sentinel_Gap_Kind kind) {
+    WLX_Rect zero[3], neg[3], unset[3];
+    ASSERT_EQ_INT(0, sentinel_gap_rects(kind, 0.0f, zero));
+    ASSERT_EQ_INT(0, sentinel_gap_rects(kind, -1.0f, neg));
+    ASSERT_EQ_INT(0, sentinel_gap_rects(kind, WLX_FLOAT_UNSET, unset));
+    for (int i = 0; i < 3; i++) {
+        ASSERT_EQ_RECT(zero[i], neg[i], 0.0001f);
+        ASSERT_EQ_RECT(zero[i], unset[i], 0.0001f);
+    }
+}
+
+TEST(layout_negative_gap_reads_zero)      { sentinel_gap_case(SENTINEL_GAP_LAYOUT); }
+TEST(layout_auto_negative_gap_reads_zero) { sentinel_gap_case(SENTINEL_GAP_AUTO); }
+TEST(grid_negative_gap_reads_zero)        { sentinel_gap_case(SENTINEL_GAP_GRID); }
+TEST(grid_auto_negative_gap_reads_zero)   { sentinel_gap_case(SENTINEL_GAP_GRID_AUTO); }
+TEST(grid_tile_negative_gap_reads_zero)   { sentinel_gap_case(SENTINEL_GAP_TILE); }
+TEST(overlay_negative_gap_reads_zero)     { sentinel_gap_case(SENTINEL_GAP_OVERLAY); }
+TEST(split_negative_gap_reads_zero)       { sentinel_gap_case(SENTINEL_GAP_SPLIT); }
+
+// A direct constructor call normalises the gap too: the begins are not the
+// only callers.
+TEST(create_layout_negative_gap_reads_zero) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_frame_begin(&ctx, 0, 0, false, false);
+    WLX_Rect r = { 0, 0, 400, 300 };
+    WLX_Layout zero = wlx_create_layout(&ctx, r, 3, WLX_VERT, 0.0f);
+    WLX_Layout neg  = wlx_create_layout(&ctx, r, 3, WLX_VERT, -4.0f);
+    ASSERT_EQ_F(0.0f, neg.gap, 0.0001f);
+    for (size_t i = 0; i < 3; i++) {
+        ASSERT_EQ_RECT(wlx_calc_layout_slot_rect(&ctx, &zero, i, 1),
+                       wlx_calc_layout_slot_rect(&ctx, &neg, i, 1), 0.0001f);
+    }
+    WLX_Layout gneg = wlx_create_grid(&ctx, r, 2, 2, NULL, NULL, WLX_FLOAT_UNSET);
+    WLX_Layout gzero = wlx_create_grid(&ctx, r, 2, 2, NULL, NULL, 0.0f);
+    ASSERT_EQ_F(0.0f, gneg.gap, 0.0001f);
+    ASSERT_EQ_RECT(wlx_calc_grid_slot_rect(&ctx, &gzero, 1, 1, 1, 1),
+                   wlx_calc_grid_slot_rect(&ctx, &gneg, 1, 1, 1, 1), 0.0001f);
+    WLX_Layout aneg = wlx_create_grid_auto(&ctx, r, 2, 20.0f, NULL, -1.0f);
+    ASSERT_EQ_F(0.0f, aneg.gap, 0.0001f);
+    test_frame_end(&ctx);
+    wlx_context_destroy(&ctx);
+}
+
+// Menu width follows Rule U: unset resolves to the default, 0 is 0.
+TEST(menu_width_rule_u) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Theme theme = sentinel_theme();
+    ctx.theme = &theme;
+
+    WLX_Menu_Opt omitted = wlx_default_menu_opt();
+    wlx_resolve_opt_menu(&ctx, &omitted);
+    ASSERT_EQ_F(omitted.width, 180.0f, 0.0001f);
+
+    WLX_Menu_Opt zero = wlx_default_menu_opt(.width = 0);
+    wlx_resolve_opt_menu(&ctx, &zero);
+    ASSERT_EQ_F(zero.width, 0.0f, 0.0001f);
+
+    WLX_Menu_Opt explicit_unset = wlx_default_menu_opt(.width = WLX_UNSET);
+    wlx_resolve_opt_menu(&ctx, &explicit_unset);
+    ASSERT_EQ_F(explicit_unset.width, 180.0f, 0.0001f);
+}
+
+// Text recorder: x of the last text drawn in a frame.
+static float _sentinel_last_text_x = 0.0f;
+static void sentinel_rec_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
+    (void)text; (void)y; (void)style;
+    _sentinel_last_text_x = x;
+}
+
+static float sentinel_panel_title_x(WLX_Context *ctx, WLX_Panel_Opt opt) {
+    test_frame_begin(ctx, 0, 0, false, false);
+    wlx_panel_begin_impl(ctx, opt, __FILE__, __LINE__);
+    wlx_panel_end(ctx);
+    test_frame_end(ctx);
+    return _sentinel_last_text_x;
+}
+
+// An explicit WLX_ALIGN_NONE on the panel title is honoured (raw placement,
+// the same x as WLX_LEFT); the centred default lives in the macro.
+TEST(panel_title_align_none_honoured) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend.draw_text = sentinel_rec_text;
+
+    float centred = sentinel_panel_title_x(&ctx, wlx_default_panel_opt(.title = "T"));
+    float left    = sentinel_panel_title_x(&ctx, wlx_default_panel_opt(.title = "T",
+                                                     .title_align = WLX_LEFT));
+    float none    = sentinel_panel_title_x(&ctx, wlx_default_panel_opt(.title = "T",
+                                                     .title_align = WLX_ALIGN_NONE));
+    ASSERT_TRUE(centred > left);
+    ASSERT_EQ_F(none, left, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+// An explicit WLX_SLOT_AUTO split size reaches the inner layout as AUTO
+// (weight 1 beside the FLEX(1) second pane: two equal panes), instead of
+// being mistaken for the omitted 280 px default.
+TEST(split_explicit_auto_honoured) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_split_begin(&ctx);
+    WLX_Layout *h = sentinel_horz_layout(&ctx);
+    WLX_Rect d0 = wlx_get_slot_rect(&ctx, h, 0, 1);
+    test_frame_end(&ctx);
+    ASSERT_EQ_F(d0.w, 280.0f, 0.0001f);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_split_begin(&ctx, .first_size = WLX_SLOT_AUTO);
+    h = sentinel_horz_layout(&ctx);
+    WLX_Rect a0 = wlx_get_slot_rect(&ctx, h, 0, 1);
+    WLX_Rect a1 = wlx_get_slot_rect(&ctx, h, 1, 1);
+    test_frame_end(&ctx);
+    ASSERT_EQ_F(a0.w, a1.w, 0.0001f);
+    ASSERT_TRUE(a0.w > 280.0f);
+    wlx_context_destroy(&ctx);
+}
+
+// On a compound widget the uniform content padding written as WLX_UNSET
+// means the widget default, exactly like omission (panel: 2 px).
+TEST(content_padding_unset_equals_omission) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_panel_begin(&ctx);
+    float omitted_x = sentinel_top_layout(&ctx)->rect.x;
+    test_frame_end(&ctx);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_panel_begin(&ctx, .content_padding = WLX_UNSET);
+    float unset_x = sentinel_top_layout(&ctx)->rect.x;
+    test_frame_end(&ctx);
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_panel_begin(&ctx, .content_padding = 0);
+    float zero_x = sentinel_top_layout(&ctx)->rect.x;
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_F(omitted_x, 2.0f, 0.0001f);
+    ASSERT_EQ_F(unset_x, 2.0f, 0.0001f);
+    ASSERT_EQ_F(zero_x, 0.0f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+// Tooltip fixture: fixed 1 s frames so the default 0.5 s delay elapses on
+// the second hovered frame; the tip background is the last rect replayed.
+static float sentinel_tt_frame_time(void *user) {
+    (void)user; return 1.0f; }
+static WLX_Rect _sentinel_last_rect;
+static void sentinel_rec_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user; (void)c; _sentinel_last_rect = r; }
+
+static float sentinel_tip_width(WLX_Context *ctx, WLX_Tooltip_Opt opt) {
+    for (int i = 0; i < 2; i++) {
+        test_frame_begin(ctx, 50, 20, false, false);
+        wlx_layout_begin_s(ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
+        wlx_button(ctx, "anchor", .height = 40);
+        wlx_tooltip_for_impl(ctx, (WLX_Rect){ 0, 0, 400, 40 }, "hint", opt, __FILE__, __LINE__);
+        wlx_layout_end(ctx);
+        test_frame_end(ctx);
+    }
+    return _sentinel_last_rect.w;
+}
+
+// Tooltip `padding` is renamed `content_padding` (the slot-inset name was
+// wrong for an inner inset); the old name aliases the same storage for one
+// minor version. Unset resolves to the tooltip's 6 px.
+TEST(tooltip_content_padding_alias) {
+    ASSERT_TRUE(offsetof(WLX_Tooltip_Opt, padding) == offsetof(WLX_Tooltip_Opt, content_padding));
+
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend.get_frame_time = sentinel_tt_frame_time;
+    ctx.backend.draw_rect = sentinel_rec_rect;
+    float text_w = 0.0f, text_h = 0.0f;
+    mock_measure_text("hint", (WLX_Text_Style){ .font_size = wlx_theme_dark.font_size },
+                      &text_w, &text_h, NULL);
+
+    // Pointer parked off the anchor first so the hover timer starts fresh.
+    test_frame_begin(&ctx, 300, 200, false, false);
+    test_frame_end(&ctx);
+    ASSERT_EQ_F(sentinel_tip_width(&ctx, wlx_default_tooltip_opt()), text_w + 12.0f, 0.001f);
+    ASSERT_EQ_F(sentinel_tip_width(&ctx, wlx_default_tooltip_opt(.content_padding = 0)),
+                text_w, 0.001f);
+    ASSERT_EQ_F(sentinel_tip_width(&ctx, wlx_default_tooltip_opt(.padding = 2)),
+                text_w + 4.0f, 0.001f);
+    ASSERT_EQ_F(sentinel_tip_width(&ctx, wlx_default_tooltip_opt(.content_padding = WLX_UNSET)),
+                text_w + 12.0f, 0.001f);
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
+// Align aliases: .content_align / .align, .slot_align / .widget_align
+// ============================================================================
+
+// The renamed fields share storage with their pre-0.9 names (anonymous
+// unions), so old and new spellings place identically.
+TEST(align_aliases_share_storage) {
+    ASSERT_TRUE(offsetof(WLX_Label_Opt, align) == offsetof(WLX_Label_Opt, content_align));
+    ASSERT_TRUE(offsetof(WLX_Label_Opt, widget_align) == offsetof(WLX_Label_Opt, slot_align));
+    ASSERT_TRUE(offsetof(WLX_Button_Opt, align) == offsetof(WLX_Button_Opt, content_align));
+    ASSERT_TRUE(offsetof(WLX_Image_Opt, align) == offsetof(WLX_Image_Opt, content_align));
+    ASSERT_TRUE(offsetof(WLX_Editor_Opt, align) == offsetof(WLX_Editor_Opt, content_align));
+    ASSERT_TRUE(offsetof(WLX_Editor_Opt, widget_align) == offsetof(WLX_Editor_Opt, slot_align));
+
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend.draw_text = sentinel_rec_text;
+    ctx.backend.draw_rect = sentinel_rec_rect;
+
+    float x_new, x_old;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
+    wlx_label(&ctx, "right", .content_align = WLX_RIGHT);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    x_new = _sentinel_last_text_x;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
+    wlx_label(&ctx, "right", .align = WLX_RIGHT);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    x_old = _sentinel_last_text_x;
+    ASSERT_EQ_F(x_new, x_old, 0.0001f);
+    ASSERT_TRUE(x_new > 200.0f);
+
+    WLX_Rect r_new, r_old;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
+    wlx_button(&ctx, "b", .slot_align = WLX_CENTER, .width = 50);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    r_new = _sentinel_last_rect;
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
+    wlx_button(&ctx, "b", .widget_align = WLX_CENTER, .width = 50);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    r_old = _sentinel_last_rect;
+    ASSERT_EQ_F(r_new.x, r_old.x, 0.0001f);
+    ASSERT_EQ_F(r_new.w, 50.0f, 0.0001f);
+    ASSERT_EQ_F(r_new.x, 175.0f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
+// Suite
+// ============================================================================
+
+// ============================================================================
+// width / height: WLX_UNSET is the slot's size, 0 is a zero size. Four
+// fields have no usable literal zero and read 0 or unset as their default:
+// rounded_segments (the theme's), wheel_scroll_speed (20 px) and the
+// scroll panel's roundness / rounded_segments (a square fill).
+// ============================================================================
+
+static bool sentinel_same_color(WLX_Color a, WLX_Color b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
+
+// The first rect or rounded-rect command in `color` from the last frame's
+// stream: its index, or -1. Frames keep the pointer off the canvas so no
+// fill carries a hover tint.
+static int sentinel_fill_index(WLX_Color color) {
+    for (int i = 0; i < _test_stream.count; i++) {
+        const Test_Stream_Cmd *k = &_test_stream.cmds[i];
+        if ((k->kind == 1 || k->kind == 3) && sentinel_same_color(k->color, color)) return i;
+    }
+    return -1;
+}
+
+static float sentinel_fill_h(WLX_Color color) {
+    int i = sentinel_fill_index(color);
+    return i < 0 ? 0.0f : _test_stream.cmds[i].rect.h;
+}
+
+TEST(widget_zero_size_is_zero) {
+    WLX_Rect cell = { 10, 20, 100, 40 };
+    ASSERT_EQ_RECT(wlx_resolve_widget_rect(cell, 0, 0, 0, 0, 0, 0, WLX_LEFT, false),
+                   ((WLX_Rect){ 10, 20, 0, 0 }), 0.0001f);
+    ASSERT_EQ_RECT(wlx_resolve_widget_rect(cell, WLX_UNSET, WLX_UNSET, 0, 0, 0, 0, WLX_LEFT, false),
+                   cell, 0.0001f);
+    ASSERT_EQ_RECT(wlx_resolve_widget_rect(cell, 30, 0, 0, 0, 0, 0, WLX_LEFT, true),
+                   ((WLX_Rect){ 10, 20, 30, 0 }), 0.0001f);
+}
+
+// A CONTENT slot measures what its widget contributes: a zero width or
+// height contributes 0 (no intrinsic text measure), unset contributes the
+// widget's own size. Read through where the next (FLEX) slot starts.
+static float sentinel_content_slot_extent(WLX_Orient orient, float size) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_stream_install(&ctx);
+    WLX_Color marker = { 1, 2, 3, 255 };
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, -5, -5, false, false);
+        test_stream_reset();
+        wlx_layout_begin_s(&ctx, orient, WLX_SIZES(WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1)),
+                           .padding = 0, .gap = 0);
+        if (orient == WLX_HORZ) wlx_label(&ctx, "hello", .font_size = 10, .width = size);
+        else                    wlx_label(&ctx, "hello", .font_size = 10, .height = size);
+        (void)wlx_button(&ctx, "x", .back_color = marker, .border_width = 0, .roundness = 0);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    int i = sentinel_fill_index(marker);
+    float extent = i < 0 ? -1.0f : (orient == WLX_HORZ ? _test_stream.cmds[i].rect.x
+                                                        : _test_stream.cmds[i].rect.y);
+    wlx_context_destroy(&ctx);
+    return extent;
+}
+
+TEST(widget_zero_size_contributes_zero) {
+    ASSERT_EQ_F(sentinel_content_slot_extent(WLX_HORZ, 0.0f), 0.0f, 0.0001f);
+    ASSERT_EQ_F(sentinel_content_slot_extent(WLX_VERT, 0.0f), 0.0f, 0.0001f);
+    ASSERT_TRUE(sentinel_content_slot_extent(WLX_HORZ, WLX_UNSET) > 0.0f);
+    ASSERT_TRUE(sentinel_content_slot_extent(WLX_VERT, WLX_UNSET) > 0.0f);
+}
+
+// A submenu takes its parent's width when unset and a literal 0 as 0, as
+// the menu does.
+TEST(submenu_width_rule_u) {
+    WLX_Menu_Frame parent;
+    memset(&parent, 0, sizeof parent);
+    parent.style = wlx_default_menu_opt(.width = 150.0f, .row_height = 20.0f,
+                                        .item_padding = 4.0f);
+    WLX_Menu_Opt omitted = wlx_default_menu_opt();
+    wlx_resolve_opt_submenu(&parent, &omitted);
+    ASSERT_EQ_F(omitted.width, 150.0f, 0.0001f);
+    WLX_Menu_Opt zero = wlx_default_menu_opt(.width = 0);
+    wlx_resolve_opt_submenu(&parent, &zero);
+    ASSERT_EQ_F(zero.width, 0.0f, 0.0001f);
+}
+
+// A scroll panel's .height = 0 is a zero-height panel, not the slot.
+TEST(scroll_panel_zero_height_is_zero) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_stream_install(&ctx);
+    WLX_Color fill = { 4, 5, 6, 255 };
+    for (int frame = 0; frame < 2; frame++) {
+        test_frame_begin(&ctx, -5, -5, false, false);
+        test_stream_reset();
+        wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(100)), .padding = 0);
+        wlx_scroll_panel_begin(&ctx, 50, .height = 0, .back_color = fill, .border_width = 0);
+        wlx_scroll_panel_end(&ctx);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(sentinel_fill_h(fill), 0.0f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+// A text field cannot be shorter than one line: .height = 0 takes the
+// field's minimum height, as any height below it does. The field's box is
+// the frame's first fill (its colour carries the field's visual state).
+static float sentinel_text_field_h(bool editor, float height) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_stream_install(&ctx);
+    WLX_Color fill = { 7, 8, 9, 255 };
+    char buf[32] = "abc";
+    size_t len = 3;
+    for (int frame = 0; frame < 2; frame++) {
+        test_frame_begin(&ctx, -5, -5, false, false);
+        test_stream_reset();
+        wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(100)), .padding = 0);
+        if (editor) (void)wlx_editor(&ctx, NULL, buf, sizeof buf, &len, .height = height,
+                                     .back_color = fill, .border_width = 0, .font_size = 10);
+        else        (void)wlx_inputbox(&ctx, NULL, buf, sizeof buf, .height = height,
+                                       .back_color = fill, .border_width = 0, .font_size = 10);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    float h = -1.0f;
+    for (int i = 0; i < _test_stream.count && h < 0.0f; i++) {
+        int kind = _test_stream.cmds[i].kind;
+        if (kind == 1 || kind == 3) h = _test_stream.cmds[i].rect.h;
+    }
+    wlx_context_destroy(&ctx);
+    return h;
+}
+
+TEST(text_field_zero_height_takes_min) {
+    for (int editor = 0; editor < 2; editor++) {
+        float zero = sentinel_text_field_h(editor == 1, 0.0f);
+        float one = sentinel_text_field_h(editor == 1, 1.0f);
+        ASSERT_TRUE(one > 1.0f && one < 100.0f);
+        ASSERT_EQ_F(zero, one, 0.0001f);
+    }
+}
+
+// rounded_segments 0 reads as the theme's segments, on a widget and on a
+// container: no backend has a literal zero-segment corner.
+TEST(rounded_segments_zero_takes_theme) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_stream_install(&ctx);
+    WLX_Theme theme = sentinel_theme();
+    ctx.theme = &theme;
+    WLX_Color wfill = { 10, 11, 12, 255 }, cfill = { 13, 14, 15, 255 };
+    test_frame_begin(&ctx, -5, -5, false, false);
+    test_stream_reset();
+    wlx_layout_begin(&ctx, 2, WLX_VERT, .padding = 0);
+        wlx_label(&ctx, "w", .show_background = true, .back_color = wfill, .roundness = 0.5f,
+                  .rounded_segments = 0, .border_width = 0);
+        wlx_layout_begin(&ctx, 1, WLX_VERT, .back_color = cfill, .roundness = 0.5f,
+                         .rounded_segments = 0);
+        wlx_layout_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    int wi = sentinel_fill_index(wfill), ci = sentinel_fill_index(cfill);
+    ASSERT_TRUE(wi >= 0 && ci >= 0);
+    ASSERT_EQ_INT(_test_stream.cmds[wi].kind, 3);
+    ASSERT_EQ_F(_test_stream.cmds[wi].b, 8.0f, 0.0001f);
+    ASSERT_EQ_INT(_test_stream.cmds[ci].kind, 3);
+    ASSERT_EQ_F(_test_stream.cmds[ci].b, 8.0f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+// wheel_scroll_speed 0 reads as the default 20 px per notch.
+static float sentinel_scroll_y_after_wheel(float speed) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    float y = 0.0f;
+    for (int frame = 0; frame < 3; frame++) {
+        if (frame == 1) test_frame_begin_ex(&ctx, 200, 150, false, false, false, -1.0f, NULL, NULL, NULL);
+        else            test_frame_begin(&ctx, 200, 150, false, false);
+        wlx_layout_begin(&ctx, 1, WLX_VERT);
+        wlx_scroll_panel_begin(&ctx, 600, .wheel_scroll_speed = speed);
+        y = sentinel_top_layout(&ctx)->rect.y;
+        wlx_scroll_panel_end(&ctx);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    wlx_context_destroy(&ctx);
+    return y;
+}
+
+TEST(wheel_scroll_speed_zero_scrolls_default) {
+    ASSERT_EQ_F(sentinel_scroll_y_after_wheel(0.0f), -20.0f, 0.0001f);
+    ASSERT_EQ_F(sentinel_scroll_y_after_wheel(20.0f), -20.0f, 0.0001f);
+}
+
+// The scroll panel draws a square fill whatever .roundness says: its
+// scissor is rectangular.
+TEST(scroll_panel_roundness_is_square) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    test_stream_install(&ctx);
+    WLX_Color fill = { 16, 17, 18, 255 };
+    test_frame_begin(&ctx, -5, -5, false, false);
+    test_stream_reset();
+    wlx_layout_begin(&ctx, 1, WLX_VERT);
+    wlx_scroll_panel_begin(&ctx, 50, .roundness = 0.3f, .back_color = fill, .border_width = 0);
+    wlx_scroll_panel_end(&ctx);
+    wlx_layout_end(&ctx);
+    test_frame_end(&ctx);
+    int i = sentinel_fill_index(fill);
+    ASSERT_TRUE(i >= 0);
+    ASSERT_EQ_INT(_test_stream.cmds[i].kind, 1);
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
+// Theme overrides: a zero override takes the fallback its comment names
+// ============================================================================
+
+// The dark preset's globals with every per-widget override left zero, as a
+// theme written from scratch would have them.
+static WLX_Theme globals_only_theme(void) {
+    WLX_Theme t = wlx_theme_dark;
+    memset(&t.input, 0, sizeof t.input);
+    memset(&t.slider, 0, sizeof t.slider);
+    memset(&t.checkbox, 0, sizeof t.checkbox);
+    memset(&t.toggle, 0, sizeof t.toggle);
+    memset(&t.radio, 0, sizeof t.radio);
+    memset(&t.progress, 0, sizeof t.progress);
+    memset(&t.scrollbar, 0, sizeof t.scrollbar);
+    return t;
+}
+
+static bool sentinel_color_eq(WLX_Color a, WLX_Color b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
+
+TEST(theme_from_scratch_has_working_defaults) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Theme theme = globals_only_theme();
+    ctx.theme = &theme;
+    // Midway between the surface (40) and the border (60).
+    WLX_Color mid_track = { 50, 50, 50, 255 };
+
+    WLX_Inputbox_Opt box = wlx_default_inputbox_opt();
+    wlx_resolve_opt_inputbox(&ctx, &box);
+    ASSERT_TRUE(sentinel_color_eq(box.cursor_color, theme.foreground));
+    ASSERT_TRUE(sentinel_color_eq(box.border_focus_color, theme.accent));
+
+    WLX_Editor_Opt ed = wlx_default_editor_opt();
+    wlx_resolve_opt_editor(&ctx, &ed);
+    ASSERT_TRUE(sentinel_color_eq(ed.cursor_color, theme.foreground));
+    ASSERT_TRUE(sentinel_color_eq(ed.border_focus_color, theme.accent));
+
+    WLX_Slider_Opt slider = wlx_default_slider_opt();
+    wlx_resolve_opt_slider(&ctx, &slider);
+    ASSERT_TRUE(sentinel_color_eq(slider.track_color, mid_track));
+    ASSERT_TRUE(sentinel_color_eq(slider.thumb_color, theme.foreground));
+    ASSERT_TRUE(sentinel_color_eq(slider.label_color, theme.foreground));
+    ASSERT_EQ_F(slider.track_height, 6.0f, 0.0001f);
+    ASSERT_EQ_F(slider.thumb_width, 14.0f, 0.0001f);
+
+    WLX_Checkbox_Opt check = wlx_default_checkbox_opt();
+    wlx_resolve_opt_checkbox(&ctx, &check);
+    ASSERT_TRUE(sentinel_color_eq(check.check_color, theme.foreground));
+
+    WLX_Scroll_Panel_Opt panel = wlx_default_scroll_panel_opt();
+    wlx_resolve_opt_scroll_panel(&ctx, &panel);
+    ASSERT_EQ_F(panel.scrollbar_width, 10.0f, 0.0001f);
+
+    WLX_Toggle_Opt toggle = wlx_default_toggle_opt();
+    wlx_resolve_opt_toggle(&ctx, &toggle);
+    ASSERT_TRUE(sentinel_color_eq(toggle.track_color, mid_track));
+
+    WLX_Progress_Opt progress = wlx_default_progress_opt();
+    wlx_resolve_opt_progress(&ctx, &progress);
+    ASSERT_TRUE(sentinel_color_eq(progress.track_color, mid_track));
+    ASSERT_EQ_F(progress.track_height, 6.0f, 0.0001f);
+    wlx_context_destroy(&ctx);
+}
+
+TEST(radio_label_color_from_theme) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Theme theme = wlx_theme_dark;
+    theme.radio.label = (WLX_Color){ 11, 22, 33, 255 };
+    ctx.theme = &theme;
+
+    WLX_Radio_Opt themed = wlx_default_radio_opt();
+    wlx_resolve_opt_radio(&ctx, &themed);
+    ASSERT_TRUE(sentinel_color_eq(themed.front_color, theme.radio.label));
+
+    // An explicit colour still wins, and a zero label is the foreground.
+    WLX_Radio_Opt explicit_front = wlx_default_radio_opt(.front_color = { 1, 2, 3, 255 });
+    wlx_resolve_opt_radio(&ctx, &explicit_front);
+    ASSERT_TRUE(sentinel_color_eq(explicit_front.front_color, (WLX_Color){ 1, 2, 3, 255 }));
+    theme.radio.label = (WLX_Color){0};
+    WLX_Radio_Opt plain = wlx_default_radio_opt();
+    wlx_resolve_opt_radio(&ctx, &plain);
+    ASSERT_TRUE(sentinel_color_eq(plain.front_color, theme.foreground));
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
+// Group defaults: every struct installs the DEFAULTS of every group it embeds
+// ============================================================================
+
+#include "option_structs.h"
+
+static int sgd_failures;
+
+static void sgd_fail(const char *name, const char *group) {
+    sgd_failures++;
+    printf("    wlx_%s_opt_defaults: the %s group's defaults are not installed\n", name, group);
+}
+
+#define SGD_EXPECT(cond, name, group) do { if (!(cond)) sgd_fail((name), (group)); } while (0)
+#define SGD_ZERO(c) ((c).r == 0 && (c).g == 0 && (c).b == 0 && (c).a == 0)
+#define SGD_UNSET(v) ((float)(v) == (float)WLX_UNSET)
+
+#define SGD_CHECK_LAYOUT_SLOT(d, n) SGD_EXPECT((d).pos == WLX_UNSET && (d).span == 1 \
+    && !(d).overflow && (d).padding == 0 && SGD_UNSET((d).padding_top) \
+    && SGD_UNSET((d).padding_right) && SGD_UNSET((d).padding_bottom) \
+    && SGD_UNSET((d).padding_left), n, "LAYOUT_SLOT")
+#define SGD_CHECK_WIDGET_SIZING(d, n) SGD_EXPECT((d).slot_align == WLX_LEFT \
+    && SGD_UNSET((d).width) && SGD_UNSET((d).height) && (d).min_width == 0 \
+    && (d).min_height == 0 && (d).max_width == 0 && (d).max_height == 0 \
+    && SGD_UNSET((d).opacity), n, "WIDGET_SIZING")
+#define SGD_CHECK_WIDGET_STATE(d, n) SGD_EXPECT(!(d).disabled, n, "WIDGET_STATE")
+#define SGD_CHECK_TEXT_TYPOGRAPHY(d, n) SGD_EXPECT((d).font == WLX_FONT_DEFAULT \
+    && (d).font_size == 0 && (d).content_align == WLX_LEFT && (d).spacing == 0, \
+    n, "TEXT_TYPOGRAPHY")
+// The wrap default is per widget by design (on for the inputbox, the
+// editor and the button family, off elsewhere), so the group has no check.
+#define SGD_CHECK_TEXT_WRAP(d, n) ((void)(d), (void)(n))
+#define SGD_CHECK_TEXT_COLOR(d, n) SGD_EXPECT(SGD_ZERO((d).front_color) \
+    && SGD_ZERO((d).back_color), n, "TEXT_COLOR")
+#define SGD_EFFECTS_UNSET(d) (SGD_ZERO((d).shadow_color) && (d).shadow_offset_x == 0 \
+    && (d).shadow_offset_y == 0 && (d).shadow_blur == 0 && (d).shadow_layers == 0 \
+    && SGD_ZERO((d).glow_color) && (d).glow_spread == 0 && (d).glow_rings == 0 \
+    && SGD_ZERO((d).gradient_top) && SGD_ZERO((d).gradient_bottom))
+#define SGD_SIDES_UNSET(d) (SGD_ZERO((d).border_color_top) && SGD_ZERO((d).border_color_right) \
+    && SGD_ZERO((d).border_color_bottom) && SGD_ZERO((d).border_color_left) \
+    && SGD_UNSET((d).border_width_top) && SGD_UNSET((d).border_width_right) \
+    && SGD_UNSET((d).border_width_bottom) && SGD_UNSET((d).border_width_left))
+#define SGD_CHECK_BORDER(d, n) SGD_EXPECT(SGD_ZERO((d).border_color) \
+    && SGD_UNSET((d).border_width) && SGD_UNSET((d).roundness) && (d).corner_radius == 0 \
+    && (d).rounded_segments == WLX_UNSET && (d).rounded_corners == 0 \
+    && SGD_SIDES_UNSET(d) && SGD_EFFECTS_UNSET(d), n, "BORDER")
+#define SGD_CHECK_CONTENT_PADDING(d, n) SGD_EXPECT(SGD_UNSET((d).content_padding) \
+    && SGD_UNSET((d).content_padding_top) && SGD_UNSET((d).content_padding_right) \
+    && SGD_UNSET((d).content_padding_bottom) && SGD_UNSET((d).content_padding_left), \
+    n, "CONTENT_PADDING")
+// Plain containers take literal-zero chrome and a panel the theme's
+// (WLX_CONTAINER_DECOR_DEFAULTS_CHROME): either form, the same for all three.
+#define SGD_CHROME_FORM(d) (((d).border_width == 0 && (d).roundness == 0 && (d).rounded_segments == 0) \
+    || (SGD_UNSET((d).border_width) && SGD_UNSET((d).roundness) && (d).rounded_segments == WLX_UNSET))
+#define SGD_CHECK_CONTAINER_DECOR(d, n) SGD_EXPECT(SGD_ZERO((d).back_color) \
+    && SGD_ZERO((d).border_color) && SGD_CHROME_FORM(d) && (d).corner_radius == 0 \
+    && (d).rounded_corners == 0 && (d).gap == 0 && SGD_SIDES_UNSET(d) \
+    && SGD_EFFECTS_UNSET(d) && (d).interact == 0 && (d).interact_out == NULL \
+    && SGD_ZERO((d).hover_back_color) && SGD_ZERO((d).hover_border_color) \
+    && SGD_ZERO((d).hover_border_color_top) && SGD_ZERO((d).hover_border_color_right) \
+    && SGD_ZERO((d).hover_border_color_bottom) && SGD_ZERO((d).hover_border_color_left), \
+    n, "CONTAINER_DECOR")
+#define SGD_CHECK_SLOT_DECOR(d, n) SGD_EXPECT(SGD_ZERO((d).slot_back_color) \
+    && SGD_ZERO((d).slot_border_color) && (d).slot_border_width == 0, n, "SLOT_DECOR")
+
+TEST(sentinel_group_defaults) {
+    sgd_failures = 0;
+    int structs = 0;
+#define G(group) SGD_CHECK_##group(d, sgd_name);
+#define X(name, type, groups) { \
+        type d = wlx_##name##_opt_defaults(); \
+        const char *sgd_name = #name; \
+        (void)d; (void)sgd_name; \
+        groups \
+        structs++; \
+    }
+    OPTION_STRUCTS(X)
+#undef X
+#undef G
+    ASSERT_EQ_INT(27, structs);
+    ASSERT_EQ_INT(0, sgd_failures);
+}
+
+SUITE(sentinel) {
+    RUN_TEST(rule_u_nan_reads_as_unset);
+    RUN_TEST(sentinel_explicit_zero_is_zero);
+    RUN_TEST(sentinel_unset_inherits);
+    RUN_TEST(sentinel_brightness_domain);
+    RUN_TEST(sentinel_padding_theme_token);
+    RUN_TEST(panel_roundness_inherits_theme);
+    RUN_TEST(split_gap_literal_zero);
+    RUN_TEST(layout_negative_gap_reads_zero);
+    RUN_TEST(layout_auto_negative_gap_reads_zero);
+    RUN_TEST(grid_negative_gap_reads_zero);
+    RUN_TEST(grid_auto_negative_gap_reads_zero);
+    RUN_TEST(grid_tile_negative_gap_reads_zero);
+    RUN_TEST(overlay_negative_gap_reads_zero);
+    RUN_TEST(overlay_content_padding_uniform_insets);
+    RUN_TEST(split_negative_gap_reads_zero);
+    RUN_TEST(create_layout_negative_gap_reads_zero);
+    RUN_TEST(menu_width_rule_u);
+    RUN_TEST(panel_title_align_none_honoured);
+    RUN_TEST(split_explicit_auto_honoured);
+    RUN_TEST(content_padding_unset_equals_omission);
+    RUN_TEST(tooltip_content_padding_alias);
+    RUN_TEST(align_aliases_share_storage);
+    RUN_TEST(widget_zero_size_is_zero);
+    RUN_TEST(widget_zero_size_contributes_zero);
+    RUN_TEST(submenu_width_rule_u);
+    RUN_TEST(scroll_panel_zero_height_is_zero);
+    RUN_TEST(text_field_zero_height_takes_min);
+    RUN_TEST(rounded_segments_zero_takes_theme);
+    RUN_TEST(wheel_scroll_speed_zero_scrolls_default);
+    RUN_TEST(scroll_panel_roundness_is_square);
+    RUN_TEST(theme_from_scratch_has_working_defaults);
+    RUN_TEST(radio_label_color_from_theme);
+    RUN_TEST(sentinel_group_defaults);
+}

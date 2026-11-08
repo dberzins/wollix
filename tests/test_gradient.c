@@ -26,12 +26,14 @@ static WLX_Color gv_band_color[512];
 static WLX_Color gv_native_top, gv_native_bottom;
 static float gv_native_roundness;
 
-static void gv_rec_rect(WLX_Rect r, WLX_Color c) {
+static void gv_rec_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     if (gv_rect_n < 512) { gv_band[gv_rect_n] = r; gv_band_color[gv_rect_n] = c; }
     gv_rect_n++;
 }
 static void gv_native_gradient(WLX_Rect r, WLX_Color top, WLX_Color bottom,
-        float ro, int sg) {
+        float ro, int sg, void *user) {
+    (void)user;
     (void)r; (void)sg;
     gv_native_n++; gv_native_top = top; gv_native_bottom = bottom; gv_native_roundness = ro;
 }

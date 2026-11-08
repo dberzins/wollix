@@ -38,16 +38,22 @@ const INPUT_OFFSETS = {
     wheel_delta:          12,  // float32 (vertical detents, positive = up)
     keys_down:            16,  // bool[64]
     keys_pressed:         80,  // bool[64]
-    text_input:           144, // char[32]
-    keys_repeated:        176, // bool[64]
-    modifiers:            240, // uint32 (4-byte aligned)
-    wheel_delta_x:        244, // float32 (horizontal detents)
-    mouse_right_down:     248, // bool (uint8)
-    mouse_right_clicked:  249, // bool (uint8)
-    mouse_middle_down:    250, // bool (uint8)
-    mouse_middle_clicked: 251, // bool (uint8)
+    text_input:           144, // char[128] (INPUT_TEXT_BYTES)
+    keys_repeated:        272, // bool[64]
+    modifiers:            336, // uint32 (4-byte aligned)
+    wheel_delta_x:        340, // float32 (horizontal detents)
+    mouse_right_down:     344, // bool (uint8)
+    mouse_right_clicked:  345, // bool (uint8)
+    mouse_middle_down:    346, // bool (uint8)
+    mouse_middle_clicked: 347, // bool (uint8)
+    preedit:              348, // char[128] (INPUT_PREEDIT_BYTES): the composition string, state not stream
+    preedit_cursor:       476, // int32 (codepoints into preedit, -1 unknown)
+    preedit_sel_len:      480, // int32 (codepoints, -1 unknown)
 };
-const INPUT_SIZE = 252;
+// Byte capacities of the two text channels, NUL included (WLX_INPUT_TEXT_BYTES,
+// WLX_INPUT_PREEDIT_BYTES in wollix.h; wollix_wasm.h asserts both).
+const INPUT_TEXT_BYTES = 128;
+const INPUT_PREEDIT_BYTES = 128;
 const WLX_KEY_COUNT = 64;
 
 // DOM wheel deltas arrive in pixels (deltaMode 0), lines (1), or pages (2).
@@ -112,6 +118,13 @@ const BROWSER_OWNED_KEYS = new Set([
 
 const decoder = new TextDecoder("utf-8");
 const encoder = new TextEncoder();
+
+// Largest offset <= pos that does not point at a UTF-8 continuation byte,
+// as the core's wlx_utf8_floor: a cut there never splits a sequence.
+function utf8Floor(bytes, pos) {
+    while (pos > 0 && (bytes[pos] & 0xC0) === 0x80) pos--;
+    return pos;
+}
 
 function unpackColor(rgba) {
     return {
@@ -214,6 +227,28 @@ function probeCtxFilterSupported() {
     }
     const ctx = canvas.getContext("2d");
 
+    // The text proxy: a hidden, focusable textarea the host focuses while an
+    // editable text widget holds focus (set_text_input_area below). A canvas
+    // never receives composition events and never engages the browser's
+    // input method, so every character - plain, dead-key composed, IME
+    // committed - is read from this element's events while it has focus, and
+    // the keydown collector stands down. It is a funnel, never a store: its
+    // value is cleared every frame outside a composition.
+    const proxy = document.createElement("textarea");
+    proxy.setAttribute("aria-hidden", "true");
+    proxy.setAttribute("autocapitalize", "off");
+    proxy.setAttribute("autocomplete", "off");
+    proxy.setAttribute("autocorrect", "off");
+    proxy.setAttribute("spellcheck", "false");
+    proxy.setAttribute("tabindex", "-1");
+    proxy.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;" +
+        "padding:0;border:0;margin:0;resize:none;overflow:hidden;pointer-events:none;" +
+        "background:transparent;color:transparent;caret-color:transparent;z-index:-1";
+    document.body.appendChild(proxy);
+    let proxyActive = false;      // the core's anchor says an editable field has focus
+    let proxyComposing = false;   // between compositionstart and compositionend
+    let proxyDiscardEnd = false;  // the core ended this composition itself: its end text is not a commit
+
     // Shared state written by DOM events, read by writeInputToWasm()
     const input = {
         mouseX: 0, mouseY: 0,
@@ -226,7 +261,64 @@ function probeCtxFilterSupported() {
         keysRepeated: new Uint8Array(WLX_KEY_COUNT),
         modifiers: 0,
         textInput: "",
+        // Composition state (WLX_Input_State.preedit*): the whole current
+        // composition string, replaced on each update; empty = none. The
+        // cursor and clause are -1 (unknown): the caret sits at the string's
+        // end and no clause is marked.
+        preedit: "",
+        preeditCursor: -1,
+        preeditSel: -1,
     };
+
+    // The proxy's composition and text events. compositionupdate carries the
+    // whole current string (state, like SDL's editing event); compositionend
+    // carries the committed text, which lands in the frame's text_input;
+    // plain typing and Firefox's resolved dead keys arrive as insertText.
+    // insertCompositionText is the browser mirroring the composition into
+    // the proxy's own value and is ignored, so nothing is delivered twice.
+    // The cursor and clause stay -1: compositionstart and compositionupdate
+    // fire before the browser applies the update, so the proxy's selection
+    // then still holds the previous string (the range about to be replaced),
+    // not the input method's caret.
+    function readProxyComposition(e) {
+        input.preedit = e.data || "";
+        input.preeditCursor = -1;
+        input.preeditSel = -1;
+    }
+    proxy.addEventListener("compositionstart", (e) => {
+        proxyComposing = true;
+        proxyDiscardEnd = false;
+        readProxyComposition(e);
+    });
+    proxy.addEventListener("compositionupdate", readProxyComposition);
+    proxy.addEventListener("compositionend", (e) => {
+        proxyComposing = false;
+        input.preedit = "";
+        input.preeditCursor = -1;
+        input.preeditSel = -1;
+        // A composition the core ended by taking focus off the field (the
+        // inactive anchor) is already settled there: the field kept its
+        // string, so the browser's end text must not land a second time.
+        if (e.data && !proxyDiscardEnd) input.textInput += e.data;
+        proxyDiscardEnd = false;
+    });
+    proxy.addEventListener("input", (e) => {
+        if (e.isComposing || e.inputType !== "insertText") return;
+        if (e.data) input.textInput += e.data;
+    });
+    proxy.addEventListener("beforeinput", (e) => {
+        // The widget pastes through clipboard_get from the cache the paste
+        // listener refreshed; the proxy must not swallow the text.
+        if (e.inputType === "insertFromPaste") e.preventDefault();
+    });
+    proxy.addEventListener("blur", () => {
+        // A composition interrupted by a focus change ends through
+        // compositionend first (with its text); anything left is over.
+        proxyComposing = false;
+        input.preedit = "";
+        input.preeditCursor = -1;
+        input.preeditSel = -1;
+    });
 
     // Best-effort clipboard cache. The async Clipboard API cannot be read
     // synchronously mid-frame, so in-app copies populate this cache directly and
@@ -641,6 +733,12 @@ function probeCtxFilterSupported() {
             }
         },
 
+        // Device pixels per CSS pixel; the canvas backing store is already
+        // scaled by it in onFrame, so the core only snaps to its grid.
+        content_scale() {
+            return window.devicePixelRatio || 1;
+        },
+
         get_frame_time() {
             return frameTime;
         },
@@ -689,6 +787,29 @@ function probeCtxFilterSupported() {
         // so a new shape fails the C build until this map learns it.
         set_cursor(shape) {
             canvas.style.cursor = (shape === 1) ? "text" : "default";
+        },
+
+        // Composition anchor (WLX_Text_Input_Area). The core calls this only
+        // when the anchor changes: place the proxy at the caret (canvas
+        // coordinates are CSS pixels inside the canvas rect) and focus it, or
+        // blur it when no editable field has focus. The frame loop re-asserts
+        // the focus while active.
+        set_text_input_area(active, x, y, w, h, cursor, multiline, password) {
+            proxyActive = active !== 0;
+            if (!proxyActive) {
+                if (proxyComposing) proxyDiscardEnd = true;
+                if (document.activeElement === proxy) proxy.blur();
+                proxy.value = "";
+                return;
+            }
+            const r = canvas.getBoundingClientRect();
+            proxy.style.left = `${Math.round(r.left + x + cursor)}px`;
+            proxy.style.top = `${Math.round(r.top + y)}px`;
+            proxy.style.height = `${Math.max(1, Math.round(h))}px`;
+            proxy.style.width = `${Math.max(1, Math.round(w - cursor))}px`;
+            if (document.activeElement !== proxy) {
+                try { proxy.focus({ preventScroll: true }); } catch (_) { proxy.focus(); }
+            }
         },
     };
 
@@ -928,6 +1049,10 @@ function probeCtxFilterSupported() {
         updatePointerPos(e);
         setPointerButton(e.button, true);
         try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* capture unsupported */ }
+        // While a text field has focus the proxy must keep the browser's
+        // focus through canvas clicks, or a click mid-composition would blur
+        // it; the widget layer decides focus from the press itself.
+        if (proxyActive) e.preventDefault();
     });
 
     canvas.addEventListener("pointerup", (e) => {
@@ -984,15 +1109,26 @@ function probeCtxFilterSupported() {
 
     document.addEventListener("keydown", (e) => {
         input.modifiers = readModifiers(e);
+        // A key the input method consumed (confirming, editing or cancelling
+        // a composition) belongs to the composition, not to the widget: the
+        // browser still dispatches its keydown. keyCode 229 also covers
+        // Safari, which ends the composition before the keydown.
+        if (e.isComposing || e.keyCode === 229) return;
         const wlxKey = KEY_MAP[e.code];
+        const proxyFocused = document.activeElement === proxy;
         if (wlxKey !== undefined) {
             const cmd = e.ctrlKey || e.metaKey;
             // Let the browser handle command-modifier shortcuts (copy/cut/paste/
             // select-all) so the native copy/cut/paste events can carry the
             // system clipboard, and leave F-keys to the browser; still record
             // the key for the widget. Other mapped keys keep their default
-            // suppressed (e.g. arrows must not scroll the page).
-            if (!cmd && !BROWSER_OWNED_KEYS.has(wlxKey)) e.preventDefault();
+            // suppressed (e.g. arrows must not scroll the page) - except
+            // printable keys while the proxy has focus, which must reach it
+            // so the browser turns them (and dead keys) into text.
+            const printable = e.key.length === 1;
+            if (!cmd && !BROWSER_OWNED_KEYS.has(wlxKey) && !(proxyFocused && printable)) {
+                e.preventDefault();
+            }
             if (e.repeat) {
                 input.keysRepeated[wlxKey] = 1;
             } else if (!input.keysDown[wlxKey]) {
@@ -1005,8 +1141,9 @@ function probeCtxFilterSupported() {
                 pumpClipboardFrame();
             }
         }
-        // Collect text input from printable keys
-        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+        // Collect text input from printable keys - unless the proxy has
+        // focus, in which case the browser delivers the text through it.
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !proxyFocused) {
             input.textInput += e.key;
         }
     });
@@ -1044,6 +1181,14 @@ function probeCtxFilterSupported() {
     // Write JS input state into wasm memory
     // ========================================================================
     function writeInputToWasm() {
+        // Keep the proxy focused while a field has focus (a page click or a
+        // tab switch can take it) and empty outside a composition, so its
+        // value never accumulates and never interferes with the next one.
+        if (proxyActive && document.activeElement !== proxy && document.hasFocus()) {
+            try { proxy.focus({ preventScroll: true }); } catch (_) { /* no focus */ }
+        }
+        if (!proxyComposing && proxy.value !== "") proxy.value = "";
+
         const i32 = new Int32Array(memory.buffer);
         const u8  = new Uint8Array(memory.buffer);
         const f32 = new Float32Array(memory.buffer);
@@ -1076,21 +1221,21 @@ function probeCtxFilterSupported() {
         const u32 = new Uint32Array(memory.buffer);
         u32[(base + INPUT_OFFSETS.modifiers) >> 2] = input.modifiers;
 
-        // text_input (NUL-terminated, max 31 chars)
-        const textBytes = encoder.encode(input.textInput);
-        const maxLen = 31;
-        let len = Math.min(textBytes.length, maxLen);
-        // Truncation must never split a UTF-8 sequence: back off any
-        // continuation bytes at the cap.
-        if (len < textBytes.length) {
-            while (len > 0 && (textBytes[len] & 0xC0) === 0x80) len--;
-        }
-        u8.set(textBytes.subarray(0, len), base + INPUT_OFFSETS.text_input);
-        u8[base + INPUT_OFFSETS.text_input + len] = 0;
-        // Zero remaining bytes
-        for (let i = len + 1; i < 32; i++) {
-            u8[base + INPUT_OFFSETS.text_input + i] = 0;
-        }
+        // text_input and preedit: NUL-terminated UTF-8 in a fixed field.
+        // The frame's committed text is one string, so cutting it at the
+        // last sequence boundary that fits keeps the prefix and drops the
+        // rest of the burst (the commit-stream rule). The rest of the field
+        // is zeroed.
+        const writeTextField = (str, offset, cap) => {
+            const bytes = encoder.encode(str);
+            const len = bytes.length < cap ? bytes.length : utf8Floor(bytes, cap - 1);
+            u8.set(bytes.subarray(0, len), base + offset);
+            u8.fill(0, base + offset + len, base + offset + cap);
+        };
+        writeTextField(input.textInput, INPUT_OFFSETS.text_input, INPUT_TEXT_BYTES);
+        writeTextField(input.preedit, INPUT_OFFSETS.preedit, INPUT_PREEDIT_BYTES);
+        i32[(base + INPUT_OFFSETS.preedit_cursor) >> 2]  = input.preeditCursor;
+        i32[(base + INPUT_OFFSETS.preedit_sel_len) >> 2] = input.preeditSel;
 
         // Reset per-frame state
         input.prevMouseDown = input.mouseDown;
@@ -1126,9 +1271,13 @@ function probeCtxFilterSupported() {
         const dpr = window.devicePixelRatio || 1;
         const displayW = canvas.clientWidth;
         const displayH = canvas.clientHeight;
-        if (canvas.width !== displayW * dpr || canvas.height !== displayH * dpr) {
-            canvas.width = displayW * dpr;
-            canvas.height = displayH * dpr;
+        // canvas.width is an integer; compare against the rounded target or
+        // a fractional dpr reallocates the backing store every frame.
+        const targetW = Math.round(displayW * dpr);
+        const targetH = Math.round(displayH * dpr);
+        if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width = targetW;
+            canvas.height = targetH;
             ctx.scale(dpr, dpr);
         }
 

@@ -41,7 +41,8 @@ static float _input_cursor_y2 = 0.0f;
 static int _input_text_draw_count = 0;
 static char _input_text_draw_text[64];
 
-static void input_capture_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c) {
+static void input_capture_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)thick;
     (void)c;
     _input_cursor_draw_count++;
@@ -59,7 +60,8 @@ static inline void input_reset_cursor_capture(void) {
     _input_cursor_y2 = 0.0f;
 }
 
-static void input_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style) {
+static void input_capture_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
+    (void)user;
     (void)x;
     (void)y;
     (void)style;
@@ -76,7 +78,8 @@ static inline void input_reset_text_capture(void) {
     _input_text_draw_text[0] = '\0';
 }
 
-static void input_measure_tall_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h) {
+static void input_measure_tall_text(const char *text, WLX_Text_Style style, float *out_w, float *out_h, void *user) {
+    (void)user;
     int font_size = style.font_size > 0 ? style.font_size : 10;
     size_t len = text ? strlen(text) : 0;
     if (out_w) *out_w = (float)len * (float)font_size * 0.5f;
@@ -109,13 +112,15 @@ static void input_reset_clip_capture(void) {
     memset(_input_clip_log, 0, sizeof(_input_clip_log));
 }
 
-static void input_capture_begin_scissor(WLX_Rect rect) {
+static void input_capture_begin_scissor(WLX_Rect rect, void *user) {
+    (void)user;
     if (_input_clip_count < INPUT_CLIP_LOG_CAP) {
         _input_clip_log[_input_clip_count++] = (Input_Clip_Log_Entry){1, rect};
     }
 }
 
-static void input_capture_end_scissor(void) {
+static void input_capture_end_scissor(void *user) {
+    (void)user;
     if (_input_clip_count < INPUT_CLIP_LOG_CAP) {
         _input_clip_log[_input_clip_count++] = (Input_Clip_Log_Entry){2, {0}};
     }
@@ -136,7 +141,7 @@ static bool do_inputbox_long_cursor(WLX_Context *ctx, char *buf, size_t buf_size
     bool focused = false;
     (void)wlx_inputbox_impl(ctx, NULL, buf, buf_size,
         wlx_default_inputbox_opt(.height = 500, .content_padding = 4, .font_size = 10, .wrap = true, .border_width = 0,
-            .out_focused = &focused),
+            .multiline = true, .out_focused = &focused),
         __FILE__, __LINE__);
     return focused;
 }
@@ -695,16 +700,6 @@ TEST(input_cursor_move_left_insert) {
 // Navigation: arrow repeat, word motion, HOME/END
 // ============================================================================
 
-// The editing command modifier resolved for the platform under test, matching
-// wlx_mod_command_down().
-static uint32_t command_modifier(void) {
-#if defined(__APPLE__)
-    return WLX_MOD_SUPER;
-#else
-    return WLX_MOD_CTRL;
-#endif
-}
-
 // Helper: run one frame with a single key pressed while modifier bits are held.
 static void frame_key_with_mods(WLX_Context *ctx, char *buf, size_t buf_size,
                                 WLX_Key_Code key, uint32_t mods) {
@@ -826,12 +821,12 @@ TEST(input_command_home_end_whole_buffer) {
     frame_focus_click(&ctx, buf, sizeof(buf));
 
     // Command+HOME jumps to the buffer start even from another visual line.
-    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_HOME, command_modifier());
+    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_HOME, test_command_mod());
     frame_type_text(&ctx, buf, sizeof(buf), "X");
     ASSERT_EQ_STR(buf, "XAB\nCD");
 
     // Command+END jumps to the buffer end.
-    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_END, command_modifier());
+    frame_key_with_mods(&ctx, buf, sizeof(buf), WLX_KEY_END, test_command_mod());
     frame_type_text(&ctx, buf, sizeof(buf), "Y");
     ASSERT_EQ_STR(buf, "XAB\nCDY");
     wlx_context_destroy(&ctx);
@@ -968,15 +963,24 @@ TEST(input_cursor_position_uses_full_buffer_layout) {
 
     // The inputbox draws its text vertically centered (WLX_LEFT), so the
     // reference cursor layout must use the same alignment to match the draw.
-    ASSERT_TRUE(wlx_calc_cursor_position_for_text(&ctx, text_rect, buf, ts, WLX_LEFT, true, 520,
-        &expected_x, &expected_y));
-    if (expected_x > text_rect.x) expected_x += WLX_TEXT_CARET_PADDING;
+    // The field is multiline (wrap is a multiline option), so the reference
+    // is prepared at the multiline unit budget: the 520-byte buffer crosses
+    // the global per-run cap that wlx_calc_cursor_position_for_text applies.
+    {
+        static WLX_Text_Line_Record ref_lines[WLX_INPUTBOX_MULTILINE_MAX_LINES];
+        WLX_Text_Line_Array_Result ref = {0};
+        ASSERT_TRUE(wlx_text_prepare_lines_slice(&ctx, text_rect, buf, 520, ts,
+            (WLX_Text_Prepare_Opt){ .align = WLX_LEFT, .wrap = true, .wrap_strict_ws = true,
+                                    .text_unit_cap = WLX_INPUTBOX_MULTILINE_MAX_UNITS },
+            ref_lines, WLX_INPUTBOX_MULTILINE_MAX_LINES, &ref));
+        ASSERT_TRUE(wlx_text_resolve_cursor_from_lines(&ctx, text_rect, buf, 520, ts,
+            ref_lines, ref.line_count, 520, &expected_x, &expected_y));
+    }
 
     memcpy(legacy_prefix, buf, TEST_INPUT_CURSOR_TEMP_SIZE - 1);
     legacy_prefix[TEST_INPUT_CURSOR_TEMP_SIZE - 1] = '\0';
     ASSERT_TRUE(wlx_calc_cursor_position(&ctx, text_rect, legacy_prefix, ts, WLX_LEFT, true,
         &legacy_x, &legacy_y));
-    if (legacy_x > text_rect.x) legacy_x += WLX_TEXT_CARET_PADDING;
 
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
@@ -1002,7 +1006,7 @@ TEST(input_text_clip_restores_scroll_panel_clip) {
     wlx_scroll_panel_begin(&ctx, 80, .height = 80, .show_scrollbar = false);
     wlx_inputbox(&ctx, NULL, buf, sizeof(buf),
         .height = 30, .content_padding = 4, .font_size = 10,
-        .wrap = true, .border_width = 0);
+        .multiline = true, .wrap = true, .border_width = 0);
     wlx_scroll_panel_end(&ctx);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
@@ -1042,7 +1046,7 @@ TEST(inputbox_draws_when_line_height_exceeds_text_rect) {
     ASSERT_EQ_INT(1, _input_text_draw_count);
     ASSERT_EQ_STR(_input_text_draw_text, "abc");
     ASSERT_EQ_INT(1, _input_cursor_draw_count);
-    ASSERT_EQ_F(_input_cursor_x1, 41.0f, 0.1f);
+    ASSERT_EQ_F(_input_cursor_x1, 39.0f, 0.1f);   // the cell boundary after "abc"
     // The 20px reported line height exceeds the 16px (border-inset) interior,
     // so a 16px caret centered on the line would span the whole box and sit on
     // both borders. The caret is clamped to the interior with a 1px breathing

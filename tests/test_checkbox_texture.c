@@ -27,7 +27,8 @@ static int       _cbtx_rect_rounded_lines_count;
 static int       _cbtx_line_count;
 static WLX_Color _cbtx_last_line_color;
 
-static void cbtx_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint) {
+static void cbtx_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
+    (void)user;
     (void)tex;
     if (_cbtx_tex_count < CBTX_MAX_DRAWS) {
         _cbtx_tex_srcs[_cbtx_tex_count]  = src;
@@ -39,23 +40,27 @@ static void cbtx_rec_draw_texture(WLX_Texture tex, WLX_Rect src, WLX_Rect dst, W
     _cbtx_tex_tint = tint;
 }
 
-static void cbtx_rec_draw_rect(WLX_Rect r, WLX_Color c) {
+static void cbtx_rec_draw_rect(WLX_Rect r, WLX_Color c, void *user) {
+    (void)user;
     (void)r;
     _cbtx_rect_count++;
     _cbtx_last_rect_color = c;
 }
 
-static void cbtx_rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c) {
+static void cbtx_rec_draw_rect_rounded(WLX_Rect r, float roundness, int segments, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)roundness; (void)segments; (void)c;
     _cbtx_rect_rounded_count++;
 }
 
-static void cbtx_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c) {
+static void cbtx_rec_draw_rect_rounded_lines(WLX_Rect r, float roundness, int segments, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)r; (void)roundness; (void)segments; (void)thick; (void)c;
     _cbtx_rect_rounded_lines_count++;
 }
 
-static void cbtx_rec_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c) {
+static void cbtx_rec_draw_line(float x1, float y1, float x2, float y2, float thick, WLX_Color c, void *user) {
+    (void)user;
     (void)x1; (void)y1; (void)x2; (void)y2; (void)thick;
     _cbtx_line_count++;
     _cbtx_last_line_color = c;

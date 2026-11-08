@@ -206,10 +206,11 @@ wlx_draw_box(ctx, rect, (WLX_Box_Style){
 
 **What it does:**
 
-- Uses `wlx_is_negative_unset(x)` for fields where negative values are never
-  legal and `-1`-style sentinels are acceptable.
-- Uses `wlx_is_float_unset(x)` for fields where negative values are legal and
-  `WLX_FLOAT_UNSET` is the real sentinel.
+- Uses `wlx_is_negative_unset(x)` for Rule U fields with a non-negative
+  domain (any negative is unset; the macros install `WLX_UNSET`).
+- Uses `wlx_is_float_unset(x)` for the signed-domain brightness fields,
+  where `-1` and below is unset and every value above it, negative
+  included, is explicit.
 - Preserves explicit `0.0f` values for hover-related brightness fields.
 
 **Canonical examples:**
@@ -223,8 +224,9 @@ if (wlx_is_float_unset(opt->hover_brightness))
 **Anti-pattern to avoid:**
 
 - Raw `x < 0` checks on public option fields that already use the named helper.
-- Using `-1` as the unset test for `hover_brightness`-style fields where
-  negative values are meaningful.
+- Using `x < 0` as the unset test for `hover_brightness`-style fields where
+  negative values are meaningful (their sentinel is `-1` and below; use
+  `wlx_is_float_unset`).
 
 See also: [SENTINEL.md](SENTINEL.md)
 
