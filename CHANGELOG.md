@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The v0.9 compatibility promise gains one exception until 1.0.** The
+  0.9.0 notes say that from the next minor on, existing names, defaults
+  and signatures keep working. That stands, with one stated exception: if
+  use outside the project shows a frozen name, default or signature to be
+  a defect, it can change in a minor release, never a patch, listed under
+  `Changed (Breaking)` with its migration. The promise was written before
+  anyone outside the project had used the API, and a defect found that way
+  is cheaper to fix once, with a migration, than to carry through every
+  1.x release. README.md and CONTRIBUTING.md
+  carry the same exception.
+
 ## [0.9.0] - 2026-11-08
 
 The text release and the last breaking window: undo and redo in the
