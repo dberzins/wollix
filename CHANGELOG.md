@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   different; with it off, each page says what Wollix is and links to the
   repository. The site gains a `sitemap.xml`. `make docs-check` holds the
   two pages to the same tagline and sentence as the README.
+- **The gallery's Overview describes Wollix in the identity's words**: a
+  header-only, immediate-mode UI toolkit for C11 that includes a text
+  editor, with backends for Raylib, SDL3 and the web. It called Wollix a
+  GUI library.
 
 ## [0.10.0] - 2026-11-18
 

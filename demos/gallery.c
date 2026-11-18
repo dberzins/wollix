@@ -3819,9 +3819,9 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
                 .content_padding_right = content_pad);
 
             wlx_label(ctx,
-                "Wollix is a header-only, immediate-mode GUI library for C11.\n"
-                "It is compact, mechanical, and clear -- designed for tools\n"
-                "and overlays where every pixel counts.",
+                "Wollix is a header-only, immediate-mode UI toolkit for C11 "
+                "that includes a text editor, with backends for Raylib, SDL3 "
+                "and the web.",
                 .font_size = MEDIUM_FS, .height = 100, .content_align = WLX_LEFT,
                 .front_color = semantic.color_text_2,
                 .content_padding_left = content_pad,
