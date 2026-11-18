@@ -97,16 +97,8 @@ static WLX_Text_Style count_transform(WLX_Text_Style style, void *user) {
     (*(int *)user)++;
     return style;
 }
-static void v1_rect(WLX_Rect r, WLX_Color c) { (void)r; (void)c; }
 
 static void check_v09_entries(void) {
-    static WLX_Backend_V1 v1;
-    memset(&v1, 0, sizeof(v1));
-    v1.draw_rect = v1_rect;
-    WLX_Backend shimmed = wlx_backend_from_v1(&v1);
-    CHECK(shimmed.contract_version == WLX_BACKEND_CONTRACT_VERSION);
-    CHECK(shimmed.user == &v1 && shimmed.draw_rect != NULL && shimmed.draw_circle == NULL);
-
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
     int transforms = 0;
@@ -124,6 +116,12 @@ static void check_v09_entries(void) {
     CHECK(wlx_content_scale(&ctx) == 1.0f);
     CHECK(!wlx_text_composing(&ctx));
     CHECK(!wlx_text_input_area(&ctx).active);
+    // Frame demand: a context's first frame always asks for the next one,
+    // and a request can only bring it sooner.
+    CHECK(wlx_frame_delay(&ctx) == 0.0f);
+    wlx_request_frame_after(&ctx, 1.0f);
+    wlx_request_frame(&ctx);
+    CHECK(wlx_frame_delay(&ctx) == 0.0f);
     (void)wlx_state_prune(&ctx, 1);
     wlx_set_style_transform(&ctx, NULL, NULL);
     wlx_set_error_handler(&ctx, NULL, NULL);

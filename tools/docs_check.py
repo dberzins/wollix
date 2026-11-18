@@ -2,7 +2,7 @@
 """docs_check.py - the documentation gate (`make docs-check`).
 
 Run from the repository root with Python 3 and nothing beyond the standard
-library. Seven checks, each reporting a count; the exit status is non-zero
+library. Eight checks, each reporting a count; the exit status is non-zero
 when any check finds a problem.
 
   blocks      Every fenced `c` and `cpp` block of README.md and docs/*.md
@@ -46,6 +46,12 @@ when any check finds a problem.
               wlx_<x>_opt_defaults(): the column shows the value the struct
               holds, and a value resolved at use follows in parentheses,
               "`WLX_UNSET` (10)". Any other cell is prose: skipped, counted.
+  identity    The tagline and the sentence that say what Wollix is
+              (IDENTITY_TAGLINE and IDENTITY_SENTENCE below) appear, word
+              for word, at each site that states them: README.md, the
+              wollix.h header comment, docs/API_REFERENCE.md and the vcpkg
+              port's description. No tracked file except CHANGELOG.md
+              carries a description the project has retired.
 
 Environment:
   DOCS_CC, DOCS_CXX   compilers (default gcc, g++)
@@ -625,11 +631,80 @@ def check_options():
 
 
 # ============================================================================
+# identity
+# ============================================================================
+
+# What Wollix says it is, kept in one place: a change of wording is made
+# here and at every site in the same commit, or the gate fails.
+IDENTITY_TAGLINE = "Woven UI for C."
+IDENTITY_SENTENCE = ("header-only, immediate-mode UI toolkit for C11 that includes a text "
+                     "editor, with backends for Raylib, SDL3 and the web")
+# (path, whether the site carries the tagline too)
+IDENTITY_SITES = [
+    ("README.md", True),
+    ("wollix.h", True),
+    ("docs/API_REFERENCE.md", False),
+    ("ports/wollix/vcpkg.json", False),
+]
+# Descriptions the project has retired. Only the changelog's history may
+# still carry one. Each pattern is assembled from two parts so that this
+# file does not match itself.
+IDENTITY_RETIRED = [
+    (re.compile("layout" + r"\s+library", re.I), "a retired description of the project"),
+    (re.compile("woven" + r"\s+layouts", re.I), "the retired tagline"),
+]
+IDENTITY_EXEMPT = {"CHANGELOG.md"}
+
+
+def flat(text):
+    """One line of single-spaced text: a sentence wrapped across lines, or
+    across the lines of a C block comment, reads as written."""
+    return re.sub(r"\s+", " ", re.sub(r"(?m)^[ \t]*\*[ \t]?", "", text))
+
+
+def check_identity():
+    for path, has_tagline in IDENTITY_SITES:
+        text = flat(read(path))
+        if IDENTITY_SENTENCE not in text:
+            report("identity", "%s: the identity sentence is missing or differs from IDENTITY_SENTENCE" % path)
+        if has_tagline and IDENTITY_TAGLINE not in text:
+            report("identity", "%s: the tagline is missing or differs from IDENTITY_TAGLINE" % path)
+
+    r = subprocess.run(["git", "ls-files", "-z"], capture_output=True)
+    if r.returncode != 0:
+        report("identity", "git ls-files failed: %s" % r.stderr.decode(errors="replace").strip())
+        print("identity: not run")
+        return
+    scanned = 0
+    for f in r.stdout.decode().split("\0"):
+        if not f or f in IDENTITY_EXEMPT:
+            continue
+        try:
+            with open(f, "rb") as h:
+                data = h.read()
+        except OSError:
+            continue
+        if b"\0" in data:
+            continue
+        try:
+            text = flat(data.decode("utf-8"))
+        except UnicodeDecodeError:
+            continue
+        scanned += 1
+        for pat, what in IDENTITY_RETIRED:
+            m = pat.search(text)
+            if m:
+                report("identity", "%s: \"%s\" is %s" % (f, m.group(0), what))
+    print("identity: %d sites, %d tracked text files, %d problems"
+          % (len(IDENTITY_SITES), scanned, len(failures.get("identity", []))))
+
+
+# ============================================================================
 
 def main():
     checks = [("blocks", check_blocks), ("pair", check_pair), ("anchors", check_anchors),
               ("names", check_names), ("records", check_records), ("registries", check_registries),
-              ("options", check_options)]
+              ("options", check_options), ("identity", check_identity)]
     only = sys.argv[1:]
     for name, fn in checks:
         if only and name not in only:

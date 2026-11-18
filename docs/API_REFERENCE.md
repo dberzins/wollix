@@ -1,7 +1,8 @@
 # API Reference
 
-Complete reference for every public function, struct, enum, and macro in the
-layout library.
+Complete reference for every public function, struct, enum, and macro in
+Wollix: a header-only, immediate-mode UI toolkit for C11 that includes a
+text editor, with backends for Raylib, SDL3 and the web.
 
 > **Header files:**
 > - `wollix.h` — core library (include with `#define WOLLIX_IMPLEMENTATION` in exactly one translation unit)
@@ -182,6 +183,42 @@ If no timer is installed, timing fields remain zero and `timer_available` is
 For benchmark commands and metric interpretation, see
 [PERFORMANCE_DIAGNOSTICS.md](PERFORMANCE_DIAGNOSTICS.md).
 
+### `WLX_FRAME_CHECK`
+
+```c
+// #define WLX_FRAME_CHECK   // define before including wollix.h
+```
+
+Checks the frame requests behind [`wlx_frame_delay`](#wlx_frame_delay). A
+loop that waits on that value draws a frame only when input arrives or a
+request comes due, so a picture that changes at any other time is never
+shown. With this defined, the core keeps what each frame drew and reports
+a frame that drew something new although no input arrived and no request
+was due.
+
+- **Run it with frames drawn continuously.** In such a build
+  `wlx_raylib_wait_frame` and `wlx_sdl3_wait_frame` return at once and
+  `wlx_wasm_schedule_frame` always asks for the next frame, so an
+  application that calls a helper needs no other change. Each frame is
+  then judged as the waiting loop would have seen it.
+- **The report** goes through [`WLX_ERROR_PRINT`](#wlx_error_print), once
+  per place, for up to 32 places. It names the first draw call that
+  differs from the previous frame's: its position in the frame, its kind,
+  its rectangle, and whether it differs, is new or is gone.
+- **The usual cause** is a timer or an animation that does not call
+  `wlx_request_frame` or `wlx_request_frame_after` on every frame it is
+  pending.
+- **Not judged:** a frame whose root rect or content scale changed (the
+  window event that brought it wakes a waiting loop), the first frame,
+  and frames under `wlx_begin_immediate`.
+- **Not caught:** a picture that changes on every frame, such as a
+  frame-rate label. Each such frame asks for the next, so the application
+  never rests, and there is no stale picture to report.
+
+It is independent of `WLX_DEBUG` and `WLX_PERF`, and its records are
+allocated only in such a build. Define it the same way in every
+translation unit of a program.
+
 ### `WLX_ERROR_PRINT`
 
 ```c
@@ -287,18 +324,6 @@ Opaque texture handle passed to `draw_texture`. Backend-specific.
 | `WLX_BLACK` | `{0, 0, 0, 255}` |
 | `WLX_LIGHTGRAY` | `{200, 200, 200, 255}` |
 
-### Deprecated Color Constants
-
-Deprecated since v0.1.0 and removed in the first minor release after 0.9. The
-values predate the themes and differ from the replacements (the dark theme
-uses 27, 50 and 0.08).
-
-| Macro | Value | Replacement |
-|-------|-------|-------------|
-| `WLX_BACKGROUND_COLOR` | `{18, 18, 18, 255}` | `ctx->theme->background` |
-| `WLX_SCROLLBAR_COLOR` | `{38, 38, 38, 255}` | `ctx->theme->scrollbar.bar` |
-| `WLX_HOVER_BRIGHTNESS` | `0.75f` | `ctx->theme->hover_brightness` |
-
 ---
 
 ## Types — Backend
@@ -378,7 +403,7 @@ Text spacing support matrix for this slice:
 
 | Backend / path | Status | Behavior |
 |----------------|--------|----------|
-| Raylib | Supported | `DrawTextEx` and `MeasureTextEx` both honor `style.spacing` |
+| Raylib | Supported | The draw (`DrawTextEx`'s placement) and `MeasureTextEx` both honor `style.spacing` |
 | SDL3 custom fonts | Supported on variant path | Backend-owned font variants apply `TTF_SetFontCharSpacing` once per `(font, size, spacing, content scale)` variant. If variant creation fails and the backend falls back to the shared base font, spacing is ignored. |
 | SDL3 debug font | Unsupported | Ignores spacing in both draw and measure |
 | WASM | Unsupported | Ignores spacing in both draw and measure |
@@ -452,8 +477,8 @@ file-scope globals. `contract_version` must be
 release-live `WLX_HARD_ASSERT`, because a table of another shape compiles
 on compilers that only warn about the callback signatures and calling it
 through these signatures is memory-unsafe. The in-tree adapters set the
-version and pass `NULL`. A v0.8 table migrates in one line with
-`wlx_backend_from_v1` (below). An application that overrides individual
+version and pass `NULL`. A v0.8 table migrates by appending `void *user`
+to every callback and setting `.contract_version`. An application that overrides individual
 callbacks of an adapter-installed table must forward `user` unchanged and
 must not repoint `backend.user`, which every other callback of the table
 reads.
@@ -512,7 +537,7 @@ shape, this member included, is the frozen v2 contract.
 | `draw_texture` | Draw a texture from `src` rect to `dst` rect with a tint |
 | `begin_scissor` | Begin a rectangular clip region |
 | `end_scissor` | End the current clip region |
-| `get_frame_time` | Return frame delta in seconds. Called by the core exactly once per frame (in `wlx_begin`), which caches the value for every `wlx_get_frame_time` read — an adapter may measure elapsed time since its own previous call |
+| `get_frame_time` | Return frame delta in seconds. Called by the core exactly once per frame (in `wlx_begin`), which caches the value for every `wlx_get_frame_time` read — an adapter may measure elapsed time since its own previous call. The value is the real time since the previous frame: where the loop waits between frames the wait is part of it, because timers and frame requests are measured against it |
 | `draw_text_slice` | Preferred text-rendering callback: render an explicit byte span; `NULL` falls back to `draw_text` with a temporary null-terminated copy |
 | `measure_text_slice` | Preferred text-measure callback: measure an explicit byte span; `NULL` falls back to `measure_text` with a temporary null-terminated copy |
 | `measure_text_advances` | Optional batched measure: fill the cumulative advance width of one run's prefixes at each core-supplied unit-end offset; `NULL` keeps the per-unit prefix-measure fallback (see below) |
@@ -532,7 +557,7 @@ are the preferred contract for new backends, are appended to the struct for
 designated-initializer compatibility, and are used whenever both the core path
 and the backend provide them. All three in-tree adapters wire both slice
 callbacks; Raylib's `draw_text_slice` makes the NUL-terminated copy itself
-(`DrawTextEx` needs a C string), and Raylib also wires
+(Raylib's codepoint decoder needs a C string), and Raylib also wires
 `measure_text_advances`. Recorded text commands store only `(bytes, len)`;
 Wollix materializes a temporary null-terminated copy only when dispatching
 through the legacy `draw_text` / `measure_text` fallback. For text without
@@ -579,28 +604,6 @@ callback, so the three paths cannot disagree. All three in-tree
 adapters implement the callback (SDL3 requires SDL_ttf >= 3.3.0; older
 builds simply stay on the fallback). See `docs/LINE_RUN_MODEL.md` §5
 and §14 for where it sits in the pipeline.
-
-### `wlx_backend_from_v1` (deprecated shim)
-
-```c
-typedef struct { /* the v0.8 WLX_Backend: same members, no user, no version */ } WLX_Backend_V1;
-WLXDEF WLX_Backend wlx_backend_from_v1(const WLX_Backend_V1 *v1);
-```
-
-Wraps a v0.8-shaped table in a v2 one: 22 trampolines reach the v1 table
-through `user`, and a `NULL` v1 member stays `NULL` on the v2 table so the
-core's optional fallbacks apply as for a native table. The caller keeps
-the v1 table alive for the context's lifetime (static storage in
-practice):
-
-```c
-static WLX_Backend_V1 my_table = { .draw_rect = my_draw_rect, /* ... */ };
-ctx->backend = wlx_backend_from_v1(&my_table);
-```
-
-Removed, with `WLX_Backend_V1`, in the first minor release after 0.9; the
-real migration is appending `void *user` to every callback and setting
-`.contract_version`.
 
 ### `wlx_set_style_transform`
 
@@ -735,9 +738,7 @@ typedef enum {
 Used for both widget placement inside a slot (`slot_align`: the widget rect
 inside its layout slot) and content placement inside a widget
 (`content_align`: text or image inside the widget rect). The names pair with
-`padding` (slot inset) and `content_padding` (content inset). `widget_align`
-and `align` are the deprecated pre-0.9 names: same storage, removed in the
-first minor release after 0.9.
+`padding` (slot inset) and `content_padding` (content inset).
 
 ### `WLX_Size_Kind`
 
@@ -1610,6 +1611,7 @@ sites the default prints one suppression line and stays silent.
 | Positional `.pos` on a dynamic layout | `WLX_ERR_BAD_ARGUMENT` | Taken in sequence |
 | A required pointer that is NULL (`buffer`, `value`, `active`, `selected`, `open`, `length`) | `WLX_ERR_BAD_ARGUMENT` | The widget returns `false` and draws nothing; a dropdown with `options == NULL` and a nonzero count shows no options |
 | More slots than `WLX_CONTENT_SLOTS_MAX` with CONTENT sizes | `WLX_ERR_LIMIT` | CONTENT tracking is off for that layout; its CONTENT slots take their minimum size |
+| A grid with a CONTENT column and more columns than `WLX_CONTENT_SLOTS_MAX` | `WLX_ERR_LIMIT` | CONTENT tracking is off for that grid's columns, which take their minimum size; its rows are unaffected |
 | No usable backend table at `wlx_begin` | `WLX_ERR_BACKEND` | Reported, then fatal (`WLX_HARD_ASSERT`): there is no frame without a table |
 | `get_content_scale` returns a value outside `[WLX_CONTENT_SCALE_MIN, WLX_CONTENT_SCALE_MAX]`, or NaN | `WLX_ERR_BACKEND_ANSWER` | Reported at `wlx_begin`; the frame runs at 1.0 |
 | `wlx_split_next` / `wlx_split_end` with no split open, or `wlx_split_end` without `wlx_split_next` (`WLX_DEBUG` builds only) | `WLX_ERR_UNBALANCED_END` | Reported; the call goes on (the structural damage of a missing or stray split call is reported in every build by the scroll-panel and layout ends) |
@@ -1697,6 +1699,99 @@ to choose a scaled image asset or to size drawing the application does
 itself; the layout, the theme and every option field stay in units. See
 [Coordinate space](#coordinate-space).
 
+### `wlx_frame_delay`
+
+```c
+float wlx_frame_delay(const WLX_Context *ctx);
+```
+
+When the next frame is needed, read after `wlx_end`:
+
+| Value | Meaning |
+|-------|---------|
+| `0` | Produce the next frame now |
+| greater than `0` | No frame is needed for that many seconds unless input arrives |
+| negative (`WLX_UNSET`) | Nothing is scheduled: only input needs a frame |
+
+It reads `0` before the context's first `wlx_end`. The value is advice for
+the application's loop. Producing a frame sooner is always correct, and the
+library itself never waits or skips anything.
+
+The delay is `0` when any of these holds for the frame that just ended:
+
+- **Input.** The input the handler delivered differs from the previous
+  frame's, or carries an event: a press on any button, wheel motion, a key
+  press or repeat, committed text.
+- **A request for now** (below).
+- **A change in what was drawn.** The frame's backend draw calls, with
+  their resolved positions, differ from the previous frame's. The first
+  frame differs by definition.
+- **`wlx_begin_immediate`.** Draw calls go straight to the backend there,
+  so nothing is compared and every frame asks for the next.
+
+Otherwise it is the earliest timed request, or negative when there is
+none. The core requests its own frames: a focused text widget asks for the
+caret's next blink edge, a tooltip for the rest of its delay, and a drag
+held past a text widget's edge for the next frame while the view can
+still scroll toward it.
+
+The comparison sees what Wollix sends to the backend. It cannot see pixels
+that change behind an unchanged texture handle, anything the application
+draws itself, or data that will change what the next frame draws. Each of
+those needs a request.
+
+Each adapter has a helper that acts on the value:
+[`wlx_raylib_wait_frame`](#wlx_raylib_wait_frame),
+[`wlx_sdl3_wait_frame`](#wlx_sdl3_wait_frame) and
+[`wlx_wasm_schedule_frame`](#wlx_wasm_schedule_frame). A loop of the
+application's own reads it directly. The helpers take one context; an
+application with several in one loop takes the smallest of their values
+itself, counting a negative one as no deadline.
+[Frames on demand](LAYOUT_MODEL.md#frames-on-demand) has the model.
+
+### `wlx_request_frame`
+
+```c
+void wlx_request_frame(WLX_Context *ctx);
+void wlx_request_frame_after(WLX_Context *ctx, float seconds);
+```
+
+Ask for the next frame now, or no later than `seconds` from now. A
+non-positive or not-a-number `seconds` means now; an infinite one never
+comes due and is no request.
+
+A request can only bring the next frame sooner: the earliest wins, and a
+later one never postpones it. Both are callable at any time on the
+context's thread. A request made between `wlx_begin` and `wlx_end` becomes
+part of that frame's [`wlx_frame_delay`](#wlx_frame_delay); one made after
+`wlx_end` lowers the value at once. `wlx_begin` clears the requests of the
+frame before, so a continuing animation asks again every frame.
+
+A custom widget with its own timer, and an application that animates or
+receives data between frames, call these so that a loop waiting on
+`wlx_frame_delay` wakes for them. On the web a request made between frames
+reaches the host only through
+[`wlx_wasm_schedule_frame`](#wlx_wasm_schedule_frame), called right after
+it. They are not thread-safe, as the context is not.
+
+### `wlx_get_frame_time`
+
+```c
+static inline float wlx_get_frame_time(WLX_Context *ctx);
+```
+
+The time since the previous frame, in seconds: the one sample `wlx_begin`
+took from `backend.get_frame_time`. Every read within a frame returns the
+same value, and the backend is not called again.
+
+It is real time. In a loop that waits between frames the wait is part of
+it, so after a rest it can be seconds long. The core's timers and the
+delays given to `wlx_request_frame_after` are measured against it, and an
+application's timers stay right by subtracting it. An animation that a
+long step would overshoot bounds its own step. Prefer it to the
+platform's frame time: Raylib's `GetFrameTime` and `GetFPS` say little in
+a loop that calls `wlx_raylib_wait_frame`.
+
 ### `wlx_text_input_area`
 
 ```c
@@ -1734,6 +1829,7 @@ while (!WindowShouldClose()) {
         // ... wlx_layout_begin / widgets / wlx_layout_end ...
     wlx_end(ctx);  // replays deferred draw commands; must precede EndDrawing
     EndDrawing();
+    wlx_raylib_wait_frame(ctx);  // optional: rest until a frame is needed
 }
 ```
 
@@ -1765,7 +1861,7 @@ parent layout.
 | `overflow` | `bool` | `false` | Allow exceeding slot bounds |
 | `padding` | `float` | `0` | Uniform inset on the slot |
 | `sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `count` slot sizes. `NULL` = equal division |
-| `gap` | `float` | `0` | Spacing between adjacent slots; a negative value (`WLX_UNSET`, `WLX_FLOAT_UNSET`) reads as `0` |
+| `gap` | `float` | `0` | Spacing between adjacent slots; a negative value (`WLX_UNSET` included) reads as `0` |
 | `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every slot |
 | `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every slot |
 | `slot_border_width` | `float` | `0` | Border thickness in units (`0` = no border) |
@@ -2018,8 +2114,8 @@ Push a fixed-size grid layout.
 | `rounded_segments` | `int` | `0` | Segment count for rounded corners (`0` = theme default) |
 | `rounded_corners` | `int` | `0` | `WLX_CORNERS_*` mask of which corners use the radius; `0` = all four. Omitted corners are squared off (fill only) |
 | `gap` | `float` | `0` | Spacing between adjacent cells; a negative value reads as `0` |
-| `row_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `rows` row sizes. `NULL` = equal division. Supports `WLX_SLOT_CONTENT` (with min/max) for rows that adapt to the tallest widget per row (one-frame delay). Max 32 CONTENT rows. |
-| `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes. `NULL` = equal division |
+| `row_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `rows` row sizes. `NULL` = equal division. Supports `WLX_SLOT_CONTENT` (with min/max) for rows that adapt to the tallest one-row cell per row (one-frame delay). With a CONTENT row, at most 32 rows. |
+| `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes. `NULL` = equal division. Supports `WLX_SLOT_CONTENT` (with min/max) for columns that fit the widest one-column cell per column: its explicit `.width`, else its intrinsic width (one-frame delay). With a CONTENT column, at most 32 columns. |
 | `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every cell |
 | `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every cell |
 | `slot_border_width` | `float` | `0` | Border thickness in units (`0` = no border) |
@@ -2057,7 +2153,7 @@ Push a dynamic grid whose row count grows as children are added.
 | `rounded_segments` | `int` | `0` | Segment count for rounded corners (`0` = theme default) |
 | `rounded_corners` | `int` | `0` | `WLX_CORNERS_*` mask of which corners use the radius; `0` = all four. Omitted corners are squared off (fill only) |
 | `gap` | `float` | `0` | Spacing between adjacent cells; a negative value reads as `0` |
-| `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes |
+| `col_sizes` | `const WLX_Slot_Size *` | `NULL` | Array of `cols` column sizes. Supports `WLX_SLOT_CONTENT` (with min/max): the column fits the widest one-column cell among the rows laid out in the frame (one-frame delay; at most 32 columns) |
 | `slot_back_color` | `WLX_Color` | `{0}` | Background fill drawn behind every cell |
 | `slot_border_color` | `WLX_Color` | `{0}` | Border color drawn around every cell |
 | `slot_border_width` | `float` | `0` | Border thickness in units (`0` = no border) |
@@ -2073,7 +2169,9 @@ Use `border_*` to decorate the outer grid rect and `slot_border_*` to decorate e
 
 Convenience: tile grid where the column count is derived from `tile_w`.
 Equivalent to `cols = floor(available_width / tile_w)` then
-`wlx_grid_begin_auto(ctx, cols, tile_h, ...)`.
+`wlx_grid_begin_auto(ctx, cols, tile_h, ...)`, with one difference:
+`WLX_SLOT_CONTENT` in `col_sizes` is not measured here and takes its
+minimum, because the column count itself comes from the width.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -2102,8 +2200,8 @@ row not grown yet grows the grid to it; only the columns and
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `row_span` | `size_t` | `1` | Number of rows to span (`0` spans one; above `WLX_MAX_SLOT_COUNT` is reported and spans one) |
-| `col_span` | `size_t` | `1` | Number of columns to span (same rule) |
+| `row_span` | `size_t` | `1` | Number of rows to span (`0` spans one; above `WLX_MAX_SLOT_COUNT` is reported and spans one). A cell that spans several rows sizes no `WLX_SLOT_CONTENT` row and adds nothing to the content height the grid reports to its parent |
+| `col_span` | `size_t` | `1` | Number of columns to span (same rule). A cell that spans several columns sizes no `WLX_SLOT_CONTENT` column |
 | `back_color` | `WLX_Color` | `{0}` | One-shot background fill for this cell only |
 | `border_color` | `WLX_Color` | `{0}` | One-shot border color for this cell only |
 | `border_width` | `float` | `0` | One-shot border thickness for this cell only |
@@ -3013,7 +3111,7 @@ widget's intrinsic width is `src.w`, or the texture's width when
 | *placement* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | *sizing* | | | See [Shared Option Field Macros](#shared-option-field-macros) |
 | `scale` | `WLX_Image_Scale` | `WLX_IMAGE_SCALE_STRETCH` | How the texture fits the widget rect; see [`WLX_Image_Scale`](#wlx_image_scale). |
-| `content_align` | `WLX_Align` | `WLX_CENTER` | Positions the image inside the widget rect under `FIT` and `NONE`, and anchors the crop under `FILL`; no effect under `STRETCH`. `align` is its pre-0.9 name (same storage, removed in the first minor release after 0.9). |
+| `content_align` | `WLX_Align` | `WLX_CENTER` | Positions the image inside the widget rect under `FIT` and `NONE`, and anchors the crop under `FILL`; no effect under `STRETCH`. |
 | `tint` | `WLX_Color` | `{0}` | Tint applied to the texture. `{0}` resolves to `WLX_WHITE`; alpha multiplied by the opacity stack. |
 | `src` | `WLX_Rect` | `{0}` | Source sub-rect. `w` or `h <= 0` means the full texture. |
 | `id` | `const char *` | `NULL` | Explicit widget ID. `NULL` = auto from call-site |
@@ -3833,7 +3931,7 @@ press. Returns whether the tip is showing. Persistent state:
 |-------|------|---------|-------------|
 | `delay` | `float` | `WLX_UNSET` | Hover seconds before showing. `< 0` = 0.5 |
 | `offset_x` / `offset_y` | `float` | `12` / `18` | Tip origin relative to the pointer |
-| `content_padding` (+ per-side) | `float` | `WLX_UNSET` | Inner text inset; unset = 6. `.padding` is the deprecated pre-0.9 name of the uniform field (same storage, removed in the first minor after 0.9) |
+| `content_padding` (+ per-side) | `float` | `WLX_UNSET` | Inner text inset; unset = 6 |
 | *typography* | | | `font`, `font_size`, `content_align`, `spacing` |
 | `front_color` / `back_color` | `WLX_Color` | `{0}` | `{0}` = theme foreground / background |
 | `border_color` / `border_width` | | `{0}` / `WLX_UNSET` | Unset = theme |
@@ -3944,14 +4042,13 @@ Injected fields: `pos`, `span`, `overflow`, `padding`.
 
 ### `WLX_WIDGET_SIZING_FIELDS` / `WLX_WIDGET_SIZING_DEFAULTS`
 
-Injected fields: `slot_align` (alias `widget_align`, deprecated), `width`,
+Injected fields: `slot_align`, `width`,
 `height`, `min_width`, `min_height`,
 `max_width`, `max_height`, `opacity`.
 
 ### `WLX_TEXT_TYPOGRAPHY_FIELDS` / `WLX_TEXT_TYPOGRAPHY_DEFAULTS`
 
-Injected fields: `font`, `font_size`, `content_align` (alias `align`,
-deprecated), `wrap`, `spacing`.
+Injected fields: `font`, `font_size`, `content_align`, `wrap`, `spacing`.
 
 `spacing` defaults to `0`, which means natural backend spacing.
 
@@ -4049,7 +4146,6 @@ per-field tables in [SENTINEL.md](SENTINEL.md)):
 |------|-------|---------|
 | Rule Z | `0` / `{0}` / `NULL` | Unset, only on fields where zero can never be a meaningful explicit value (colors, fonts, pointers, `font_size`, `min_*` / `max_*`, ...) |
 | `WLX_UNSET` | `(-1)` | Unset on every numeric field where zero is a meaningful explicit value (`border_width`, `roundness`, `opacity`, `width`, `height`, `pos`, `content_padding`, the brightness shifts, ...). Converts to `int` and `float` fields alike; writing it explicitly means the same as omitting the field |
-| `WLX_FLOAT_UNSET` | `(-1e30f)` | Deprecated pre-0.9 spelling of `WLX_UNSET` for the brightness fields; still resolves as unset. Removed in the first minor release after 0.9 |
 | `WLX_PADDING_USE_THEME` | `(-2.0f)` | Request token on the uniform `content_padding`: resolve unset sides to `WLX_Theme.padding` |
 | `WLX_SCROLL_AUTO_HEIGHT` | `(-1.0f)` | Request token for `wlx_scroll_panel_begin`'s `content_height`: measure the content during the frame |
 
@@ -4133,9 +4229,10 @@ implementation internals and can only be included where
 `WOLLIX_IMPLEMENTATION` is defined (this is true for multi-file C programs
 too). Put `wlx_context_init_<backend>`, `wlx_<backend>_root_rect` and the
 `wlx_begin` call with `wlx_process_<backend>_input` behind small C functions
-the C++ side calls;
-`wlx_end`, `wlx_context_destroy` and everything else in the core are
-callable directly.
+the C++ side calls, and the adapter's frame-wait helper too when the loop
+rests between frames (`wlx_raylib_wait_frame`, `wlx_sdl3_wait_frame`);
+`wlx_end`, `wlx_context_destroy`, `wlx_frame_delay`, the frame requests
+and everything else in the core are callable directly.
 
 **Options come from the defaults functions.** Take
 `wlx_<widget>_opt_defaults()`, assign fields, and call the struct-form
@@ -4306,6 +4403,81 @@ under any scale. Prefer it to `GetRenderWidth`, which is the framebuffer
 in units and twice the drawable space on a 2x display under
 `FLAG_WINDOW_HIGHDPI`.
 
+### `wlx_raylib_wait_frame`
+
+```c
+static inline void wlx_raylib_wait_frame(WLX_Context *ctx);
+```
+
+Wait until the next frame is needed. Call it once per loop iteration,
+after `EndDrawing`, in a loop that reads its input through
+`wlx_process_raylib_input`:
+
+```c
+wlx_end(ctx);
+EndDrawing();
+wlx_raylib_wait_frame(ctx);
+```
+
+Calling it is the whole opt-in: a loop that never calls it draws every
+frame, as before. It acts on [`wlx_frame_delay`](#wlx_frame_delay):
+
+| Delay | The helper |
+|-------|------------|
+| `0` | Returns at once. So does input that `EndDrawing`'s own poll already brought |
+| Negative | Blocks in one `PollInputEvents` under Raylib's event waiting and returns when a window event ends that |
+| Greater than `0` | Sleeps in slices of at most 1/60 s, `WaitTime` then `PollInputEvents`, until input arrives or the delay has passed |
+
+**No input is lost.** A Raylib poll erases what the poll before it
+brought: press edges, repeat flags, the wheel, the character queue, a
+close request, a resize. The helper looks after every poll and returns at
+the first sign of any of them, before a second poll can run. It watches
+mouse motion, the wheel, every mouse button and every keyboard key (not
+only the ones Wollix maps, so the application's own `IsKeyPressed` reads
+keep their edges), typed characters, a close request, a resize, a focus
+change and a content-scale change. The characters it takes from Raylib's
+queue while looking reach the next frame through
+`wlx_process_raylib_input`.
+
+**Frame time.** From the helper's first call on, the adapter reports frame
+time from its own clock (`GetTime`), the wait included, so timers see
+real time. That holds in an iteration that skips the helper too (a loop
+that waits only while idle, `if (!animating) wlx_raylib_wait_frame(ctx);`):
+Raylib's own frame time takes a wait in one frame late, and would count it
+twice. `GetFrameTime` and `GetFPS` are Raylib's own and say little in a
+loop that waits; read [`wlx_get_frame_time`](#wlx_get_frame_time). A loop
+that never calls the helper gets `GetFrameTime` exactly, as before.
+
+**Cost.** With nothing scheduled the wait blocks and uses no processor
+time. While a delay is pending (a blinking caret, a tooltip's delay)
+Raylib's `WaitTime` spins for part of every interval: about 5 % of one
+core where it was measured, however few frames are drawn.
+
+**Limits.**
+
+- A timed wait cannot see the window being uncovered, because no public
+  Raylib call reports it. On an X server without a compositor the window
+  is repainted when the wait ends, not before. The blocking wait wakes
+  for it.
+- An application that reads `GetCharPressed` itself, beside Wollix, does
+  not see the characters the helper took.
+- The helper leaves Raylib's event waiting switched off. It takes the
+  place of `EnableEventWaiting`; the two do not combine.
+- Gamepads and gestures are not watched. An application that draws from
+  those, from its own animation or from data arriving elsewhere asks with
+  `wlx_request_frame` or `wlx_request_frame_after`, or does not call the
+  helper.
+- It serves one context per window, as the adapter's input does.
+- The blocking wait needs a platform that honours Raylib's event waiting:
+  the desktop GLFW platform, Raylib's default. Raylib 5.5's SDL, RGFW, DRM
+  and Android platforms never read that flag, so there the blocking branch
+  returns after one poll and the loop does not rest. Nothing is lost.
+- In a [`WLX_FRAME_CHECK`](#wlx_frame_check) build it never waits. On
+  Raylib's web platform, where the browser owns the loop, it returns at
+  once.
+
+It uses only functions that `raylib.h` declares.
+
 ### High-DPI with Raylib
 
 Set `FLAG_WINDOW_HIGHDPI` before `InitWindow`; Raylib then draws, clips
@@ -4367,6 +4539,40 @@ Linear-probe window length for the open-addressed Raylib measurement cache.
 Default `8`. Lookups walk up to this many slots starting at
 `text_hash & (slots - 1)` before declaring a miss.
 
+### `WLX_RAYLIB_GLYPH_TABLE_CODEPOINTS`, `WLX_RAYLIB_GLYPH_TABLE_FONTS`
+
+```c
+// #define WLX_RAYLIB_GLYPH_TABLE_CODEPOINTS 512
+// #define WLX_RAYLIB_GLYPH_TABLE_FONTS 8
+```
+
+Size the Raylib backend's glyph tables before including
+`wollix_raylib.h`. Raylib finds a glyph with `GetGlyphIndex`, a linear
+search over `font.glyphs`, and its `DrawTextEx` runs that search twice for
+every glyph it draws. The adapter draws text with `DrawTextEx`'s own
+placement and looks each glyph up once, through a per-font table from
+codepoint to glyph index.
+
+- `WLX_RAYLIB_GLYPH_TABLE_CODEPOINTS` is the number of codepoints a table
+  covers, from 0. The default `512` covers ASCII, Latin-1 and Latin
+  Extended-A. A codepoint at or above it takes Raylib's search, once per
+  glyph.
+- `WLX_RAYLIB_GLYPH_TABLE_FONTS` is the number of fonts that hold a table
+  at one time. The default is `8`. One font more takes the slot that was
+  handed out longest ago, and its table fills again as it draws.
+- Setting either to `0` compiles the tables out. Every glyph then takes
+  the search, still once.
+
+The tables are static: `fonts × codepoints × 4` bytes, 16 KB at the
+defaults. An entry is filled the first time its codepoint is drawn or
+measured, and is checked against the font on every read, so a font that
+is unloaded and reloaded at the same address never draws from a stale
+entry. A codepoint the font lacks (Raylib's `?` fallback) is not
+remembered and takes the search each time.
+
+Text that contains a line break, and a font Raylib cannot index, are
+passed to `DrawTextEx` unchanged.
+
 ### `wlx_raylib_text_cache_clear`
 
 ```c
@@ -4390,9 +4596,13 @@ so calling defensively is cheap.
 Cache key shape: `(font_handle, font_size_bits, spacing_bits, text_len,
 text_hash)` where the float fields are bit-cast 32-bit reinterpretations and
 `text_hash` is a 64-bit FNV-1a over the byte range. Color is **not** part of
-the key; color is applied per draw via `style.color` on the unchanged
-`wlx_raylib_draw_text` passthrough to `DrawTextEx`. Cache hits never call
+the key; color is applied per draw via `style.color` in
+`wlx_raylib_draw_text`, which is not cached. Cache hits never call
 `MeasureTextEx`; misses call it once and store the result.
+
+The flush also releases the glyph tables (see
+`WLX_RAYLIB_GLYPH_TABLE_CODEPOINTS`). They do not depend on it: each
+entry is checked against its font when it is read.
 
 Whole-string `wlx_raylib_measure_text` and slice-aware
 `wlx_raylib_measure_text_slice` share the same cache and key semantics.
@@ -4451,6 +4661,7 @@ int main(void) {
                 // ... widgets ...
             wlx_end(&ctx);
             EndDrawing();
+        wlx_raylib_wait_frame(&ctx);   // optional: rest until a frame is needed
     }
 
     wlx_context_destroy(&ctx);
@@ -4542,6 +4753,45 @@ any scale without application work; measures come back in units. It
 assumes the renderer's own scale and logical presentation are left at
 their defaults. The scale is read from the renderer's window, so a table
 built with `wlx_backend_sdl3(renderer)` directly gets it too.
+
+### `wlx_sdl3_wait_frame`
+
+```c
+static inline void wlx_sdl3_wait_frame(WLX_Context *ctx);
+```
+
+Wait until the next frame is needed. Call it once per loop iteration,
+after `SDL_RenderPresent` and before the application polls its events, on
+the thread that runs the event loop:
+
+```c
+wlx_end(ctx);
+SDL_RenderPresent(renderer);
+wlx_sdl3_wait_frame(ctx);
+```
+
+Calling it is the whole opt-in: a loop that never calls it draws every
+frame, as before. It acts on [`wlx_frame_delay`](#wlx_frame_delay):
+
+| Delay | The helper |
+|-------|------------|
+| `0` | Returns at once |
+| Negative | Waits for an event (`SDL_WaitEvent`) |
+| Greater than `0` | Waits for an event no longer than the delay (`SDL_WaitEventTimeout`, the delay rounded up to a whole millisecond) |
+
+**No input is lost.** The event that ends the wait stays in the queue for
+the application's own `SDL_PollEvent` loop, and the adapter's event watch
+sees wheel, text and key events as they arrive, whoever pumps.
+
+**Frame time** needs nothing: the adapter's frame time is already the
+real time between frames, the wait included.
+
+**Waking from elsewhere.** Any SDL event ends the wait, a window event or
+one the application pushes (`SDL_PushEvent`, from any thread) included.
+An application whose picture changes for a reason Wollix cannot see asks
+with `wlx_request_frame` or `wlx_request_frame_after` on the loop's
+thread, or pushes an event. In a
+[`WLX_FRAME_CHECK`](#wlx_frame_check) build the helper never waits.
 
 ### `wlx_texture_from_sdl3`
 
@@ -4755,6 +5005,7 @@ int main(void) {
             // ... widgets ...
         wlx_end(&ctx);
             SDL_RenderPresent(ren);
+        wlx_sdl3_wait_frame(&ctx);   // optional: rest until a frame is needed
     }
 
     wlx_context_destroy(&ctx);
@@ -4775,7 +5026,10 @@ dashboard showcase. Every `WLX_Backend` callback is bridged to a wasm import
 in the `"wlx"` module (`draw_rect`, `draw_text_slice`, `measure_text_advances`,
 `draw_texture`, `begin_scissor`, `get_frame_time`, `content_scale`,
 `clipboard_get_into`, `clipboard_set`, `set_cursor`, ...); structs are flattened to scalars and
-`WLX_Color` is packed as one `uint32_t` (`0xRRGGBBAA`).
+`WLX_Color` is packed as one `uint32_t` (`0xRRGGBBAA`). Two imports are
+taken only by a module that uses them: `schedule_frame`
+([`wlx_wasm_schedule_frame`](#wlx_wasm_schedule_frame)) and `perf_now_ns`
+(`WLX_WASM_PERF_TIMESTAMP`, below). The host provides both.
 
 ### `wlx_context_init_wasm`
 
@@ -4790,7 +5044,8 @@ Set all `ctx->backend` function pointers to the wasm-import implementations
 text proxy).
 `draw_gradient_v`, `draw_shadow` and `draw_glow` stay `NULL` (software
 fallbacks). Under `WLX_PERF` it installs a timer only when
-`WLX_WASM_PERF_TIMESTAMP` is defined (the host then provides `perf_now_ns`).
+`WLX_WASM_PERF_TIMESTAMP` is defined; the module then imports `perf_now_ns`,
+a monotonic clock in nanoseconds, which `web/wollix_wasm.js` provides.
 
 ### `wlx_process_wasm_input`
 
@@ -4815,6 +5070,72 @@ the caret line so the browser's input method engages there; composition
 and dead keys reach the widgets through it. The app exports
 `wlx_wasm_init` / `wlx_wasm_frame(width, height)` (see
 `demos/dashboard/dashboard.c`).
+
+### `wlx_wasm_schedule_frame`
+
+```c
+static inline void wlx_wasm_schedule_frame(WLX_Context *ctx);
+```
+
+Tell the host when the next frame is needed. Call it once per frame,
+after `wlx_end`, inside the exported frame function:
+
+```c
+wlx_end(ctx);
+wlx_wasm_schedule_frame(ctx);
+```
+
+Call it as well after a request made between frames, in the export that
+received the data, so that a resting loop wakes for it:
+
+```c
+wlx_request_frame(ctx);         // the new data changes the picture
+wlx_wasm_schedule_frame(ctx);   // outside the frame export: acts at once
+```
+
+Calling it is the whole opt-in. It passes
+[`wlx_frame_delay`](#wlx_frame_delay) to the host through the
+`schedule_frame(seconds)` import and returns immediately: on the web the
+host owns the loop, so nothing waits here. A module that never calls it
+does not import `schedule_frame`, and the host then runs a frame on every
+animation tick, as before.
+
+| Scheduled | The host (`web/wollix_wasm.js`) |
+|-----------|---------------------------------|
+| `0` | Runs the next frame on the next animation tick |
+| Greater than `0` | Runs no frame until the delay has passed, then one |
+| Negative | Runs no frame until something wakes the loop |
+
+Inside the frame export the host acts on the value once the frame returns.
+Anywhere else it acts at once, and only to bring a frame sooner: `0` wakes
+the loop, a positive delay sets the timer unless a frame is already on its
+way or due earlier, and a negative value changes nothing.
+
+**What wakes the loop:** pointer, wheel and keyboard events, the
+composition proxy's events, paste, copy and cut, window focus and blur, a
+canvas that changed size, a changed device-pixel ratio, and a page shown
+again. Size and pixel ratio are also compared twice a second without
+drawing, since not every browser reports every such change. The host's
+frame cap keeps applying.
+
+**Frame time.** After a frame that scheduled a wait, the next frame's
+time is the real time that passed, however long: a tab hidden for an hour
+while a caret blinks gives a first frame of an hour. After a frame that
+asked for the next at once, and in a module that never schedules, the
+host clamps frame time to 0.25 s, as it always did, so a page that draws
+every frame does not jump after a background tab. An application that
+steps an animation by frame time bounds the step itself.
+
+**Diagnosis.** Two query parameters on the page: `?wlx_continuous=1` runs
+a frame on every tick whatever the application scheduled, which tells a
+picture frozen by a missed wake from one frozen by anything else;
+`?wlx_frame_stats=1` exposes `window.__wlx_frame_stats__` with `frames`,
+the number of frames run, and `scheduled`, what the last one asked for.
+In a [`WLX_FRAME_CHECK`](#wlx_frame_check) build the call always asks for
+the next frame.
+
+An application whose picture changes for a reason Wollix cannot see asks
+with `wlx_request_frame` or `wlx_request_frame_after` before this call.
 
 ### `wlx_wasm_texture_create` / `wlx_wasm_texture_destroy`
 

@@ -1,6 +1,8 @@
 // wollix_wasm.js — JS host for the wollix bare-wasm32 backend.
 // Loads a .wasm module, provides Canvas 2D rendering imports, handles input,
-// and drives the frame loop with requestAnimationFrame.
+// and drives the frame loop with requestAnimationFrame. An application that
+// schedules its frames (wlx_wasm_schedule_frame) gets one only when it asked
+// for one or input arrived; any other application gets one on every tick.
 //
 // Usage: <script type="module" src="wollix_wasm.js"></script>
 //        with a <canvas id="wlx-canvas"> in the page.
@@ -331,6 +333,20 @@ function probeCtxFilterSupported() {
     let frameTime = 0;
     let targetInterval = TARGET_FPS > 0 ? 1000 / TARGET_FPS : 0;
     let lastRenderedTime = 0;
+
+    // Frame scheduling. During its frame an application may say when it needs
+    // the next one (the schedule_frame import): 0 now, a positive number of
+    // seconds later, negative only when input arrives. One that never says
+    // is given a frame on every animation tick, as before.
+    let scheduled = null;         // what this frame asked for; null = nothing
+    let lastScheduled = null;     // what the previous frame ended with
+    let framePending = false;     // an animation frame is already requested
+    let wakeTimer = 0;            // the timer of a positive request
+    let wakeDeadline = 0;         // frame-clock time that request comes due
+    let inputWake = false;        // the pending frame was asked for by an event
+    let inFrame = false;          // the module's frame export is running
+    let frameCount = 0;           // frames run, for ?wlx_frame_stats=1
+    let forceContinuous = false;  // ?wlx_continuous=1: ignore what is scheduled
 
     // Texture registry: maps handle -> { canvas, w, h, variants, bypassed }.
     // Handle 0 is reserved as invalid so the C side can short-circuit on a
@@ -743,6 +759,25 @@ function probeCtxFilterSupported() {
             return frameTime;
         },
 
+        // When the application needs its next frame, in seconds: 0 now,
+        // positive that much later, negative only when input arrives. Made
+        // inside the frame export it is read once the frame returns. Made
+        // anywhere else (an export that delivered data, a callback) it acts
+        // at once: the loop may be resting, and nothing else would end
+        // that. An application that never calls it keeps the continuous
+        // loop.
+        schedule_frame(seconds) {
+            if (inFrame) scheduled = seconds;
+            else scheduleBetweenFrames(seconds);
+        },
+
+        // A monotonic clock in nanoseconds, for a module built with WLX_PERF
+        // and WLX_WASM_PERF_TIMESTAMP: it times its own frames with it. The
+        // value crosses as a 64-bit integer, so it is a BigInt here.
+        perf_now_ns() {
+            return BigInt(Math.round(performance.now() * 1e6));
+        },
+
         // Open a URL from a NUL-terminated wasm-memory C string in a new tab.
         // The dashboard's reference links route through here on the WASM backend.
         open_url(strPtr) {
@@ -893,6 +928,19 @@ function probeCtxFilterSupported() {
     ctxFilterSupported = probeCtxFilterSupported();
 
     const queryParams = new URLSearchParams(window.location.search);
+
+    // Frame scheduling switches for diagnosis. `?wlx_continuous=1` runs a
+    // frame on every tick whatever the application scheduled, to tell a
+    // frozen picture caused by a missed wake from one caused by anything
+    // else. `?wlx_frame_stats=1` exposes how many frames have run and what
+    // the last one scheduled.
+    forceContinuous = queryParams.get("wlx_continuous") === "1";
+    if (queryParams.get("wlx_frame_stats") === "1") {
+        window.__wlx_frame_stats__ = {
+            get frames() { return frameCount; },
+            get scheduled() { return lastScheduled; },
+        };
+    }
 
     // Debug-only hooks. Enabled by appending `?wlx_debug=1` to the page URL.
     // wlx_debug_force_bypass(handle, on) flips the per-texture bypass flag so
@@ -1103,8 +1151,15 @@ function probeCtxFilterSupported() {
         frameTime = 0;              // extra paint: advance no animation time
         ctx.clearRect(0, 0, displayW, displayH);
         writeInputToWasm();
-        wasmFrame(displayW, displayH);
-        frameTime = savedFrameTime;
+        // Its schedule is not acted on: the copy or cut event that follows
+        // wakes the loop.
+        inFrame = true;
+        try {
+            wasmFrame(displayW, displayH);
+        } finally {
+            inFrame = false;
+            frameTime = savedFrameTime;
+        }
     }
 
     document.addEventListener("keydown", (e) => {
@@ -1251,20 +1306,100 @@ function probeCtxFilterSupported() {
     // ========================================================================
     // Frame loop
     // ========================================================================
-    function onFrame(timestamp) {
+    // Ask for one animation frame, unless one is already on its way.
+    function requestFrame() {
+        if (wakeTimer !== 0) {
+            clearTimeout(wakeTimer);
+            wakeTimer = 0;
+        }
+        if (framePending) return;
+        framePending = true;
         requestAnimationFrame(onFrame);
+    }
+
+    // Wake a resting loop: something the application reads has changed. Every
+    // listener that writes input state calls this (see "Wake paths" below).
+    function wake() {
+        inputWake = true;
+        requestFrame();
+    }
+
+    // Arm the one wake timer: a frame once `deadline` (frame-clock time) has
+    // passed, `delayMs` from now. A timer already armed is replaced, never
+    // left beside the new one: a second timer would fire after its frame
+    // and keep the loop ticking instead of resting.
+    function armWakeTimer(deadline, delayMs) {
+        if (wakeTimer !== 0) clearTimeout(wakeTimer);
+        wakeDeadline = deadline;
+        const id = setTimeout(() => {
+            if (wakeTimer !== id) return;
+            wakeTimer = 0;
+            requestFrame();
+        }, Math.min(Math.max(delayMs, 0), 0x7fffffff));
+        wakeTimer = id;
+    }
+
+    // After a frame: act on what it scheduled. Nothing scheduled (the
+    // application does not schedule its frames) or 0 runs the next tick; a
+    // positive delay runs one frame when it has passed; a negative one rests
+    // until something wakes the loop.
+    function scheduleNext() {
+        const s = forceContinuous ? null : scheduled;
+        lastScheduled = s;
+        if (s === null || s === 0 || Number.isNaN(s)) {
+            requestFrame();
+        } else if (s > 0) {
+            armWakeTimer(lastTime + s * 1000, s * 1000);
+        }
+    }
+
+    // A schedule made outside the frame export. It can only bring a frame
+    // sooner: 0 wakes the loop now; a positive delay arms the timer when no
+    // frame is already on its way and none is due earlier; a negative one
+    // changes nothing.
+    function scheduleBetweenFrames(s) {
+        if (forceContinuous) return;
+        if (s === 0 || Number.isNaN(s)) {
+            wake();
+        } else if (s > 0 && !framePending) {
+            const now = performance.now();
+            const deadline = now + s * 1000;
+            if (wakeTimer === 0 || deadline < wakeDeadline) armWakeTimer(deadline, s * 1000);
+        }
+    }
+
+    function onFrame(timestamp) {
+        framePending = false;
+
+        // A frame its timer woke runs once the delay has passed on the frame
+        // clock, which is what the application's timers are counted in.
+        // Animation ticks are whole frames apart, so the first one after the
+        // timer can still be a fraction of a millisecond short; the
+        // application would then find nothing due and ask again.
+        if (!inputWake && wakeDeadline > 0 && timestamp < wakeDeadline) {
+            requestFrame();
+            return;
+        }
+        inputWake = false;
+        wakeDeadline = 0;
 
         // Skip frame if below target interval
         if (targetInterval > 0) {
             if (lastRenderedTime > 0 && (timestamp - lastRenderedTime) < targetInterval - 1) {
+                requestFrame();   // too soon: the next tick decides again
                 return;
             }
             lastRenderedTime = timestamp;
         }
 
-        // Compute frame time in seconds (elapsed between rendered frames)
+        // Compute frame time in seconds (elapsed between rendered frames).
+        // After a wait the application scheduled, the whole wait is real
+        // time: its timers were set against it. Any other gap (a background
+        // tab, a stalled page) is clamped so animation does not jump.
         if (lastTime === 0) lastTime = timestamp;
-        frameTime = Math.min((timestamp - lastTime) / 1000, 0.25);
+        const elapsed = (timestamp - lastTime) / 1000;
+        const waited = lastScheduled !== null && lastScheduled !== 0 && !Number.isNaN(lastScheduled);
+        frameTime = waited ? elapsed : Math.min(elapsed, 0.25);
         lastTime = timestamp;
 
         // Resize canvas to match display size
@@ -1287,9 +1422,79 @@ function probeCtxFilterSupported() {
         // Push input into wasm memory
         writeInputToWasm();
 
-        // Call the wasm frame function with canvas dimensions
-        wasmFrame(displayW, displayH);
+        // Call the wasm frame function with canvas dimensions. A frame that
+        // throws still schedules the next, as the loop did when it asked
+        // for the next tick first: the error reaches the console, and the
+        // loop goes on.
+        scheduled = null;
+        inFrame = true;
+        try {
+            wasmFrame(displayW, displayH);
+            frameCount++;
+        } finally {
+            inFrame = false;
+            scheduleNext();
+        }
     }
 
-    requestAnimationFrame(onFrame);
+    // ========================================================================
+    // Wake paths
+    // ========================================================================
+    // A resting loop runs again when something the application reads has
+    // changed. Every listener above that writes input state has its event
+    // here; a listener added later belongs in this table too, or a loop at
+    // rest will not see what it wrote until something else wakes it.
+    for (const type of ["compositionstart", "compositionupdate", "compositionend",
+                        "input", "beforeinput", "blur", "focus"]) {
+        proxy.addEventListener(type, wake);
+    }
+    for (const type of ["pointermove", "pointerdown", "pointerup", "pointercancel", "wheel"]) {
+        canvas.addEventListener(type, wake, { passive: true });
+    }
+    for (const type of ["keydown", "keyup", "paste", "copy", "cut"]) {
+        document.addEventListener(type, wake);
+    }
+    // The window: a focus change (the proxy is re-focused from the frame),
+    // a page shown again, a canvas that changed size, a display with another
+    // pixel ratio. The running loop used to notice the last two by looking
+    // every frame.
+    window.addEventListener("focus", wake);
+    window.addEventListener("blur", wake);
+    window.addEventListener("pageshow", wake);
+    window.addEventListener("resize", wake);
+    document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) wake();
+    });
+    if (typeof ResizeObserver === "function") {
+        new ResizeObserver(wake).observe(canvas);
+    }
+    function watchPixelRatio() {
+        if (typeof window.matchMedia !== "function") return;
+        const query = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+        query.addEventListener("change", () => {
+            wake();
+            watchPixelRatio();    // the query names the old ratio: watch the new one
+        }, { once: true });
+    }
+    watchPixelRatio();
+
+    // The events above are how a size or pixel-ratio change normally
+    // arrives, but not every browser reports every such change, and the
+    // loop that used to compare both on each frame may now be at rest. So
+    // they are compared here twice a second, without drawing anything; a
+    // difference wakes the loop, which resizes the canvas as it always did.
+    let seenRatio = window.devicePixelRatio || 1;
+    let seenWidth = canvas.clientWidth;
+    let seenHeight = canvas.clientHeight;
+    setInterval(() => {
+        const ratio = window.devicePixelRatio || 1;
+        if (ratio === seenRatio && canvas.clientWidth === seenWidth
+                && canvas.clientHeight === seenHeight) return;
+        seenRatio = ratio;
+        seenWidth = canvas.clientWidth;
+        seenHeight = canvas.clientHeight;
+        wake();
+    }, 500);
+
+    wake();
 })();

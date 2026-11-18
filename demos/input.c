@@ -145,6 +145,10 @@ int main(void) {
 
         wlx_end(ctx);
             EndDrawing();
+
+        // Nothing here moves by itself: wait until input arrives or the
+        // focused field's caret is due to blink.
+        wlx_raylib_wait_frame(ctx);
     }
 
     CloseWindow();

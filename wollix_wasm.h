@@ -319,6 +319,16 @@ extern float wlx_wasm_import_get_frame_time(void);
 WLX_WASM_IMPORT("content_scale")
 extern float wlx_wasm_import_content_scale(void);
 
+// When the application needs its next frame, in seconds (wlx_frame_delay's
+// value): the host runs a frame at once for 0, after the delay for a
+// positive value, and only when input arrives for a negative one. Called
+// inside the frame export it is read once the frame returns; called
+// anywhere else it acts at once, and only to bring a frame sooner. A module
+// that never calls it does not import it, and the host then runs a frame on
+// every animation tick.
+WLX_WASM_IMPORT("schedule_frame")
+extern void wlx_wasm_import_schedule_frame(float seconds);
+
 // Clipboard transport. clipboard_get_into copies the host's cached clipboard
 // string into buf (up to cap bytes, UTF-8-boundary safe) and returns the byte
 // count. clipboard_set copies a (text, len) span to the host clipboard cache.
@@ -771,6 +781,36 @@ static inline WLX_Input_State *wlx_wasm_get_input_ptr(void) {
 
 static inline void wlx_process_wasm_input(WLX_Context *ctx) {
     ctx->input = wlx_wasm_input_state;
+}
+
+// Tell the host when the next frame is needed. Call it once per frame,
+// after wlx_end, inside the exported frame function:
+//
+//     wlx_end(ctx);
+//     wlx_wasm_schedule_frame(ctx);
+//
+// It passes wlx_frame_delay to the host, which then runs the next frame at
+// once, after the delay, or only when input arrives; the host wakes for
+// pointer, wheel, keyboard, composition and clipboard events, a resized
+// canvas, a changed pixel ratio and a page shown again. Nothing waits here:
+// on the web the host owns the loop, so this returns immediately.
+//
+// Calling it is the whole opt-in: a module that never calls it gets a frame
+// on every animation tick, as before. An application whose picture changes
+// for a reason Wollix cannot see (its own animation, data arriving from
+// elsewhere) asks with wlx_request_frame or wlx_request_frame_after before
+// this call. Data that arrives between frames, in another export, is the
+// same: request, then call this there; outside the frame export the host
+// acts on the value at once, so a resting loop wakes. In a WLX_FRAME_CHECK
+// build it always asks for the next frame.
+static inline void wlx_wasm_schedule_frame(WLX_Context *ctx) {
+    assert(ctx != NULL);
+#ifdef WLX_FRAME_CHECK
+    WLX_UNUSED(ctx);
+    wlx_wasm_import_schedule_frame(0.0f);
+#else
+    wlx_wasm_import_schedule_frame(wlx_frame_delay(ctx));
+#endif
 }
 
 // ============================================================================

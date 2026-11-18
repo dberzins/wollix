@@ -32,6 +32,11 @@ and fails when any check finds a problem:
   it (or its field group in its heading), and every Default cell that is a
   code span equals what the struct's `wlx_<x>_opt_defaults()` holds, a
   value resolved at use following in parentheses: `WLX_UNSET` (10).
+- **identity**: the tagline and the sentence that say what Wollix is
+  appear word for word in `README.md`, the `wollix.h` header comment,
+  `docs/API_REFERENCE.md` and the vcpkg port's description, as the
+  script's `IDENTITY_TAGLINE` and `IDENTITY_SENTENCE` give them, and no
+  tracked file except `CHANGELOG.md` carries a retired description.
 
 `DOCS_INCLUDES` sets the backend include directories (default: Raylib,
 SDL3 and SDL3_ttf under `~/opt`); `python3 tools/docs_check.py names`

@@ -1,7 +1,7 @@
 {
   "name": "wollix",
-  "version": "0.9.0",
-  "description": "Header-only C11 immediate-mode UI layout library with Raylib, SDL3 and bare-WASM backend adapters and a windowed text editor widget.",
+  "version": "0.10.0",
+  "description": "A header-only, immediate-mode UI toolkit for C11 that includes a text editor, with backends for Raylib, SDL3 and the web.",
   "homepage": "https://github.com/dberzins/wollix",
   "license": "MIT",
   "dependencies": [

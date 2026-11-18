@@ -42,6 +42,9 @@ static int test_span_assert_hits = 0;
 // drag auto-scroll and the horizontal wheel, and the view resets on blur.
 #include "test_input_hscroll.c"
 #include "test_frame_time.c"
+// Frame demand: wlx_frame_delay and the frame requests - when the next frame
+// is needed (input, a request, or a change in what was drawn).
+#include "test_frame_demand.c"
 #include "test_focus_release.c"
 #include "test_cursor_shape.c"
 #include "test_tab_traversal.c"
@@ -103,6 +106,9 @@ static int test_span_assert_hits = 0;
 
 // WASM page-pool allocator
 #include "test_wasm_pool.c"
+
+// WASM frame scheduling: the adapter hands wlx_frame_delay to the host
+#include "test_wasm_schedule.c"
 
 // dyn_offsets arena isolation
 #include "test_dyn_offsets.c"
@@ -185,8 +191,8 @@ static int test_span_assert_hits = 0;
 // sentinel resolution, font resolution, and dark/light divergence.
 #include "test_dashboard_theme.c"
 
-// Dashboard component pure helpers: responsive columns, segment fill, pulse
-// alpha, table row geometry, ASCII uppercasing.
+// Dashboard component pure helpers: responsive columns, table row geometry,
+// ASCII uppercasing.
 #include "test_dashboard_components.c"
 
 // Dashboard visual-effect pure helpers: color interpolation, desaturation,
@@ -327,6 +333,7 @@ int main(void) {
     RUN_SUITE(interactive_container);
     RUN_SUITE(wasm_clipboard);
     RUN_SUITE(wasm_pool);
+    RUN_SUITE(wasm_schedule);
     RUN_SUITE(dyn_offsets);
     RUN_SUITE(text_layout);
     RUN_SUITE(word_wrap);
@@ -370,6 +377,7 @@ int main(void) {
     RUN_SUITE(ime);
     RUN_SUITE(fuzz_text);
     RUN_SUITE(frame_time);
+    RUN_SUITE(frame_demand);
     RUN_SUITE(focus_release);
     RUN_SUITE(cursor_shape);
     RUN_SUITE(tab_traversal);

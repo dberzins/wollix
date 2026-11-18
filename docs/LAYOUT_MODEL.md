@@ -104,6 +104,127 @@ wlx_context_destroy(&ctx);
 state map, scratch offsets). Zero-init it once, then reuse across frames. The
 context is not thread-safe — use one per thread if needed.
 
+### Frames on demand
+
+A loop that draws every frame at the display rate keeps a processor core
+busy while nothing on screen changes. So `wlx_end` leaves one value
+behind, [`wlx_frame_delay`](API_REFERENCE.md#wlx_frame_delay), that says
+when the next frame is needed, and each adapter has a helper that waits
+until then:
+
+```c
+while (!WindowShouldClose()) {
+    wlx_begin(&ctx, wlx_raylib_root_rect(), wlx_process_raylib_input);
+    BeginDrawing();
+        // ... layouts, widgets ...
+    wlx_end(&ctx);
+    EndDrawing();
+    wlx_raylib_wait_frame(&ctx);   // returns when a frame is needed
+}
+```
+
+| Backend | Call | Where |
+|---------|------|-------|
+| Raylib | [`wlx_raylib_wait_frame(ctx)`](API_REFERENCE.md#wlx_raylib_wait_frame) | After `EndDrawing` |
+| SDL3 | [`wlx_sdl3_wait_frame(ctx)`](API_REFERENCE.md#wlx_sdl3_wait_frame) | After `SDL_RenderPresent`, before the loop polls its events |
+| Web | [`wlx_wasm_schedule_frame(ctx)`](API_REFERENCE.md#wlx_wasm_schedule_frame) | After `wlx_end`, inside the exported frame function |
+
+Calling the helper is the whole opt-in. A loop that never calls it draws
+every frame, exactly as before, and the core itself never waits, blocks
+or skips the application's UI code. With the helper, an untouched
+application draws no frames.
+
+**What asks for a frame.** The value is `0` (draw the next frame now), a
+positive number of seconds (no frame is needed until then unless input
+arrives) or negative (nothing is scheduled: only input needs a frame).
+Three things set it, and the earliest wins:
+
+- **Input.** A frame whose input differs from the previous frame's, or
+  carries an event (a press, wheel motion, a key press or repeat,
+  committed text), asks for the next frame.
+- **A change in what was drawn.** `wlx_end` compares the frame's backend
+  draw calls, with their resolved positions, against the previous
+  frame's. A frame that differs asks for one more. A hover highlight, a
+  popup that opens, a value that changed and a CONTENT slot that settles
+  a frame late all finish this way: frames continue until one repeats
+  the frame before it.
+- **Requests.** `wlx_request_frame(ctx)` asks for the next frame now, and
+  `wlx_request_frame_after(ctx, seconds)` for one no later than that.
+  Wollix asks for its own timers through the same two calls: the caret's
+  next blink edge, the rest of a tooltip's delay, and the next frame of
+  a drag that scrolls a text widget while the view can still move.
+
+A static UI is at rest a few frames after the last input. A focused text
+field costs about four frames a second: each blink edge is one frame that
+changes and one that confirms nothing else did.
+
+**What needs a request.** The comparison sees what Wollix sent to the
+backend, after the fact. It cannot see:
+
+- pixels that change behind an unchanged texture handle (a video frame,
+  a canvas the application repaints);
+- anything the application draws itself, outside Wollix;
+- data that will change what the next frame draws: the next step of an
+  animation, a timer of the application's own, a reply from the network.
+
+Each of these needs a request. `wlx_begin` clears the requests of the
+frame before, so whatever is still pending asks again on every frame:
+
+```c
+if (run_left > 0.0f) wlx_request_frame(ctx);          // an animation: every frame while it runs
+wlx_request_frame_after(ctx, seconds_to_next_tick);   // a clock: one frame per tick
+```
+
+`demos/frame_request.c` is the complete example, and
+[Timers in a custom widget](WIDGETS.md#timers-in-a-custom-widget) covers
+a widget of your own. A request made between frames, where data arrives,
+is seen by a native helper when it next looks at the delay; on the web
+the export that received the data also calls `wlx_wasm_schedule_frame`,
+which then wakes the host at once. The requests are not thread-safe, as
+the context is not. Data that arrives on another thread wakes the loop
+the platform's way (on SDL3, a pushed event ends the wait), and the
+request is made on the loop's thread.
+
+**Frame time spans the rest.** The frame time Wollix reads from the
+backend is the real time since the previous frame, the wait included, so
+after a rest it can be seconds long. Wollix's timers are measured against
+it and keep real time. The frame that ends a rest is also the frame in
+which input arrives, so a timer that this input starts or resets (the
+caret's blink after a click, a tooltip's delay when the pointer arrives)
+must not take that frame's time: Wollix advances its own clocks before
+any reset and starts them from the next frame. Read it with
+[`wlx_get_frame_time`](API_REFERENCE.md#wlx_get_frame_time), and bound
+the step of an animation that a long frame would overshoot.
+
+**Ages count frames.** Persistent state ages in frames, not seconds
+(`WLX_STATE_MIN_AGE`). An application at rest draws few frames, so unused
+state lives longer in wall time. Nothing else changes.
+
+**A readout that changes on every frame keeps the loop drawing.** A
+frame-rate or frame-time label whose text is new on each frame makes
+every frame differ from the one before it, so each asks for the next and
+the application never rests. Sample such a number instead: renew it at
+most a few times a second, only on a frame the previous one asked for
+(its `wlx_frame_delay` was `0`, or a delay that has passed since), and
+never on the frame right after a sample. A sample on a frame that merely
+happened (a window event brought it, say) is a change nothing asked for.
+A sample on the frame after a sample keeps a window that is presented
+slowly, a hidden one for instance, drawing for ever. The dashboard's
+metric cards and the gallery's frame-cost readout are sampled this way
+(`dashboard_update_metrics` in `demos/dashboard/dashboard.c`). Both show
+the cost of a frame in milliseconds, not a frame rate: a rate says
+little once frames are drawn on demand.
+
+**Checking.** A missed request leaves a stale picture: the animation
+stands still until the pointer moves. Build with
+[`WLX_FRAME_CHECK`](API_REFERENCE.md#wlx_frame_check) to find one: the
+helpers then never wait, and the core reports a frame that drew something
+new although no input arrived and no request was due, naming the first
+draw call that differs.
+
+Under [`wlx_begin_immediate`](#immediate-mode-opt-out) nothing is
+compared, so the value is always `0` and the application never rests.
+
 ---
 
 ### Units and the device grid
@@ -283,7 +404,7 @@ wlx_layout_begin(ctx, 4, WLX_HORZ, .sizes = sizes);
 | `WLX_SLOT_FLEX(w)` | `WLX_SIZE_FLEX` | Weighted share of remaining space |
 | `WLX_SLOT_FILL` | `WLX_SIZE_FILL` | Fill entire viewport (the layer's innermost scroll panel, else the window, or an overlay's body) |
 | `WLX_SLOT_FILL_PCT(pct)` | `WLX_SIZE_FILL` | Fill percentage of viewport |
-| `WLX_SLOT_CONTENT` | `WLX_SIZE_CONTENT` | Measured from child content (frame-delayed): main-axis extent in linear layouts (heights in VERT, intrinsic/explicit widths in HORZ), row heights in grids |
+| `WLX_SLOT_CONTENT` | `WLX_SIZE_CONTENT` | Measured from child content (frame-delayed): main-axis extent in linear layouts (heights in VERT, intrinsic/explicit widths in HORZ), row heights and column widths in grids |
 
 **Resolution order:** pixels and percents are subtracted from the total first.
 The remaining space is distributed among flex and auto slots proportionally to
@@ -375,8 +496,71 @@ Min/max constraints work as expected: `WLX_SLOT_CONTENT_MIN(px)` sets a floor,
 sets both. CONTENT rows can be mixed with PX, FLEX, PCT, and other row types
 in the same grid.
 
-> **Note:** CONTENT is supported only in `row_sizes`, not `col_sizes`.
-> Max 32 CONTENT rows per grid (`WLX_CONTENT_SLOTS_MAX`).
+> **Note:** a grid with a CONTENT row may have at most 32 rows
+> (`WLX_CONTENT_SLOTS_MAX`).
+
+### Content-Sized Columns
+
+Grid columns support `WLX_SLOT_CONTENT` sizing too. Each CONTENT column
+takes the widest width the cells in that column offer (across all rows)
+and uses it on the next frame. A cell offers its widget's explicit
+`.width`, else the widget's intrinsic width: the single-line text measure
+and the like, listed per widget in WIDGETS.md under "Intrinsic widths".
+The cell's own width is never offered, so a column does not feed itself.
+
+```c
+WLX_Slot_Size col_sizes[] = {
+    WLX_SLOT_CONTENT,           // fits the widest label in column 0
+    WLX_SLOT_CONTENT_MAX(160),  // fits, but never wider than 160px
+    WLX_SLOT_FLEX(1),           // the rest
+};
+wlx_grid_begin(ctx, 4, 3, .col_sizes = col_sizes);
+    // ... 12 widgets ...
+wlx_grid_end(ctx);
+```
+
+- **Clamps** work as for rows. Under `WLX_SLOT_CONTENT_MAX` the text wraps
+  inside the clamp, and the measurement stays the single-line width.
+- **Widgets that fill their slot** (slider, progress bar, inputbox,
+  textarea, editor, scroll panel) and **nested layouts** offer no width.
+  A column that holds only those takes its minimum, so give it
+  `WLX_SLOT_CONTENT_MIN` or a fixed size.
+- **`wlx_grid_begin_auto`** accepts CONTENT columns as well: its column
+  count is fixed. The column takes the widest cell among the rows laid
+  out in the frame. Under a list clipper those are the rows on screen, so
+  the column can change width as the list scrolls; a minimum, a maximum
+  or a fixed width prevents that.
+- **`wlx_grid_begin_auto_tile`** does not: its column count comes from
+  the width, so a column sized by its content would decide how many
+  columns there are. CONTENT in its `col_sizes` takes its minimum.
+- **Rows and columns together.** One grid may have CONTENT rows and
+  CONTENT columns. Each axis keeps its own measurements.
+
+> **Note:** a grid with a CONTENT column may have at most 32 columns
+> (`WLX_CONTENT_SLOTS_MAX`). Past that the grid is reported
+> (`WLX_ERR_LIMIT`) and its CONTENT columns take their minimum.
+
+### Spanning cells and CONTENT tracks
+
+A cell that spans several rows sizes no CONTENT row, and a cell that
+spans several columns sizes no CONTENT column. Its extent belongs to no
+single track, so only one-track cells size a track. The cell still counts
+on the axis it does not span: a two-column cell in one row sizes that
+row.
+
+When a spanning cell holds more than the tracks under it provide, its
+content overflows or clips by the widget's own options. Give one of the
+spanned tracks `WLX_SLOT_CONTENT_MIN` or a fixed size to make room.
+
+A row-spanning cell does not make the grid taller either. A grid tells
+its parent how tall its content is: the larger of its rows' total and the
+sum of the tallest one-row cell of each row. A CONTENT slot or an
+auto-height scroll panel around the grid sizes to that. Cells that span
+rows are left out of the sum, since a widget with no height reports the
+height of its cell, which over a span already includes the other rows.
+
+So a grid whose every cell spans rows reports its rows alone. When a
+parent sizes to such a grid, give the rows a size.
 
 ### Widget Contribution Rule
 
@@ -389,6 +573,12 @@ A widget contributes to its parent's CONTENT measurement as follows:
 - **A span of several slots:** in a linear layout, a widget, nested layout
   or scroll panel with `.span > 1` contributes to the first slot of its
   span.
+- **In a grid:** a cell's height counts toward its row when the cell
+  spans one row: toward a CONTENT row's height, and toward the content
+  height the grid reports to its own parent. Its width counts toward its
+  CONTENT column when it spans one column (see "Spanning cells and
+  CONTENT tracks"). The width is the explicit `.width`, else the
+  intrinsic width; there is no cell-width fallback.
 
 Built-in widgets (label, button, checkbox, inputbox, editor, slider,
 toggle, radio, dropdown, menu button) default `min_height` to the resolved
@@ -451,9 +641,9 @@ wlx_grid_end(ctx);
 | `wlx_layout_begin_auto` (slot_px>0) | per-slot uniform | Fixed | -- | -- | -- | -- | -- | -- |
 | `wlx_layout_begin_auto` (slot_px=0) | per-slot via `auto_slot` | Yes | Yes | Yes | Yes | Yes | Passthrough\* | Yes |
 | `wlx_grid_begin` | rows | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `wlx_grid_begin` | cols | Yes | Yes | Yes | Yes | Yes | No | Yes |
+| `wlx_grid_begin` | cols | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | `wlx_grid_begin_auto` | rows (dynamic) | Fixed | -- | -- | -- | -- | -- | -- |
-| `wlx_grid_begin_auto` | cols | Yes | Yes | Yes | Yes | Yes | No | Yes |
+| `wlx_grid_begin_auto` | cols | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | `wlx_grid_begin_auto_tile` | rows (dynamic) | Fixed | -- | -- | -- | -- | -- | -- |
 | `wlx_grid_begin_auto_tile` | cols | Derived | -- | -- | -- | -- | -- | -- |
 
@@ -469,9 +659,9 @@ the value.
 | `wlx_layout_begin` | Slot count must be known at begin time. Max 32 slots when using CONTENT (`WLX_CONTENT_SLOTS_MAX`). CONTENT measures the main axis: child heights in VERT layouts, children's intrinsic or explicit widths in HORZ layouts (see WIDGETS.md § Intrinsic widths). Measured extents settle one frame after content changes; on the measuring frame the deferred replay shifts recorded commands to the corrected offsets on both axes (dy in VERT, dx in HORZ), scissors included, so drawn positions land correct within the frame. Nested layouts contribute no intrinsic width — give the slot an explicit size or MIN clamp, or place the width-defining widget directly in the slot. |
 | `wlx_layout_begin_s` | Same as `wlx_layout_begin`; count derived from `WLX_SIZES()` macro. |
 | `wlx_layout_begin_auto` | Sequential access only (no `pos`). Any layout nests inside the body, dynamic ones (`wlx_layout_begin_auto`, `wlx_grid_begin_auto`, a list clipper) included. When `slot_px=0`, every child must call `wlx_layout_auto_slot` before use. CONTENT via `auto_slot` is not auto-measured (caller-supplied value, or 1px after the floor). |
-| `wlx_grid_begin` | Row and column count fixed at begin time. CONTENT supported in `row_sizes` (per-row max height, one-frame delay). CONTENT not supported in `col_sizes` (resolves to 0px). Max 32 CONTENT rows (`WLX_CONTENT_SLOTS_MAX`). Max `WLX_MAX_SLOT_COUNT` rows/cols. |
-| `wlx_grid_begin_auto` | Column count fixed; rows grow dynamically, also to a row a `wlx_grid_cell` placement names. Requires `row_px > 0` (no zero or content-sized rows). Per-row override via `wlx_grid_auto_row_px` consumed once. CONTENT not supported in `col_sizes`. |
-| `wlx_grid_begin_auto_tile` | Same as `wlx_grid_begin_auto`. Column count derived from `floor(width / tile_w)`, minimum 1. `col_sizes` in opt is accepted but column count is computed from tile width. |
+| `wlx_grid_begin` | Row and column count fixed at begin time. CONTENT supported in `row_sizes` (per-row max height) and in `col_sizes` (per-column max intrinsic or explicit width), both with a one-frame delay and no same-frame correction. A cell that spans several tracks on an axis sizes no CONTENT track on that axis. With a CONTENT row, at most 32 rows; with a CONTENT column, at most 32 columns (`WLX_CONTENT_SLOTS_MAX`). Max `WLX_MAX_SLOT_COUNT` rows/cols. |
+| `wlx_grid_begin_auto` | Column count fixed; rows grow dynamically, also to a row a `wlx_grid_cell` placement names. Requires `row_px > 0` (no zero or content-sized rows). Per-row override via `wlx_grid_auto_row_px` consumed once. CONTENT supported in `col_sizes` (the widest cell among the rows laid out in the frame, one-frame delay; at most 32 columns). |
+| `wlx_grid_begin_auto_tile` | Same as `wlx_grid_begin_auto`. Column count derived from `floor(width / tile_w)`, minimum 1. `col_sizes` in opt is accepted but column count is computed from tile width. CONTENT in `col_sizes` is not measured (it takes its minimum). |
 | All layouts | CONTENT sizing uses one-frame delay (0px first frame, measured on second). Use `WLX_SLOT_CONTENT_MIN()` to avoid visual pop. |
 | All layouts | Persistent state keyed by `__FILE__`/`__LINE__` — duplicate calls at same source location share state (e.g. layouts in loops). |
 | All layouts | A contract violation (a child past the slot count, a grid cell outside the grid, an end without a begin or of the wrong kind, a widget with no layout open, a count of 0) is reported through the context's error handler in every build and then degrades: the child gets a zero-size rect at the layout's far edge and contributes nothing, the placement is ignored, the end returns (or, of the wrong kind, closes each container with its own end), the widget takes the root rect, the count becomes 1. Debug builds still stop at the site by default. See API_REFERENCE.md § Error Reporting. |
@@ -1182,10 +1372,8 @@ core uses the table.
   other contract version stops the program in every build, release
   included, before any callback runs. Calling a table of the wrong shape
   through these signatures is memory-unsafe.
-- **A v0.8 table** migrates in one line with
-  [`wlx_backend_from_v1`](API_REFERENCE.md#wlx_backend_from_v1-deprecated-shim),
-  which wraps a table of the old shape (no `user`, no version). The shim
-  is deprecated and will be removed in the first minor release after 0.9.
+- **A v0.8 table** (no `user`, no version) migrates by appending
+  `void *user` to every callback and setting `contract_version`.
 
 Draw and measure must agree for the same text and style on each backend,
 and native whole-run text rendering must keep working. The public text

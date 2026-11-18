@@ -1805,6 +1805,44 @@ static inline WLX_Rect wlx_sdl3_root_rect(void) {
     return (WLX_Rect){ 0, 0, (float)pw / g_wlx_sdl3.scale, (float)ph / g_wlx_sdl3.scale };
 }
 
+// Wait until the next frame is needed. Call it once per loop iteration,
+// after SDL_RenderPresent and before the application polls its events, on
+// the thread that runs the event loop:
+//
+//     wlx_end(ctx);
+//     SDL_RenderPresent(renderer);
+//     wlx_sdl3_wait_frame(ctx);
+//
+// It reads wlx_frame_delay: it returns at once when a frame is due now,
+// waits for an event when nothing is scheduled, and otherwise waits for an
+// event no longer than the delay. The event that ends the wait stays in the
+// queue for the application's own SDL_PollEvent loop, and the adapter's
+// event watch sees it as it arrives, so no input is lost.
+//
+// Calling it is the whole opt-in: a loop that never calls it produces every
+// frame, as before. An application whose picture changes for a reason
+// Wollix cannot see (its own animation, data arriving from elsewhere) asks
+// with wlx_request_frame or wlx_request_frame_after, or pushes an SDL event
+// to end the wait. In a WLX_FRAME_CHECK build it never waits.
+static inline void wlx_sdl3_wait_frame(WLX_Context *ctx) {
+    assert(ctx != NULL);
+#ifdef WLX_FRAME_CHECK
+    WLX_UNUSED(ctx);
+#else
+    float delay = wlx_frame_delay(ctx);
+    if (delay < 0.0f) {
+        (void)SDL_WaitEvent(NULL);
+        return;
+    }
+    if (!(delay > 0.0f)) return;   // due now
+    // Rounded up to a whole millisecond and kept inside the timeout's type.
+    float ms = ceilf(delay * 1000.0f);
+    Sint32 timeout = ms >= 2147483000.0f ? SDL_MAX_SINT32 : (Sint32)ms;
+    if (timeout < 1) timeout = 1;
+    (void)SDL_WaitEventTimeout(NULL, timeout);
+#endif
+}
+
 static inline float wlx_sdl3_get_frame_time(void *user) {
     WLX_UNUSED(user);
     Uint64 counter = SDL_GetPerformanceCounter();

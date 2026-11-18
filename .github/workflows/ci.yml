@@ -77,6 +77,11 @@ jobs:
       - name: Build dashboard (raylib + perf)
         run: make dashboard dashboard_perf
 
+      # No window: the test stands in for the Raylib functions the input
+      # path calls and links no Raylib.
+      - name: Run the Raylib adapter test
+        run: make test-raylib
+
       # The doc examples include the SDL3 adapter; its headers are enough
       # (no SDL build), at the refs the build-sdl3 job pins.
       - name: Fetch the SDL3 and SDL3_ttf headers

@@ -17,7 +17,7 @@ or, in a manifest project, add the directory to `overlay-ports` in
 
 Two values in `portfile.cmake` are tied to a release tag:
 
-- `REF` names the tag (`v0.9.0`).
+- `REF` names the tag (`v0.10.0`).
 - `SHA512` is the hash of the GitHub source archive for that tag. It is `0`
   until the tag exists; the first `vcpkg install` against the real tag
   prints the actual hash, which is then pasted in.

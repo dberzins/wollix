@@ -438,7 +438,10 @@ The clip rule differs by line count, deliberately:
   backend font scaling), and cropping would slice ascenders and
   descenders off perfectly reasonable labels. The clip expands vertically
   to the line's extent while keeping the horizontal bounds, so over-wide
-  text still clips on the x axis.
+  text still clips on the x axis. A single line that fits horizontally
+  therefore gets no scissor at all, however far it overhangs the rect
+  vertically: the expanded clip would contain it, and a scissor change is
+  not free (on Raylib each one flushes the render batch).
 
 ---
 

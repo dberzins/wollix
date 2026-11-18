@@ -722,6 +722,49 @@ TEST(fitted_text_scissors_when_first_unit_exceeds_width) {
     wlx_context_destroy(&ctx);
 }
 
+// A single line taller than its rect, fitting horizontally: the clip would be
+// widened to the line and contain it, so no scissor is opened.
+TEST(fitted_text_single_line_vertical_overflow_skips_scissor) {
+    WLX_Context ctx;
+    test_ctx_init_kerning_clip(&ctx, 200, 50);
+    _tl_reset_scissor();
+    _tl_reset_captures();
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    // The 10 px line hangs 4 px past the bottom of a 6 px rect.
+    wlx_draw_text_fitted(&ctx, (WLX_Rect){10, 20, 100, 6}, "AB", (WLX_Text_Style){ .font_size = 10 }, WLX_TOP_LEFT, false);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT(0, (int)_tl_scissor_count);
+    ASSERT_EQ_INT(1, _tl_capture_count);
+    ASSERT_EQ_STR(_tl_captures[0].text, "AB");
+    ASSERT_EQ_F(_tl_captures[0].x, 10.0f, 0.1f);
+    ASSERT_EQ_F(_tl_captures[0].y, 20.0f, 0.1f);
+    wlx_context_destroy(&ctx);
+}
+
+// A single line overflowing both ways keeps its scissor: the width clips,
+// and the height is widened to the line rather than cropping it.
+TEST(fitted_text_single_line_both_overflow_widens_scissor) {
+    WLX_Context ctx;
+    test_ctx_init_kerning_clip(&ctx, 200, 50);
+    _tl_reset_scissor();
+    _tl_reset_captures();
+
+    test_frame_begin(&ctx, 0, 0, false, false);
+    wlx_draw_text_fitted(&ctx, (WLX_Rect){10, 20, 3, 6}, "A", (WLX_Text_Style){ .font_size = 10 }, WLX_TOP_LEFT, false);
+    test_frame_end(&ctx);
+
+    ASSERT_EQ_INT(2, (int)_tl_scissor_count);
+    ASSERT_EQ_INT(_tl_scissor_log[0].kind, 1);
+    ASSERT_EQ_F(_tl_scissor_log[0].rect.x, 10.0f, 0.1f);
+    ASSERT_EQ_F(_tl_scissor_log[0].rect.y, 20.0f, 0.1f);
+    ASSERT_EQ_F(_tl_scissor_log[0].rect.w, 3.0f, 0.1f);
+    ASSERT_EQ_F(_tl_scissor_log[0].rect.h, 10.0f, 0.1f);
+    ASSERT_EQ_INT(_tl_scissor_log[1].kind, 2);
+    wlx_context_destroy(&ctx);
+}
+
 TEST(fitted_text_scissors_partially_visible_line) {
     WLX_Context ctx;
     test_ctx_init_kerning_clip(&ctx, 200, 50);
@@ -1006,6 +1049,8 @@ SUITE(text_layout) {
     RUN_TEST(text_starting_with_continuation_byte);
     RUN_TEST(fitted_text_skips_scissor_when_lines_fit);
     RUN_TEST(fitted_text_scissors_when_first_unit_exceeds_width);
+    RUN_TEST(fitted_text_single_line_vertical_overflow_skips_scissor);
+    RUN_TEST(fitted_text_single_line_both_overflow_widens_scissor);
     RUN_TEST(fitted_text_scissors_partially_visible_line);
     RUN_TEST(span_measure_prefers_slice_callback);
     RUN_TEST(span_draw_immediate_prefers_slice_callback);

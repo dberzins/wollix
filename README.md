@@ -4,10 +4,11 @@
 
 > **Warning:** This library is a work in progress and has not reached 1.0. Until the API is frozen for 1.0, a minor release (0.x.0) can change an existing name, default or signature, or the backend contract; every such change is listed under `Changed (Breaking)` in the [CHANGELOG](CHANGELOG.md) with its migration. A patch release (0.x.y) does not break anything. The freeze will come in a release announced as the 1.0 candidate. Internals can change in any release. Use at your own risk.
 
-**Woven layouts for C.**
+**Woven UI for C.**
 
-Wollix is a lightweight, header-only C library for building immediate-mode UI
-layouts. Define rows, columns, and grids — widgets interlock into place.
+Wollix is a header-only, immediate-mode UI toolkit for C11 that includes a
+text editor, with backends for Raylib, SDL3 and the web. Define rows,
+columns, and grids — widgets interlock into place.
 
 [![Wollix dashboard demo](demos/dashboard/dashboard.png)](https://dberzins.github.io/wollix/)
 
@@ -34,7 +35,9 @@ The dashboard is the primary Wollix showcase. Try the live demo:
     per-widget journal with typing-run coalescing and exact caret restore
 - Container decoration: per-side borders, per-corner rounding, vertical
     gradient fills, and glow/shadow effects
-- Current version: `WOLLIX_VERSION` = `"0.9.0"`
+- Frames on demand: one opt-in call per backend lets the loop rest until
+    a frame is needed, so an untouched application draws nothing
+- Current version: `WOLLIX_VERSION` = `"0.10.0"`
 
 ## Quick Start
 
@@ -100,6 +103,45 @@ a literal, such as a slot size or a colour, is overridden). On MSVC
 compile the C translation unit with `/std:c11 /Zc:preprocessor` (Visual
 Studio 2019 16.8 or later); the conforming preprocessor is required for
 `wlx_layout_begin_s`, and MSVC has no override warning to silence.
+
+## Resting when idle
+
+The loop above draws every frame, whether or not anything changed. One
+more call, after the frame is presented, lets it rest until a frame is
+needed. An untouched application then draws no frames and uses no
+processor time.
+
+```c
+// Raylib
+wlx_end(&ctx);
+EndDrawing();
+wlx_raylib_wait_frame(&ctx);
+```
+
+```c
+// SDL3
+wlx_end(&ctx);
+SDL_RenderPresent(renderer);
+wlx_sdl3_wait_frame(&ctx);
+```
+
+```c
+// Bare WASM, inside the exported frame function
+wlx_end(&ctx);
+wlx_wasm_schedule_frame(&ctx);
+```
+
+Calling the helper is the whole opt-in; without it nothing changes. Input
+brings a frame by itself, and so do a change in what was drawn and
+Wollix's own timers (the caret's blink, a tooltip's delay). An
+application that animates, or whose data changes between frames, asks for
+its frames with `wlx_request_frame` and `wlx_request_frame_after`;
+[demos/frame_request.c](demos/frame_request.c) shows both. On Raylib a
+pending timer costs a few percent of one core, because Raylib's own
+sleep spins. See
+[Frames on demand](docs/LAYOUT_MODEL.md#frames-on-demand) for the model
+and [`WLX_FRAME_CHECK`](docs/API_REFERENCE.md#wlx_frame_check) for the
+build that finds a missed request.
 
 ## Using from C++
 
@@ -383,6 +425,7 @@ make                # Build all Raylib demos + the dashboard showcase (default)
 make test           # Build and run the unit test suite (includes the C++ caller gate)
 make perf-test      # Build and run the unit test suite with WLX_PERF enabled
 make test-sdl3      # Run the SDL3 adapter headless (offscreen driver; needs SDL3)
+make test-raylib    # Run the Raylib adapter against a stand-in (needs raylib.h, no window)
 make perf-editor    # Run the editor perf gate (frame cost + measure traffic)
 make test-demos     # Build all Raylib demos + the dashboard and verify they compile
 make all            # Build all Raylib demos + the dashboard (same as bare make)

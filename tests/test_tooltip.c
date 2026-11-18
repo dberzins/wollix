@@ -1,8 +1,10 @@
 // test_tooltip.c - wlx_tooltip_for: pointer-anchored draw-only tip.
 //
 // A per-id timer accumulates ctx->frame_dt while the pointer rests on the
-// anchor (button up, pointer on the anchor's layer); past the delay the tip
-// draws on the next layer near the pointer. Draw-only is the load-bearing
+// anchor (button up, pointer on the anchor's layer), from the frame after
+// the one it arrives on: that frame can end a rest, and its time is not
+// time spent hovering. Past the delay the tip draws on the next layer near
+// the pointer. Draw-only is the load-bearing
 // pin: the tip never appends interaction candidates, so it cannot steal
 // hover or the press from the widget it describes.
 
@@ -45,6 +47,7 @@ TEST(tooltip_appears_after_delay_and_resets) {
     WLX_Context ctx;
     _tt_reset(&ctx);
 
+    ASSERT_TRUE(!_tt_frame(&ctx, 50, 20, false, false));   // arrives: 0s
     ASSERT_TRUE(!_tt_frame(&ctx, 50, 20, false, false));   // 0.2s
     ASSERT_TRUE(!_tt_frame(&ctx, 50, 20, false, false));   // 0.4s
     ASSERT_TRUE(_tt_frame(&ctx, 50, 20, false, false));    // 0.6s >= 0.5s
@@ -60,6 +63,7 @@ TEST(tooltip_hides_while_pressed_and_press_still_lands) {
     WLX_Context ctx;
     _tt_reset(&ctx);
 
+    _tt_frame(&ctx, 50, 20, false, false);                 // arrives: 0s
     _tt_frame(&ctx, 50, 20, false, false);
     _tt_frame(&ctx, 50, 20, false, false);
     ASSERT_TRUE(_tt_frame(&ctx, 50, 20, false, false));    // visible
@@ -75,6 +79,7 @@ TEST(tooltip_is_draw_only) {
     WLX_Context ctx;
     _tt_reset(&ctx);
 
+    _tt_frame(&ctx, 50, 20, false, false);                 // arrives: 0s
     _tt_frame(&ctx, 50, 20, false, false);
     _tt_frame(&ctx, 50, 20, false, false);
     ASSERT_TRUE(_tt_frame(&ctx, 50, 20, false, false));    // visible
@@ -92,6 +97,7 @@ TEST(tooltip_draws_over_base_content) {
     _tt_reset(&ctx);
     ctx.backend.draw_rect = _tt_rec_rect;
 
+    _tt_frame(&ctx, 50, 20, false, false);                 // arrives: 0s
     _tt_frame(&ctx, 50, 20, false, false);
     _tt_frame(&ctx, 50, 20, false, false);
     _tt_rect_count = 0;
@@ -137,6 +143,7 @@ TEST(tooltip_ignores_anchor_scrolled_out_of_its_panel) {
 
     // Control: unscrolled, the anchor at y 100..140 is visible and tips.
     _tt_scrolled_frame(&ctx, 300, 250, 0.0f);                 // warm, pointer off
+    ASSERT_TRUE(!_tt_scrolled_frame(&ctx, 50, 120, 0.0f));     // arrives: 0s
     ASSERT_TRUE(!_tt_scrolled_frame(&ctx, 50, 120, 0.0f));     // 0.2s
     ASSERT_TRUE(!_tt_scrolled_frame(&ctx, 50, 120, 0.0f));     // 0.4s
     ASSERT_TRUE(_tt_scrolled_frame(&ctx, 50, 120, 0.0f));      // 0.6s: visible
@@ -208,7 +215,8 @@ TEST(tooltip_anchor_inside_scroll_panel_tip_escapes_viewport) {
     _tt_dt = 0.2f;
 
     _ttp_frame(&ctx, 300, 250);               // warm, pointer off
-    _ttp_frame(&ctx, 50, 140);                // 0.2s on the anchor
+    _ttp_frame(&ctx, 50, 140);                // arrives on the anchor: 0s
+    _ttp_frame(&ctx, 50, 140);                // 0.2s
     _ttp_frame(&ctx, 50, 140);                // 0.4s
     _ttp_scissor_count = 0;
     ASSERT_TRUE(_ttp_frame(&ctx, 50, 140));   // 0.6s: visible; tip at y 140 + 18 = 158

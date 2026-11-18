@@ -665,6 +665,127 @@ TEST(sdl3_ttf_measure_holds_across_scale) {
 }
 
 // ============================================================================
+// Waiting for the next frame
+// ============================================================================
+
+// Whatever opening the window queued is dropped, so a wait sees only what
+// the test pushes.
+static void sa_drain_events(void) {
+    SDL_PumpEvents();
+    SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
+}
+
+static void sa_push_user(Sint32 code) {
+    SDL_Event e;
+    SDL_zero(e);
+    e.type = SDL_EVENT_USER;
+    e.user.code = code;
+    SDL_PushEvent(&e);
+}
+
+// True when the queue still holds the user event with this code.
+static bool sa_poll_user(Sint32 code) {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_EVENT_USER && e.user.code == code) return true;
+    }
+    return false;
+}
+
+// One frame of a static label through the adapter's own input handler.
+static void sa_static_frame(WLX_Context *ctx) {
+    wlx_begin(ctx, wlx_sdl3_root_rect(), wlx_process_sdl3_input);
+    wlx_layout_begin(ctx, 1, WLX_VERT, .padding = 0, .gap = 0);
+    wlx_label(ctx, "idle", .height = 40);
+    wlx_layout_end(ctx);
+    wlx_end(ctx);
+}
+
+// With nothing scheduled the helper waits for an event. The event that ends
+// the wait stays in the queue: the application's own poll loop still gets it.
+TEST(sdl3_wait_frame_ends_on_an_event_and_leaves_it_queued) {
+    SDL_Window *win = sa_open(200, 100);
+    ASSERT_TRUE(win != NULL);
+    WLX_Context *ctx = calloc(1, sizeof *ctx);
+    wlx_context_init_sdl3(ctx, win, SDL_GetRenderer(win));
+
+    // The untouched UI settles through the adapter's input path: the delay
+    // goes to "nothing scheduled", which is what makes the helper block.
+    for (int i = 0; i < 4; i++) { sa_drain_events(); sa_static_frame(ctx); }
+    ASSERT_TRUE(wlx_frame_delay(ctx) < 0.0f);
+
+    sa_drain_events();
+    sa_push_user(4242);
+    Uint64 t0 = SDL_GetTicks();
+    wlx_sdl3_wait_frame(ctx);
+    ASSERT_TRUE(SDL_GetTicks() - t0 < 1000);
+    ASSERT_TRUE(sa_poll_user(4242));
+
+    wlx_context_destroy(ctx);
+    free(ctx);
+    sa_close(win);
+}
+
+// A timed request is a timeout: with no event the helper comes back when
+// the delay has passed, and an event still ends it early.
+TEST(sdl3_wait_frame_waits_out_a_timed_request) {
+    SDL_Window *win = sa_open(200, 100);
+    ASSERT_TRUE(win != NULL);
+    WLX_Context *ctx = calloc(1, sizeof *ctx);
+    wlx_context_init_sdl3(ctx, win, SDL_GetRenderer(win));
+    for (int i = 0; i < 4; i++) { sa_drain_events(); sa_static_frame(ctx); }
+    ASSERT_TRUE(wlx_frame_delay(ctx) < 0.0f);
+
+    sa_drain_events();
+    wlx_request_frame_after(ctx, 0.05f);
+    Uint64 t0 = SDL_GetTicks();
+    wlx_sdl3_wait_frame(ctx);
+    Uint64 waited = SDL_GetTicks() - t0;
+    ASSERT_TRUE(waited >= 40);        // the 50 ms asked for, less timer slop
+    ASSERT_TRUE(waited < 2000);       // and no blocking wait
+
+    sa_static_frame(ctx);
+    sa_drain_events();
+    wlx_request_frame_after(ctx, 5.0f);
+    sa_push_user(7);
+    t0 = SDL_GetTicks();
+    wlx_sdl3_wait_frame(ctx);
+    ASSERT_TRUE(SDL_GetTicks() - t0 < 1000);   // the event, not the five seconds
+    ASSERT_TRUE(sa_poll_user(7));
+
+    wlx_context_destroy(ctx);
+    free(ctx);
+    sa_close(win);
+}
+
+// A frame that is due now is not waited for, events or no events.
+TEST(sdl3_wait_frame_returns_at_once_when_a_frame_is_due) {
+    SDL_Window *win = sa_open(200, 100);
+    ASSERT_TRUE(win != NULL);
+    WLX_Context *ctx = calloc(1, sizeof *ctx);
+    wlx_context_init_sdl3(ctx, win, SDL_GetRenderer(win));
+
+    sa_drain_events();
+    sa_static_frame(ctx);                      // a context's first frame asks for the next
+    ASSERT_EQ_F(0.0f, wlx_frame_delay(ctx), 0.0f);
+    sa_drain_events();
+    Uint64 t0 = SDL_GetTicks();
+    wlx_sdl3_wait_frame(ctx);
+    ASSERT_TRUE(SDL_GetTicks() - t0 < 200);
+
+    for (int i = 0; i < 4; i++) { sa_drain_events(); sa_static_frame(ctx); }
+    wlx_request_frame(ctx);                    // asked for after wlx_end
+    sa_drain_events();
+    t0 = SDL_GetTicks();
+    wlx_sdl3_wait_frame(ctx);
+    ASSERT_TRUE(SDL_GetTicks() - t0 < 200);
+
+    wlx_context_destroy(ctx);
+    free(ctx);
+    sa_close(win);
+}
+
+// ============================================================================
 // Suite
 // ============================================================================
 
@@ -682,6 +803,9 @@ SUITE(adapter_sdl3) {
     RUN_TEST(sdl3_ttf_advances_registered_with_font_variants);
     RUN_TEST(sdl3_ttf_advances_end_at_the_measure);
     RUN_TEST(sdl3_ttf_measure_holds_across_scale);
+    RUN_TEST(sdl3_wait_frame_ends_on_an_event_and_leaves_it_queued);
+    RUN_TEST(sdl3_wait_frame_waits_out_a_timed_request);
+    RUN_TEST(sdl3_wait_frame_returns_at_once_when_a_frame_is_due);
 }
 
 int main(void) {

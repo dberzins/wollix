@@ -394,7 +394,7 @@ modify the core. Definitions live in `demos/dashboard/` demo-local headers and
 |--------|--------|-----------------------|
 | `dashboard_module_begin` / `_end` | Glass module surface (translucent fill + two-tone bevel + 8px corner) | `wlx_layout_begin` per-side decor + `corner_radius` |
 | `dashboard_heading` / `dashboard_panel_heading` | Uppercase mono section heading | `wlx_label` (mono `label` role) |
-| `dashboard_stat_card` | Hero metric card: label + icon, big value + unit, segmented usage bar (`fraction`, `segments`); fed the Overview's live metrics | module + nested layouts + `dashboard_segmented_progress` |
+| `dashboard_stat_card` | Hero metric card: label + icon, big value + unit, segmented usage bar (`fraction`, `segments`); fed the Overview's sampled metrics | module + nested layouts + `dashboard_segmented_progress` |
 | `dashboard_button_primary` | Solid accent button (dark on-accent ink) | `wlx_button` |
 | `dashboard_status_chip` | LED-dot + mono text status chip | `wlx_layout_begin` border + `wlx_widget` disc + `wlx_label` |
 | `dashboard_badge` | Compact status badge | bordered layout + label |
@@ -413,8 +413,7 @@ modify the core. Definitions live in `demos/dashboard/` demo-local headers and
 | `dashboard_icon_image` / `_button` / `_label` | Atlas glyph as image / button image / label image | `wlx_image` / `wlx_button` / `wlx_label` + icon atlas |
 
 Pure helpers: `dashboard_text_style` (role -> `WLX_Text_Style`), `dashboard_upper`
-(ASCII uppercase), `dashboard_grid_columns`, `dashboard_pulse_alpha`,
-`dashboard_table_row_rect`. Visual-effect helpers (`dashboard_effects.h`):
+(ASCII uppercase), `dashboard_grid_columns`, `dashboard_table_row_rect`. Visual-effect helpers (`dashboard_effects.h`):
 `dashboard_color_lerp`, `dashboard_desaturate`, `dashboard_blur_tint`,
 `dashboard_glow_ring_alpha`, `dashboard_draw_scanlines`.
 

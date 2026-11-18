@@ -2,7 +2,9 @@
 // flat buffer. Generates synthetic documents (press 1 = ~100 KB, 2 = ~10 MB /
 // 1,000,000 lines, 3 = one multi-megabyte hard line) or loads a file passed
 // as argv[1]; W toggles wrapped mode. Frame cost stays O(viewport) whatever
-// the document size.
+// the document size. The loop waits between frames (wlx_raylib_wait_frame),
+// so an untouched window costs nothing; F2 asks for every frame instead
+// (wlx_request_frame) and shows the frame rate.
 
 #include <stddef.h>
 #include <stdint.h>
@@ -29,6 +31,8 @@ static size_t doc_cap = 0;
 static size_t doc_len = 0;
 static uint32_t doc_revision = 0;
 static bool wrap_mode = false;
+static bool wait_mode = true;   // false: ask for every frame, as an animation would
+static double rate_from = 0.0;  // when the loop last switched between waiting and not
 
 // Generate target_lines synthetic lines (~11 bytes each). Every 1000th line
 // gets a long tail so horizontal scrolling has something to reach.
@@ -120,6 +124,10 @@ int main(int argc, char **argv) {
         if (IsKeyPressed(KEY_TWO)) generate_document(1000000);   // ~10 MB / 1M lines
         if (IsKeyPressed(KEY_THREE)) generate_mega_line(4u << 20); // one ~4 MB line
         if (IsKeyPressed(KEY_W)) wrap_mode = !wrap_mode;
+        if (IsKeyPressed(KEY_F2)) {
+            wait_mode = !wait_mode;
+            rate_from = GetTime();
+        }
 
         WLX_Rect wlx_root = wlx_raylib_root_rect();
 
@@ -134,16 +142,33 @@ int main(int argc, char **argv) {
                 wlx_layout_begin(ctx, 3, WLX_VERT,
                     .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(30), WLX_SLOT_PX(26), WLX_SLOT_FLEX(1) });
 
+                    // A loop that waits has no frame rate to show; the
+                    // readout is for the continuous loop. GetFPS averages
+                    // the samples it took over about the last half second
+                    // and takes one only when it is called, so it is called
+                    // on every frame and read once the loop has drawn every
+                    // frame for a second: before that its history still
+                    // holds the waits, or nothing.
+                    int fps = GetFPS();
+                    char rate[32];
+                    if (wait_mode || GetTime() - rate_from < 1.0) snprintf(rate, sizeof(rate), "-- fps");
+                    else snprintf(rate, sizeof(rate), "%d fps", fps);
                     char header[256];
                     snprintf(header, sizeof(header),
-                        "editor: %zu bytes | %d fps | wrap %s (W) | 1 = 100 KB, 2 = 10 MB, 3 = mega-line, wheel / shift+wheel / PgUp / PgDn",
-                        doc_len, GetFPS(), wrap_mode ? "on" : "off");
+                        "editor: %zu bytes | %s | wrap %s (W) | 1 = 100 KB, 2 = 10 MB, 3 = mega-line, wheel / shift+wheel / PgUp / PgDn",
+                        doc_len, rate, wrap_mode ? "on" : "off");
                     wlx_label(ctx, header, .font_size = 18,
                         .back_color = ctx->theme->background, .content_align = WLX_LEFT);
 
-                    wlx_label(ctx, wrap_mode
+                    char hint[200];
+                    snprintf(hint, sizeof(hint), "%s | %s",
+                        wrap_mode
                             ? "wrapped rows; the vertical thumb maps hard lines (documented approximation)"
                             : "drag the scrollbars; the vertical thumb is exact from the line count",
+                        wait_mode
+                            ? "F2: waiting when idle, so no frame rate"
+                            : "F2: drawing every frame");
+                    wlx_label(ctx, hint,
                         .font_size = 14, .back_color = ctx->theme->background, .content_align = WLX_LEFT);
 
                     if (doc_buf != NULL) {
@@ -154,8 +179,16 @@ int main(int argc, char **argv) {
 
                 wlx_layout_end(ctx);
 
+        // The frame rate readout changes by itself, so while it shows the
+        // demo asks for the next frame, on every frame.
+        if (!wait_mode) wlx_request_frame(ctx);
+
         wlx_end(ctx);
             EndDrawing();
+
+        // Wait here until input arrives, the caret is due to blink or a
+        // frame was asked for.
+        wlx_raylib_wait_frame(ctx);
     }
 
     CloseWindow();

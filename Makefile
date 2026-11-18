@@ -68,7 +68,7 @@ DASHBOARD_HEADERS = $(wildcard $(DASHBOARD_DIR)/*.h)
 # The packaged site (dist/wasm-demo, the GitHub Pages artifact) is the dashboard;
 # the gallery keeps building into its own coexisting site dir.
 GALLERY_WASM_SITE_DIR = dist/gallery-demo
-RAYLIB_DEMOS = layout button button_image label_image text checkbox checkbox_tex image input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo disabled_demo gallery auth editor popup
+RAYLIB_DEMOS = layout button button_image label_image text checkbox checkbox_tex image input scroll_panel slider demo widget_size variable_slots nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo font_demo opacity_demo border_demo disabled_demo gallery editor popup frame_request
 SDL3_DEMOS = sdl3_demo gallery_sdl3
 PERF_DEMOS = gallery_perf gallery_sdl3_perf
 DEMO_NAMES = $(RAYLIB_DEMOS) $(SDL3_DEMOS)
@@ -78,7 +78,7 @@ DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
 WASM_SITE_TARGETS = $(WASM_SITE_DIR)/dashboard.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js $(WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 GALLERY_WASM_SITE_TARGETS = $(GALLERY_WASM_SITE_DIR)/gallery.wasm $(GALLERY_WASM_SITE_DIR)/index.html $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js
 
-.PHONY: all clean debug release help test test-single-pass test-sdl3 check-sdl3-ndebug docs-check perf-test test-asan test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
+.PHONY: all clean debug release help test test-single-pass test-sdl3 test-raylib check-sdl3-ndebug docs-check perf-test test-asan test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
 
 # The dashboard is the primary showcase, so the default build includes it. It
 # keeps its own -DWLX_PERF recipe ($(DASHBOARD_BIN)) rather than joining the
@@ -141,8 +141,10 @@ dashboard-wasm-site: wasm-site
 $(WASM_SITE_DIR):
 	mkdir -p $@
 
+# WLX_WASM_PERF_TIMESTAMP gives the perf frame the host's clock (the
+# perf_now_ns import), so the dashboard's frame cost is a figure here too.
 $(WASM_SITE_DIR)/dashboard.wasm: $(DASHBOARD_DIR)/dashboard.c $(DASHBOARD_HEADERS) $(WASM_SRC_DIR)/wlx_libc_shim.c $(WASM_SRC_DIR)/wlx_libc_shim.h wollix.h wollix_editor.h wollix_wasm.h | $(WASM_SITE_DIR)
-	$(WASM_CC) $(WASM_BARE_CFLAGS) -DWLX_PERF -DWLX_DASHBOARD_WASM -o $@ $(DASHBOARD_DIR)/dashboard.c $(WASM_SRC_DIR)/wlx_libc_shim.c
+	$(WASM_CC) $(WASM_BARE_CFLAGS) -DWLX_PERF -DWLX_WASM_PERF_TIMESTAMP -DWLX_DASHBOARD_WASM -o $@ $(DASHBOARD_DIR)/dashboard.c $(WASM_SRC_DIR)/wlx_libc_shim.c
 
 $(WASM_SITE_DIR)/index.html: $(WASM_SRC_DIR)/wollix_dashboard.html | $(WASM_SITE_DIR)
 	cp $< $@
@@ -204,19 +206,22 @@ HARD_ASSERT_BIN = $(TEST_DIR)/test_hard_assert
 CONFIG_OVERRIDE_BIN = $(TEST_DIR)/test_config_override
 OFFSET_STACK_OVERRIDE_BIN = $(TEST_DIR)/test_offset_stack_override
 UNDO_DISABLED_BIN = $(TEST_DIR)/test_undo_disabled
+FRAME_CHECK_BIN = $(TEST_DIR)/test_frame_check
 DEFAULTS_ONCE_BIN = $(TEST_DIR)/test_defaults_once
 CPP_PATH_BIN = $(TEST_DIR)/test_cpp_path
 TEST_SDL3_BIN = $(TEST_DIR)/test_adapter_sdl3
+TEST_RAYLIB_BIN = $(TEST_DIR)/test_adapter_raylib
 
 # One list, mirrored by the CMake test list in CMakeLists.txt: a binary added
 # here is added there in the same commit, and vice versa.
-test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(OFFSET_STACK_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN) $(CPP_PATH_BIN)
+test: $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(OFFSET_STACK_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(FRAME_CHECK_BIN) $(DEFAULTS_ONCE_BIN) $(CPP_PATH_BIN)
 	./$(TEST_BIN)
 	./$(SINGLE_PASS_BIN)
 	./$(HARD_ASSERT_BIN)
 	./$(CONFIG_OVERRIDE_BIN)
 	./$(OFFSET_STACK_OVERRIDE_BIN)
 	./$(UNDO_DISABLED_BIN)
+	./$(FRAME_CHECK_BIN)
 	./$(DEFAULTS_ONCE_BIN)
 	./$(CPP_PATH_BIN)
 
@@ -253,6 +258,12 @@ $(OFFSET_STACK_OVERRIDE_BIN): $(TEST_DIR)/test_offset_stack_override.c $(TEST_DI
 $(UNDO_DISABLED_BIN): $(TEST_DIR)/test_undo_disabled.c $(TEST_DIR)/test_mock_backend.h wollix.h wollix_editor.h
 	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_undo_disabled.c -lm
 
+# WLX_FRAME_CHECK: the core reports a frame that drew something new although
+# no input arrived and no frame request was due. Built as its own translation
+# unit with the switch and a capturing print sink in the test source itself.
+$(FRAME_CHECK_BIN): $(TEST_DIR)/test_frame_check.c $(TEST_DIR)/test_mock_backend.h wollix.h
+	$(CC) $(BASE_CFLAGS) -I. -o $@ $(TEST_DIR)/test_frame_check.c -lm
+
 # Every option default macro sets each designator once, and every option
 # struct has a wlx_*_opt_defaults function: the declaration TU is built with
 # the initializer-override warning promoted to an error (the inverse of
@@ -283,6 +294,16 @@ test-sdl3: $(TEST_SDL3_BIN)
 $(TEST_SDL3_BIN): $(TEST_DIR)/test_adapter_sdl3.c $(TEST_DIR)/tests.h wollix.h wollix_sdl3.h
 	$(CC) $(SDL3_CFLAGS) $(SDL3_INCLUDES) -I$(TEST_DIR) -o $@ $< $(SDL3_LDFLAGS) $(SDL3_LIBS)
 
+# The Raylib adapter's input path and wait helper against a scripted
+# stand-in for the Raylib functions they call: compiled with raylib.h,
+# linked without Raylib, no window. Not part of `test`: Raylib is an
+# optional dependency.
+test-raylib: $(TEST_RAYLIB_BIN)
+	./$(TEST_RAYLIB_BIN)
+
+$(TEST_RAYLIB_BIN): $(TEST_DIR)/test_adapter_raylib.c $(TEST_DIR)/tests.h $(TEST_DIR)/test_mock_backend.h wollix.h wollix_raylib.h
+	$(CC) $(BASE_CFLAGS) $(INCLUDES) -I$(TEST_DIR) -o $@ $< -lm
+
 # The SDL3 translation units compiled once as a release build makes them:
 # NDEBUG (the adapters' asserts compiled out), -O2 (some warnings need the
 # optimiser's flow analysis), warnings as errors. Compile only. Both SDL_ttf
@@ -302,7 +323,9 @@ perf-test: $(PERF_TEST_BIN)
 # README.md and docs/ compiles against the headers, README's C/C++ pair
 # links, anchors resolve, every wlx_/WLX_ name the docs use exists, no
 # tracked file cites an unpublished record, the option and short-name
-# registries agree, and every option table's defaults match its struct. Needs gcc, g++, Raylib (the pair links against it) and
+# registries agree, every option table's defaults match its struct, and the
+# tagline and identity sentence read the same at every site that states
+# them. Needs gcc, g++, Raylib (the pair links against it) and
 # the SDL3 and SDL3_ttf headers; DOCS_INCLUDES lists the backend include
 # directories.
 DOCS_INCLUDES ?= $(HOME)/opt/raylib/include $(HOME)/opt/sdl3/include $(HOME)/opt/sdl3_ttf/include
@@ -343,7 +366,7 @@ test-demos: $(DEFAULT_TARGETS) $(DASHBOARD_BIN)
 	@echo "All demos built successfully."
 
 clean:
-	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(OFFSET_STACK_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(DEFAULTS_ONCE_BIN) $(CPP_PATH_BIN) $(TEST_SDL3_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
+	rm -f $(TARGETS) $(PERF_TARGETS) $(DASHBOARD_BIN) $(DASHBOARD_SDL3_BIN) $(DASHBOARD_PERF_BIN) $(TEST_BIN) $(SINGLE_PASS_BIN) $(HARD_ASSERT_BIN) $(CONFIG_OVERRIDE_BIN) $(OFFSET_STACK_OVERRIDE_BIN) $(UNDO_DISABLED_BIN) $(FRAME_CHECK_BIN) $(DEFAULTS_ONCE_BIN) $(CPP_PATH_BIN) $(TEST_SDL3_BIN) $(TEST_RAYLIB_BIN) $(PERF_TEST_BIN) $(TEST_ASAN_BIN) $(PERF_EDITOR_BIN) $(WASM_SRC_DIR)/gallery.wasm $(WASM_SRC_DIR)/index.html
 	rm -rf $(WASM_SITE_DIR) $(GALLERY_WASM_SITE_DIR)
 
 # Help target
@@ -370,7 +393,8 @@ help:
 	@echo "  perf-test    - Build and run tests with WLX_PERF enabled"
 	@echo "  test-asan    - Run the test runner under ASan + UBSan with leak detection on"
 	@echo "  test-sdl3    - Run the SDL3 adapter test headless (needs SDL3 and SDL3_ttf)"
+	@echo "  test-raylib  - Run the Raylib adapter test against a stand-in (needs raylib.h, no window)"
 	@echo "  check-sdl3-ndebug - Compile the SDL3 targets as a release build (NDEBUG, -O2, -Werror)"
-	@echo "  docs-check   - Check the docs: examples, README pair, anchors, names, registries, option defaults"
+	@echo "  docs-check   - Check the docs: examples, README pair, anchors, names, registries, option defaults, identity"
 	@echo "  test-demos   - Build all Raylib demos and verify exit codes"
 	@echo "  help         - Show this help message"

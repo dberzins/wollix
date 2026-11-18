@@ -64,7 +64,7 @@ static void     gallery_platform_shutdown(Gallery_State *g);
 static bool     gallery_platform_begin_frame(Gallery_State *g, WLX_Rect *out_root);
 static void     gallery_platform_end_frame(Gallery_State *g);
 static void     gallery_platform_clear(WLX_Color bg);
-static int      gallery_platform_fps(void);
+static double   gallery_platform_now(void);     // a monotonic clock, in seconds
 static WLX_Font gallery_platform_font(Gallery_Font_Slot slot);
 
 static void        gallery_icon_atlas_create(WLX_Context *ctx);
@@ -73,6 +73,80 @@ static WLX_Texture gallery_icon_atlas_texture(void);
 static bool        gallery_icon_atlas_ready(void);
 
 #define ROW_H 40
+
+// ---------------------------------------------------------------------------
+// Frame cost readout
+// ---------------------------------------------------------------------------
+// The loop rests while nothing changes (each platform block calls its
+// adapter's frame helper), so a frame rate would say nothing. The readouts
+// show what a frame costs instead: the time from wlx_begin to the end of
+// wlx_end, which is building the UI and replaying its draw calls, as a mean
+// over the frames since the reading before. Presenting is not in it.
+//
+// A reading is taken about twice a second at most, and only on a frame the
+// previous one asked for, so showing it never brings a frame of its own: a
+// new reading changes what is drawn, which asks for one more frame; that
+// frame never takes a reading, however late it comes, so it matches, and the
+// loop rests. Each of the first few frames takes one, so the figure an
+// untouched gallery rests on is a warm frame's. The period is well under half
+// a second: a caret blinks every half second, and a reading that falls due on
+// the blink's own frame, rather than on the one after it, costs no frame.
+#define GALLERY_FRAME_COST_PERIOD 0.4
+#define GALLERY_FRAME_COST_WARMUP 8
+
+typedef struct {
+    double start;        // the clock when the frame began
+    double sum;          // cost of the frames since the last reading, seconds
+    int    frames;       // how many frames that is
+    int    seen;         // frames drawn, up to the warm-up count
+    bool   read_last;    // the frame before took a reading
+    double last;         // the clock at the last reading
+    float  prev_delay;   // what the previous frame left in wlx_frame_delay
+    float  shown_ms;     // the reading; negative until there is one
+} Gallery_Frame_Cost;
+
+static Gallery_Frame_Cost g_frame_cost = { .shown_ms = -1.0f };
+
+// Called by the platform block right before wlx_begin.
+static void gallery_frame_cost_begin(void) {
+    g_frame_cost.start = gallery_platform_now();
+}
+
+// Called by the platform block right after wlx_end.
+static void gallery_frame_cost_end(WLX_Context *ctx) {
+    g_frame_cost.sum += gallery_platform_now() - g_frame_cost.start;
+    g_frame_cost.frames++;
+    g_frame_cost.prev_delay = wlx_frame_delay(ctx);
+}
+
+// Take a reading when one is due. Called once per frame, before the readouts
+// are built. A frame was asked for when the one before left wlx_frame_delay
+// at zero, or at a delay that has passed since; a loop that waits draws such
+// a frame in any case. Any other frame came with input, or comes from a loop
+// that does not wait at all, as a benchmark or a WLX_FRAME_CHECK run does not.
+static void gallery_frame_cost_renew(WLX_Context *ctx) {
+    Gallery_Frame_Cost *fc = &g_frame_cost;
+    bool warming = fc->seen < GALLERY_FRAME_COST_WARMUP;
+    if (warming) fc->seen++;
+    bool asked = fc->prev_delay >= 0.0f
+        && fc->prev_delay <= wlx_get_frame_time(ctx) + 0.001f;
+    double now = gallery_platform_now();
+    bool due = asked && fc->frames > 0
+        && (warming || (!fc->read_last && now - fc->last >= GALLERY_FRAME_COST_PERIOD));
+    fc->read_last = due;
+    if (!due) return;
+    fc->shown_ms = (float)(fc->sum / (double)fc->frames * 1000.0);
+    fc->sum = 0.0;
+    fc->frames = 0;
+    fc->last = now;
+}
+
+// The reading as text: "1.8 ms", or "--" before the first one.
+static const char *gallery_frame_cost_text(char *buf, size_t cap) {
+    if (g_frame_cost.shown_ms < 0.0f) snprintf(buf, cap, "--");
+    else snprintf(buf, cap, "%.1f ms", (double)g_frame_cost.shown_ms);
+    return buf;
+}
 
 // ---------------------------------------------------------------------------
 // Gallery-level color constants (backend-neutral, match Raylib's RED/GREEN/BLUE)
@@ -3760,13 +3834,14 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
                 .content_padding_right = content_pad);
 
             char stats[256];
+            char cost[16];
             snprintf(stats, sizeof(stats),
                 "Backend: %s\n"
                 "Version: %s\n"
-                "FPS:     %d\n"
+                "Frame:   %s\n"
                 "Theme:   %s",
                 GALLERY_BACKEND, GALLERY_VERSION,
-                gallery_platform_fps(),
+                gallery_frame_cost_text(cost, sizeof(cost)),
                 theme_names[st->theme_mode]);
             wlx_label(ctx, stats,
                 .font_size = DEMO_FS, .height = 130, .content_align = WLX_LEFT,
@@ -3841,6 +3916,7 @@ static void section_overview(WLX_Context *ctx, Gallery_State *st) {
 // Shared per-frame renderer -- backend-agnostic.
 // ---------------------------------------------------------------------------
 static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
+    gallery_frame_cost_renew(ctx);
     Gallery_Semantic_Theme semantic = gallery_semantic_theme(ctx->theme);
     Gallery_Semantic_Spacing spacing = gallery_semantic_spacing(ctx->theme);
 
@@ -3866,9 +3942,11 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
                         .content_padding_right = spacing.space_control_x);
 
                     {
-                        char fps_label[32];
-                        snprintf(fps_label, sizeof(fps_label), "FPS: %d  ", gallery_platform_fps());
-                        wlx_label(ctx, fps_label,
+                        char cost[16];
+                        char cost_label[32];
+                        snprintf(cost_label, sizeof(cost_label), "%s  ",
+                            gallery_frame_cost_text(cost, sizeof(cost)));
+                        wlx_label(ctx, cost_label,
                             .font_size = TINY_FS, .height = 44, .content_align = WLX_RIGHT,
                             .front_color = semantic.color_text_2,
                             .content_padding_left = spacing.space_control_x,
@@ -3997,10 +4075,11 @@ static void gallery_render_frame(WLX_Context *ctx, Gallery_State *gs) {
             char status[256];
             const Section *active_section = gallery_active_section(gs);
             const char *section_name = active_section ? active_section->name : groups[gs->active_group].name;
+            char cost[16];
             snprintf(status, sizeof(status),
-                "%s  |  v%s  |  FPS: %d  |  %s / %s  |  Theme: %s",
+                "%s  |  v%s  |  Frame: %s  |  %s / %s  |  Theme: %s",
                 GALLERY_BACKEND, GALLERY_VERSION,
-                gallery_platform_fps(),
+                gallery_frame_cost_text(cost, sizeof(cost)),
                 groups[gs->active_group].name,
                 section_name,
                 theme_names[gs->theme_mode]);
@@ -4150,6 +4229,7 @@ static bool gallery_platform_begin_frame(Gallery_State *gs, WLX_Rect *out_root) 
     gallery_update_custom_theme(gs, body_font);
     g_raylib_ctx->theme = g_raylib_themes[gs->theme_mode];
     gallery_perf_before_frame(g_raylib_ctx, *out_root);
+    gallery_frame_cost_begin();
     wlx_begin(g_raylib_ctx, *out_root, wlx_process_raylib_input);
     BeginDrawing();
     return true;
@@ -4157,19 +4237,23 @@ static bool gallery_platform_begin_frame(Gallery_State *gs, WLX_Rect *out_root) 
 
 static void gallery_platform_end_frame(Gallery_State *gs) {
     wlx_end(g_raylib_ctx);
+    gallery_frame_cost_end(g_raylib_ctx);
     gallery_perf_backend_present_begin();
     EndDrawing();
     gallery_perf_backend_present_end();
     gallery_perf_backend_end_frame(g_raylib_ctx);
     gallery_perf_after_frame(g_raylib_ctx, gs);
+    // Rest until input arrives or a frame request comes due. A benchmark
+    // run draws every frame.
+    if (!gallery_perf_enabled()) wlx_raylib_wait_frame(g_raylib_ctx);
 }
 
 static void gallery_platform_clear(WLX_Color bg) {
     ClearBackground(bg);
 }
 
-static int gallery_platform_fps(void) {
-    return GetFPS();
+static double gallery_platform_now(void) {
+    return GetTime();
 }
 
 static WLX_Font gallery_platform_font(Gallery_Font_Slot slot) {
@@ -4222,11 +4306,6 @@ static WLX_Context  *g_sdl3_ctx;
 
 static bool          g_sdl3_icon_atlas_ready;
 static WLX_Texture   g_sdl3_icon_atlas;
-
-static Uint64        g_sdl3_frame_start;
-static int           g_sdl3_fps;
-static int           g_sdl3_frame_count;
-static Uint64        g_sdl3_fps_timer;
 
 static bool          g_sdl3_quit;
 
@@ -4345,9 +4424,6 @@ static bool gallery_platform_init(Gallery_State *gs) {
         snprintf(gs->dynamic_names[i], sizeof(gs->dynamic_names[i]), "Panel %d", i + 1);
     }
 
-    g_sdl3_fps_timer = SDL_GetTicksNS();
-    g_sdl3_frame_count = 0;
-    g_sdl3_fps = 0;
     g_sdl3_quit = false;
     return true;
 }
@@ -4388,28 +4464,22 @@ static bool gallery_platform_begin_frame(Gallery_State *gs, WLX_Rect *out_root) 
     gallery_update_custom_theme(gs, body_font);
     g_sdl3_ctx->theme = g_sdl3_themes[gs->theme_mode];
     gallery_perf_before_frame(g_sdl3_ctx, *out_root);
+    gallery_frame_cost_begin();
     wlx_begin(g_sdl3_ctx, *out_root, wlx_process_sdl3_input);
-
-    g_sdl3_frame_start = SDL_GetTicksNS();
     return true;
 }
 
 static void gallery_platform_end_frame(Gallery_State *gs) {
     wlx_end(g_sdl3_ctx);
+    gallery_frame_cost_end(g_sdl3_ctx);
     gallery_perf_backend_present_begin();
     SDL_RenderPresent(g_sdl3_renderer);
     gallery_perf_backend_present_end();
     gallery_perf_backend_end_frame(g_sdl3_ctx);
     gallery_perf_after_frame(g_sdl3_ctx, gs);
-
-    g_sdl3_frame_count++;
-    Uint64 now = SDL_GetTicksNS();
-    Uint64 elapsed = now - g_sdl3_fps_timer;
-    if (elapsed >= 1000000000ULL) {
-        g_sdl3_fps = g_sdl3_frame_count;
-        g_sdl3_frame_count = 0;
-        g_sdl3_fps_timer = now;
-    }
+    // Rest until input arrives or a frame request comes due. A benchmark
+    // run draws every frame.
+    if (!gallery_perf_enabled()) wlx_sdl3_wait_frame(g_sdl3_ctx);
 }
 
 static void gallery_platform_clear(WLX_Color bg) {
@@ -4418,8 +4488,8 @@ static void gallery_platform_clear(WLX_Color bg) {
     SDL_RenderClear(g_sdl3_renderer);
 }
 
-static int gallery_platform_fps(void) {
-    return g_sdl3_fps;
+static double gallery_platform_now(void) {
+    return (double)SDL_GetTicksNS() / 1.0e9;
 }
 
 static WLX_Font gallery_platform_font(Gallery_Font_Slot slot) {
@@ -4458,6 +4528,11 @@ int main(int argc, char **argv) {
 
 // Shared-memory input state exported to JS host.
 WLX_Input_State wlx_wasm_input_state = {0};
+
+// The host's monotonic clock, in nanoseconds (web/wollix_wasm.js). Declared
+// here: the adapter declares it only for a build that times its perf frames.
+__attribute__((import_module("wlx"), import_name("perf_now_ns")))
+extern uint64_t gallery_wasm_import_now_ns(void);
 
 static WLX_Context *g_wasm_ctx;
 static WLX_Theme    g_wasm_theme_dark;
@@ -4557,15 +4632,8 @@ static void gallery_platform_clear(WLX_Color bg) {
     (void)bg;
 }
 
-static int gallery_platform_fps(void) {
-    static float smoothed_fps = 0.0f;
-    float ft = g_wasm_ctx->backend.get_frame_time(g_wasm_ctx->backend.user);
-    if (ft > 0.0001f) {
-        float instant = 1.0f / ft;
-        if (smoothed_fps <= 0.0f) smoothed_fps = instant;
-        else smoothed_fps += 0.02f * (instant - smoothed_fps);
-    }
-    return (smoothed_fps > 0.0f) ? (int)(smoothed_fps + 0.5f) : 0;
+static double gallery_platform_now(void) {
+    return (double)gallery_wasm_import_now_ns() / 1.0e9;
 }
 
 static WLX_Font gallery_platform_font(Gallery_Font_Slot slot) {
@@ -4592,6 +4660,7 @@ void wlx_wasm_frame(float width, float height) {
     g_wasm_ctx->theme = g_wasm_themes[g.theme_mode];
 
     gallery_perf_before_frame(g_wasm_ctx, root);
+    gallery_frame_cost_begin();
     wlx_begin(g_wasm_ctx, root, wlx_process_wasm_input);
 
     gallery_platform_clear(g_wasm_ctx->theme->background);
@@ -4601,8 +4670,12 @@ void wlx_wasm_frame(float width, float height) {
     gallery_render_frame(g_wasm_ctx, &g);
 
     wlx_end(g_wasm_ctx);
+    gallery_frame_cost_end(g_wasm_ctx);
     gallery_perf_backend_end_frame(g_wasm_ctx);
     gallery_perf_after_frame(g_wasm_ctx, &g);
+    // Tell the host when the next frame is needed: at once, after a delay,
+    // or only when input arrives. A benchmark run draws every frame.
+    if (!gallery_perf_enabled()) wlx_wasm_schedule_frame(g_wasm_ctx);
 }
 
 // Validation hook: reports current page-pool counters so a host (or test

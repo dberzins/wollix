@@ -679,6 +679,783 @@ TEST(grid_content_row_seed_does_not_warn_clip) {
 #endif
 
 // ============================================================================
+// Grid CONTENT column sizing
+//
+// A CONTENT column takes the widest width its cells contribute: a widget's
+// explicit .width, else its intrinsic single-line width, never the cell
+// width. It is used one frame late, as CONTENT rows are. A cell that spans
+// several tracks on an axis sizes no CONTENT track on that axis.
+//
+// The mock measurer gives a label len * font_size / 2, so "Hello" at font
+// size 20 is 50 px wide and "Hi" is 20.
+// ============================================================================
+
+static WLX_Layout *grid_top(WLX_Context *ctx) {
+    return &wlx_pool_layouts(ctx)[ctx->arena.layouts.count - 1];
+}
+
+// Width of column c as a cell sees it: the boundary delta less the gap
+// that follows every column but the last.
+static float grid_col_w(const WLX_Context *ctx, const WLX_Layout *l, size_t c) {
+    const float *off = wlx_grid_col_offsets(ctx, l);
+    float gap = (c + 1 < l->grid.cols) ? l->gap : 0.0f;
+    return off[c + 1] - off[c] - gap;
+}
+
+static float grid_row_h(const WLX_Context *ctx, const WLX_Layout *l, size_t r) {
+    const float *off = wlx_grid_row_offsets(ctx, l);
+    float gap = (r + 1 < l->grid.rows) ? l->gap : 0.0f;
+    return off[r + 1] - off[r] - gap;
+}
+
+TEST(grid_content_col_basic) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size col_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    float c0[3] = {0}, c1[3] = {0};
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 2, 2, .col_sizes = col_sizes);
+        WLX_Layout *l = grid_top(&ctx);
+        ASSERT_TRUE(l->has_grid_col_content_widths);
+        c0[frame] = grid_col_w(&ctx, l, 0);
+        c1[frame] = grid_col_w(&ctx, l, 1);
+        wlx_label(&ctx, "Hi", .font_size = 20);        // 20
+        wlx_label(&ctx, "value", .font_size = 20);
+        wlx_label(&ctx, "Hello", .font_size = 20);     // 50: the widest of column 0
+        wlx_label(&ctx, "value", .font_size = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(c0[0], 1.0f, GRID_EPS);     // the seed: nothing measured yet
+    ASSERT_EQ_F(c0[1], 50.0f, GRID_EPS);    // the frame after the measuring one
+    ASSERT_EQ_F(c1[1], 350.0f, GRID_EPS);   // FLEX takes what is left
+    ASSERT_EQ_F(c0[2], 50.0f, GRID_EPS);    // and it holds
+    wlx_context_destroy(&ctx);
+}
+
+// A minimum, a maximum and both clamp the measured width. The stored
+// measurement stays the single-line width whatever the clamp, so a
+// clamped column does not feed its own width back.
+TEST(grid_content_col_min_max) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size col_sizes[] = {
+        WLX_SLOT_CONTENT_MIN(80), WLX_SLOT_CONTENT_MAX(30),
+        WLX_SLOT_CONTENT_MINMAX(40, 45), WLX_SLOT_FLEX(1),
+    };
+    float w[4] = {0};
+    float stored_max_col = 0;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 1, 4, .col_sizes = col_sizes);
+        WLX_Layout *l = grid_top(&ctx);
+        for (size_t c = 0; c < 4; c++) w[c] = grid_col_w(&ctx, l, c);
+        stored_max_col = l->grid_col_content_state->measured[1];
+        wlx_label(&ctx, "Hello", .font_size = 20);     // 50 in each CONTENT column
+        wlx_label(&ctx, "Hello", .font_size = 20);
+        wlx_label(&ctx, "Hello", .font_size = 20);
+        wlx_label(&ctx, "rest", .font_size = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(w[0], 80.0f, GRID_EPS);     // raised to the minimum
+    ASSERT_EQ_F(w[1], 30.0f, GRID_EPS);     // capped
+    ASSERT_EQ_F(w[2], 45.0f, GRID_EPS);     // capped inside the range
+    ASSERT_EQ_F(w[3], 245.0f, GRID_EPS);    // 400 - 80 - 30 - 45
+    ASSERT_EQ_F(stored_max_col, 50.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
+}
+
+// With a gap, the cell of a CONTENT column is exactly the measured width.
+TEST(grid_content_col_gap) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size col_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    WLX_Rect cell0 = {0}, cell1 = {0};
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 1, 2, .col_sizes = col_sizes, .gap = 10);
+        WLX_Layout *l = grid_top(&ctx);
+        cell0 = wlx_calc_grid_slot_rect(&ctx, l, 0, 0, 1, 1);
+        cell1 = wlx_calc_grid_slot_rect(&ctx, l, 0, 1, 1, 1);
+        wlx_label(&ctx, "Hello", .font_size = 20);
+        wlx_label(&ctx, "rest", .font_size = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(cell0.w, 50.0f, GRID_EPS);
+    ASSERT_EQ_F(cell1.x, 60.0f, GRID_EPS);
+    ASSERT_EQ_F(cell1.w, 340.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
+}
+
+// An explicit .width contributes itself. A widget that fills its slot by
+// nature and a nested layout contribute nothing, so their columns take
+// their minimum.
+TEST(grid_content_col_explicit_width_and_fillers) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size col_sizes[] = {
+        WLX_SLOT_CONTENT, WLX_SLOT_CONTENT_MIN(25), WLX_SLOT_CONTENT_MIN(35), WLX_SLOT_FLEX(1),
+    };
+    float w[3] = {0};
+    float v = 0.5f;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 1, 4, .col_sizes = col_sizes);
+        WLX_Layout *l = grid_top(&ctx);
+        for (size_t c = 0; c < 3; c++) w[c] = grid_col_w(&ctx, l, c);
+        wlx_label(&ctx, "Hi", .font_size = 20, .width = 77);   // 77, not the 20 px of text
+        wlx_slider(&ctx, "s", &v);                             // no intrinsic width
+        wlx_layout_begin(&ctx, 1, WLX_VERT);                   // a nested layout offers none
+            wlx_label(&ctx, "A long nested label", .font_size = 20);
+        wlx_layout_end(&ctx);
+        wlx_label(&ctx, "rest", .font_size = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(w[0], 77.0f, GRID_EPS);
+    ASSERT_EQ_F(w[1], 25.0f, GRID_EPS);
+    ASSERT_EQ_F(w[2], 35.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
+}
+
+// The gate follows the cell the widget is about to take: the one
+// wlx_grid_cell placed, not the cursor's.
+TEST(grid_content_col_cell_placement) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    // The cursor stands in a FLEX column; the placed cell is in the CONTENT one.
+    WLX_Slot_Size col_sizes[] = { WLX_SLOT_FLEX(1), WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    float c1 = 0;
+    bool gate_at_cursor = true, gate_at_placed = false;
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 1, 3, .col_sizes = col_sizes);
+        WLX_Layout *l = grid_top(&ctx);
+        c1 = grid_col_w(&ctx, l, 1);
+        gate_at_cursor = wlx_parent_wants_intrinsic_width(&ctx, -1, 1);
+        wlx_grid_cell(&ctx, 0, 1);
+        gate_at_placed = wlx_parent_wants_intrinsic_width(&ctx, -1, 1);
+        wlx_label(&ctx, "Hello", .font_size = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_FALSE(gate_at_cursor);
+    ASSERT_TRUE(gate_at_placed);
+    ASSERT_EQ_F(c1, 50.0f, GRID_EPS);
+
+    // The reverse: the cursor stands in the CONTENT column, the placed cell
+    // is in the FLEX one. The CONTENT column gets nothing.
+    WLX_Slot_Size col_sizes2[] = { WLX_SLOT_CONTENT_MIN(15), WLX_SLOT_FLEX(1) };
+    float c0 = 0;
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 1, 2, .col_sizes = col_sizes2);
+        WLX_Layout *l = grid_top(&ctx);
+        c0 = grid_col_w(&ctx, l, 0);
+        gate_at_cursor = wlx_parent_wants_intrinsic_width(&ctx, -1, 1);
+        wlx_grid_cell(&ctx, 0, 1);
+        gate_at_placed = wlx_parent_wants_intrinsic_width(&ctx, -1, 1);
+        wlx_label(&ctx, "Hello", .font_size = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_TRUE(gate_at_cursor);
+    ASSERT_FALSE(gate_at_placed);
+    ASSERT_EQ_F(c0, 15.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
+}
+
+// A cell that spans columns sizes no CONTENT column: through wlx_grid_cell
+// and through a widget's .span at the cursor, with or without a width.
+TEST(grid_content_col_span_sizes_no_column) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size col_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    float c0 = 0, c1 = 0;
+    bool gate_placed_span = true, gate_cursor_span = true;
+
+    for (int frame = 0; frame < 4; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 3, 3, .col_sizes = col_sizes);
+        WLX_Layout *l = grid_top(&ctx);
+        c0 = grid_col_w(&ctx, l, 0);
+        c1 = grid_col_w(&ctx, l, 1);
+
+        // Row 0: a placed two-column cell holding 200 px of text.
+        wlx_grid_cell(&ctx, 0, 0, .col_span = 2);
+        gate_placed_span = wlx_parent_wants_intrinsic_width(&ctx, -1, 1);
+        wlx_label(&ctx, "A two-column heading", .font_size = 20);
+        wlx_label(&ctx, "x", .font_size = 20);
+
+        // Row 1: the cursor's cell, spanned by the widget, with a width.
+        gate_cursor_span = wlx_parent_wants_intrinsic_width(&ctx, -1, 2);
+        wlx_label(&ctx, "Another wide one", .font_size = 20, .span = 2, .width = 150);
+        wlx_label(&ctx, "y", .font_size = 20);
+
+        // Row 2: the one-column cells that do size the columns.
+        wlx_label(&ctx, "Hi", .font_size = 20);        // 20
+        wlx_label(&ctx, "Hey", .font_size = 20);       // 30
+        wlx_label(&ctx, "z", .font_size = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_FALSE(gate_placed_span);
+    ASSERT_FALSE(gate_cursor_span);
+    ASSERT_EQ_F(c0, 20.0f, GRID_EPS);
+    ASSERT_EQ_F(c1, 30.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
+}
+
+// A cell that spans rows sizes no CONTENT row. With no height, such a cell
+// contributes its cell height, which includes the rows it spans: credited
+// to its first row, that grew the row by the others on every frame.
+TEST(grid_content_row_span_sizes_no_row) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_CONTENT };
+    float r0[8] = {0}, r1[8] = {0};
+
+    for (int frame = 0; frame < 8; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
+        WLX_Layout *l = grid_top(&ctx);
+        r0[frame] = grid_row_h(&ctx, l, 0);
+        r1[frame] = grid_row_h(&ctx, l, 1);
+        wlx_grid_cell(&ctx, 0, 0, .row_span = 2);
+        wlx_label(&ctx, "span");                       // no height: takes its cell
+        wlx_grid_cell(&ctx, 0, 1);
+        wlx_label(&ctx, "a", .height = 20);
+        wlx_grid_cell(&ctx, 1, 1);
+        wlx_label(&ctx, "b", .height = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    for (int frame = 1; frame < 8; frame++) {
+        ASSERT_EQ_F(r0[frame], 20.0f, GRID_EPS);
+        ASSERT_EQ_F(r1[frame], 20.0f, GRID_EPS);
+    }
+
+    // With a height, the spanning cell still sizes neither row.
+    for (int frame = 0; frame < 4; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
+        WLX_Layout *l = grid_top(&ctx);
+        r0[frame] = grid_row_h(&ctx, l, 0);
+        r1[frame] = grid_row_h(&ctx, l, 1);
+        wlx_grid_cell(&ctx, 0, 0, .row_span = 2);
+        wlx_label(&ctx, "span", .height = 50);
+        wlx_grid_cell(&ctx, 0, 1);
+        wlx_label(&ctx, "a", .height = 20);
+        wlx_grid_cell(&ctx, 1, 1);
+        wlx_label(&ctx, "b", .height = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(r0[3], 20.0f, GRID_EPS);
+    ASSERT_EQ_F(r1[3], 20.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
+}
+
+// A nested layout in a row-spanning cell sizes no CONTENT row either; in a
+// one-row cell it still does.
+TEST(grid_content_row_span_nested_layout) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+#ifdef WLX_DEBUG
+    _grid_debug_warn_reset(&ctx);   // the clipped-content notices are expected here
+#endif
+
+    WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_CONTENT };
+    float r0 = 0, r1 = 0;
+
+    for (int frame = 0; frame < 4; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes);
+        WLX_Layout *l = grid_top(&ctx);
+        r0 = grid_row_h(&ctx, l, 0);
+        r1 = grid_row_h(&ctx, l, 1);
+        wlx_grid_cell(&ctx, 0, 0, .row_span = 2);
+        wlx_layout_begin(&ctx, 1, WLX_VERT, .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(90) });
+            wlx_label(&ctx, "tall", .height = 90);
+        wlx_layout_end(&ctx);
+        wlx_grid_cell(&ctx, 0, 1);
+        wlx_layout_begin(&ctx, 1, WLX_VERT, .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(30) });
+            wlx_label(&ctx, "a", .height = 30);
+        wlx_layout_end(&ctx);
+        wlx_grid_cell(&ctx, 1, 1);
+        wlx_label(&ctx, "b", .height = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(r0, 30.0f, GRID_EPS);   // the one-row nested layout
+    ASSERT_EQ_F(r1, 20.0f, GRID_EPS);   // not the 90 px one that spans both
+    wlx_context_destroy(&ctx);
+}
+
+// CONTENT rows and CONTENT columns in one grid: two states, one per axis,
+// and neither reads the other's measurements.
+TEST(grid_content_rows_and_cols) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    WLX_Slot_Size col_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    float r0 = 0, c0 = 0;
+    bool distinct = false;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = row_sizes, .col_sizes = col_sizes);
+        WLX_Layout *l = grid_top(&ctx);
+        r0 = grid_row_h(&ctx, l, 0);
+        c0 = grid_col_w(&ctx, l, 0);
+        distinct = l->content_state != NULL && l->grid_col_content_state != NULL
+            && l->content_state != l->grid_col_content_state
+            && l->content_state_id != l->grid_col_content_state_id;
+        wlx_label(&ctx, "Hello", .font_size = 20, .height = 30);   // 50 wide, 30 tall
+        wlx_label(&ctx, "value", .font_size = 20, .height = 12);
+        wlx_label(&ctx, "Hi", .font_size = 20);
+        wlx_label(&ctx, "value", .font_size = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_TRUE(distinct);
+    ASSERT_EQ_F(r0, 30.0f, GRID_EPS);
+    ASSERT_EQ_F(c0, 50.0f, GRID_EPS);
+    ASSERT_EQ_INT(2, (int)ctx.states.count);
+    wlx_context_destroy(&ctx);
+}
+
+// An auto grid fixes its column count, so a CONTENT column works there: it
+// takes the widest cell among the rows laid out this frame.
+TEST(grid_auto_content_col) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size col_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    const char *keys[] = { "a", "Hello", "Hi", "key" };
+    float c0[3] = {0};
+    size_t rows = 0;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin_auto(&ctx, 2, 30, .col_sizes = col_sizes);
+        WLX_Layout *l = grid_top(&ctx);
+        ASSERT_TRUE(l->has_grid_col_content_widths);
+        c0[frame] = grid_col_w(&ctx, l, 0);
+        for (int i = 0; i < 4; i++) {
+            wlx_push_id(&ctx, (WLX_Id)i);
+            wlx_label(&ctx, keys[i], .font_size = 20);
+            wlx_label(&ctx, "value", .font_size = 20);
+            wlx_pop_id(&ctx);
+        }
+        rows = grid_top(&ctx)->grid.rows;
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_INT(4, (int)rows);
+    ASSERT_EQ_F(c0[0], 1.0f, GRID_EPS);
+    ASSERT_EQ_F(c0[1], 50.0f, GRID_EPS);    // "Hello", in the second row grown
+    ASSERT_EQ_F(c0[2], 50.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
+}
+
+// The tile grid derives its column count from its width, so CONTENT in its
+// col_sizes is not tracked: the column keeps its minimum and no state is
+// taken.
+TEST(grid_auto_tile_content_col_untracked) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size col_sizes[] = {
+        WLX_SLOT_CONTENT_MIN(40), WLX_SLOT_FLEX(1), WLX_SLOT_FLEX(1), WLX_SLOT_FLEX(1),
+    };
+    float c0 = 0;
+    bool tracked = true, gate = true;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin_auto_tile(&ctx, 100, 30, .col_sizes = col_sizes);   // 4 columns of 100
+        WLX_Layout *l = grid_top(&ctx);
+        ASSERT_EQ_INT(4, (int)l->grid.cols);
+        c0 = grid_col_w(&ctx, l, 0);
+        tracked = l->has_grid_col_content_widths;
+        gate = wlx_parent_wants_intrinsic_width(&ctx, -1, 1);
+        wlx_label(&ctx, "A wide label", .font_size = 20);      // 120 px of text
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_FALSE(tracked);
+    ASSERT_FALSE(gate);
+    ASSERT_EQ_F(c0, 40.0f, GRID_EPS);
+    ASSERT_EQ_INT(0, (int)ctx.states.count);
+    wlx_context_destroy(&ctx);
+}
+
+// A grid with a CONTENT column and more columns than can be tracked is
+// reported once, and its CONTENT column falls back to its minimum.
+static int       _grid_err_count;
+static WLX_Error _grid_err_last;
+
+static void _grid_err_capture(const WLX_Error *e, void *user) {
+    (void)user;
+    _grid_err_last = *e;
+    _grid_err_count++;
+}
+
+TEST(grid_content_col_limit) {
+    enum { OVER_MAX = WLX_CONTENT_SLOTS_MAX + 1 };
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    wlx_set_error_handler(&ctx, _grid_err_capture, NULL);
+    _grid_err_count = 0;
+
+    WLX_Slot_Size col_sizes[OVER_MAX];
+    for (size_t i = 0; i < OVER_MAX; i++) col_sizes[i] = WLX_SLOT_PX(4);
+    col_sizes[0] = WLX_SLOT_CONTENT_MIN(12);
+    float c0 = 0;
+    bool tracked = true;
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 1, OVER_MAX, .col_sizes = col_sizes);
+        WLX_Layout *l = grid_top(&ctx);
+        c0 = grid_col_w(&ctx, l, 0);
+        tracked = l->has_grid_col_content_widths;
+        wlx_label(&ctx, "Hello", .font_size = 20);     // still laid out
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+        if (frame == 0) {
+            ASSERT_EQ_INT(1, _grid_err_count);
+            ASSERT_EQ_INT(WLX_ERR_LIMIT, (int)_grid_err_last.code);
+            ASSERT_TRUE(strstr(_grid_err_last.message, "columns") != NULL);
+        }
+    }
+    ASSERT_EQ_INT(3, _grid_err_count);      // once a frame, at the begin
+    ASSERT_FALSE(tracked);
+    ASSERT_EQ_F(c0, 12.0f, GRID_EPS);
+    ASSERT_EQ_INT(0, (int)ctx.states.count);
+    wlx_context_destroy(&ctx);
+}
+
+// Two grids at one call site, told apart by wlx_push_id, keep separate
+// column states. Each is reclaimed once its grid is no longer drawn.
+TEST(grid_content_col_state_per_id_and_reclaimed) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+
+    WLX_Slot_Size col_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    const char *text[] = { "Hi", "Hello" };            // 20 and 50
+    float c0[2] = {0};
+
+    for (int frame = 0; frame < 3; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin(&ctx, 2, WLX_VERT);
+        for (int i = 0; i < 2; i++) {
+            wlx_push_id(&ctx, (WLX_Id)i);
+            wlx_grid_begin(&ctx, 1, 2, .col_sizes = col_sizes);
+            c0[i] = grid_col_w(&ctx, grid_top(&ctx), 0);
+            wlx_label(&ctx, text[i], .font_size = 20);
+            wlx_label(&ctx, "value", .font_size = 20);
+            wlx_grid_end(&ctx);
+            wlx_pop_id(&ctx);
+        }
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(c0[0], 20.0f, GRID_EPS);
+    ASSERT_EQ_F(c0[1], 50.0f, GRID_EPS);
+    ASSERT_EQ_INT(2, (int)ctx.states.count);            // one column state per grid
+
+    // The grids are gone: one frame without them, then the release point.
+    test_frame_begin(&ctx, 0, 0, false, false);
+    test_frame_end(&ctx);
+    ASSERT_EQ_INT(2, (int)wlx_state_prune(&ctx, 1));
+    ASSERT_EQ_INT(0, (int)ctx.states.count);
+    wlx_context_destroy(&ctx);
+}
+
+// A grid without a CONTENT column measures nothing new: the gate is off
+// for its cells, and a label there is measured as often as in a plain
+// layout slot.
+static int _grid_measure_calls;
+
+static void _grid_counting_measure(const char *text, WLX_Text_Style style,
+                                   float *out_w, float *out_h, void *user) {
+    _grid_measure_calls++;
+    mock_measure_text(text, style, out_w, out_h, user);
+}
+
+TEST(grid_without_content_col_adds_no_measure) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    ctx.backend.measure_text = _grid_counting_measure;
+
+    WLX_Slot_Size col_sizes[] = { WLX_SLOT_PX(120), WLX_SLOT_FLEX(1) };
+    bool gate = true;
+    int in_grid = 0, in_layout = 0;
+
+    for (int frame = 0; frame < 3; frame++) {
+        _grid_measure_calls = 0;
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 1, 2, .col_sizes = col_sizes);
+        ASSERT_FALSE(grid_top(&ctx)->has_grid_col_content_widths);
+        gate = wlx_parent_wants_intrinsic_width(&ctx, -1, 1);
+        wlx_label(&ctx, "Hello", .font_size = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+        in_grid = _grid_measure_calls;
+    }
+    for (int frame = 0; frame < 3; frame++) {
+        _grid_measure_calls = 0;
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin(&ctx, 2, WLX_HORZ, .sizes = col_sizes);
+        wlx_label(&ctx, "Hello", .font_size = 20);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+        in_layout = _grid_measure_calls;
+    }
+    ASSERT_FALSE(gate);
+    ASSERT_EQ_INT(in_layout, in_grid);
+    ASSERT_EQ_INT(0, (int)ctx.states.count);
+    wlx_context_destroy(&ctx);
+}
+
+#ifdef WLX_DEBUG
+// The oscillation check covers CONTENT columns: a column whose content
+// flips between two widths on alternate frames is reported, by name.
+static int _grid_col_osc_warns;
+
+static void _grid_col_osc_cb(const char *file, int line, const char *msg, void *user_data) {
+    (void)file; (void)line; (void)user_data;
+    if (strstr(msg, "CONTENT column 0 oscillation") != NULL) _grid_col_osc_warns++;
+}
+
+TEST(grid_content_col_oscillation_warns) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    wlx_dbg_init(&ctx);
+    ctx.dbg->warn_cb = _grid_col_osc_cb;
+    ctx.dbg->warn_user_data = NULL;
+    _grid_col_osc_warns = 0;
+
+    WLX_Slot_Size col_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_FLEX(1) };
+    for (int frame = 0; frame < 10; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 1, 2, .col_sizes = col_sizes);
+        wlx_label(&ctx, "flip", .font_size = 20, .width = (frame % 2) ? 60.0f : 20.0f);
+        wlx_label(&ctx, "rest", .font_size = 20);
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_INT(1, _grid_col_osc_warns);      // reported once, not every frame
+    wlx_context_destroy(&ctx);
+}
+#endif
+
+// ============================================================================
+// A grid's own content height, with a row-spanning cell
+//
+// A grid reports to its parent the larger of its row total and the sum of
+// the tallest one-row cell of each row. A cell that spans rows adds
+// nothing to that sum. A widget with no height reports its cell height,
+// which over a span includes the other rows: credited to the first row,
+// they were counted twice, and with flexible rows again on every frame.
+//
+// Each grid here is 2 rows by 2 columns, with two 20 px labels in column 1
+// and a row_span = 2 cell at (0,0). It sits in a CONTENT slot of a VERT
+// layout, so the slot's height is what the grid reported a frame before.
+// ============================================================================
+
+enum { GSH_FILL, GSH_H20, GSH_H50, GSH_H100, GSH_NESTED50, GSH_KINDS };
+
+static void gsh_body(WLX_Context *ctx, int span_kind) {
+    wlx_grid_cell(ctx, 0, 0, .row_span = 2);
+    switch (span_kind) {
+    case GSH_FILL: wlx_label(ctx, "span"); break;                  // no height: its cell
+    case GSH_H20:  wlx_label(ctx, "span", .height = 20); break;    // below one row
+    case GSH_H50:  wlx_label(ctx, "span", .height = 50); break;    // inside its two rows
+    case GSH_H100: wlx_label(ctx, "span", .height = 100); break;   // above them
+    default:
+        wlx_layout_begin(ctx, 1, WLX_VERT, .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(50) });
+            wlx_label(ctx, "in", .height = 50);
+        wlx_layout_end(ctx);
+        break;
+    }
+    wlx_grid_cell(ctx, 0, 1);
+    wlx_label(ctx, "a", .height = 20);
+    wlx_grid_cell(ctx, 1, 1);
+    wlx_label(ctx, "b", .height = 20);
+}
+
+// Runs `frames` frames and writes the CONTENT slot's height at the start
+// of each into per_frame. fixed_rows: two PX(30) rows, else default rows.
+static void gsh_run(bool fixed_rows, int span_kind, float gap, int frames, float *per_frame) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 2000);
+    WLX_Slot_Size outer[] = { WLX_SLOT_CONTENT, WLX_SLOT_PX(10) };
+    WLX_Slot_Size rows[]  = { WLX_SLOT_PX(30), WLX_SLOT_PX(30) };
+
+#ifdef WLX_DEBUG
+    _grid_debug_warn_reset(&ctx);   // the clipped-content notices are expected here
+#endif
+    for (int frame = 0; frame < frames; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin(&ctx, 2, WLX_VERT, .sizes = outer);
+        const float *off = wlx_layout_offsets(&ctx, grid_top(&ctx));
+        per_frame[frame] = off[1] - off[0];
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = fixed_rows ? rows : NULL, .gap = gap);
+        gsh_body(&ctx, span_kind);
+        wlx_grid_end(&ctx);
+        wlx_label(&ctx, "tail");
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    wlx_context_destroy(&ctx);
+}
+
+// Fixed rows: the grid reports its 60 px of rows whatever the spanning
+// cell holds. It reported 80 for a cell with no height, 70 for 50 px, 120
+// for 100 px and 90 for the 50 px nested layout.
+TEST(grid_span_height_fixed_rows_report_the_rows) {
+    float h[6];
+    for (int kind = 0; kind < GSH_KINDS; kind++) {
+        gsh_run(true, kind, 0.0f, 6, h);
+        ASSERT_EQ_F(h[0], 1.0f, GRID_EPS);          // the slot's seed
+        for (int frame = 1; frame < 6; frame++) ASSERT_EQ_F(h[frame], 60.0f, GRID_EPS);
+    }
+    // With a gap the row total is 30 + 10 + 30; it reported 100.
+    gsh_run(true, GSH_FILL, 10.0f, 6, h);
+    for (int frame = 1; frame < 6; frame++) ASSERT_EQ_F(h[frame], 70.0f, GRID_EPS);
+}
+
+// Default rows follow the height the parent gives the grid, and the
+// parent gives it what it reported. The grid grew by the other row's 20 px
+// on every frame, without bound; it holds at the two labels' 40 px.
+TEST(grid_span_height_default_rows_hold) {
+    float h[12];
+    gsh_run(false, GSH_FILL, 0.0f, 12, h);
+    for (int frame = 1; frame < 12; frame++) ASSERT_EQ_F(h[frame], 40.0f, GRID_EPS);
+    gsh_run(false, GSH_H20, 0.0f, 12, h);
+    for (int frame = 1; frame < 12; frame++) ASSERT_EQ_F(h[frame], 40.0f, GRID_EPS);
+}
+
+// An auto-height scroll panel counts the grid's rows as its content, not
+// 20 px more.
+TEST(grid_span_height_in_auto_scroll_panel) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 300);
+    WLX_Slot_Size rows[] = { WLX_SLOT_PX(30), WLX_SLOT_PX(30) };
+    float content = 0;
+
+    for (int frame = 0; frame < 4; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin(&ctx, 1, WLX_VERT);
+        wlx_scroll_panel_begin(&ctx, WLX_SCROLL_AUTO_HEIGHT);
+            wlx_grid_begin(&ctx, 2, 2, .row_sizes = rows);
+            gsh_body(&ctx, GSH_FILL);
+            wlx_grid_end(&ctx);
+            content = grid_top(&ctx)->accumulated_content_height;   // the panel's content layout
+        wlx_scroll_panel_end(&ctx);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(content, 60.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
+}
+
+// What the span rule leaves alone. A one-row cell taller than its row
+// still enlarges the report, and so does a cell that spans columns only:
+// its height belongs to its one row.
+TEST(grid_span_height_one_row_cells_still_count) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 2000);
+    WLX_Slot_Size outer[] = { WLX_SLOT_CONTENT, WLX_SLOT_PX(10) };
+    WLX_Slot_Size rows[]  = { WLX_SLOT_PX(30), WLX_SLOT_PX(30) };
+    float tall = 0, col_span = 0;
+
+#ifdef WLX_DEBUG
+    _grid_debug_warn_reset(&ctx);   // the clipped-content notices are expected here
+#endif
+    for (int frame = 0; frame < 4; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin(&ctx, 2, WLX_VERT, .sizes = outer);
+        const float *off = wlx_layout_offsets(&ctx, grid_top(&ctx));
+        tall = off[1] - off[0];
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = rows);
+        wlx_label(&ctx, "tall", .height = 50);      // row 0: 50 in a 30 px row
+        wlx_label(&ctx, "a", .height = 20);
+        wlx_label(&ctx, "b", .height = 20);         // row 1: 20
+        wlx_label(&ctx, "c", .height = 20);
+        wlx_grid_end(&ctx);
+        wlx_label(&ctx, "tail");
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(tall, 70.0f, GRID_EPS);             // 50 + 20, above the 60 px of rows
+
+    for (int frame = 0; frame < 4; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin(&ctx, 2, WLX_VERT, .sizes = outer);
+        const float *off = wlx_layout_offsets(&ctx, grid_top(&ctx));
+        col_span = off[1] - off[0];
+        wlx_grid_begin(&ctx, 2, 2, .row_sizes = rows);
+        wlx_grid_cell(&ctx, 0, 0, .col_span = 2);
+        wlx_label(&ctx, "wide", .height = 50);      // row 0, both columns
+        wlx_grid_cell(&ctx, 1, 0);
+        wlx_label(&ctx, "b", .height = 20);
+        wlx_grid_cell(&ctx, 1, 1);
+        wlx_label(&ctx, "c", .height = 20);
+        wlx_grid_end(&ctx);
+        wlx_label(&ctx, "tail");
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    ASSERT_EQ_F(col_span, 70.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
+}
+
+// A grid nested in a cell of a parent grid passes its content height to
+// the parent's row. With a row-spanning cell in the child, the parent's
+// CONTENT row took the child's inflated 80 px; it takes the child's 60 px
+// of rows.
+TEST(grid_span_height_nested_grid_sizes_parent_row) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 600);
+    WLX_Slot_Size parent_rows[] = { WLX_SLOT_CONTENT, WLX_SLOT_PX(10) };
+    WLX_Slot_Size child_rows[]  = { WLX_SLOT_PX(30), WLX_SLOT_PX(30) };
+    float row0[5] = {0};
+
+    for (int frame = 0; frame < 5; frame++) {
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_grid_begin(&ctx, 2, 1, .row_sizes = parent_rows);
+        row0[frame] = grid_row_h(&ctx, grid_top(&ctx), 0);
+            wlx_grid_begin(&ctx, 2, 2, .row_sizes = child_rows);
+            gsh_body(&ctx, GSH_FILL);
+            wlx_grid_end(&ctx);
+            wlx_label(&ctx, "tail");
+        wlx_grid_end(&ctx);
+        test_frame_end(&ctx);
+    }
+    for (int frame = 1; frame < 5; frame++) ASSERT_EQ_F(row0[frame], 60.0f, GRID_EPS);
+    wlx_context_destroy(&ctx);
+}
+
+// ============================================================================
 // Grid per-side padding
 // ============================================================================
 
@@ -944,6 +1721,32 @@ SUITE(grid) {
 #ifdef WLX_DEBUG
     RUN_TEST(grid_content_row_seed_does_not_warn_clip);
 #endif
+
+    // CONTENT column sizing, and spanning cells on both axes
+    RUN_TEST(grid_content_col_basic);
+    RUN_TEST(grid_content_col_min_max);
+    RUN_TEST(grid_content_col_gap);
+    RUN_TEST(grid_content_col_explicit_width_and_fillers);
+    RUN_TEST(grid_content_col_cell_placement);
+    RUN_TEST(grid_content_col_span_sizes_no_column);
+    RUN_TEST(grid_content_row_span_sizes_no_row);
+    RUN_TEST(grid_content_row_span_nested_layout);
+    RUN_TEST(grid_content_rows_and_cols);
+    RUN_TEST(grid_auto_content_col);
+    RUN_TEST(grid_auto_tile_content_col_untracked);
+    RUN_TEST(grid_content_col_limit);
+    RUN_TEST(grid_content_col_state_per_id_and_reclaimed);
+    RUN_TEST(grid_without_content_col_adds_no_measure);
+#ifdef WLX_DEBUG
+    RUN_TEST(grid_content_col_oscillation_warns);
+#endif
+
+    // A grid's own content height with a row-spanning cell
+    RUN_TEST(grid_span_height_fixed_rows_report_the_rows);
+    RUN_TEST(grid_span_height_default_rows_hold);
+    RUN_TEST(grid_span_height_in_auto_scroll_panel);
+    RUN_TEST(grid_span_height_one_row_cells_still_count);
+    RUN_TEST(grid_span_height_nested_grid_sizes_parent_row);
 
     // Per-side padding
     RUN_TEST(grid_perside_padding_top_zero);

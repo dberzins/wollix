@@ -159,8 +159,12 @@ make gallery_sdl3_perf
 
 ### WASM note
 
-The WASM adapter supports the same `WLX_PERF` counters, but timing fields are
-counters-only unless the host also provides `WLX_WASM_PERF_TIMESTAMP`.
+The WASM adapter supports the same `WLX_PERF` counters, but the timing fields
+stay at zero unless the module is also built with `WLX_WASM_PERF_TIMESTAMP`.
+It then imports `perf_now_ns` from the host, which `web/wollix_wasm.js`
+provides; the packaged dashboard is built that way. Each timestamp is a call
+into the host, about a thousand a frame on the dashboard, which measured as
+0.3 to 0.4 ms a frame in headless Chromium.
 
 ## Interpreting the output
 

@@ -399,6 +399,56 @@ TEST(perf_churn_zero_allocations) {
     wlx_context_destroy(&ctx);
 }
 
+// A grid with CONTENT rows and CONTENT columns allocates nothing once warm:
+// both axes keep their widths and heights in persistent state taken on the
+// first frame, and the per-frame measure buffers ride the frame arena. An
+// auto grid with a CONTENT column is in the same frame.
+TEST(perf_grid_content_cols_zero_allocations) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 800, 600);
+
+    WLX_Perf_Allocator_Stats stats = {0};
+    wlx_perf_allocator_sink = &stats;
+
+    WLX_Slot_Size row_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_CONTENT };
+    WLX_Slot_Size col_sizes[] = { WLX_SLOT_CONTENT, WLX_SLOT_CONTENT_MIN(40), WLX_SLOT_FLEX(1) };
+
+    for (int frame = 0; frame < 6; frame++) {
+        if (frame == 3) {
+            // Arenas and state map are at steady size; count from here.
+            memset(&stats, 0, sizeof(stats));
+        }
+        test_frame_begin(&ctx, 0, 0, false, false);
+        wlx_layout_begin(&ctx, 2, WLX_VERT);
+        wlx_grid_begin(&ctx, 2, 3, .row_sizes = row_sizes, .col_sizes = col_sizes);
+        wlx_label(&ctx, "Name", .height = 20);
+        wlx_label(&ctx, "Kind", .height = 20);
+        wlx_label(&ctx, "Notes", .height = 20);
+        wlx_label(&ctx, "A longer name", .height = 24);
+        wlx_label(&ctx, "x", .height = 24);
+        wlx_label(&ctx, "rest", .height = 24);
+        wlx_grid_end(&ctx);
+        wlx_grid_begin_auto(&ctx, 3, 20, .col_sizes = col_sizes);
+        for (int i = 0; i < 4; i++) {
+            wlx_push_id(&ctx, (WLX_Id)i);
+            wlx_label(&ctx, "key");
+            wlx_label(&ctx, "v");
+            wlx_label(&ctx, "tail");
+            wlx_pop_id(&ctx);
+        }
+        wlx_grid_end(&ctx);
+        wlx_layout_end(&ctx);
+        test_frame_end(&ctx);
+    }
+
+    ASSERT_EQ_INT((int)stats.alloc_calls, 0);
+    ASSERT_EQ_INT((int)stats.calloc_calls, 0);
+    ASSERT_EQ_INT((int)stats.realloc_calls, 0);
+
+    wlx_perf_allocator_sink = NULL;
+    wlx_context_destroy(&ctx);
+}
+
 
 // ============================================================================
 // Backend perf clock (the scaffold the adapter headers build on)
@@ -610,6 +660,7 @@ SUITE(perf) {
     RUN_TEST(perf_immediate_mode_zero_commands);
     RUN_TEST(perf_steady_state_zero_allocations);
     RUN_TEST(perf_churn_zero_allocations);
+    RUN_TEST(perf_grid_content_cols_zero_allocations);
     RUN_TEST(perf_clock_inc_gated_on_capturing);
     RUN_TEST(perf_clock_timer_unavailable_accumulates_nothing);
     RUN_TEST(perf_clock_accumulates_across_scopes);

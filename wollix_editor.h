@@ -1985,7 +1985,7 @@ static void wlx_editor_draw_carets_and_bars(const WLX_Editor_Frame *f,
     float content_h = f->content_h;
     float scroll_y = scr->scroll_y;
     WLX_Rect band = eb->band;
-    if (focused) wlx_text_edit_tick_blink(ctx, &state->caret);
+    if (focused) wlx_text_edit_request_blink_edge(ctx, &state->caret);
     if (focused && idx != NULL && idx->count > 0 && line_h > 0.0f) {
         float caret_px = 0.0f, caret_py = 0.0f;
         wlx_editor_caret_place(f, lines, win_count, &caret_px, &caret_py);
@@ -2059,15 +2059,18 @@ static void wlx_editor_mouse_word_bounds(void *user, size_t hit, size_t *start, 
     wlx_text_word_bounds(u->f->doc, u->f->doc_len, hit, start, end);
 }
 
-static void wlx_editor_mouse_auto_scroll(void *user, float over_x, float over_y, float dt) {
+static bool wlx_editor_mouse_auto_scroll(void *user, float over_x, float over_y, float dt) {
     WLX_Editor_Mouse_User *u = (WLX_Editor_Mouse_User *)user;
     const WLX_Editor_Frame *f = u->f;
     WLX_Editor_State *state = f->state;
+    bool room = false;
     if (f->wrap_geom) {
         // Row-space auto-scroll: the overshoot accumulates through the
         // anchor fraction exactly like the wheel; overshoot past the end
-        // is left for the bottom clamp.
+        // is left for the bottom clamp. Room is judged on the pseudo
+        // scroll, whose range ends exactly at the bottom anchor.
         if (over_y != 0.0f && f->eb.wrap_overflow) {
+            room = wlx_text_drag_scroll_room(u->scr->scroll_y, u->scr->max_scroll_y, over_y);
             float px = state->y_frac * f->line_h
                 + over_y * WLX_TEXT_DRAG_SCROLL_GAIN * dt;
             float steps = floorf(px / f->line_h);
@@ -2077,14 +2080,17 @@ static void wlx_editor_mouse_auto_scroll(void *user, float over_x, float over_y,
             if (left_over < 0) state->y_frac = 0.0f;
         }
     } else if (over_y != 0.0f && u->scr->max_scroll_y > 0.0f) {
+        room = wlx_text_drag_scroll_room(u->scr->scroll_y, u->scr->max_scroll_y, over_y);
         u->scr->scroll_y += over_y * WLX_TEXT_DRAG_SCROLL_GAIN * dt;
         u->scr->scroll_y = wlx_clampf(u->scr->scroll_y, 0.0f, u->scr->max_scroll_y);
         wlx_editor_anchor_set_scroll_y(u->f, u->scr->scroll_y);
     }
     if (over_x != 0.0f && u->scr->max_scroll_x > 0.0f) {
+        room = wlx_text_drag_scroll_room(state->scroll_x, u->scr->max_scroll_x, over_x) || room;
         state->scroll_x += over_x * WLX_TEXT_DRAG_SCROLL_GAIN * dt;
         state->scroll_x = wlx_clampf(state->scroll_x, 0.0f, u->scr->max_scroll_x);
     }
+    return room;
 }
 
 // Caret and selection input for a focused editor: the geometry-dependent
@@ -2378,6 +2384,7 @@ WLXDEF bool wlx_editor_impl(WLX_Context *ctx, const char *label, char *buffer, s
     }
 
     wlx_text_edit_tick_click_clock(ctx, &state->caret);
+    if (inter.focused) wlx_text_edit_tick_blink(ctx, &state->caret);
 
     if (opt.out_focused != NULL) *opt.out_focused = inter.focused;
 

@@ -429,7 +429,7 @@ static void render_about_tab(WLX_Context *ctx, int layout_span) {
                 .height = A_ROW, .font_size = 28,
                 .content_align = WLX_CENTER);
 
-            wlx_label(ctx, "A lightweight immediate-mode UI layout library built on raylib.",
+            wlx_label(ctx, "A header-only, immediate-mode UI toolkit for C11, here on Raylib.",
                 .height = A_ROW, .font_size = 18,
                 .content_align = WLX_CENTER);
 

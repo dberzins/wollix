@@ -135,9 +135,11 @@ TEST(sentinel_brightness_domain) {
     ASSERT_EQ_F(minus_one.hover_brightness, 0.25f, 0.0001f);
     ASSERT_EQ_F(minus_one.thumb_hover_brightness, 0.125f, 0.0001f);
 
-    WLX_Slider_Opt legacy = wlx_default_slider_opt(.hover_brightness = WLX_FLOAT_UNSET);
-    wlx_resolve_opt_slider(&ctx, &legacy);
-    ASSERT_EQ_F(legacy.hover_brightness, 0.25f, 0.0001f);
+    // Anything at or below -1 is unset, however far below (the pre-0.9
+    // sentinel was -1e30f).
+    WLX_Slider_Opt far_below = wlx_default_slider_opt(.hover_brightness = -1e30f);
+    wlx_resolve_opt_slider(&ctx, &far_below);
+    ASSERT_EQ_F(far_below.hover_brightness, 0.25f, 0.0001f);
 
     WLX_Slider_Opt darken = wlx_default_slider_opt(.hover_brightness = -0.5f);
     wlx_resolve_opt_slider(&ctx, &darken);
@@ -264,8 +266,8 @@ TEST(overlay_content_padding_uniform_insets) {
     ASSERT_EQ_RECT(side, ((WLX_Rect){ 12, 17, 191, 136 }), 0.0001f);
 }
 
-// A negative gap reads as 0 on every layout kind: -1 and WLX_FLOAT_UNSET
-// give the .gap = 0 rects, with no contract report.
+// A negative gap reads as 0 on every layout kind: -1 and a large negative
+// value give the .gap = 0 rects, with no contract report.
 static int sentinel_err_count;
 static void sentinel_err_capture(const WLX_Error *e, void *user) {
     (void)e; (void)user;
@@ -325,7 +327,7 @@ static void sentinel_gap_case(Sentinel_Gap_Kind kind) {
     WLX_Rect zero[3], neg[3], unset[3];
     ASSERT_EQ_INT(0, sentinel_gap_rects(kind, 0.0f, zero));
     ASSERT_EQ_INT(0, sentinel_gap_rects(kind, -1.0f, neg));
-    ASSERT_EQ_INT(0, sentinel_gap_rects(kind, WLX_FLOAT_UNSET, unset));
+    ASSERT_EQ_INT(0, sentinel_gap_rects(kind, -1e30f, unset));
     for (int i = 0; i < 3; i++) {
         ASSERT_EQ_RECT(zero[i], neg[i], 0.0001f);
         ASSERT_EQ_RECT(zero[i], unset[i], 0.0001f);
@@ -354,7 +356,7 @@ TEST(create_layout_negative_gap_reads_zero) {
         ASSERT_EQ_RECT(wlx_calc_layout_slot_rect(&ctx, &zero, i, 1),
                        wlx_calc_layout_slot_rect(&ctx, &neg, i, 1), 0.0001f);
     }
-    WLX_Layout gneg = wlx_create_grid(&ctx, r, 2, 2, NULL, NULL, WLX_FLOAT_UNSET);
+    WLX_Layout gneg = wlx_create_grid(&ctx, r, 2, 2, NULL, NULL, -1e30f);
     WLX_Layout gzero = wlx_create_grid(&ctx, r, 2, 2, NULL, NULL, 0.0f);
     ASSERT_EQ_F(0.0f, gneg.gap, 0.0001f);
     ASSERT_EQ_RECT(wlx_calc_grid_slot_rect(&ctx, &gzero, 1, 1, 1, 1),
@@ -492,12 +494,10 @@ static float sentinel_tip_width(WLX_Context *ctx, WLX_Tooltip_Opt opt) {
     return _sentinel_last_rect.w;
 }
 
-// Tooltip `padding` is renamed `content_padding` (the slot-inset name was
-// wrong for an inner inset); the old name aliases the same storage for one
-// minor version. Unset resolves to the tooltip's 6 px.
-TEST(tooltip_content_padding_alias) {
-    ASSERT_TRUE(offsetof(WLX_Tooltip_Opt, padding) == offsetof(WLX_Tooltip_Opt, content_padding));
-
+// The tooltip's inner inset is `content_padding`, the shared field group
+// (its pre-0.9 name `padding` is gone). Unset resolves to the tooltip's
+// 6 px.
+TEST(tooltip_content_padding) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
     ctx.backend.get_frame_time = sentinel_tt_frame_time;
@@ -512,64 +512,42 @@ TEST(tooltip_content_padding_alias) {
     ASSERT_EQ_F(sentinel_tip_width(&ctx, wlx_default_tooltip_opt()), text_w + 12.0f, 0.001f);
     ASSERT_EQ_F(sentinel_tip_width(&ctx, wlx_default_tooltip_opt(.content_padding = 0)),
                 text_w, 0.001f);
-    ASSERT_EQ_F(sentinel_tip_width(&ctx, wlx_default_tooltip_opt(.padding = 2)),
+    ASSERT_EQ_F(sentinel_tip_width(&ctx, wlx_default_tooltip_opt(.content_padding = 2)),
                 text_w + 4.0f, 0.001f);
+    ASSERT_EQ_F(sentinel_tip_width(&ctx, wlx_default_tooltip_opt(.content_padding_left = 10)),
+                text_w + 16.0f, 0.001f);
     ASSERT_EQ_F(sentinel_tip_width(&ctx, wlx_default_tooltip_opt(.content_padding = WLX_UNSET)),
                 text_w + 12.0f, 0.001f);
     wlx_context_destroy(&ctx);
 }
 
 // ============================================================================
-// Align aliases: .content_align / .align, .slot_align / .widget_align
+// Alignment fields: .content_align places the content, .slot_align the rect
 // ============================================================================
 
-// The renamed fields share storage with their pre-0.9 names (anonymous
-// unions), so old and new spellings place identically.
-TEST(align_aliases_share_storage) {
-    ASSERT_TRUE(offsetof(WLX_Label_Opt, align) == offsetof(WLX_Label_Opt, content_align));
-    ASSERT_TRUE(offsetof(WLX_Label_Opt, widget_align) == offsetof(WLX_Label_Opt, slot_align));
-    ASSERT_TRUE(offsetof(WLX_Button_Opt, align) == offsetof(WLX_Button_Opt, content_align));
-    ASSERT_TRUE(offsetof(WLX_Image_Opt, align) == offsetof(WLX_Image_Opt, content_align));
-    ASSERT_TRUE(offsetof(WLX_Editor_Opt, align) == offsetof(WLX_Editor_Opt, content_align));
-    ASSERT_TRUE(offsetof(WLX_Editor_Opt, widget_align) == offsetof(WLX_Editor_Opt, slot_align));
-
+// `content_align` places the text inside the widget rect and `slot_align`
+// places the widget rect inside its slot (their pre-0.9 names, `align` and
+// `widget_align`, are gone).
+TEST(align_fields_place_content_and_rect) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 300);
     ctx.backend.draw_text = sentinel_rec_text;
     ctx.backend.draw_rect = sentinel_rec_rect;
 
-    float x_new, x_old;
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
     wlx_label(&ctx, "right", .content_align = WLX_RIGHT);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
-    x_new = _sentinel_last_text_x;
-    test_frame_begin(&ctx, 0, 0, false, false);
-    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
-    wlx_label(&ctx, "right", .align = WLX_RIGHT);
-    wlx_layout_end(&ctx);
-    test_frame_end(&ctx);
-    x_old = _sentinel_last_text_x;
-    ASSERT_EQ_F(x_new, x_old, 0.0001f);
-    ASSERT_TRUE(x_new > 200.0f);
+    ASSERT_TRUE(_sentinel_last_text_x > 200.0f);
 
-    WLX_Rect r_new, r_old;
     test_frame_begin(&ctx, 0, 0, false, false);
     wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
     wlx_button(&ctx, "b", .slot_align = WLX_CENTER, .width = 50);
     wlx_layout_end(&ctx);
     test_frame_end(&ctx);
-    r_new = _sentinel_last_rect;
-    test_frame_begin(&ctx, 0, 0, false, false);
-    wlx_layout_begin_s(&ctx, WLX_VERT, WLX_SIZES(WLX_SLOT_PX(40)), .padding = 0);
-    wlx_button(&ctx, "b", .widget_align = WLX_CENTER, .width = 50);
-    wlx_layout_end(&ctx);
-    test_frame_end(&ctx);
-    r_old = _sentinel_last_rect;
-    ASSERT_EQ_F(r_new.x, r_old.x, 0.0001f);
-    ASSERT_EQ_F(r_new.w, 50.0f, 0.0001f);
-    ASSERT_EQ_F(r_new.x, 175.0f, 0.0001f);
+    ASSERT_EQ_F(_sentinel_last_rect.w, 50.0f, 0.0001f);
+    ASSERT_EQ_F(_sentinel_last_rect.x, 175.0f, 0.0001f);
     wlx_context_destroy(&ctx);
 }
 
@@ -985,8 +963,8 @@ SUITE(sentinel) {
     RUN_TEST(panel_title_align_none_honoured);
     RUN_TEST(split_explicit_auto_honoured);
     RUN_TEST(content_padding_unset_equals_omission);
-    RUN_TEST(tooltip_content_padding_alias);
-    RUN_TEST(align_aliases_share_storage);
+    RUN_TEST(tooltip_content_padding);
+    RUN_TEST(align_fields_place_content_and_rect);
     RUN_TEST(widget_zero_size_is_zero);
     RUN_TEST(widget_zero_size_contributes_zero);
     RUN_TEST(submenu_width_rule_u);

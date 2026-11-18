@@ -28,18 +28,6 @@ static inline int dashboard_grid_columns(float width) {
     return 4;
 }
 
-// Pulse alpha for a status pip halo: a triangle wave over `phase` (seconds or
-// any monotonic value) scaling `base` between 40% and 100%. Result in [0,255].
-static inline uint8_t dashboard_pulse_alpha(uint8_t base, float phase) {
-    float p = phase - (float)((long)phase);
-    if (p < 0.0f) p += 1.0f;
-    float tri = (p < 0.5f) ? (p * 2.0f) : (2.0f - p * 2.0f);
-    float a = (float)base * (0.4f + 0.6f * tri);
-    if (a < 0.0f) a = 0.0f;
-    if (a > 255.0f) a = 255.0f;
-    return (uint8_t)a;
-}
-
 // Rect of table row `index` within `table`: row 0 is the header (height
 // header_h); data rows (index >= 1) each have height row_h and stack below.
 static inline WLX_Rect dashboard_table_row_rect(WLX_Rect table, int index,
@@ -195,18 +183,18 @@ static inline void dashboard_badge(WLX_Context *ctx, const Dashboard_Tokens *tk,
         .border_width = 0);
 }
 
-// Status pip with optional pulsing halo. `phase` animates the halo alpha.
+// Status pip with a steady halo. Nothing here moves with time, so the pip
+// costs no frame while the dashboard is untouched.
 static inline void dashboard_status_pip(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                                        WLX_Color color, float phase) {
+                                        WLX_Color color) {
     (void)tk;
     wlx_layout_begin(ctx, 1, WLX_VERT);
     WLX_Rect r = wlx_get_parent_rect(ctx);
     float pr = (r.w < r.h ? r.w : r.h) * 0.22f;
-    uint8_t halo_a = dashboard_pulse_alpha(110, phase);
-    WLX_Color halo = { color.r, color.g, color.b, halo_a };
+    WLX_Color halo = { color.r, color.g, color.b, 110 };
     // A single centered disc whose first-class glow stands in for the former
-    // translucent halo circle: .color is the dot, .glow_* the pulsing halo
-    // (spread reaches the old halo radius of pr * 1.9).
+    // translucent halo circle: .color is the dot, .glow_* the halo (spread
+    // reaches the old halo radius of pr * 1.9).
     wlx_widget(ctx, .id = "pip", .width = pr * 2.0f, .height = pr * 2.0f,
         .slot_align = WLX_CENTER,
         .back_color = color, .roundness = 1.0f, .rounded_segments = 20, .border_width = 0,

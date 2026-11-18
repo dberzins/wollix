@@ -181,6 +181,9 @@ int main(void) {
 
         wlx_end(ctx);
         SDL_RenderPresent(renderer);
+        // Nothing here animates: wait for input (or a blinking caret's next
+        // edge) instead of drawing the same frame again.
+        wlx_sdl3_wait_frame(ctx);
     }
 
     wlx_context_destroy(ctx);

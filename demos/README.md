@@ -16,7 +16,7 @@ README for the full target list.
 | [checkbox.c](checkbox.c) | Six boolean toggles showing checkbox state management |
 | [checkbox_tex.c](checkbox_tex.c) | Texture-based checkboxes with programmatically generated checked/unchecked icons |
 | [input.c](input.c) | Multi-field form (username, password, email, phone, address, comments) with focus tracking |
-| [editor.c](editor.c) | `wlx_editor` windowed text editor (`wollix_editor.h` extension): generated 100 KB and 10 MB documents plus file loading; `W` toggles wrap mode |
+| [editor.c](editor.c) | `wlx_editor` windowed text editor (`wollix_editor.h` extension): generated 100 KB and 10 MB documents plus file loading; `W` toggles wrap mode. The loop rests between frames (`wlx_raylib_wait_frame`); `F2` asks for every frame and shows the frame rate |
 | [slider.c](slider.c) | Volume, brightness, RGB, and speed sliders with colored thumbs and a live color preview |
 | [border_demo.c](border_demo.c) | Border system showcase covering labels, buttons, widgets, checkboxes, input boxes, sliders, and scroll panels |
 | [scroll_panel.c](scroll_panel.c) | Scrollable list of 30 items using auto content height (`-1`), custom scrollbar colors |
@@ -41,10 +41,9 @@ README for the full target list.
 
 | Demo | Description |
 |------|-------------|
-| [auth.c](auth.c) | Styled login-card UI with centered layout composition, borders, transparency, separators, and custom font styling |
-| [dashboard/dashboard.c](dashboard/dashboard.c) | Primary showcase ("Mechanical Glass"): top bar + sidebar routing five persistent sections (Overview, Tokens, Components, Layouts, Theme Lab) on Raylib, SDL3, and bare WASM; uses the demo-local headers under `dashboard/` |
+| [dashboard/dashboard.c](dashboard/dashboard.c) | Primary showcase ("Mechanical Glass"): top bar + sidebar routing six persistent sections (Overview, Tokens, Components, Editor, Layouts, Theme Lab) on Raylib, SDL3, and bare WASM; uses the demo-local headers under `dashboard/`. The loop rests while nothing changes, and the metrics show what a frame costs in milliseconds instead of a frame rate |
 | [demo.c](demo.c) | Full showcase (~580 lines): buttons, checkboxes, sliders, inputs, scroll panels, tabs, `wlx_push_id`/`wlx_pop_id` |
-| [gallery.c](gallery.c) | Main cross-backend gallery source for Raylib, SDL3, and WASM, covering widgets, layouts, theming, borders, opacity, and newer controls |
+| [gallery.c](gallery.c) | Main cross-backend gallery source for Raylib, SDL3, and WASM, covering widgets, layouts, theming, borders, opacity, and newer controls. The loop rests while nothing changes on all three backends |
 | [nested_panel.c](nested_panel.c) | Nested scroll panels — outer list with three inner scrollable panels containing sliders and toggles |
 | [nest2_panel.c](nest2_panel.c) | Nested scroll panel variant — outer notes + inner panels with sliders and toggles |
 | [opacity_demo.c](opacity_demo.c) | Per-widget opacity — side-by-side comparison of widgets at different transparency levels |
@@ -52,6 +51,7 @@ README for the full target list.
 | [theme_demo.c](theme_demo.c) | Runtime theme builder with built-in presets, editable custom theme fields, and live widget previews |
 | [sdl3_demo.c](sdl3_demo.c) | SDL3 backend — same widgets (button, checkbox, slider) rendered via `wollix_sdl3.h` instead of Raylib |
 | [disabled_demo.c](disabled_demo.c) | Enabled vs disabled side-by-side for all interactive widgets; switch dark/light/glass preset via radio group at the top |
+| [frame_request.c](frame_request.c) | A loop that rests (`wlx_raylib_wait_frame`) and the two calls that wake it: a progress bar that asks for every frame while it runs (`wlx_request_frame`), a clock that asks for one frame a second (`wlx_request_frame_after`), and a count of the frames drawn in each second |
 
 ---
 

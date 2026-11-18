@@ -8,7 +8,7 @@ set(VCPKG_BUILD_TYPE release)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO dberzins/wollix
-    REF v0.9.0
+    REF v0.10.0
     SHA512 0
     HEAD_REF main
 )

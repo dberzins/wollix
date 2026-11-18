@@ -7,8 +7,172 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-18
+
+The idle release: an untouched application stops drawing.
+`wlx_frame_delay` says when the next frame is needed, and one call per
+backend lets the loop rest until then, on Raylib, SDL3 and the web. Grid
+columns can size to their content, and text costs less to draw, most of
+all on Raylib. The names deprecated through 0.9 are removed, each with a
+direct replacement (see Changed (Breaking)); they are the only public
+names this release takes away, and no public signature changes. Two statements
+about the project change as well. Wollix now describes itself as a UI
+toolkit: "Woven UI for C.". And the 0.9.0 promise that the API would stop
+changing is withdrawn until a release announced as the 1.0 candidate
+freezes it. Until then a minor release can break the API, with a
+migration.
+
+### Changed (Breaking) - the names deprecated through v0.9 are removed
+
+- **The names deprecated through v0.9 are gone,** as the 0.9.0 notes said
+  they would be in the first minor release after it. Code that still uses
+  one no longer compiles; each has a direct replacement.
+  - `.align` on text and image options: use `.content_align`.
+  - `.widget_align`: use `.slot_align`.
+  - `.padding` on `wlx_tooltip_for`: use `.content_padding`.
+  - `WLX_FLOAT_UNSET`: use `WLX_UNSET`. A brightness at or below `-1`
+    still reads as unset; only the name is gone.
+  - `WLX_Backend_V1` and `wlx_backend_from_v1`: write a v2 table. Append
+    `void *user` to every callback and set
+    `.contract_version = WLX_BACKEND_CONTRACT_VERSION`.
+  - `WLX_BACKGROUND_COLOR`, `WLX_SCROLLBAR_COLOR` and
+    `WLX_HOVER_BRIGHTNESS`: use `ctx->theme->background`,
+    `ctx->theme->scrollbar.bar` and `ctx->theme->hover_brightness`. The
+    theme's values differ from the constants' (the dark theme: 27, 50
+    and 0.08, against 18, 38 and 0.75).
+
+  `WLX_PADDING_USE_THEME` and `WLX_SCROLL_AUTO_HEIGHT` are not part of
+  this: they are request tokens, documented in SENTINEL.md, and stay.
+
+### Added
+
+- **Frames on demand: an untouched application stops drawing.** A Wollix
+  loop drew every frame at the display rate, which kept a processor core
+  busy while nothing changed. `wlx_frame_delay(ctx)`, read after
+  `wlx_end`, now says when the next frame is needed: `0` for now, a
+  positive number of seconds, or negative (`WLX_UNSET`) when nothing is
+  scheduled and only input needs a frame. Three things set it, and the
+  earliest wins: input that differs from the previous frame's or carries
+  an event; a frame whose backend draw calls differ from the previous
+  frame's, which asks for one more, so hover, popups and CONTENT slots
+  settle by themselves; and requests, `wlx_request_frame(ctx)` for now
+  and `wlx_request_frame_after(ctx, seconds)` for later. The core asks
+  for its own timers through the same two calls: the caret's next blink
+  edge, the rest of a tooltip's delay, the next frame of a drag that
+  scrolls a text widget while the view can still move. A clock that a
+  frame starts or resets (the caret's blink, a tooltip's hover) takes none
+  of that frame's time, since the frame that ends a rest has the whole
+  rest as its frame time; a delay that never comes due (infinity) is no
+  request. The value is advice: the core never waits,
+  blocks or skips the application's code, and an application that reads
+  nothing behaves exactly as before, its frame time included. Nothing is
+  added to `WLX_Backend` or `WLX_Input_State`, and the contract version
+  stays 2. Under `wlx_begin_immediate` the value is always `0`. The
+  comparison is one 64-bit fold per draw call with no allocation;
+  `make perf-test` and `make perf-editor` pass with no pin amended.
+- **What an application and a custom widget must do.** The comparison
+  sees what Wollix sent to the backend. Pixels that change behind an
+  unchanged texture handle, anything the application draws itself, and
+  data that will change the next frame (an animation's next step, a timer
+  of the application's own, a reply from the network) need a request, on
+  every frame they are pending: `wlx_begin` clears the requests of the
+  frame before. A number that changes on every frame, a frame-rate label
+  for instance, keeps the loop drawing; sample it instead. LAYOUT_MODEL
+  ("Frames on demand") and WIDGETS ("Timers in a custom widget") have the
+  rules, and the new `demos/frame_request.c` is the running example.
+- **`wlx_sdl3_wait_frame(ctx)`**, called after `SDL_RenderPresent`. It
+  returns at once when a frame is due, waits for an event when nothing is
+  scheduled, and otherwise waits for an event no longer than the delay.
+  The event that ends the wait stays in the queue for the application's
+  own `SDL_PollEvent` loop.
+- **`wlx_raylib_wait_frame(ctx)`**, called after `EndDrawing`. With
+  nothing scheduled it blocks in one poll under Raylib's event waiting.
+  With a delay pending it sleeps in slices of at most 1/60 s and polls
+  after each. A Raylib poll erases what the poll before it brought, so
+  the helper looks after every poll and returns at the first sign of
+  input: mouse motion, the wheel, every mouse button and keyboard key,
+  typed characters, a close request, a resize, a focus change, a scale
+  change. Characters it takes from Raylib's queue reach the next frame
+  through `wlx_process_raylib_input`. From its first call on the adapter
+  reports frame time from its own clock, the wait included, also in an
+  iteration that skips the helper; a loop that never calls it gets
+  `GetFrameTime` as before. The blocking wait needs Raylib's desktop GLFW
+  platform; on 5.5's other platforms it returns after one poll. Its limits: a
+  pending delay costs about 5 % of one core, because Raylib's `WaitTime`
+  spins; a timed wait cannot see the window being uncovered; an
+  application that reads `GetCharPressed` itself does not see the
+  characters the helper took; it replaces `EnableEventWaiting`; gamepads
+  and gestures are not watched. It uses only functions `raylib.h`
+  declares. `make test-raylib`, new and in CI, runs the adapter's input
+  path against a stand-in for Raylib's poll, with no window.
+- **`wlx_wasm_schedule_frame(ctx)` and a host that schedules.** Called
+  after `wlx_end` in the frame export, it passes the delay to the host
+  through the new `schedule_frame` import. `web/wollix_wasm.js` then runs
+  the next frame at once, after the delay, or only when something wakes
+  the loop: pointer, wheel, keyboard, composition and clipboard events,
+  window focus, a resized canvas, a changed pixel ratio, a page shown
+  again. Called outside the frame export, after a request made between
+  frames, it acts at once and can only bring a frame sooner. After a
+  scheduled wait the frame time is the real time that passed, a hidden
+  tab included; the 0.25 s clamp now protects only a page that draws
+  every frame. A frame that throws still schedules the next. A module that
+  never calls it does not import `schedule_frame` and gets a frame on
+  every animation tick, as before. Two query parameters help diagnosis:
+  `?wlx_continuous=1` forces the continuous loop and `?wlx_frame_stats=1`
+  exposes a frame counter. The host also provides `perf_now_ns`, the
+  clock a module built with `WLX_WASM_PERF_TIMESTAMP` imports.
+- **`WLX_FRAME_CHECK`**, a compile-time switch that finds a missed
+  request. With it defined the helpers never wait, and the core reports,
+  through `WLX_ERROR_PRINT` and once per place, a frame that drew
+  something new although no input arrived and no request was due. The
+  report names the first draw call that differs, with its kind and
+  rectangle. It is independent of `WLX_DEBUG` and `WLX_PERF`.
+- **`demos/frame_request.c`**: a progress bar that asks for every frame
+  while it runs and a clock that asks for one frame a second, in a loop
+  that otherwise rests.
+- **Measured** on the development machine, back to back, as percent of
+  one core. Raylib dashboard untouched: 89.6 % to 0.0 %, no frames drawn;
+  with the editor's caret blinking: 65.1 % at 60 frames a second to 9.1 %
+  at 4. Raylib gallery untouched: 32.6 % to 0.0 %. `demos/sdl3_demo`:
+  29 % to 0.0 %; the SDL3 dashboard and gallery draw no frames untouched.
+  Web dashboard and gallery: 60 frames a second to none, and 4 a second
+  with the editor's text focused. The Raylib readings were taken against
+  an unoptimised Raylib build, which makes each drawn frame dearer; the
+  0.0 % rests do not depend on it.
+- **Grid columns that fit their content.** `WLX_SLOT_CONTENT` and its
+  `_MIN`, `_MAX` and `_MINMAX` forms now work in the `col_sizes` of
+  `wlx_grid_begin` and `wlx_grid_begin_auto`. A CONTENT column takes the
+  widest width its cells offer and uses it on the next frame.
+  - A cell offers its widget's explicit `.width`, else the widget's
+    intrinsic width: the same single-line measure a CONTENT slot of a
+    horizontal layout uses. The cell's own width is never offered.
+  - Widgets that fill their slot (slider, inputbox, editor and the like)
+    and nested layouts offer no width. A column that holds only those
+    takes its minimum.
+  - In `wlx_grid_begin_auto` the column takes the widest cell among the
+    rows laid out in the frame. `wlx_grid_begin_auto_tile` does not
+    measure CONTENT columns, since its column count comes from the width.
+  - A grid with a CONTENT column may have at most
+    `WLX_CONTENT_SLOTS_MAX` (32) columns. Past that it is reported as
+    `WLX_ERR_LIMIT` and its CONTENT columns take their minimum.
+  - A grid may have CONTENT rows and CONTENT columns together.
+  - A grid without a CONTENT column measures nothing new and keeps no
+    extra state.
+
 ### Changed
 
+- **The dashboard and the gallery rest when untouched**, on Raylib, SDL3
+  and the web, as do `demos/editor`, `demos/input` and `demos/sdl3_demo`:
+  each calls its adapter's helper. Both showcases now show the cost of a
+  frame in milliseconds where they showed a frame rate, sampled a few
+  times a second, since a rate says little once frames are drawn on
+  demand and a number that changes on every frame would keep the loop
+  drawing. The dashboard's pulsing status dot is steady
+  (`dashboard_pulse_alpha` is gone from the demo's components header),
+  and the packaged web dashboard is built with `WLX_WASM_PERF_TIMESTAMP`
+  so its frame cost is real. `demos/editor` shows "-- fps" while it
+  rests; F2 asks for every frame and shows the rate. The README's two
+  screenshots are retaken.
 - **Until the API is frozen for 1.0, a minor release can break it, with
   a migration.** The 0.9.0 notes said that from the next minor on,
   existing names, defaults and signatures keep working. That promise is
@@ -21,6 +185,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   design may still need. It replaces the single exception that README.md
   and CONTRIBUTING.md stated from 2026-11-13. Both files now say the
   same as this entry.
+- **Wollix describes itself as a UI toolkit.** The tagline is "Woven UI
+  for C.", and the description reads: a header-only, immediate-mode UI
+  toolkit for C11 that includes a text editor, with backends for Raylib,
+  SDL3 and the web. They replace "Woven layouts for C." and the
+  description as a layout library: layouts are how Wollix places things,
+  not all it is. No code changes with it. The README, the `wollix.h`
+  header comment, the API reference and the vcpkg port's description use
+  the same words, and `make docs-check` has a new check, `identity`, that
+  fails when they drift apart.
+- **A single line of fitted text opens a scissor only when it is too
+  wide.** A label, button caption or other single line whose box hung
+  past its rect only vertically got a scissor that the core then widened
+  to the line's full height, so it clipped nothing. It no longer opens
+  one. Each scissor change flushes Raylib's render batch, and the
+  dashboard drew 17 of these per frame: with an optimised Raylib build,
+  its frame falls from 6.5 to 4.9 ms of CPU, and its scissor calls from
+  104 to 53. Multi-line text
+  and lines wider than their rect clip as before. The one visible
+  difference: glyph ink that reaches past its advance at the rect's left
+  or right edge is no longer cut there.
+- **The Raylib adapter looks each glyph up once, through a per-font
+  table.** Raylib's `DrawTextEx` finds every glyph it draws twice, and
+  each find is a linear search over the font's glyphs.
+  `wlx_raylib_draw_text` and `wlx_raylib_draw_text_slice` now place the
+  glyphs themselves, with `DrawTextEx`'s own arithmetic, and read each
+  glyph index from a table keyed by codepoint.
+  - The dashboard's frame ran 1,234 searches of about 62 steps each. It
+    now runs none once the tables are filled, and draws the same pixels.
+  - Its text draws take about half the time they did, with an optimised
+    Raylib build or an unoptimised one.
+  - `wlx_raylib_measure_text_advances` reads the same tables.
+  - Text that contains a line break still goes to `DrawTextEx`.
+  - Two new knobs size the tables: `WLX_RAYLIB_GLYPH_TABLE_CODEPOINTS`
+    (default 512) and `WLX_RAYLIB_GLYPH_TABLE_FONTS` (default 8). Either
+    at `0` compiles them out. They take 16 KB of static memory at the
+    defaults.
+  - Every table entry is checked against its font when it is read, so a
+    font reloaded at the same address never draws a stale glyph.
+    `wlx_raylib_text_cache_clear()` releases the tables as well.
+- **CONTENT in a grid's `col_sizes` is measured.** It used to resolve to
+  0 px, or to its minimum. A grid that passed it anyway now gets a
+  column as wide as its content (see Added).
+- **A grid cell that spans several rows no longer sizes a CONTENT row,
+  or the grid.** The same holds for a cell that spans several columns and
+  a CONTENT column. Only one-track cells size a track.
+  - Before, a row-spanning cell put its whole height on its first row. A
+    cell with no explicit height takes the height of the rows it spans,
+    so that first row grew by the others on every frame, without limit.
+    That no longer happens.
+  - The height a grid reports to its parent had the same fault. A
+    CONTENT slot or an auto-height scroll panel around the grid sizes to
+    that height. Two 30 px rows with a row-spanning label reported 80 px,
+    and with default rows the grid grew on every frame. A grid now
+    reports the larger of its row total and the sum of its tallest
+    one-row cells.
+  - A spanning cell whose content is larger than the tracks under it now
+    overflows or clips by its own options, and no longer makes the grid
+    taller. Give one of the spanned tracks `WLX_SLOT_CONTENT_MIN` or a
+    fixed size to make room.
+  - A grid whose every cell spans rows reports its rows alone. When a
+    parent sizes to such a grid, give its rows a size.
+  - Grids without a row-spanning cell are unchanged.
+
+### Removed
+
+- **`demos/auth.c`**, the login-card demo, with its `make auth` target
+  and its CMake target. Its font stays: `demos/font_demo.c` uses it.
 
 ## [0.9.0] - 2026-11-08
 

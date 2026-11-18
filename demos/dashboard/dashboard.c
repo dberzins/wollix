@@ -17,10 +17,17 @@
 // layout, opacity, ID stack, borders, scroll panel), and Theme Lab shows the
 // component-state matrix, built-in theme presets, and the live theme geometry.
 // The top-bar palette icon toggles dark/light. The Overview's hero cards show
-// live, library-honest metrics (backend frame rate, and -- in a WLX_PERF build --
-// draw-call count and wollix arena memory, plus desktop process RSS where
-// measurable); the Integrations rows and sidebar Documentation/Support links open
-// real repository/doc URLs through a per-backend open-URL hook.
+// library-honest metrics, sampled about twice a second (in a WLX_PERF build the
+// cost of a frame in milliseconds, the draw-call count and wollix arena memory,
+// plus desktop process RSS where measurable); the Integrations rows and sidebar
+// Documentation/Support links open real repository/doc URLs through a per-backend
+// open-URL hook.
+//
+// The loop rests while nothing changes: each backend's block calls its adapter's
+// frame helper (wlx_raylib_wait_frame, wlx_sdl3_wait_frame,
+// wlx_wasm_schedule_frame), so an untouched dashboard draws no frames. Nothing in
+// it moves with time, and the metrics are renewed only on a frame that is drawn
+// anyway.
 //
 // The backend-neutral body (token model, component recipes, section bodies, the
 // shell) is shared; the per-backend window/context/font/atlas lifecycle and the
@@ -78,7 +85,7 @@
 #define WINDOW_HEIGHT 800
 #define TARGET_FPS 60
 // Frames to render before an optional WLX_DASHBOARD_SHOT capture, so caches warm
-// and the live FPS reading settles to steady state before the frame is grabbed.
+// and the metric readings settle to steady state before the frame is grabbed.
 #define DASHBOARD_SHOT_FRAME 60
 
 // Geist is the Stitch primary (sans) family; JetBrains Mono is the metadata
@@ -178,29 +185,33 @@ typedef struct {
     char  lab_inputs[5][24];      // component-state matrix inputs
 } Dashboard_Demo_State;
 
-// Library-honest Overview metrics, refreshed once per frame from the backend
-// frame timer and (in a WLX_PERF build) the published perf frame. The headline
-// stat cards read these instead of hardcoded numbers. perf_available is false in
-// a non-perf build (draw calls / wollix memory render "n/a"); rss_available is
-// false where process memory is unmeasurable (bare-WASM).
+// Library-honest Overview metrics, sampled from the published perf frame (a
+// WLX_PERF build). The headline stat cards read these instead of hardcoded
+// numbers. perf_available is false in a non-perf build (draw calls / wollix
+// memory render "n/a"); cost_available is false where the perf frame has no
+// clock; rss_available is false where process memory is unmeasurable (bare-WASM).
 typedef struct {
     bool     perf_available;  // WLX_PERF build with a published frame
-    float    fps;             // smoothed frames per second from the backend timer
+    bool     cost_available;  // the perf frames were timed
+    float    frame_ms;        // mean cost of the frames since the sample before
     uint64_t draw_calls;      // perf total command count for the prior frame
     size_t   wlx_bytes;       // summed wollix arena capacity in bytes
-    size_t   state_entries;   // persistent state map entries at frame end
-    size_t   editor_indices;  // editor line indices held
-    size_t   undo_journals;   // text undo journals held
     bool     rss_available;   // process RSS measurable on this platform
     double   rss_mb;          // resident set size in megabytes
 } Dashboard_Metrics;
 
-// Live Overview metrics, refreshed once per frame (see dashboard_update_metrics).
+// The Overview metrics as last sampled (see dashboard_update_metrics).
 static Dashboard_Metrics g_dashboard_metrics = {0};
 
-// Monotonic seconds accumulated from backend frame time; drives time-based decor
-// and stamps the in-app action log below.
-static float g_dashboard_phase = 0.0f;
+// Seconds of backend frame time since the first frame. Frame time spans a rest,
+// so this is real time. It stamps the in-app action log below and paces the
+// metric samples; nothing drawn follows its running value.
+static double g_dashboard_clock = 0.0;
+
+// What the previous frame left in wlx_frame_delay, read after its wlx_end:
+// zero when the next frame was due at once, a positive number of seconds when
+// a request was pending, negative when nothing was scheduled.
+static float g_dashboard_prev_delay = 0.0f;
 
 // In-app action log: a small ring buffer of real dashboard events (navigation,
 // theme changes, deploy actions, tab switches). The Overview terminal panel renders
@@ -212,7 +223,7 @@ static float g_dashboard_phase = 0.0f;
 typedef enum { DASH_LOG_OK = 0, DASH_LOG_INFO, DASH_LOG_WARN } Dashboard_Log_Severity;
 typedef struct {
     uint8_t  sev;       // Dashboard_Log_Severity
-    float    t;         // g_dashboard_phase seconds at emit time
+    float    t;         // g_dashboard_clock seconds at emit time
     uint64_t seq;       // monotonic id; a stable widget key as the ring wraps
     char     msg[80];
 } Dashboard_Log_Entry;
@@ -230,7 +241,7 @@ static Dashboard_Log g_dashboard_log = {0};
 static void dashboard_log_emit(Dashboard_Log_Severity sev, const char *msg) {
     Dashboard_Log_Entry *e = &g_dashboard_log.entry[g_dashboard_log.head];
     e->sev = (uint8_t)sev;
-    e->t   = g_dashboard_phase;
+    e->t   = (float)g_dashboard_clock;
     e->seq = g_dashboard_log.next_seq++;
     snprintf(e->msg, sizeof(e->msg), "%s", msg ? msg : "");
     g_dashboard_log.head = (g_dashboard_log.head + 1) % DASHBOARD_LOG_CAP;
@@ -313,7 +324,7 @@ static bool dashboard_process_rss_mb(double *out_mb);
 // dashboard-local code.
 typedef void (*Dashboard_Section_Fn)(WLX_Context *ctx, const Dashboard_Tokens *tk,
                                      const Dashboard_Fonts *fonts,
-                                     Dashboard_Demo_State *st, float phase);
+                                     Dashboard_Demo_State *st);
 
 typedef struct {
     const char           *title;
@@ -322,23 +333,17 @@ typedef struct {
 } Dashboard_Section;
 
 static void section_overview(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                             const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                             float phase);
+                             const Dashboard_Fonts *fonts, Dashboard_Demo_State *st);
 static void section_tokens(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                           const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                           float phase);
+                           const Dashboard_Fonts *fonts, Dashboard_Demo_State *st);
 static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                               const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                               float phase);
+                               const Dashboard_Fonts *fonts, Dashboard_Demo_State *st);
 static void section_editor(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                           const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                           float phase);
+                           const Dashboard_Fonts *fonts, Dashboard_Demo_State *st);
 static void section_layouts(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                            const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                            float phase);
+                            const Dashboard_Fonts *fonts, Dashboard_Demo_State *st);
 static void section_theme_lab(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                              const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                              float phase);
+                              const Dashboard_Fonts *fonts, Dashboard_Demo_State *st);
 
 static const Dashboard_Section dashboard_sections[DASHBOARD_VIEW_COUNT] = {
     [DASHBOARD_VIEW_OVERVIEW]   = { "Overview",   WLX_ICON_LAYOUT_DASHBOARD, section_overview },
@@ -682,13 +687,17 @@ static int dashboard_accent_button(WLX_Context *ctx, const Dashboard_Tokens *tk,
 // Top navigation bar.
 static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
                              const Dashboard_Fonts *fonts, Dashboard_Demo_State *st) {
-    // Live FPS readout for the right group. The shared per-frame metric is
-    // refreshed for every section (see dashboard_update_metrics), so surfacing
-    // it on the always-present top bar keeps the rate visible while switching
-    // sections, not just on the Overview hero card. Wollix copies label text
-    // at emit time, so this stack buffer only needs to outlive the build below.
-    char fps_text[16];
-    snprintf(fps_text, sizeof(fps_text), "%.0f FPS", (double)g_dashboard_metrics.fps);
+    // Frame-cost readout for the right group. The shared metric is sampled
+    // for every section (see dashboard_update_metrics), so surfacing it on the
+    // always-present top bar keeps the cost visible while switching sections,
+    // not just on the Overview hero card. Wollix copies label text at emit
+    // time, so this stack buffer only needs to outlive the build below.
+    char cost_text[16];
+    if (g_dashboard_metrics.cost_available) {
+        snprintf(cost_text, sizeof(cost_text), "%.1f ms", (double)g_dashboard_metrics.frame_ms);
+    } else {
+        snprintf(cost_text, sizeof(cost_text), "n/a");
+    }
 
     // Topbar surface plus its bottom hairline expressed as the wrapper's own
     // container decor, so the chrome keys off the layout rect.
@@ -758,16 +767,24 @@ static void dashboard_topbar(WLX_Context *ctx, const Dashboard_Tokens *tk,
         wlx_layout_begin(ctx, 6, WLX_HORZ, .gap = 14, .padding_top = 12, .padding_bottom = 12,
             .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(64), WLX_SLOT_PX(40), WLX_SLOT_PX(40),
                                         WLX_SLOT_PX(40), WLX_SLOT_FLEX(1), WLX_SLOT_PX(34) });
-            // Live FPS readout: mono face, accent foreground so it reads as a
+            // Frame-cost readout: mono face, accent foreground so it reads as a
             // metric rather than identity chrome. Right-aligned so it sits tight
-            // against the theme switch as the right group narrows.
-            wlx_label(ctx, fps_text,
-                .id = "topbar-fps",
+            // against the theme switch as the right group narrows. A frame rate
+            // would say nothing here: the loop draws only when something changes.
+            wlx_label(ctx, cost_text,
+                .id = "topbar-frame-cost",
                 .style = dashboard_text_style(fonts, tk->type.mono, dash_accent_fg(tk)),
                 .content_align = WLX_RIGHT,
                 .wrap = false,
                 .vertical_metric = WLX_VMETRIC_FONT_SIZE,
                 .border_width = 0);
+            wlx_tooltip_for(ctx, wlx_last_rect(ctx),
+                "Building and drawing a frame; presenting it is not counted",
+                .font = dashboard_type_font(fonts, tk->type.body_sm),
+                .font_size = dashboard_type_px(tk->type.body_sm),
+                .back_color = tk->color.surface_variant,
+                .front_color = tk->color.on_surface,
+                .border_color = tk->color.field_border, .border_width = 1.0f);
             // Light/dark switch: an icon button whose zero back_color resolves to
             // the theme surface - invisible at rest against the top bar, brightening
             // to a highlight on hover. Its 40px slot matches the row height so the
@@ -1271,24 +1288,27 @@ static void dashboard_right_column(WLX_Context *ctx, const Dashboard_Tokens *tk,
 // Overview section body: the hero stat row over the 12-column dashboard grid.
 // Rendered inside the shell's shared scroll panel.
 static void section_overview(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                             const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                             float phase) {
-    (void)phase;
+                             const Dashboard_Fonts *fonts, Dashboard_Demo_State *st) {
     const Dashboard_Metrics *m = &g_dashboard_metrics;
 
-    // Format the live metrics into per-card buffers. Wollix copies label text into
-    // its own arena at emit time, so these stack buffers only need to outlive the
-    // build below. The usage bars are relative indicators against soft references;
+    // Format the sampled metrics into per-card buffers. Wollix copies label text
+    // into its own arena at emit time, so these stack buffers only need to outlive
+    // the build below. The usage bars are relative indicators against soft references;
     // the headline figures are the measured values (or "n/a" where unmeasurable).
-    char fps_val[16], draw_val[16], wlx_val[16], rss_val[16];
+    char cost_val[16], draw_val[16], wlx_val[16], rss_val[16];
     const int   bar_segments = 8;
-    const float fps_ref      = 60.0f;     // 60 fps fills the bar
+    const float cost_ref_ms  = 16.7f;     // one frame at 60 Hz fills the bar
     const float draw_ref     = 800.0f;    // soft draw-call reference
     const float wlx_ref_b    = 65536.0f;  // soft 64 KiB arena reference
     const float rss_ref_mb   = 512.0f;    // soft 512 MB process reference
 
-    snprintf(fps_val, sizeof(fps_val), "%.0f", (double)m->fps);
-    float fps_frac = m->fps / fps_ref;
+    float cost_frac = 0.0f;
+    if (m->cost_available) {
+        snprintf(cost_val, sizeof(cost_val), "%.1f", (double)m->frame_ms);
+        cost_frac = m->frame_ms / cost_ref_ms;
+    } else {
+        snprintf(cost_val, sizeof(cost_val), "n/a");
+    }
 
     float draw_frac = 0.0f, wlx_frac = 0.0f;
     if (m->perf_available) {
@@ -1311,12 +1331,14 @@ static void section_overview(WLX_Context *ctx, const Dashboard_Tokens *tk,
 
     wlx_layout_begin(ctx, 2, WLX_VERT, .padding = 32, .gap = 32,
         .sizes = (WLX_Slot_Size[]){ WLX_SLOT_PX(150), WLX_SLOT_PX(520) });
-        // Hero stat row: live, library-honest metrics. FPS comes from the backend
-        // timer; draw calls and wollix memory come from the perf frame (or "n/a"
-        // in a non-perf build); process RSS is desktop-only ("n/a" on bare-WASM).
+        // Hero stat row: library-honest metrics, sampled. The frame cost, the
+        // draw calls and wollix memory come from the perf frame (or "n/a" in a
+        // non-perf build); process RSS is desktop-only ("n/a" on bare-WASM).
+        // The first card's label names what its figure covers: building the
+        // frame and drawing it, not presenting it.
         wlx_layout_begin(ctx, 4, WLX_HORZ, .gap = 16);
-            dashboard_stat_card(ctx, tk, fonts, "FPS", fps_val, "",
-                fps_frac, bar_segments, WLX_ICON_ZAP);
+            dashboard_stat_card(ctx, tk, fonts, "Build + Draw", cost_val, "ms",
+                cost_frac, bar_segments, WLX_ICON_ZAP);
             // "/fr" (per frame) stays inside the unit slot at the four-card width
             // on the larger-text backends where the full "/frame" would clip.
             dashboard_stat_card(ctx, tk, fonts, "Draw Calls", draw_val, "/fr",
@@ -1440,10 +1462,8 @@ static void dashboard_token_swatch(WLX_Context *ctx, const Dashboard_Tokens *tk,
 // scale, spacing and radius scales) rendered straight from the active tokens.
 // ============================================================================
 static void section_tokens(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                           const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                           float phase) {
+                           const Dashboard_Fonts *fonts, Dashboard_Demo_State *st) {
     (void)st;
-    (void)phase;
     wlx_layout_begin(ctx, 5, WLX_VERT, .padding = 32, .gap = 24,
         .sizes = (WLX_Slot_Size[]){
             WLX_SLOT_PX(dashboard_header_h(tk)),
@@ -1591,9 +1611,7 @@ static void section_tokens(WLX_Context *ctx, const Dashboard_Tokens *tk,
 // controls, slider, progress, input, image, widget) under the glass recipes.
 // ============================================================================
 static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                               const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                               float phase) {
-    (void)phase;
+                               const Dashboard_Fonts *fonts, Dashboard_Demo_State *st) {
     WLX_Font  body_font = dashboard_type_font(fonts, tk->type.body_md);
     int       body_px   = dashboard_type_px(tk->type.body_md);
 
@@ -1916,7 +1934,7 @@ static void section_components(WLX_Context *ctx, const Dashboard_Tokens *tk,
                 dashboard_status_chip(ctx, tk, fonts, "Online", tk->status.success);
                 dashboard_status_chip(ctx, tk, fonts, "Degraded", tk->status.warning);
                 dashboard_badge(ctx, tk, fonts, "v0.6", tk->color.accent, tk->color.on_accent);
-                dashboard_status_pip(ctx, tk, tk->status.success, phase);
+                dashboard_status_pip(ctx, tk, tk->status.success);
             wlx_layout_end(ctx);
         dashboard_demo_module_end(ctx);
     wlx_layout_end(ctx);
@@ -2078,9 +2096,7 @@ static void dashboard_editor_seed_once(Dashboard_Demo_State *st) {
 }
 
 static void section_editor(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                           const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                           float phase) {
-    (void)phase;
+                           const Dashboard_Fonts *fonts, Dashboard_Demo_State *st) {
     dashboard_editor_seed_once(st);
 
     WLX_Font  body_font = dashboard_type_font(fonts, tk->type.body_md);
@@ -2196,9 +2212,7 @@ static void section_editor(WLX_Context *ctx, const Dashboard_Tokens *tk,
 // opacity, ID stack, borders, scroll panel) demonstrated as glass modules.
 // ============================================================================
 static void section_layouts(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                             const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                             float phase) {
-    (void)phase;
+                             const Dashboard_Fonts *fonts, Dashboard_Demo_State *st) {
     WLX_Font  body_font = dashboard_type_font(fonts, tk->type.body_md);
     int       body_px   = dashboard_type_px(tk->type.body_md);
     WLX_Color tile_a    = dash_a(tk->color.accent, 26);
@@ -2489,9 +2503,7 @@ static void dashboard_preset_card(WLX_Context *ctx, const Dashboard_Tokens *tk,
 }
 
 static void section_theme_lab(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                              const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                              float phase) {
-    (void)phase;
+                              const Dashboard_Fonts *fonts, Dashboard_Demo_State *st) {
     WLX_Font  body_font = dashboard_type_font(fonts, tk->type.body_md);
     int       body_px   = dashboard_type_px(tk->type.body_md);
 
@@ -2633,8 +2645,7 @@ static void section_theme_lab(WLX_Context *ctx, const Dashboard_Tokens *tk,
 // content area that dispatches to the active section's body. The sidebar sets
 // st->current_view; the shell routes the body without touching the chrome.
 static void dashboard_overview(WLX_Context *ctx, const Dashboard_Tokens *tk,
-                               const Dashboard_Fonts *fonts, Dashboard_Demo_State *st,
-                               float phase) {
+                               const Dashboard_Fonts *fonts, Dashboard_Demo_State *st) {
     // View root: fixed 64px topbar + flexible body, body row is a fixed 256px
     // sidebar + flexible main. Several regions use fixed/min slots (the 64px
     // topbar, the 256px sidebar, the topbar identity floor, the sidebar nav
@@ -2659,7 +2670,7 @@ static void dashboard_overview(WLX_Context *ctx, const Dashboard_Tokens *tk,
                     .scrollbar_color = tk->color.field_border);
                     int view = (int)st->current_view;
                     if (view < 0 || view >= DASHBOARD_VIEW_COUNT) view = DASHBOARD_VIEW_OVERVIEW;
-                    dashboard_sections[view].render(ctx, tk, fonts, st, phase);
+                    dashboard_sections[view].render(ctx, tk, fonts, st);
                 wlx_scroll_panel_end(ctx);
             wlx_layout_end(ctx);
         wlx_layout_end(ctx);
@@ -2707,9 +2718,6 @@ static Dashboard_Demo_State g_dashboard_demo = {
     .lab_inputs  = { "Default", "Hover", "Active", "Focus", "Disabled" },
 };
 static Dashboard_Mode g_dashboard_mode = DASHBOARD_MODE_DARK;
-// Exponential moving average of the frame delta (seconds), so the FPS readout is
-// stable instead of flickering on per-frame measurement jitter.
-static float g_dashboard_frame_ema = 0.0f;
 
 // Seed the initial mode/route from argv: "light" starts in light mode; a route
 // name ("overview", "tokens", "components", "layouts", "theme-lab") starts on
@@ -2779,52 +2787,89 @@ static void dashboard_frame_prepare(WLX_Context *ctx, const Dashboard_Fonts *fon
 // Reports each new high-water mark of the persistent per-id storage on
 // stderr, so a session's peak live widget count can be read back without an
 // on-screen readout: a few lines per session, none once the peaks settle.
-static void dashboard_note_state_peak(const Dashboard_Metrics *m, size_t capacity) {
+static void dashboard_note_state_peak(const WLX_Perf_State_Stats *st) {
     static size_t peak_entries, peak_indices, peak_journals;
-    if (m->state_entries <= peak_entries && m->editor_indices <= peak_indices
-        && m->undo_journals <= peak_journals) return;
-    if (m->state_entries > peak_entries) peak_entries = m->state_entries;
-    if (m->editor_indices > peak_indices) peak_indices = m->editor_indices;
-    if (m->undo_journals > peak_journals) peak_journals = m->undo_journals;
+    if (st->entries <= peak_entries && st->editor_indices <= peak_indices
+        && st->undo_journals <= peak_journals) return;
+    if (st->entries > peak_entries) peak_entries = st->entries;
+    if (st->editor_indices > peak_indices) peak_indices = st->editor_indices;
+    if (st->undo_journals > peak_journals) peak_journals = st->undo_journals;
     fprintf(stderr, "wollix state peak: entries %zu (slots %zu), editor indices %zu, "
-        "undo journals %zu\n", peak_entries, capacity, peak_indices, peak_journals);
+        "undo journals %zu\n", peak_entries, st->capacity, peak_indices, peak_journals);
 }
 #endif
 
-// Refresh the live Overview metrics for this frame. FPS is derived from the
-// smoothed backend frame delta (passed in, since the SDL3 timer reports the delta
-// since its previous call and must be sampled exactly once per frame); draw calls
-// and wollix arena memory come from the perf frame published by the previous
-// wlx_end (a WLX_PERF build only -- a one-frame lag that is imperceptible in the
-// headline cards). Process RSS is read through the per-backend provider and
-// degrades to "n/a" where unavailable.
-static void dashboard_update_metrics(WLX_Context *ctx, float frame_dt) {
-    Dashboard_Metrics m = {0};
-#ifndef WLX_PERF
-    (void)ctx;  // only the perf frame read below uses ctx
-#endif
-    if (frame_dt > 0.0f) {
-        g_dashboard_frame_ema = (g_dashboard_frame_ema > 0.0f)
-            ? g_dashboard_frame_ema * 0.9f + frame_dt * 0.1f
-            : frame_dt;
-    }
-    m.fps = (g_dashboard_frame_ema > 0.0f) ? (1.0f / g_dashboard_frame_ema) : 0.0f;
+// Seconds between two samples of the Overview metrics, and the number of
+// first frames that each take one, so the figures an untouched dashboard
+// comes to rest on are those of a warm frame. The period is well under half
+// a second: a caret blinks every half second, and a sample that falls due on
+// the blink's own frame, rather than on the one after it, costs no frame.
+#define DASHBOARD_METRICS_PERIOD 0.4
+#define DASHBOARD_METRICS_WARMUP 8
+
+// True on a frame the previous one asked for: it left wlx_frame_delay at zero,
+// or at a delay that has passed since. A loop that waits draws such a frame
+// in any case. Any other frame came with input, or comes from a loop that
+// does not wait at all, as a WLX_FRAME_CHECK run does not.
+static bool dashboard_frame_was_asked(WLX_Context *ctx) {
+    float delay = g_dashboard_prev_delay;
+    return delay >= 0.0f && delay <= wlx_get_frame_time(ctx) + 0.001f;
+}
+
+// Renew the Overview metrics. They are sampled, not live: a reading is taken
+// about twice a second at most, and only on a frame the previous one asked
+// for, so showing the metrics never brings a frame of its own. A new sample
+// changes what is drawn, which asks for one more frame; that frame never
+// takes a sample, however late it comes, so it matches, and the loop rests.
+//
+// Draw calls and wollix arena memory are those of the frame before, published
+// by its wlx_end (a WLX_PERF build only). The frame cost is the mean, over the
+// frames since the sample before, of the time from wlx_begin to the end of
+// wlx_end: building the UI and replaying its draw calls. Presenting is not in
+// it. Process RSS is read through the per-backend provider and degrades to
+// "n/a" where unavailable.
+static void dashboard_update_metrics(WLX_Context *ctx) {
+    static double   last_sample;   // g_dashboard_clock at the last sample
+    static bool     sampled_last;  // the frame before took a sample
+    static int      frames;        // frames seen, up to the warm-up count
+    static uint64_t cost_ns;       // timed frames since the last sample
+    static uint32_t cost_frames;
 #ifdef WLX_PERF
     const WLX_Perf_Frame *pf = wlx_perf_get_last_frame(ctx);
+    if (pf && pf->frame_index == 0) pf = NULL;   // nothing is published before the first wlx_end
+    if (pf && pf->timer_available) {
+        cost_ns += pf->timings.total_ns;
+        cost_frames++;
+    }
+#ifndef WLX_DASHBOARD_WASM
+    if (pf) dashboard_note_state_peak(&pf->state);
+#endif
+#endif
+    bool warming = frames < DASHBOARD_METRICS_WARMUP;
+    if (warming) frames++;
+    bool due = dashboard_frame_was_asked(ctx)
+        && (warming || (!sampled_last
+                        && g_dashboard_clock - last_sample >= DASHBOARD_METRICS_PERIOD));
+    sampled_last = due;
+    if (!due) return;
+    last_sample = g_dashboard_clock;
+
+    Dashboard_Metrics m = {0};
+#ifdef WLX_PERF
     if (pf) {
         size_t bytes = 0;
         m.perf_available = true;
         m.draw_calls = pf->commands.total_commands;
         for (int i = 0; i < WLX_ARENA_GROUP_COUNT; i++) bytes += pf->arena[i].bytes_capacity;
         m.wlx_bytes = bytes;
-        m.state_entries  = pf->state.entries;
-        m.editor_indices = pf->state.editor_indices;
-        m.undo_journals  = pf->state.undo_journals;
-#ifndef WLX_DASHBOARD_WASM
-        dashboard_note_state_peak(&m, pf->state.capacity);
-#endif
     }
 #endif
+    if (cost_frames > 0) {
+        m.cost_available = true;
+        m.frame_ms = (float)((double)cost_ns / (double)cost_frames / 1.0e6);
+    }
+    cost_ns = 0;
+    cost_frames = 0;
     m.rss_available = dashboard_process_rss_mb(&m.rss_mb);
     g_dashboard_metrics = m;
 }
@@ -2846,12 +2891,15 @@ static void dashboard_render_body(WLX_Context *ctx, const Dashboard_Fonts *fonts
         }
         last_view = view_now;
     }
-    // Sample the backend frame delta exactly once per frame (the SDL3 timer is
-    // stateful and would report ~0 on a second call), then share it.
-    float frame_dt = wlx_get_frame_time(ctx);
-    g_dashboard_phase += frame_dt;
-    dashboard_update_metrics(ctx, frame_dt);
-    dashboard_overview(ctx, tk, fonts, &g_dashboard_demo, g_dashboard_phase);
+    g_dashboard_clock += (double)wlx_get_frame_time(ctx);
+    dashboard_update_metrics(ctx);
+    dashboard_overview(ctx, tk, fonts, &g_dashboard_demo);
+}
+
+// Close the frame, after wlx_end: keep what it says about the next one for
+// dashboard_frame_was_asked.
+static void dashboard_frame_done(WLX_Context *ctx) {
+    g_dashboard_prev_delay = wlx_frame_delay(ctx);
 }
 
 // ===========================================================================
@@ -2966,6 +3014,7 @@ static bool dashboard_platform_begin_frame(WLX_Rect *out_root) {
 
 static void dashboard_platform_end_frame(void) {
     wlx_end(g_dashboard_ctx);
+    dashboard_frame_done(g_dashboard_ctx);
     EndDrawing();
 }
 
@@ -2993,7 +3042,13 @@ int main(int argc, char **argv) {
         dashboard_platform_clear(dashboard_background(g_dashboard_mode));
         dashboard_render_body(g_dashboard_ctx, &g_dashboard_fonts);
         dashboard_platform_end_frame();
-        if (shot_path && ++frame >= DASHBOARD_SHOT_FRAME) { TakeScreenshot(shot_path); break; }
+        if (shot_path) {
+            // A capture run draws every frame up to the one it grabs.
+            if (++frame >= DASHBOARD_SHOT_FRAME) { TakeScreenshot(shot_path); break; }
+        } else {
+            // Rest until input arrives or a frame request comes due.
+            wlx_raylib_wait_frame(g_dashboard_ctx);
+        }
     }
 
     dashboard_platform_shutdown();
@@ -3060,7 +3115,7 @@ static bool dashboard_platform_init(void) {
         return false;
     }
     // Cap presentation to the display refresh (the raylib path uses SetTargetFPS),
-    // so the frame loop does not spin uncapped and the FPS readout is meaningful.
+    // so the frame loop does not spin uncapped while frames are being drawn.
     SDL_SetRenderVSync(g_dashboard_renderer, 1);
     if (!TTF_Init()) {
         fprintf(stderr, "TTF_Init failed: %s\n", SDL_GetError());
@@ -3121,6 +3176,7 @@ static int         g_dashboard_shot_frame;
 
 static void dashboard_platform_end_frame(void) {
     wlx_end(g_dashboard_ctx);
+    dashboard_frame_done(g_dashboard_ctx);
     if (g_dashboard_shot_path && ++g_dashboard_shot_frame >= DASHBOARD_SHOT_FRAME) {
         SDL_Surface *surf = SDL_RenderReadPixels(g_dashboard_renderer, NULL);
         if (surf) {
@@ -3129,6 +3185,9 @@ static void dashboard_platform_end_frame(void) {
         }
     }
     SDL_RenderPresent(g_dashboard_renderer);
+    // Rest until input arrives or a frame request comes due. A capture run
+    // draws every frame up to the one it grabs.
+    if (!g_dashboard_shot_path) wlx_sdl3_wait_frame(g_dashboard_ctx);
 }
 
 static void dashboard_platform_clear(WLX_Color bg) {
@@ -3229,6 +3288,10 @@ void wlx_wasm_frame(float width, float height) {
                                        g_dashboard_ctx->backend.user);
     dashboard_render_body(g_dashboard_ctx, &g_dashboard_fonts);
     wlx_end(g_dashboard_ctx);
+    dashboard_frame_done(g_dashboard_ctx);
+    // Tell the host when the next frame is needed: at once, after a delay, or
+    // only when input arrives.
+    wlx_wasm_schedule_frame(g_dashboard_ctx);
 }
 
 // Validation hook: reports current page-pool counters so a host (or test

@@ -80,6 +80,35 @@ static size_t   g_wlx_raylib_text_cache_pending_slot = 0;
 static bool     g_wlx_raylib_text_cache_pending_valid = false;
 #endif
 
+// Codepoints below this get a per-font table from codepoint to glyph index,
+// so a glyph costs one array read where Raylib's GetGlyphIndex walks
+// font.glyphs. The default 512 covers ASCII, Latin-1 and Latin Extended-A.
+// A codepoint at or above it takes Raylib's search, and so does every
+// codepoint when this or WLX_RAYLIB_GLYPH_TABLE_FONTS is 0.
+#ifndef WLX_RAYLIB_GLYPH_TABLE_CODEPOINTS
+#define WLX_RAYLIB_GLYPH_TABLE_CODEPOINTS 512
+#endif
+
+// Fonts that hold a glyph table at one time (default 8). One font more takes
+// the slot that was handed out longest ago. 0 compiles the tables out.
+#ifndef WLX_RAYLIB_GLYPH_TABLE_FONTS
+#define WLX_RAYLIB_GLYPH_TABLE_FONTS 8
+#endif
+
+#if WLX_RAYLIB_GLYPH_TABLE_FONTS > 0 && WLX_RAYLIB_GLYPH_TABLE_CODEPOINTS > 0
+#define WLX_RAYLIB__GLYPH_TABLES 1
+typedef struct {
+    const GlyphInfo *glyphs;    // the font's glyph array; NULL marks a free slot
+    int32_t index[WLX_RAYLIB_GLYPH_TABLE_CODEPOINTS];   // -1: not looked up yet
+} WLX_Raylib_Glyph_Table;
+
+static WLX_Raylib_Glyph_Table
+    g_wlx_raylib_glyph_tables[WLX_RAYLIB_GLYPH_TABLE_FONTS] = {0};
+static size_t g_wlx_raylib_glyph_table_next = 0;
+#else
+#define WLX_RAYLIB__GLYPH_TABLES 0
+#endif
+
 // Cache key: (font_handle, font_size_bits, spacing_bits, text_len, and the
 // core's wlx_hash_fnv1a64 over the text) without storing the original
 // bytes; hash collisions therefore manifest as false-positive hits and are
@@ -248,6 +277,39 @@ static inline int wlx_raylib_key_for(WLX_Key_Code key) {
     return 0;
 }
 
+// Raylib's character queue holds this many codepoints between two polls.
+#define WLX_RAYLIB_PENDING_CHARS 16
+
+// What the adapter carries from wlx_raylib_wait_frame to the next frame.
+// One instance; zeroed, it describes a loop that has not called the helper.
+typedef struct {
+    double frame_clock;  // GetTime() when the frame's input was read
+    float  frame_time;   // seconds since the frame before, when frame_timed
+    bool   frame_timed;  // this frame's time is frame_time, not GetFrameTime()
+    bool   clock_set;    // frame_clock holds a reading
+    bool   wait_used;    // the helper has run at least once
+    int    chars[WLX_RAYLIB_PENDING_CHARS];  // taken from Raylib's queue while looking for input
+    int    char_count;
+    bool   seen;         // focused and scale hold a reading
+    bool   focused;
+    float  scale;
+} WLX_Raylib_Frame_State;
+
+static WLX_Raylib_Frame_State g_wlx_raylib_frame = {0};
+
+// Append one codepoint of typed text to the frame's text input. False when
+// it does not fit, which ends the frame's burst.
+static inline bool wlx_raylib_text_input_push(WLX_Context *ctx, size_t *text_len, int codepoint) {
+    if (codepoint < 32) return true;
+    char encoded[4];
+    size_t enc_len = wlx_utf8_encode((uint32_t)codepoint, encoded);
+    size_t len = wlx_utf8_append_whole(ctx->input.text_input,
+        sizeof(ctx->input.text_input), *text_len, encoded, enc_len);
+    if (len == *text_len) return false;
+    *text_len = len;
+    return true;
+}
+
 static inline void wlx_process_raylib_input(WLX_Context *ctx) {
     static bool prev_mouse_down = false;
     static bool prev_right_down = false;
@@ -296,22 +358,33 @@ static inline void wlx_process_raylib_input(WLX_Context *ctx) {
     if (IsKeyDown(KEY_LEFT_ALT)     || IsKeyDown(KEY_RIGHT_ALT))     ctx->input.modifiers |= WLX_MOD_ALT;
     if (IsKeyDown(KEY_LEFT_SUPER)   || IsKeyDown(KEY_RIGHT_SUPER))   ctx->input.modifiers |= WLX_MOD_SUPER;
 
-    // The first codepoint that does not fit ends the frame's burst; Raylib
-    // drops what is left in its queue when it polls the next frame.
+    // Characters wlx_raylib_wait_frame took while it looked for input come
+    // first; they were typed before anything still in Raylib's queue. The
+    // first codepoint that does not fit ends the frame's burst; Raylib drops
+    // what is left in its queue when it polls the next frame.
+    WLX_Raylib_Frame_State *st = &g_wlx_raylib_frame;
     wlx_zero_struct(ctx->input.text_input);
-    int key = GetCharPressed();
     size_t text_len = 0;
-    while (key > 0) {
-        if (key >= 32) {
-            char encoded[4];
-            size_t enc_len = wlx_utf8_encode((uint32_t)key, encoded);
-            size_t len = wlx_utf8_append_whole(ctx->input.text_input,
-                sizeof(ctx->input.text_input), text_len, encoded, enc_len);
-            if (len == text_len) break;
-            text_len = len;
-        }
-        key = GetCharPressed();
+    bool fits = true;
+    for (int i = 0; i < st->char_count && fits; i++) {
+        fits = wlx_raylib_text_input_push(ctx, &text_len, st->chars[i]);
     }
+    st->char_count = 0;
+    for (int key = fits ? GetCharPressed() : 0; key > 0; key = GetCharPressed()) {
+        if (!wlx_raylib_text_input_push(ctx, &text_len, key)) break;
+    }
+
+    // Once wlx_raylib_wait_frame has run, the frame time is read off the
+    // clock here, once a frame, for good. GetFrameTime cannot serve: a wait
+    // made after EndDrawing reaches it a frame late, and a wait under
+    // Raylib's event waiting reaches it or not depending on the Raylib
+    // version. The switch stays on in an iteration that skips the helper:
+    // GetFrameTime would then report the previous wait a second time.
+    double now = GetTime();
+    st->frame_timed = st->wait_used && st->clock_set;
+    if (st->frame_timed) st->frame_time = (float)(now - st->frame_clock);
+    st->frame_clock = now;
+    st->clock_set = true;
 }
 
 static inline void wlx_raylib_draw_texture(WLX_Texture texture, WLX_Rect src, WLX_Rect dst, WLX_Color tint, void *user) {
@@ -442,6 +515,110 @@ static inline float wlx_raylib_effective_spacing(WLX_Text_Style style) {
     return spacing;
 }
 
+// The glyph table of the font whose glyph array is `glyphs` (not NULL). A
+// font seen for the first time takes the next slot in turn, with every entry
+// unset. NULL when the tables are compiled out.
+static inline int32_t *wlx_raylib_glyph_table(const GlyphInfo *glyphs) {
+#if WLX_RAYLIB__GLYPH_TABLES
+    for (size_t i = 0; i < WLX_RAYLIB_GLYPH_TABLE_FONTS; i++) {
+        if (g_wlx_raylib_glyph_tables[i].glyphs == glyphs)
+            return g_wlx_raylib_glyph_tables[i].index;
+    }
+    WLX_Raylib_Glyph_Table *table =
+        &g_wlx_raylib_glyph_tables[g_wlx_raylib_glyph_table_next];
+    g_wlx_raylib_glyph_table_next =
+        (g_wlx_raylib_glyph_table_next + 1) % WLX_RAYLIB_GLYPH_TABLE_FONTS;
+    table->glyphs = glyphs;
+    memset(table->index, 0xff, sizeof table->index);    // every entry -1
+    return table->index;
+#else
+    WLX_UNUSED(glyphs);
+    return NULL;
+#endif
+}
+
+// The glyph index Raylib's GetGlyphIndex returns for `codepoint`, read from
+// `table` when the codepoint is in the table's range. GetGlyphIndex is a
+// linear search over font.glyphs; with the glyphs in codepoint order, a
+// letter is 33 to 90 entries in.
+//
+// A cached entry is used only while the font still has a glyph of that
+// codepoint at that index, checked on every read. A font unloaded and
+// reloaded at the same address therefore never gets a stale index, whether or
+// not wlx_raylib_text_cache_clear() was called. A codepoint the font lacks
+// never passes that check (its entry holds Raylib's '?' fallback), so it
+// searches every time.
+static inline int wlx_raylib_glyph_index(Font font, int32_t *table, int codepoint) {
+#if WLX_RAYLIB__GLYPH_TABLES
+    if (table != NULL && codepoint >= 0 && codepoint < WLX_RAYLIB_GLYPH_TABLE_CODEPOINTS) {
+        int32_t cached = table[codepoint];
+        if (cached >= 0 && cached < font.glyphCount
+                && font.glyphs[cached].value == codepoint) {
+            return (int)cached;
+        }
+        int index = GetGlyphIndex(font, codepoint);
+        table[codepoint] = (int32_t)index;
+        return index;
+    }
+#else
+    WLX_UNUSED(table);
+#endif
+    return GetGlyphIndex(font, codepoint);
+}
+
+// One line of text, drawn as Raylib's DrawTextEx draws it: the same glyphs,
+// quads and advances, in DrawTextEx's and DrawTextCodepoint's own arithmetic.
+// The difference is the lookup. DrawTextEx finds every drawn glyph twice,
+// once itself and once inside DrawTextCodepoint, and each find is a linear
+// search; this loop finds it once, through the font's glyph table.
+//
+// Two cases go to DrawTextEx itself: text with a line break, whose line
+// height uses a spacing Raylib keeps private, and a font Raylib would not
+// index (so whatever Raylib does with one stays what happens).
+static inline void wlx_raylib_draw_glyph_run(Font font, const char *text,
+        Vector2 position, float font_size, float spacing, Color tint) {
+    if (text == NULL) return;
+    if (font.texture.id == 0) font = GetFontDefault();  // DrawTextEx's own fallback
+    if (font.glyphs == NULL || font.recs == NULL || font.glyphCount <= 0
+            || font.baseSize <= 0 || strchr(text, '\n') != NULL) {
+        DrawTextEx(font, text, position, font_size, spacing, tint);
+        return;
+    }
+
+    int32_t *table = wlx_raylib_glyph_table(font.glyphs);
+    float scale = font_size / font.baseSize;
+    float pad = (float)font.glyphPadding;
+    float offset_x = 0.0f;
+    for (size_t i = 0; text[i] != '\0';) {
+        int cp_bytes = 0;
+        int codepoint = GetCodepointNext(&text[i], &cp_bytes);
+        if (cp_bytes <= 0) cp_bytes = 1;
+        int index = wlx_raylib_glyph_index(font, table, codepoint);
+        const GlyphInfo *glyph = &font.glyphs[index];
+        Rectangle rec = font.recs[index];
+
+        if (codepoint != ' ' && codepoint != '\t') {
+            float x = position.x + offset_x;
+            Rectangle dst = {
+                x + glyph->offsetX * scale - pad * scale,
+                position.y + glyph->offsetY * scale - pad * scale,
+                (rec.width + 2.0f * font.glyphPadding) * scale,
+                (rec.height + 2.0f * font.glyphPadding) * scale,
+            };
+            Rectangle src = {
+                rec.x - pad, rec.y - pad,
+                rec.width + 2.0f * font.glyphPadding,
+                rec.height + 2.0f * font.glyphPadding,
+            };
+            DrawTexturePro(font.texture, src, dst, (Vector2){ 0.0f, 0.0f }, 0.0f, tint);
+        }
+
+        if (glyph->advanceX == 0) offset_x += rec.width * scale + spacing;
+        else offset_x += (float)glyph->advanceX * scale + spacing;
+        i += (size_t)cp_bytes;
+    }
+}
+
 static inline void wlx_raylib_draw_text(const char *text, float x, float y, WLX_Text_Style style, void *user) {
     WLX_UNUSED(user);
     WLX_RAYLIB_SCOPE_BEGIN();
@@ -449,9 +626,9 @@ static inline void wlx_raylib_draw_text(const char *text, float x, float y, WLX_
     Font font = (style.font != WLX_FONT_DEFAULT)
               ? *(Font *)(uintptr_t)style.font
               : GetFontDefault();
-    DrawTextEx(font, text, (Vector2){x, y}, (float)style.font_size,
-               wlx_raylib_effective_spacing(style),
-               (Color){style.color.r, style.color.g, style.color.b, style.color.a});
+    wlx_raylib_draw_glyph_run(font, text, (Vector2){x, y}, (float)style.font_size,
+                              wlx_raylib_effective_spacing(style),
+                              (Color){style.color.r, style.color.g, style.color.b, style.color.a});
     WLX_RAYLIB_SCOPE_END(text_draw_ns);
 }
 
@@ -553,9 +730,9 @@ static inline void wlx_raylib_text_cache_store(uintptr_t font_handle,
 #endif
 }
 
-// Slice draw: DrawTextEx needs a C string either way, so the copy the core
-// fallback used to make now lives here; measurement-cache behavior is
-// untouched (draws are uncached).
+// Slice draw: Raylib's codepoint decoder needs a C string either way, so the
+// copy the core fallback used to make now lives here; measurement-cache
+// behavior is untouched (draws are uncached).
 static inline void wlx_raylib_draw_text_slice(const char *text, size_t len,
         float x, float y, WLX_Text_Style style, void *user) {
     WLX_UNUSED(user);
@@ -651,6 +828,7 @@ static inline size_t wlx_raylib_measure_text_advances(const char *text, size_t l
     if (walk_text != NULL) {
         float scale = style.font_size / (float)font.baseSize;
         float eff_spacing = wlx_raylib_effective_spacing(style);
+        int32_t *table = wlx_raylib_glyph_table(font.glyphs);
         float raw_w = 0.0f;
         int cp_count = 0;
         size_t i = 0;
@@ -659,7 +837,7 @@ static inline size_t wlx_raylib_measure_text_advances(const char *text, size_t l
                 int cp_bytes = 0;
                 int letter = GetCodepointNext(&walk_text[i], &cp_bytes);
                 if (cp_bytes <= 0) cp_bytes = 1;
-                int index = GetGlyphIndex(font, letter);
+                int index = wlx_raylib_glyph_index(font, table, letter);
                 if (font.glyphs[index].advanceX > 0) raw_w += (float)font.glyphs[index].advanceX;
                 else raw_w += font.recs[index].width + (float)font.glyphs[index].offsetX;
                 cp_count++;
@@ -683,7 +861,15 @@ static inline size_t wlx_raylib_measure_text_advances(const char *text, size_t l
 // needed; the next store into a stale slot displaces it transparently.
 // Auto-called from wlx_context_init_raylib. Callers must invoke this before
 // UnloadFont() on any Raylib Font passed to the backend.
+// The glyph tables are released too. They do not depend on it: every entry
+// is checked against its font when it is read.
 static inline void wlx_raylib_text_cache_clear(void) {
+#if WLX_RAYLIB__GLYPH_TABLES
+    for (size_t i = 0; i < WLX_RAYLIB_GLYPH_TABLE_FONTS; i++) {
+        g_wlx_raylib_glyph_tables[i].glyphs = NULL;
+    }
+    g_wlx_raylib_glyph_table_next = 0;
+#endif
 #if WLX_RAYLIB_TEXT_CACHE_CAP > 0
     g_wlx_raylib_text_cache_generation++;
     if (g_wlx_raylib_text_cache_generation == 0) {
@@ -735,9 +921,13 @@ static inline void wlx_raylib_end_scissor(void *user) {
     WLX_RAYLIB_SCOPE_END(scissor_ns);
 }
 
+// Real time since the previous frame. From the first wlx_raylib_wait_frame
+// call on it is the adapter's own reading, the wait included, whether or not
+// a later iteration calls the helper; in a loop that never calls the helper
+// it is GetFrameTime(), as it always was.
 static inline float wlx_raylib_get_frame_time(void *user) {
     WLX_UNUSED(user);
-    return GetFrameTime();
+    return g_wlx_raylib_frame.frame_timed ? g_wlx_raylib_frame.frame_time : GetFrameTime();
 }
 
 // The content scale Raylib applies, read the way Raylib's own scissor and
@@ -764,6 +954,118 @@ static inline float wlx_raylib_get_content_scale(void *user) {
 // space Raylib draws and reports the mouse in under any scale.
 static inline WLX_Rect wlx_raylib_root_rect(void) {
     return (WLX_Rect){ 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
+}
+
+// True when the last PollInputEvents brought something a frame should see:
+// mouse motion, the wheel, any mouse button or keyboard key going down or
+// up, a key repeat, a typed character, a close request, a resize, a focus
+// change or a content-scale change. Every key and button is watched, not
+// only the ones Wollix maps, so the application's own IsKeyPressed reads
+// survive too. Looking at the character queue empties it, so the characters
+// move into the adapter for wlx_process_raylib_input.
+static inline bool wlx_raylib_frame_input_arrived(void) {
+    WLX_Raylib_Frame_State *st = &g_wlx_raylib_frame;
+    bool any = false;
+
+    Vector2 motion = GetMouseDelta();
+    Vector2 wheel = GetMouseWheelMoveV();
+    if (motion.x != 0.0f || motion.y != 0.0f || wheel.x != 0.0f || wheel.y != 0.0f) any = true;
+    for (int button = 0; button <= MOUSE_BUTTON_BACK; button++) {
+        if (IsMouseButtonPressed(button) || IsMouseButtonReleased(button)) any = true;
+    }
+    for (int key = 1; key <= KEY_KB_MENU; key++) {
+        if (IsKeyPressed(key) || IsKeyReleased(key) || IsKeyPressedRepeat(key)) any = true;
+    }
+
+    while (st->char_count < WLX_RAYLIB_PENDING_CHARS) {
+        int codepoint = GetCharPressed();
+        if (codepoint <= 0) break;
+        st->chars[st->char_count++] = codepoint;
+    }
+    if (st->char_count > 0) any = true;
+
+    if (WindowShouldClose() || IsWindowResized()) any = true;
+
+    bool focused = IsWindowFocused();
+    float scale = wlx_raylib_get_content_scale(NULL);
+    if (st->seen && (focused != st->focused || scale != st->scale)) any = true;
+    st->seen = true;
+    st->focused = focused;
+    st->scale = scale;
+    return any;
+}
+
+// Wait until the next frame is needed. Call it once per loop iteration,
+// after EndDrawing, in a loop that reads its input through
+// wlx_process_raylib_input:
+//
+//     wlx_end(ctx);
+//     EndDrawing();
+//     wlx_raylib_wait_frame(ctx);
+//
+// It reads wlx_frame_delay. A frame due now returns at once, and so does
+// input that EndDrawing's own poll already brought. With nothing scheduled
+// it blocks in one PollInputEvents under Raylib's event waiting and returns
+// when a window event ends that. With a frame scheduled it sleeps in short
+// slices, WaitTime and then PollInputEvents, until input arrives or the
+// delay has passed.
+//
+// A poll erases what the poll before it brought: press edges, repeat flags,
+// the wheel, the character queue, a close request, a resize. So the helper
+// looks after every poll and returns at the first sign of any of them,
+// before a second poll can run. The characters it takes from Raylib's queue
+// while looking reach the next frame through wlx_process_raylib_input; an
+// application that reads GetCharPressed itself does not see them.
+//
+// It does not watch gamepads or gestures. An application that draws from
+// those, from its own animation or from data arriving elsewhere asks with
+// wlx_request_frame or wlx_request_frame_after, or does not call the helper.
+// It leaves Raylib's event waiting switched off, so it takes the place of
+// EnableEventWaiting; the two do not combine.
+//
+// From its first call on the adapter reports frame time from its own clock,
+// the wait included, so timers see real time; that holds in an iteration
+// that skips the helper too. GetFrameTime and GetFPS, which are Raylib's
+// own, say little in a loop that waits.
+//
+// It blocks only where Raylib's platform honours event waiting: on the
+// desktop GLFW platform, Raylib's default. Raylib 5.5's SDL, RGFW, DRM and
+// Android platforms never read the flag, so there the blocking branch
+// returns after one poll and the loop does not rest; nothing is lost.
+//
+// Calling it is the whole opt-in: a loop that never calls it produces every
+// frame, as before. In a WLX_FRAME_CHECK build it never waits, and on
+// Raylib's web platform, where the browser owns the loop, it returns at once.
+static inline void wlx_raylib_wait_frame(WLX_Context *ctx) {
+    assert(ctx != NULL);
+#if defined(WLX_FRAME_CHECK) || defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
+    WLX_UNUSED(ctx);
+#else
+    g_wlx_raylib_frame.wait_used = true;
+    float delay = wlx_frame_delay(ctx);
+    if (delay == 0.0f) return;                       // due now
+    if (wlx_raylib_frame_input_arrived()) return;    // EndDrawing's poll brought it
+
+    if (delay < 0.0f) {
+        EnableEventWaiting();
+        PollInputEvents();
+        DisableEventWaiting();
+        (void)wlx_raylib_frame_input_arrived();
+    } else {
+        // A slice bounds how long input waits for its frame. Raylib spins
+        // for a fixed share of every WaitTime, so a shorter slice costs no
+        // more than a longer one.
+        const double slice = 1.0 / 60.0;
+        double end = GetTime() + (double)delay;
+        for (;;) {
+            double left = end - GetTime();
+            if (left <= 0.0) break;
+            WaitTime(left < slice ? left : slice);
+            PollInputEvents();
+            if (wlx_raylib_frame_input_arrived()) break;
+        }
+    }
+#endif
 }
 
 static inline const char *wlx_raylib_clipboard_get(void *user) {

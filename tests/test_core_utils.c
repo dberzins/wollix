@@ -189,8 +189,8 @@ TEST(layout_slot_is_content_bounds) {
         ASSERT_FALSE(wlx_layout_slot_is_content(&ctx, l, 2));   // past the layout's slots
         // The intrinsic-width gate reads the same answer: next slot (0) is
         // CONTENT in a HORZ parent; an explicit slot 1 is not.
-        ASSERT_TRUE(wlx_parent_wants_intrinsic_width(&ctx, -1));
-        ASSERT_FALSE(wlx_parent_wants_intrinsic_width(&ctx, 1));
+        ASSERT_TRUE(wlx_parent_wants_intrinsic_width(&ctx, -1, 1));
+        ASSERT_FALSE(wlx_parent_wants_intrinsic_width(&ctx, 1, 1));
         wlx_layout_end(&ctx);
 
         // No CONTENT slot: nothing is tracked, every slot answers false.
@@ -199,7 +199,7 @@ TEST(layout_slot_is_content_bounds) {
         WLX_Layout *plain = &wlx_pool_layouts(&ctx)[ctx.arena.layouts.count - 1];
         ASSERT_FALSE(plain->has_content_slot_measures);
         ASSERT_FALSE(wlx_layout_slot_is_content(&ctx, plain, 0));
-        ASSERT_FALSE(wlx_parent_wants_intrinsic_width(&ctx, -1));
+        ASSERT_FALSE(wlx_parent_wants_intrinsic_width(&ctx, -1, 1));
         wlx_layout_end(&ctx);
 
     wlx_layout_end(&ctx);

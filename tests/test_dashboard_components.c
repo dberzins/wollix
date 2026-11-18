@@ -2,8 +2,8 @@
 // Included from test_main.c (single TU build). Pure geometry/state checks only;
 // the rendering recipes are exercised visually by the demo.
 //
-// Covers: responsive column count, status-pip pulse alpha, table row rect
-// geometry, and ASCII uppercasing. The segmented-bar fill rule now lives in
+// Covers: responsive column count, table row rect geometry, and ASCII
+// uppercasing. The segmented-bar fill rule now lives in
 // the library (wlx_progress_filled_count), covered by the widgets suite.
 
 #ifndef WOLLIX_H_
@@ -25,22 +25,6 @@ TEST(dashboard_grid_columns_breakpoints) {
     ASSERT_EQ_INT(8,  dashboard_grid_columns(720.0f));
     ASSERT_EQ_INT(4,  dashboard_grid_columns(719.0f));
     ASSERT_EQ_INT(4,  dashboard_grid_columns(0.0f));
-}
-
-TEST(dashboard_pulse_alpha_bounds) {
-    // Triangle wave: trough is 40% of base, peak (at 0.5) is 100% of base.
-    ASSERT_EQ_INT(40,  dashboard_pulse_alpha(100, 0.0f));
-    ASSERT_EQ_INT(100, dashboard_pulse_alpha(100, 0.5f));
-    ASSERT_EQ_INT(70,  dashboard_pulse_alpha(100, 0.25f));
-    // The wave wraps on the integer part.
-    ASSERT_EQ_INT(40,  dashboard_pulse_alpha(100, 1.0f));
-    ASSERT_EQ_INT(100, dashboard_pulse_alpha(100, 2.5f));
-    // Result always within [0.4*base, base].
-    for (int i = 0; i <= 20; i++) {
-        uint8_t a = dashboard_pulse_alpha(200, (float)i * 0.1f);
-        ASSERT_TRUE(a >= 80);
-        ASSERT_TRUE(a <= 200);
-    }
 }
 
 TEST(dashboard_table_row_rect_layout) {
@@ -66,7 +50,6 @@ TEST(dashboard_upper_ascii) {
 
 SUITE(dashboard_components) {
     RUN_TEST(dashboard_grid_columns_breakpoints);
-    RUN_TEST(dashboard_pulse_alpha_bounds);
     RUN_TEST(dashboard_table_row_rect_layout);
     RUN_TEST(dashboard_upper_ascii);
 }

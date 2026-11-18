@@ -37,7 +37,7 @@ widget treats as 10.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `slot_align` | `WLX_Align` | `WLX_LEFT` | Where to place the widget rect inside its slot when it is smaller than the slot. `widget_align` is the deprecated pre-0.9 name (same storage, removed in the first minor after 0.9) |
+| `slot_align` | `WLX_Align` | `WLX_LEFT` | Where to place the widget rect inside its slot when it is smaller than the slot |
 | `width` | `float` | `WLX_UNSET` | Widget width in units. unset = fill parent width; `0` is a zero width |
 | `height` | `float` | `WLX_UNSET` | Widget height in units. unset = fill parent height; `0` is a zero height (a text field takes its one-line minimum) |
 | `min_width` | `float` | `0` | Minimum width constraint. `0` = unconstrained |
@@ -65,7 +65,7 @@ Used by `label`, `button`, `checkbox`, `inputbox`, `toggle`, and `radio`.
 |-------|------|---------|-------------|
 | `font` | `WLX_Font` | `WLX_FONT_DEFAULT` | Font handle. `0` = backend default / theme font |
 | `font_size` | `int` | `0` | Font size in units. `0` = use theme default |
-| `content_align` | `WLX_Align` | `WLX_LEFT` | Text alignment within the widget rect. `align` is the deprecated pre-0.9 name (same storage, removed in the first minor after 0.9) |
+| `content_align` | `WLX_Align` | `WLX_LEFT` | Text alignment within the widget rect |
 | `wrap` | `bool` | varies | Enable fitted multi-line wrapping for long text. Width wrapping breaks at word boundaries: after the last space or tab that fits the row, inside a word only when it is wider than the row, with overflowing whitespace hanging on its row and left out of the row's alignment width. In the multiline inputbox and textarea an overflowing space or tab never hangs: the row cuts at the previous whitespace (the word before it moves down) or the whitespace opens the next row, so the caret stays inside the field. Explicit `\n`, `\r\n`, and `\r` always break lines. The inputbox honours `wrap` in multiline mode only: a single-line field is always one visual row that scrolls horizontally (see [Single-line overflow](#single-line-overflow)) |
 | `spacing` | `int` | `0` | Opt-in extra tracking. `0` = natural backend spacing |
 
@@ -362,10 +362,12 @@ All leaf-widget option structs include an optional identity field, as
 
 ---
 
-## Intrinsic widths (CONTENT slots in HORZ layouts)
+## Intrinsic widths (CONTENT slots in HORZ layouts, CONTENT columns in grids)
 
 A `WLX_SLOT_CONTENT` slot in a horizontal linear layout sizes from its
-children's widths. An explicit `.width` always wins; otherwise each widget
+children's widths, and so does a `WLX_SLOT_CONTENT` column of a grid
+(`wlx_grid_begin`, `wlx_grid_begin_auto`), which takes the widest of its
+one-column cells. An explicit `.width` always wins; otherwise each widget
 offers its intrinsic (natural) width — always the single-line, unwrapped
 measure, even when `.wrap` is set (the fit slot renders the text unwrapped;
 combined with `WLX_SLOT_CONTENT_MAX` the text wraps inside the clamp while
@@ -386,9 +388,11 @@ The measured width settles one frame after content changes (use
 `WLX_SLOT_CONTENT_MIN` to avoid the first-frame pop, exactly as with
 vertical CONTENT slots), and on the measuring frame the deferred replay
 corrects drawn positions — HORZ CONTENT gets the same same-frame treatment
-VERT layouts get vertically, scissors included. The intrinsic measure runs
-only when the widget actually sits in a width-consuming slot, so layouts
-that do not use the feature perform no extra text measurement.
+VERT layouts get vertically, scissors included. A grid column has no
+same-frame correction: it is right on the frame after the content changes,
+as grid rows are. The intrinsic measure runs only when the widget actually
+sits in a width-consuming slot, so layouts that do not use the feature
+perform no extra text measurement.
 
 ## Keyboard operation
 
@@ -502,6 +506,77 @@ greyed-out and inert:
    `WLX_RESOLVE_VISUAL_STATE(ctx, opt, opt->disabled, /*colors...*/)`
    so disabled-brightness and disabled-opacity flow through the standard
    tail.
+
+## Timers in a custom widget
+
+A loop that rests between frames (see
+[Frames on demand](LAYOUT_MODEL.md#frames-on-demand)) draws a frame only
+when input arrives, when the picture has just changed, or when a frame
+was requested. The built-in widgets request their own frames: a focused
+text field asks for the caret's next blink edge, a tooltip for the rest
+of its delay. A widget of your own that changes its picture on a timer
+has to do the same, or the change is not drawn until something else
+brings a frame.
+
+The rule: **on every frame a timer is pending, ask for a frame no later
+than the moment it comes due.**
+
+```c
+#define WOLLIX_IMPLEMENTATION
+#include "wollix.h"
+
+// A swatch that stays lit for half a second after a click.
+typedef struct { float lit; } Flash_State;   // seconds it stays lit
+
+static void flash(WLX_Context *ctx) {
+    Flash_State *st = (Flash_State *)wlx_get_state(ctx, Flash_State).data;
+
+    // Advance by the frame's own time. After a rest that is the whole
+    // rest, so the timer keeps real time without frames of its own.
+    if (st->lit > 0.0f) {
+        st->lit -= wlx_get_frame_time(ctx);
+        if (st->lit < 0.0f) st->lit = 0.0f;
+    }
+
+    WLX_Color color = st->lit > 0.0f ? (WLX_Color){ 255, 200, 60, 255 }
+                                     : (WLX_Color){ 70, 70, 70, 255 };
+    wlx_widget(ctx, .height = 32, .back_color = color);
+    WLX_Interaction it = wlx_get_interaction(ctx, wlx_last_rect(ctx),
+        WLX_INTERACT_CLICK, __FILE__, __LINE__);
+    if (it.clicked) st->lit = 0.5f;
+
+    // The picture changes when the time runs out, and nothing else brings
+    // a frame at that moment.
+    if (st->lit > 0.0f) wlx_request_frame_after(ctx, st->lit);
+}
+```
+
+- **A change at a known moment** (a timeout, a blink, a clock tick) asks
+  with `wlx_request_frame_after(ctx, seconds)`: one frame when it is due,
+  none in between.
+- **A change on every frame** (a fade, a slide, a spinner) asks with
+  `wlx_request_frame(ctx)` on each frame while it runs.
+- **A request lasts one frame.** `wlx_begin` clears it, so the widget asks
+  again on every frame the timer is pending, and stops by not asking.
+- **Time comes from `wlx_get_frame_time`.** It is the real time since the
+  previous frame, a rest included, so a timer that subtracts it stays
+  right however few frames are drawn. A step that must not be long, an
+  animation's for example, is bounded by the widget.
+- **Advance first, then start.** The frame that ends a rest is the frame
+  in which the click or the key arrives, and its frame time is the whole
+  rest. A timer that this input starts or restarts must not take that
+  time: advance the running timers first and start the new one after, as
+  the example does with the click. Started first, the swatch above would
+  lose the rest from its half second and could go dark at once.
+- **The click needs no request.** Input asks for the next frame by
+  itself, and so does a frame that drew something new. Only a change that
+  comes with time alone has to ask.
+
+The calls cost nothing in a loop that draws every frame, so a widget can
+make them unconditionally. To find a timer that does not ask, build with
+[`WLX_FRAME_CHECK`](API_REFERENCE.md#wlx_frame_check): it reports a frame
+that drew something new although no input arrived and no request was due.
+`demos/frame_request.c` shows both calls in a running program.
 
 ---
 
@@ -2589,7 +2664,7 @@ In `WLX_Tooltip_Opt`:
 | `id` | `const char *` | `NULL` | Scope id for the tip's persistent hover-delay state |
 | `delay` | `float` | `WLX_UNSET` | Seconds of hover before showing. `< 0` = 0.5 |
 | `offset_x` / `offset_y` | `float` | `12` / `18` | Tip origin relative to the pointer |
-| `content_padding` (+ per-side) | `float` | `WLX_UNSET` | Inner text inset; unset = 6. `.padding` is the deprecated pre-0.9 name of the uniform field (same storage, removed in the first minor after 0.9) |
+| `content_padding` (+ per-side) | `float` | `WLX_UNSET` | Inner text inset; unset = 6 |
 | `front_color` / `back_color` | `WLX_Color` | `{0}` | Text / panel colors. `{0}` = theme foreground / background |
 | `border_color` / `border_width` | | `{0}` / `WLX_UNSET` | Panel border. Unset = theme |
 | `roundness` / `rounded_segments` | | `WLX_UNSET` | Corner rounding. Unset = theme |

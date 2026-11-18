@@ -73,9 +73,8 @@ fallback and passes every value `>= 0` through unchanged. Writing
 **Signed-domain note.** Brightness shifts are the one Rule U family whose
 values may be negative (the light theme darkens on hover with `-0.08f`).
 Their domain is `-1 < b <= 1`: `-1.0f` is the sentinel and everything above
-it, negative included, is explicit. `WLX_FLOAT_UNSET` (the pre-0.9 spelling,
-a large negative float) still resolves as unset and is removed in the first
-minor release after 0.9.
+it, negative included, is explicit. Anything at or below `-1.0f` resolves
+as unset.
 
 ```c
 wlx_label(ctx, "Hello");                     // border_width = theme value
@@ -119,7 +118,7 @@ Rule U for `border_width` and `roundness`.
 **Container gaps follow Rule U with unset = 0.** A gap is a non-negative
 spacing on every container (layouts, grids, the overlay body, the split and
 the panel): `0` and any value above it are used as written, and a negative
-value (`WLX_UNSET`, `WLX_FLOAT_UNSET`, a computed gap that went below zero)
+value (`WLX_UNSET`, a computed gap that went below zero)
 reads as `0`, silently, as the other non-negative Rule U fields do. The
 direct constructors (`wlx_create_layout`, `wlx_create_grid`,
 `wlx_create_grid_auto`) apply the same rule.

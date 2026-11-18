@@ -128,6 +128,7 @@ if(WOLLIX_BUILD_TESTS)
   wollix_add_test(test_config_override SOURCES tests/test_config_override.c)
   wollix_add_test(test_offset_stack_override SOURCES tests/test_offset_stack_override.c)
   wollix_add_test(test_undo_disabled SOURCES tests/test_undo_disabled.c)
+  wollix_add_test(test_frame_check SOURCES tests/test_frame_check.c)
   # The declarations TU is built with the override warning promoted to an
   # error (every default macro sets each designator once); the implementation
   # TU keeps the normal flags because the library's own macro calls override
@@ -218,7 +219,8 @@ if(WOLLIX_BUILD_DEMOS)
     set(_wollix_raylib_demos layout button button_image label_image text checkbox
         checkbox_tex image input scroll_panel slider demo widget_size variable_slots
         nest2_panel nested_panel grid grid_auto flex_demo minmax_demo theme_demo
-        font_demo opacity_demo border_demo disabled_demo gallery auth editor popup)
+        font_demo opacity_demo border_demo disabled_demo gallery editor popup
+        frame_request)
     foreach(_demo IN LISTS _wollix_raylib_demos)
       wollix_add_demo(${_demo} demos/${_demo}.c wollix_raylib_dep DEFINES WLX_DEBUG)
     endforeach()
