@@ -9,7 +9,7 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO dberzins/wollix
     REF v0.10.0
-    SHA512 0
+    SHA512 63ef5b73fb9ad37c553bce2fc97237afa54fa19e002632f7ff87f1ce659dfaefd75145d04a9a4a7212a3ba5c60763e008ba783730f9c0e9abf7f6bc98df090d9
     HEAD_REF main
 )
 
