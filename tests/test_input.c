@@ -122,7 +122,7 @@ static void input_capture_begin_scissor(WLX_Rect rect, void *user) {
 static void input_capture_end_scissor(void *user) {
     (void)user;
     if (_input_clip_count < INPUT_CLIP_LOG_CAP) {
-        _input_clip_log[_input_clip_count++] = (Input_Clip_Log_Entry){2, {0}};
+        _input_clip_log[_input_clip_count++] = (Input_Clip_Log_Entry){2, {0, 0, 0, 0}};
     }
 }
 

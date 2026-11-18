@@ -2096,7 +2096,7 @@ static void section_layout_grid(WLX_Context *ctx, Gallery_State *st) {
                                 (unsigned char)(120),
                                 255
                             };
-                            char buf[16];
+                            char buf[24];   // two ints and a comma, at their widest
                             snprintf(buf, sizeof(buf), "%d,%d", r, c);
                             wlx_label(ctx, buf,
                                 .height = -1, .font_size = SMALL_FS, .content_align = WLX_CENTER,
