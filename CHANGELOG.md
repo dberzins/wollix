@@ -9,16 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **The v0.9 compatibility promise gains one exception until 1.0.** The
-  0.9.0 notes say that from the next minor on, existing names, defaults
-  and signatures keep working. That stands, with one stated exception: if
-  use outside the project shows a frozen name, default or signature to be
-  a defect, it can change in a minor release, never a patch, listed under
-  `Changed (Breaking)` with its migration. The promise was written before
-  anyone outside the project had used the API, and a defect found that way
-  is cheaper to fix once, with a migration, than to carry through every
-  1.x release. README.md and CONTRIBUTING.md
-  carry the same exception.
+- **Until the API is frozen for 1.0, a minor release can break it, with
+  a migration.** The 0.9.0 notes said that from the next minor on,
+  existing names, defaults and signatures keep working. That promise is
+  withdrawn until a release announced as the 1.0 candidate freezes the
+  API again. Until then a minor release can change a name, default or
+  signature, or the backend contract, and lists each such change under
+  `Changed (Breaking)` with its migration. A patch release does not break
+  anything. The promise was made before anyone outside the project had
+  used the API, so it protected no one while ruling out changes the
+  design may still need. It replaces the single exception that README.md
+  and CONTRIBUTING.md stated from 2026-11-13. Both files now say the
+  same as this entry.
 
 ## [0.9.0] - 2026-11-08
 

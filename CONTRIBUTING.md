@@ -1,12 +1,11 @@
 # Contributing
 
-Wollix has not reached 1.0. v0.9 is the last release that changes the meaning
-of an existing option field or the shape of the backend contract; after it,
-existing names, defaults and signatures keep working, apart from the
-deprecated aliases the [CHANGELOG](CHANGELOG.md) lists for removal. One
-exception until 1.0: if use outside the project shows one of these to be a
-defect, it can change in a minor release, with its migration in the
-CHANGELOG. Internals can change in any release.
+Wollix has not reached 1.0. Until the API is frozen for 1.0, a minor release
+(0.x.0) can change an existing name, default or signature, or the backend
+contract; every such change is listed under `Changed (Breaking)` in the
+[CHANGELOG](CHANGELOG.md) with its migration. A patch release (0.x.y) does
+not break anything. The freeze will come in a release announced as the 1.0
+candidate. Internals can change in any release.
 
 **Code contributions (pull requests) are not being accepted before v1.0.0.**
 PRs opened now will likely be closed — the internals they touch may not
