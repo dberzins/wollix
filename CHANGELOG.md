@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The published demo pages can be found and previewed.** The dashboard
+  and the gallery on GitHub Pages carry a description, a canonical
+  address and link-preview tags that show the README screenshots, and
+  each canvas holds a short text about Wollix for search engines and
+  screen readers. With JavaScript on, nothing on the pages looks
+  different; with it off, each page says what Wollix is and links to the
+  repository. The site gains a `sitemap.xml`. `make docs-check` holds the
+  two pages to the same tagline and sentence as the README.
+
 ## [0.10.0] - 2026-11-18
 
 The idle release: an untouched application stops drawing.

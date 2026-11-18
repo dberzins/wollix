@@ -4,7 +4,27 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Wollix Dashboard</title>
+    <title>Wollix: Woven UI for C - live dashboard</title>
+    <meta name="description" content="Wollix: a header-only, immediate-mode UI toolkit for C11 that includes a text editor, with backends for Raylib, SDL3 and the web. Live demo in WebAssembly.">
+    <link rel="canonical" href="https://dberzins.github.io/wollix/">
+    <link rel="sitemap" type="application/xml" href="sitemap.xml">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Wollix">
+    <meta property="og:title" content="Wollix: Woven UI for C">
+    <meta property="og:description" content="A header-only, immediate-mode UI toolkit for C11 that includes a text editor, with backends for Raylib, SDL3 and the web.">
+    <meta property="og:url" content="https://dberzins.github.io/wollix/">
+    <meta property="og:image" content="https://dberzins.github.io/wollix/og-image.png">
+    <meta property="og:image:width" content="1280">
+    <meta property="og:image:height" content="800">
+    <meta property="og:image:alt" content="The Wollix dashboard demo">
+    <meta name="twitter:card" content="summary_large_image">
+    <noscript>
+        <style>
+            canvas { display: none; }
+            noscript p { max-width: 40em; padding: 24px; color: #d6dde6; font: 16px/1.5 sans-serif; }
+            noscript a { color: #4fc3f7; }
+        </style>
+    </noscript>
     <style>
         * {
             margin: 0;
@@ -29,7 +49,23 @@
 </head>
 
 <body>
-    <canvas id="wlx-canvas"></canvas>
+    <!-- The canvas's content is never drawn while the canvas works; it is the
+         page's text for crawlers and screen readers. It holds no link or other
+         focusable element, which would join the Tab order Wollix runs itself. -->
+    <canvas id="wlx-canvas">
+        <h1>Wollix</h1>
+        <p>Woven UI for C.</p>
+        <p>Wollix is a header-only, immediate-mode UI toolkit for C11 that
+           includes a text editor, with backends for Raylib, SDL3 and the web.
+           This page is its dashboard demo, compiled to WebAssembly and drawn
+           on a canvas.</p>
+    </canvas>
+    <noscript>
+        <p>This demo needs JavaScript and WebAssembly. Wollix's source,
+           documentation and releases are on
+           <a href="https://github.com/dberzins/wollix">GitHub</a>, and the
+           <a href="gallery/">widget gallery</a> is the second demo.</p>
+    </noscript>
     <script>
         // Point the shared WASM host at the dashboard build. Set before the
         // module script runs so wollix_wasm.js picks it up.

@@ -34,9 +34,11 @@ and fails when any check finds a problem:
   value resolved at use following in parentheses: `WLX_UNSET` (10).
 - **identity**: the tagline and the sentence that say what Wollix is
   appear word for word in `README.md`, the `wollix.h` header comment,
-  `docs/API_REFERENCE.md` and the vcpkg port's description, as the
-  script's `IDENTITY_TAGLINE` and `IDENTITY_SENTENCE` give them, and no
-  tracked file except `CHANGELOG.md` carries a retired description.
+  `docs/API_REFERENCE.md`, the vcpkg port's description and the two
+  published pages (`web/wollix_dashboard.html`, `web/wollix_wasm.html`),
+  as the script's `IDENTITY_TAGLINE` and `IDENTITY_SENTENCE` give them,
+  and no tracked file except `CHANGELOG.md` carries a retired
+  description.
 
 `DOCS_INCLUDES` sets the backend include directories (default: Raylib,
 SDL3 and SDL3_ttf under `~/opt`); `python3 tools/docs_check.py names`

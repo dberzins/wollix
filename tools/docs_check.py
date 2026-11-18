@@ -645,6 +645,8 @@ IDENTITY_SITES = [
     ("wollix.h", True),
     ("docs/API_REFERENCE.md", False),
     ("ports/wollix/vcpkg.json", False),
+    ("web/wollix_dashboard.html", True),
+    ("web/wollix_wasm.html", True),
 ]
 # Descriptions the project has retired. Only the changelog's history may
 # still carry one. Each pattern is assembled from two parts so that this

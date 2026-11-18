@@ -75,8 +75,8 @@ DEMO_NAMES = $(RAYLIB_DEMOS) $(SDL3_DEMOS)
 TARGETS = $(addprefix $(DEMO_DIR)/,$(DEMO_NAMES))
 PERF_TARGETS = $(addprefix $(DEMO_DIR)/,$(PERF_DEMOS))
 DEFAULT_TARGETS = $(addprefix $(DEMO_DIR)/,$(RAYLIB_DEMOS))
-WASM_SITE_TARGETS = $(WASM_SITE_DIR)/dashboard.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js $(WASM_SITE_DIR)/wollix_wasm_tint_tests.js
-GALLERY_WASM_SITE_TARGETS = $(GALLERY_WASM_SITE_DIR)/gallery.wasm $(GALLERY_WASM_SITE_DIR)/index.html $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js
+WASM_SITE_TARGETS = $(WASM_SITE_DIR)/dashboard.wasm $(WASM_SITE_DIR)/index.html $(WASM_SITE_DIR)/wollix_wasm.js $(WASM_SITE_DIR)/wollix_wasm_tint_tests.js $(WASM_SITE_DIR)/sitemap.xml $(WASM_SITE_DIR)/og-image.png
+GALLERY_WASM_SITE_TARGETS = $(GALLERY_WASM_SITE_DIR)/gallery.wasm $(GALLERY_WASM_SITE_DIR)/index.html $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js $(GALLERY_WASM_SITE_DIR)/og-image.png
 
 .PHONY: all clean debug release help test test-single-pass test-sdl3 test-raylib check-sdl3-ndebug docs-check perf-test test-asan test-demos wasm-bare wasm-site gallery-wasm-site pages-site dashboard dashboard_sdl3 dashboard_perf dashboard-wasm-site $(DEMO_NAMES) $(PERF_DEMOS)
 
@@ -149,6 +149,14 @@ $(WASM_SITE_DIR)/dashboard.wasm: $(DASHBOARD_DIR)/dashboard.c $(DASHBOARD_HEADER
 $(WASM_SITE_DIR)/index.html: $(WASM_SRC_DIR)/wollix_dashboard.html | $(WASM_SITE_DIR)
 	cp $< $@
 
+# For search engines and link previews: the sitemap lists the published
+# pages, and each page's og:image names its README screenshot.
+$(WASM_SITE_DIR)/sitemap.xml: $(WASM_SRC_DIR)/sitemap.xml | $(WASM_SITE_DIR)
+	cp $< $@
+
+$(WASM_SITE_DIR)/og-image.png: $(DASHBOARD_DIR)/dashboard.png | $(WASM_SITE_DIR)
+	cp $< $@
+
 $(WASM_SITE_DIR)/wollix_wasm.js: $(WASM_SRC_DIR)/wollix_wasm.js | $(WASM_SITE_DIR)
 	cp $< $@
 
@@ -165,6 +173,9 @@ $(GALLERY_WASM_SITE_DIR)/gallery.wasm: $(DEMO_DIR)/gallery.c $(GALLERY_PERF_HEAD
 	$(WASM_CC) $(WASM_BARE_CFLAGS) -DWLX_GALLERY_WASM -o $@ demos/gallery.c $(WASM_SRC_DIR)/wlx_libc_shim.c
 
 $(GALLERY_WASM_SITE_DIR)/index.html: $(WASM_SRC_DIR)/wollix_wasm.html | $(GALLERY_WASM_SITE_DIR)
+	cp $< $@
+
+$(GALLERY_WASM_SITE_DIR)/og-image.png: $(DEMO_DIR)/gallery.png | $(GALLERY_WASM_SITE_DIR)
 	cp $< $@
 
 $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js: $(WASM_SRC_DIR)/wollix_wasm.js | $(GALLERY_WASM_SITE_DIR)
@@ -188,6 +199,7 @@ pages-site: wasm-site gallery-wasm-site
 	   $(GALLERY_WASM_SITE_DIR)/index.html \
 	   $(GALLERY_WASM_SITE_DIR)/wollix_wasm.js \
 	   $(GALLERY_WASM_SITE_DIR)/wollix_wasm_tint_tests.js \
+	   $(GALLERY_WASM_SITE_DIR)/og-image.png \
 	   $(WASM_SITE_DIR)/gallery/
 	node $(WASM_SRC_DIR)/check_wasm_imports.mjs $(WASM_SRC_DIR)/wollix_wasm.js \
 	   $(WASM_SITE_DIR)/dashboard.wasm $(WASM_SITE_DIR)/gallery/gallery.wasm

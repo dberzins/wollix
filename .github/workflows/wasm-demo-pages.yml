@@ -8,6 +8,7 @@ on:
       - 'demos/dashboard/**'
       - 'demos/gallery.c'
       - 'demos/gallery_perf.h'
+      - 'demos/gallery.png'
       - 'demos/assets/**'
       - 'web/**'
       - 'wollix.h'
