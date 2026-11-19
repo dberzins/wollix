@@ -1578,7 +1578,10 @@ static void wlx_editor_scroll_resolve(const WLX_Editor_Frame *f, WLX_Editor_Scro
 // Row-space caret-follow: a caret above the window anchors its row to the
 // top; one below bottom-aligns it via the backward fill, which doubles as
 // the far-jump re-anchor (Ctrl+End) - the line-distance early-out keeps
-// the walk O(viewport).
+// the walk O(viewport). The anchor row itself counts as above while
+// y_frac hides part of it: the bottom anchor of a document a fraction of
+// a row taller than the band is (0, 0, y_frac), and a Ctrl+Home onto
+// that row left the first line cut off for good.
 static void wlx_editor_caret_follow_wrapped(const WLX_Editor_Frame *f)
 {
     const WLX_Text_Build_Inputs *wrap_inputs = f->wrap_inputs;
@@ -1594,7 +1597,10 @@ static void wlx_editor_caret_follow_wrapped(const WLX_Editor_Frame *f)
     if (band_rows < 1) band_rows = 1;
 
     bool above = caret_line < state->first_line
-        || (caret_line == state->first_line && caret_row < state->first_row);
+        || (caret_line == state->first_line
+            && (caret_row < state->first_row
+                || (caret_row == state->first_row
+                    && state->y_frac * line_h > WLX_EDITOR_ROW_EPSILON)));
     if (above) {
         state->first_line = caret_line;
         state->first_row = caret_row;

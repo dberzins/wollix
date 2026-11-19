@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   that kern digit pairs, such as the web host's sans-serif with its
   tighter "11", made the gutter one or two pixels wider or narrower on an
   Enter from 30011 to 30012 lines, and every line shifted with it.
+- **Ctrl+Home and Up scroll a wrapped editor back to its first line.** A
+  document a fraction of a row taller than the editor kept its first row
+  partly hidden after Ctrl+End: the caret on that row counted as visible
+  because the row was the window's top row, so no key brought the top of
+  the document back into view.
 
 ## [0.10.0] - 2026-11-18
 

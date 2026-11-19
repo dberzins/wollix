@@ -581,6 +581,57 @@ TEST(editor_wrap_ctrl_end_bottom_aligns_and_home_returns) {
     wlx_context_destroy(&ctx);
 }
 
+// A document a fraction of a row taller than the band bottom-anchors on
+// its own first row: 10 lines of 10 px in a 92 px band anchor at (0, 0,
+// 0.8). Ctrl+Home then lands the caret on the anchor row itself, which
+// the follow took for visible (the row matched; y_frac was ignored) - the
+// first line stayed cut off and no key scrolled it back. Up onto the same
+// row from below must reveal it too.
+TEST(editor_wrap_home_reveals_partly_hidden_first_row) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+
+    static char buf[256];
+    size_t len = ev_fill_lines(buf, sizeof(buf), 9); // 10 lines
+    ew_frame(&ctx, buf, sizeof(buf), &len, 0);
+    WLX_Editor_State *state = ev_state(&ctx);
+    ASSERT_TRUE(state != NULL);
+    ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 10, 8, true, true, 0.0f);
+    ew_frame_full(&ctx, buf, sizeof(buf), &len, 0, true, false, 10, 8, false, false, 0.0f);
+    uint32_t command = test_command_mod();
+
+    ew_frame_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, command);
+    ASSERT_EQ_INT((long)len, (long)state->caret.cursor_pos);
+    ASSERT_EQ_INT(0, (long)state->first_line);
+    ASSERT_EQ_INT(0, (long)state->first_row);
+    ASSERT_EQ_F(state->y_frac, 0.8f, 0.01f);
+
+    ew_frame_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_HOME, command);
+    ASSERT_EQ_INT(0, (long)state->caret.cursor_pos);
+    ASSERT_EQ_INT(0, (long)state->first_line);
+    ASSERT_EQ_INT(0, (long)state->first_row);
+    ASSERT_EQ_F(state->y_frac, 0.0f, 0.001f);
+    // The settled view holds: the next frame's build keeps the top.
+    ew_frame(&ctx, buf, sizeof(buf), &len, 0);
+    ASSERT_EQ_F(state->y_frac, 0.0f, 0.001f);
+
+    // Back to the end, then Up line by line: the caret's arrival on line
+    // 0 reveals the row; the rows below it never scroll the view.
+    ew_frame_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_END, command);
+    ASSERT_EQ_F(state->y_frac, 0.8f, 0.01f);
+    for (int i = 0; i < 8; i++) {
+        ew_frame_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_UP, 0);
+        ASSERT_EQ_F(state->y_frac, 0.8f, 0.01f);
+    }
+    ew_frame_key(&ctx, buf, sizeof(buf), &len, WLX_KEY_UP, 0);
+    ASSERT_TRUE(state->caret.cursor_pos <= 3);
+    ASSERT_EQ_INT(0, (long)state->first_line);
+    ASSERT_EQ_INT(0, (long)state->first_row);
+    ASSERT_EQ_F(state->y_frac, 0.0f, 0.001f);
+
+    wlx_context_destroy(&ctx);
+}
+
 TEST(editor_wrap_drag_select_auto_scrolls_rows) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 100);
@@ -1052,6 +1103,7 @@ SUITE(editor_wrap) {
     RUN_TEST(editor_wrap_vertical_motion_crosses_line_boundaries);
     RUN_TEST(editor_wrap_page_keys_step_band_rows);
     RUN_TEST(editor_wrap_ctrl_end_bottom_aligns_and_home_returns);
+    RUN_TEST(editor_wrap_home_reveals_partly_hidden_first_row);
     RUN_TEST(editor_wrap_drag_select_auto_scrolls_rows);
     RUN_TEST(editor_wrap_caret_draws_on_its_row);
     RUN_TEST(editor_wrap_typing_inserts_at_row_caret);
