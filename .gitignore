@@ -11,7 +11,6 @@ docs/dev
 .claude
 .venv
 CLAUDE.md
-graphify-out
 compile_commands.json
 .shots
 TODO.md

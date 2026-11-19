@@ -26,11 +26,10 @@ when any check finds a problem.
   names       Every wlx_ or WLX_ name in README.md and docs/*.md, outside a
               link target, exists in the headers, the web host or the build
               files, or is on ALLOWED_NAMES below with its reason.
-  records     No tracked file except .gitignore and .graphifyignore names a
-              decision record number, a path under the development records
-              directory, or a plan decision id: those records are not
-              published, so a public file states its rule or links a public
-              doc instead.
+  records     No tracked file except .gitignore names a decision record
+              number, a path under the development records directory, or a
+              plan decision id: those records are not published, so a public
+              file states its rule or links a public doc instead.
   registries  The default-option macros, the defaults functions and the
               rows of tests/option_structs.h are one set; so are the
               WLX_SHORT_NAMES aliases and the calls between the
@@ -388,7 +387,7 @@ RECORD_PATTERNS = [
     (re.compile(r"\bdocs/" + r"dev\b"), "a development records path"),
     (re.compile(r"\b" + r"D\d{1,3}\b"), "a plan decision id"),
 ]
-RECORD_EXEMPT = {".gitignore", ".graphifyignore"}
+RECORD_EXEMPT = {".gitignore"}
 
 
 def check_records():
