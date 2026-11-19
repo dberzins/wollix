@@ -1103,6 +1103,41 @@ TEST(editor_gutter_numbers_and_band_shift) {
     wlx_context_destroy(&ctx);
 }
 
+// Arial-metric kerning on digits: each "11" pair measures 1px tighter
+// than the mock's per-byte advance, as the web host's sans-serif does.
+static void evg_kern11_measure(const char *text, WLX_Text_Style style,
+                               float *out_w, float *out_h, void *user) {
+    mock_measure_text(text, style, out_w, out_h, user);
+    if (!text || !out_w) return;
+    for (size_t i = 0; text[i] && text[i + 1]; i++)
+        if (text[i] == '1' && text[i + 1] == '1') *out_w -= 1.0f;
+}
+
+static float evg_gutter_end_for_lines(size_t newline_count) {
+    WLX_Context ctx;
+    test_ctx_init(&ctx, 400, 100);
+    ctx.backend.measure_text = evg_kern11_measure;
+    char buf[512];
+    size_t len = ev_fill_lines(buf, sizeof(buf), newline_count);
+    evg_frame(&ctx, buf, sizeof(buf), &len, 0, 0, false, false);
+    evg_frame(&ctx, buf, sizeof(buf), &len, 0, 0, false, false);
+    float end_x = ev_state(&ctx)->gutter_end_x;
+    wlx_context_destroy(&ctx);
+    return end_x;
+}
+
+// An edit that keeps the line total's digit count keeps the gutter width:
+// 11 lines ("11", kerned) and 12 lines ("12") start the text band at the
+// same x. The gutter measured the total's own digits, so Enter from 30011
+// to 30012 lines moved every line right on the web demo.
+TEST(editor_gutter_width_ignores_digit_kerning) {
+    float end_11 = evg_gutter_end_for_lines(10); // 11 lines
+    float end_12 = evg_gutter_end_for_lines(11); // 12 lines
+    ASSERT_TRUE(end_11 > 0.0f);
+    ASSERT_EQ_F(end_11, end_12, 0.001f);
+    ASSERT_EQ_F(end_12, 9.0f + 17.5f, 0.01f); // "00" = 10px + 2 * 3.75px pad
+}
+
 TEST(editor_gutter_press_is_inert) {
     WLX_Context ctx;
     test_ctx_init(&ctx, 400, 100);
@@ -1159,5 +1194,6 @@ SUITE(editor_view) {
     RUN_TEST(editor_click_under_hbar_strip_is_not_a_text_click);
     RUN_TEST(editor_window_draws_lines_at_anchor);
     RUN_TEST(editor_gutter_numbers_and_band_shift);
+    RUN_TEST(editor_gutter_width_ignores_digit_kerning);
     RUN_TEST(editor_gutter_press_is_inert);
 }

@@ -1149,12 +1149,15 @@ static WLX_Editor_Band wlx_editor_resolve_band(WLX_Context *ctx, const WLX_Edito
     if (band.w < 0.0f) band.w = 0.0f;
     if (band.h < 0.0f) band.h = 0.0f;
 
-    // Line-number gutter on the leading edge, sized by the measured
-    // width of the widest line number plus three quarters of a digit of
-    // padding per side. Both the width and the padding derive from the
-    // measured digits, never from the space advance: digit and space
-    // metrics diverge across backends. The band (and with it every
-    // scrollbar track) starts after the strip.
+    // Line-number gutter on the leading edge, sized by the digit count
+    // of the line total plus three quarters of a digit of padding per
+    // side. The measured reference is a run of zeros of that count,
+    // never the total's own digits: kerning (the "11" pair of Arial
+    // metrics) and proportional figures would move the text band on an
+    // edit that keeps the digit count. Both the width and the padding
+    // derive from the measured digits, never from the space advance:
+    // digit and space metrics diverge across backends. The band (and
+    // with it every scrollbar track) starts after the strip.
     float gutter_w = 0.0f;
     float gutter_pad = 2.0f;
     WLX_Rect gutter_rect = {0};
@@ -1162,6 +1165,7 @@ static WLX_Editor_Band wlx_editor_resolve_band(WLX_Context *ctx, const WLX_Edito
         char max_num[24];
         int max_len = snprintf(max_num, sizeof(max_num), "%zu", line_count);
         if (max_len < 1) max_len = 1;
+        memset(max_num, '0', (size_t)max_len);
         float max_num_w = 0.0f, max_num_h = 0.0f;
         wlx_measure_text_slice(ctx, max_num, (size_t)max_len, ts, &max_num_w, &max_num_h);
         if (max_num_w <= 0.0f) max_num_w = (float)max_len * (float)opt->font_size * 0.5f;

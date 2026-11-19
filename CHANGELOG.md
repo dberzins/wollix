@@ -22,6 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   editor, with backends for Raylib, SDL3 and the web. It called Wollix a
   GUI library.
 
+### Fixed
+
+- **The editor's text no longer moves sideways when a line is added or
+  removed.** The line-number gutter is sized by the digit count of the
+  line total, as documented, instead of by the total's own digits. Fonts
+  that kern digit pairs, such as the web host's sans-serif with its
+  tighter "11", made the gutter one or two pixels wider or narrower on an
+  Enter from 30011 to 30012 lines, and every line shifted with it.
+
 ## [0.10.0] - 2026-11-18
 
 The idle release: an untouched application stops drawing.
