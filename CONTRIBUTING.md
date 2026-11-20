@@ -27,7 +27,10 @@ developer tool (demos, perf gates, the WASM sites, `make test`), and
 `add_subdirectory`, `FetchContent`; `-DWOLLIX_BUILD_TESTS=ON` registers the
 same test binaries with CTest, and it is what the Windows/MSVC leg runs).
 A test binary added to the Makefile's `test` target is added to the CMake
-test list in the same commit, and vice versa.
+test list in the same commit, and vice versa. The one CTest test without a
+Makefile twin is `cmake_consumer`: it installs the package and builds a
+separate project against it (`tests/cmake_consumer/`), which only the CMake
+build can do.
 
 ```bash
 make test                                   # the Makefile suite

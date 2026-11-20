@@ -29,6 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The CMake target links the C maths library.** `wollix::wollix` did not
+  carry `libm`, so a program that linked the target alone failed on Linux
+  with undefined `roundf`, `floorf`, `ceilf` and `fmodf`; one that also
+  linked Raylib or SDL3 got the library from them and never noticed. The
+  target now links `m` on every platform but Windows, where the C runtime
+  holds these functions, and the installed package does the same.
+- **The installed CMake package accepts 32-bit consumers.** Its version file
+  declared it 64-bit only, so a 32-bit or wasm32 project, Emscripten's
+  among them, could not use a prefix that a 64-bit build had installed. A
+  header-only package suits every pointer size, and the version file now
+  says so. A new CTest test, `cmake_consumer`, installs the package, builds
+  a program against it with `wollix::wollix` alone and runs it, and reads
+  the version file as a 32-bit consumer would.
 - **The editor's text no longer moves sideways when a line is added or
   removed.** The line-number gutter is sized by the digit count of the
   line total, as documented, instead of by the total's own digits. Fonts

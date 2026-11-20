@@ -55,6 +55,11 @@ target_compile_options(wollix INTERFACE
 if(MSVC AND CMAKE_VERSION VERSION_LESS 3.20)
   target_compile_options(wollix INTERFACE $<$<COMPILE_LANG_AND_ID:C,MSVC>:/std:c11>)
 endif()
+# The implementation calls the C maths library (roundf, floorf, ceilf,
+# fmodf), a library of its own (libm) on every platform but Windows, where it
+# is part of the C runtime. The generator expression is exported as written,
+# so an installed package decides on the consumer's platform.
+target_link_libraries(wollix INTERFACE $<$<NOT:$<PLATFORM_ID:Windows>>:m>)
 
 # ----------------------------------------------------------------------------
 # Install and export: find_package(wollix CONFIG) yields wollix::wollix.
@@ -69,8 +74,11 @@ install(EXPORT wollixTargets NAMESPACE wollix:: DESTINATION ${_wollix_cmake_dir}
 configure_package_config_file(cmake/wollixConfig.cmake.in
   ${CMAKE_CURRENT_BINARY_DIR}/wollixConfig.cmake
   INSTALL_DESTINATION ${_wollix_cmake_dir})
+# ARCH_INDEPENDENT: a header-only package fits any pointer size, so a 32-bit
+# or wasm32 consumer may use a prefix a 64-bit build installed.
 write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/wollixConfigVersion.cmake
-  COMPATIBILITY SameMinorVersion)
+  COMPATIBILITY SameMinorVersion
+  ARCH_INDEPENDENT)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/wollixConfig.cmake
               ${CMAKE_CURRENT_BINARY_DIR}/wollixConfigVersion.cmake
         DESTINATION ${_wollix_cmake_dir})
@@ -112,9 +120,6 @@ if(WOLLIX_BUILD_TESTS)
     target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     target_compile_definitions(${name} PRIVATE ${T_DEFINES})
     target_compile_options(${name} PRIVATE ${_wollix_warn_c} ${T_OPTIONS})
-    if(NOT MSVC)
-      target_link_libraries(${name} PRIVATE m)
-    endif()
     add_test(NAME ${name} COMMAND ${name} WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   endfunction()
 
@@ -143,6 +148,25 @@ if(WOLLIX_BUILD_TESTS)
                                         tests/test_defaults_once_impl.c
                   OPTIONS ${_wollix_warn_cxx})
   target_compile_features(test_cpp_path PRIVATE cxx_std_11)
+
+  # The installed package, used the way a consumer meets it: install this
+  # build into a scratch prefix, build tests/cmake_consumer against it with
+  # find_package and wollix::wollix alone, run the result, and read the
+  # version file as a 32-bit consumer would. CMake-only by nature (the
+  # Makefile installs nothing), so it is the one CTest test without a
+  # Makefile twin.
+  add_test(NAME cmake_consumer
+    COMMAND ${CMAKE_COMMAND}
+      -DWOLLIX_BUILD_DIR=${CMAKE_BINARY_DIR}
+      -DCONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake_consumer
+      -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/cmake_consumer
+      "-DGENERATOR=${CMAKE_GENERATOR}"
+      "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+      "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+      -DC_COMPILER=${CMAKE_C_COMPILER}
+      -DCONFIG=$<CONFIG>
+      -DEXPECT_VERSION=${PROJECT_VERSION}
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake_consumer/run.cmake)
 endif()
 
 # ----------------------------------------------------------------------------
@@ -168,9 +192,6 @@ if(WOLLIX_BUILD_DEMOS)
     # real conversions at the raylib boundary in wollix_raylib.h are cast.
     target_compile_options(${name} PRIVATE ${_wollix_warn_c}
       $<$<COMPILE_LANG_AND_ID:C,MSVC>:/wd4244>)
-    if(NOT MSVC)
-      target_link_libraries(${name} PRIVATE m)
-    endif()
   endfunction()
 
   find_package(raylib CONFIG QUIET)

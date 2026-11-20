@@ -455,10 +455,11 @@ All executables are written to `./demos/`.
 ### Using CMake
 
 The repository is also a CMake package. The target `wollix::wollix` is
-header-only and carries the include path, C11, and the compiler flags the
+header-only and carries the include path, C11, the compiler flags the
 option macros need (`-Wno-override-init` and
 `-Wno-override-init-side-effects` on gcc, `-Wno-initializer-overrides` on
-clang, `/Zc:preprocessor` on MSVC), so a consumer sets none of them:
+clang, `/Zc:preprocessor` on MSVC) and, off Windows, the C maths library
+(`m`), so a consumer sets none of them:
 
 ```cmake
 # Installed package (cmake --install / vcpkg):
