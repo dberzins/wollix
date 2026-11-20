@@ -16,7 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   screen readers. With JavaScript on, nothing on the pages looks
   different; with it off, each page says what Wollix is and links to the
   repository. The site gains a `sitemap.xml`. `make docs-check` holds the
-  two pages to the same tagline and sentence as the README.
+  two pages to the same tagline and sentence as the README. The page text
+  also says that the same C code runs natively through Raylib or SDL3 and
+  in the browser through WebAssembly, and that Wollix can be called from
+  C++. Each page carries schema.org `SoftwareSourceCode` data that names
+  the GitHub repository, so search engines can tell the demo pages
+  belong to a C library rather than a web one.
 - **The gallery's Overview describes Wollix in the identity's words**: a
   header-only, immediate-mode UI toolkit for C11 that includes a text
   editor, with backends for Raylib, SDL3 and the web. It called Wollix a

@@ -20,6 +20,21 @@
     <meta property="og:image:height" content="800">
     <meta property="og:image:alt" content="The Wollix dashboard demo">
     <meta name="twitter:card" content="summary_large_image">
+    <!-- What Wollix is, for search engines: a C library whose source is on GitHub. -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareSourceCode",
+        "name": "Wollix",
+        "description": "A header-only, immediate-mode UI toolkit for C11 that includes a text editor, with backends for Raylib, SDL3 and the web.",
+        "url": "https://dberzins.github.io/wollix/",
+        "codeRepository": "https://github.com/dberzins/wollix",
+        "programmingLanguage": "C",
+        "runtimePlatform": ["Raylib", "SDL3", "WebAssembly"],
+        "license": "https://opensource.org/licenses/MIT",
+        "keywords": "C, C11, header-only, immediate-mode GUI, UI toolkit, text editor, Raylib, SDL3, WebAssembly"
+    }
+    </script>
     <noscript>
         <style>
             canvas { display: none; }
@@ -59,8 +74,10 @@
         <p>Woven UI for C.</p>
         <p>Wollix is a header-only, immediate-mode UI toolkit for C11 that
            includes a text editor, with backends for Raylib, SDL3 and the web.
-           This page is its dashboard demo, compiled to WebAssembly and drawn
-           on a canvas.</p>
+           The same C code runs as a native desktop application through
+           Raylib or SDL3, and in the browser through WebAssembly; this page
+           is the dashboard demo's web build, drawn on a canvas. Wollix can
+           also be called from C++.</p>
     </canvas>
     <noscript>
         <p>This demo needs JavaScript and WebAssembly. Wollix's source,
